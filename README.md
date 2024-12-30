@@ -28,6 +28,11 @@ python -m venv venv
 .\venv\Scripts\activate
 ```
 
+evtl. muss man in Microsoft Powershell die Kommandos ausführen:
+```bash
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
 3. Abhängigkeiten installieren:
 ```bash
 pip install -r requirements.txt
@@ -58,6 +63,70 @@ processors:
         enabled: true
         max_duration: 3600 # 1 Stunde
 ```
+
+
+## .Env Datei erstellen und OPENAI_API_KEY setzen
+
+
+
+## Dashboard
+
+Das Dashboard bietet eine Echtzeit-Übersicht über die Verarbeitungsdienste und ist unter `http://localhost:5000/dashboard` verfügbar.
+
+### Features
+
+- **Performance-Metriken:**
+  - Gesamtanzahl der Anfragen (24h)
+  - Durchschnittliche Verarbeitungszeit
+  - Erfolgsrate
+
+- **Visualisierungen:**
+  - Verteilung der Operationen (Pie Chart)
+  - Stündliche Anfragen (Line Chart)
+
+- **Fehler-Monitoring:**
+  - Live-Anzeige der letzten Fehler
+  - Zeitstempel und Details
+
+### Zugriff auf das Dashboard
+
+1. Starten Sie die Anwendung:
+```bash
+# Aktivieren Sie zuerst das Virtual Environment
+source venv/bin/activate  # Linux/Mac
+# oder
+.\venv\Scripts\activate  # Windows
+
+# ein (venv) sollte in console erscheinen
+# Setzen Sie die PYTHONPATH Variable
+# z.B. $env:PYTHONPATH = "C:\Users\username\projekte\CommonSecretaryServices"
+PYTHONPATH = "<pfad des Projektes>"  
+# Starten Sie die Anwendung
+python src/main.py
+```
+
+2. Öffnen Sie einen Browser und navigieren Sie zu:
+```
+http://localhost:5000/dashboard
+```
+
+### Abhängigkeiten
+
+Das Dashboard benötigt zusätzliche Python-Pakete, die bereits in `requirements.txt` enthalten sind:
+- pandas: Für Datenanalyse
+- flask: Für das Web-Interface
+
+### Log-Dateien
+
+Das Dashboard liest Daten aus folgenden Log-Dateien:
+- `logs/performance.json`: Performance-Metriken und Statistiken
+- `logs/detailed.log`: Detaillierte Logs und Fehler
+
+Die Logs werden automatisch im `logs`-Verzeichnis erstellt.
+
+### Automatische Aktualisierung
+
+Das Dashboard aktualisiert sich nicht automatisch. Drücken Sie F5 oder die Reload-Taste im Browser, um die neuesten Daten zu sehen.
 
 
 ## API-Endpunkte
@@ -277,57 +346,3 @@ MIT License
 4. Branch pushen (`git push origin feature/AmazingFeature`)
 5. Pull Request erstellen
 
-## Dashboard
-
-Das Dashboard bietet eine Echtzeit-Übersicht über die Verarbeitungsdienste und ist unter `http://localhost:5000/dashboard` verfügbar.
-
-### Features
-
-- **Performance-Metriken:**
-  - Gesamtanzahl der Anfragen (24h)
-  - Durchschnittliche Verarbeitungszeit
-  - Erfolgsrate
-
-- **Visualisierungen:**
-  - Verteilung der Operationen (Pie Chart)
-  - Stündliche Anfragen (Line Chart)
-
-- **Fehler-Monitoring:**
-  - Live-Anzeige der letzten Fehler
-  - Zeitstempel und Details
-
-### Zugriff auf das Dashboard
-
-1. Starten Sie die Anwendung:
-```bash
-# Aktivieren Sie zuerst das Virtual Environment
-source venv/bin/activate  # Linux/Mac
-# oder
-.\venv\Scripts\activate  # Windows
-
-# Starten Sie die Anwendung
-python src/main.py
-```
-
-2. Öffnen Sie einen Browser und navigieren Sie zu:
-```
-http://localhost:5000/dashboard
-```
-
-### Abhängigkeiten
-
-Das Dashboard benötigt zusätzliche Python-Pakete, die bereits in `requirements.txt` enthalten sind:
-- pandas: Für Datenanalyse
-- flask: Für das Web-Interface
-
-### Log-Dateien
-
-Das Dashboard liest Daten aus folgenden Log-Dateien:
-- `logs/performance.json`: Performance-Metriken und Statistiken
-- `logs/detailed.log`: Detaillierte Logs und Fehler
-
-Die Logs werden automatisch im `logs`-Verzeichnis erstellt.
-
-### Automatische Aktualisierung
-
-Das Dashboard aktualisiert sich nicht automatisch. Drücken Sie F5 oder die Reload-Taste im Browser, um die neuesten Daten zu sehen.
