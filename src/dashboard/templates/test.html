@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Test Procedures - Processing Service{% endblock %}
+
+{% block content %}
+<h1>Test Procedures</h1>
+
+<div class="row mt-4">
+    <!-- YouTube Processing Tests -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">YouTube Processing Test</h5>
+                <p class="card-text">Test the YouTube processing functionality by providing a video URL.</p>
+                <form action="{{ url_for('main.run_youtube_test') }}" method="POST" class="mt-3">
+                    <div class="mb-3">
+                        <label for="youtube_url" class="form-label">YouTube URL</label>
+                        <input type="url" class="form-control" id="youtube_url" name="youtube_url" 
+                               placeholder="https://www.youtube.com/watch?v=..." required>
+                        <div class="form-text">Enter a YouTube video URL to test the processing pipeline.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Run Test</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Processing Tests -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Audio Processing Test</h5>
+                <p class="card-text">Test the audio processing functionality by uploading an audio file.</p>
+                <form action="{{ url_for('main.run_audio_test') }}" method="POST" class="mt-3" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="audio_file" class="form-label">Audio File</label>
+                        <input type="file" class="form-control" id="audio_file" name="audio_file" 
+                               accept="audio/*" required>
+                        <div class="form-text">Select an audio file to test the processing pipeline.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Run Test</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Health Test -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">System Health Test</h5>
+                <p class="card-text">Run system health checks to verify the functionality of various components.</p>
+                <form action="{{ url_for('main.run_health_test') }}" method="POST" class="mt-3">
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="check_api" name="check_api" checked>
+                            <label class="form-check-label" for="check_api">
+                                Check API Endpoints
+                            </label>
+                            <div class="form-text">Verify that all API endpoints are responding correctly.</div>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="check_storage" name="check_storage" checked>
+                            <label class="form-check-label" for="check_storage">
+                                Check Storage
+                            </label>
+                            <div class="form-text">Verify that the storage system is accessible and working.</div>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="check_processors" name="check_processors" checked>
+                            <label class="form-check-label" for="check_processors">
+                                Check Processors
+                            </label>
+                            <div class="form-text">Verify that all processing modules are functioning properly.</div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Run Health Check</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Results -->
+    {% if test_results %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Test Results</h5>
+                <div class="alert alert-{{ 'success' if test_results.success else 'danger' }} mt-3">
+                    {{ test_results.message }}
+                </div>
+                {% if test_results.details %}
+                <div class="mt-3">
+                    <h6>Details:</h6>
+                    <pre class="bg-light p-3"><code>{{ test_results.details|tojson(indent=2) }}</code></pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %} 

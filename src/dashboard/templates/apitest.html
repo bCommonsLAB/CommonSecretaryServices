@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Swagger - Processing Service{% endblock %}
+
+{% block content %}
+<h1>Swagger Documentation</h1>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <!-- Swagger UI Integration -->
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">API Documentation & Testing</h5>
+                <!-- Swagger UI will be rendered here -->
+                <div id="swagger-ui" style="height: 800px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<!-- Swagger UI CSS -->
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Swagger UI Bundle -->
+<script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ui = SwaggerUIBundle({
+        url: "/api/swagger.json",  // URL to your OpenAPI spec
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIBundle.SwaggerUIStandalonePreset
+        ],
+        layout: "BaseLayout",
+        docExpansion: 'list',
+        defaultModelsExpandDepth: 1,
+        defaultModelExpandDepth: 1,
+        displayRequestDuration: true,
+        showExtensions: true,
+        showCommonExtensions: true
+    });
+});
+</script>
+{% endblock %} 

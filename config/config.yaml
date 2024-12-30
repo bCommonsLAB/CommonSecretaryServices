@@ -1,0 +1,22 @@
+openai_api_key: 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
+processors:
+  audio:
+    export_format: mp3
+    max_file_size: 104857600
+    segment_duration: 300
+    temp_dir: temp-processing/audio
+    temp_file_suffix: .mp3
+  youtube:
+    max_duration: 3600
+    max_file_size: 104857600
+    output_template: '%(title)s.%(ext)s'
+    temp_dir: temp-processing/video
+    ydl_opts:
+      format: worstaudio/worst
+      postprocessors:
+      - key: FFmpegExtractAudio
+        preferredcodec: mp3
+server:
+  debug: true
+  host: 127.0.0.1
+  port: '5000'

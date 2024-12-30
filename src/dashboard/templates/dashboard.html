@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block title %}Processing Service Dashboard{% endblock %}
+
+{% block content %}
+    <h1>Processing Service Dashboard</h1>
+    
+    <!-- Performance Metriken -->
+    <div class="row mt-4">
+        {% if stats.error %}
+        <div class="alert alert-warning">
+            Fehler beim Laden der Statistiken: {{ stats.error }}
+        </div>
+        {% endif %}
+        
+        <div class="col-md-3">
+            <div class="metric-card">
+                <h5>Gesamtanfragen (24h)</h5>
+                <h2>{{ stats.get('total_requests', 0) }}</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card">
+                <h5>Durchschn. Dauer</h5>
+                <h2>{{ "%.2f"|format(stats.get('avg_duration', 0)) }}s</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card">
+                <h5>Erfolgsrate</h5>
+                <h2>{{ "%.1f"|format(stats.get('success_rate', 0)) }}%</h2>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts nebeneinander -->
+    {% if stats.get('operations') or stats.get('hourly_stats') %}
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="chart-container">
+                <h4>Operationen</h4>
+                <canvas id="operationsChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="chart-container">
+                <h4>Stündliche Anfragen</h4>
+                <canvas id="hourlyChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Liste der letzten Anfragen -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <h4>Letzte Anfragen</h4>
+            <div class="request-list">
+                {% for entry in stats.get('recent_requests', []) %}
+                <div class="request-item" onclick="toggleDetails('request-{{ loop.index }}')">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong class="me-2">{{ entry.operation }}</strong>
+                            {% if entry.details.success %}
+                            <span class="badge bg-success">Erfolg</span>
+                            {% else %}
+                            <span class="badge bg-danger">Fehler</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ entry.timestamp }}</small>
+                    </div>
+                    
+                    <div class="mt-2 small">
+                        {% if entry.operation == 'pdf_processing' %}
+                            <span class="me-3">📄 Datei: {{ entry.details.get('file_name', 'N/A') }}</span>
+                            <span class="me-3">📊 Seiten: {{ entry.details.get('page_count', 'N/A') }}</span>
+                        {% elif entry.operation == 'image_processing' %}
+                            <span class="me-3">🖼️ Datei: {{ entry.details.get('file_name', 'N/A') }}</span>
+                            <span class="me-3">📏 Größe: {{ entry.details.get('dimensions', 'N/A') }}</span>
+                        {% elif entry.operation == 'youtube_processing' %}
+                            <span class="me-3">🎥 URL: {{ entry.details.get('url', 'N/A') }}</span>
+                            <span class="me-3">⏱️ Dauer: {{ entry.details.get('duration', 'N/A') }}s</span>
+                        {% endif %}
+                        <span class="me-3">⚡ Dauer: {{ "%.2f"|format(entry.duration_seconds) }}s</span>
+                    </div>
+
+                    <div id="request-{{ loop.index }}" class="request-details">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h6>Request Details:</h6>
+                                <table class="table table-sm">
+                                    <tr>
+                                        <th>Zeitstempel:</th>
+                                        <td>{{ entry.timestamp }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Processor:</th>
+                                        <td>{{ entry.main_process.processor }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Titel:</th>
+                                        <td>{{ entry.details.title if entry.details.title else '-' }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Process ID:</th>
+                                        <td>{{ entry.process_id }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Verarbeitungszeit:</th>
+                                        <td>{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                                    </tr>
+                                    <tr>
+                                        <th>URL/Filename:</th>
+                                        <td>
+                                            {% if entry.details.url %}
+                                                {{ entry.details.url }}
+                                            {% elif entry.details.file_name %}
+                                                {{ entry.details.file_name }}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Länge:</th>
+                                        <td>{{ entry.main_process.duration }}s</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Größe:</th>
+                                        <td>{{ (entry.main_process.file_size / 1024 / 1024)|round(2) }}MB</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Text:</th>
+                                        <td>
+                                            {% if entry.main_process.text %}
+                                                <span>{{ entry.main_process.text[:40] }}...</span>
+                                                <button type="button" class="btn btn-sm btn-link" data-bs-toggle="modal" data-bs-target="#textModal{{ loop.index }}">
+                                                    Mehr anzeigen
+                                                </button>
+                                                
+                                                <!-- Modal außerhalb der Tabelle platzieren -->
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Textlänge:</th>
+                                        <td>{{ entry.main_process.text_length }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>LLM:</th>
+                                        <td>{{ entry.main_process.llm_model if entry.main_process.llm_model else '-' }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Token:</th>
+                                        <td>{{ entry.main_process.token_count if entry.main_process.token_count else '-' }}</td>
+                                    </tr>
+                                    {% if entry.details.get('error') %}
+                                    <tr>
+                                        <th>Fehler:</th>
+                                        <td class="text-danger">{{ entry.details.error }}</td>
+                                    </tr>
+                                    {% endif %}
+                                </table>
+                                <!-- Modals nach der Tabelle einfügen -->
+                                {% if entry.main_process.text %}
+                                <div class="modal fade" id="textModal{{ loop.index }}" tabindex="-1" aria-labelledby="textModalLabel{{ loop.index }}" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title" id="textModalLabel{{ loop.index }}">Vollständiger Text</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <pre class="text-wrap">{{ entry.main_process.text }}</pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Verarbeitungsprotokoll:</h6>
+                        
+                                <div class="log-table-container" style="max-height: 400px; overflow-y: auto;">
+                                    <table class="log-table table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Zeit</th>
+                                                <th>Level</th>
+                                                <th>Nachricht</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for log in entry.logs %}
+                                                {% if log.process_id == entry.process_id %}
+                                                <tr class="{{ 'table-danger' if 'ERROR' in log.level else 'table-info' if 'INFO' in log.level else '' }}">
+                                                    <td>{{ log.timestamp.split('.')[0] }}</td>
+                                                    <td>
+                                                        <span class="badge {{ 'bg-danger' if 'ERROR' in log.level else 'bg-info' if 'INFO' in log.level else 'bg-secondary' }}">
+                                                            {{ log.level }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {{ log.message }}
+                                                        {% if log.details %}
+                                                        <div class="small text-muted">
+                                                            {{ log.details|tojson }}
+                                                        </div>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <!-- Alle Modals außerhalb der request-list -->
+            {% for entry in stats.get('recent_requests', []) %}
+                {% if entry.main_process.text %}
+                <div class="modal fade" id="textModal{{ loop.index }}" tabindex="-1" aria-labelledby="textModalLabel{{ loop.index }}" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="textModalLabel{{ loop.index }}">Vollständiger Text</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <pre class="text-wrap">{{ entry.main_process.text }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Nur Charts erstellen wenn Daten vorhanden
+    {% if stats.get('operations') %}
+    new Chart(document.getElementById('operationsChart'), {
+        type: 'pie',
+        data: {
+            labels: {{ stats.operations.keys()|list|tojson }},
+            datasets: [{
+                data: {{ stats.operations.values()|list|tojson }},
+                backgroundColor: ['#ff6384', '#36a2eb', '#ffce56']
+            }]
+        },
+        options: {
+            maintainAspectRatio: false
+        }
+    });
+    {% endif %}
+
+    {% if stats.get('hourly_stats') %}
+    new Chart(document.getElementById('hourlyChart'), {
+        type: 'line',
+        data: {
+            labels: {{ stats.hourly_stats.keys()|list|tojson }},
+            datasets: [{
+                label: 'Anfragen pro Stunde',
+                data: {{ stats.hourly_stats.values()|list|tojson }},
+                borderColor: '#36a2eb',
+                tension: 0.1
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+    {% endif %}
+
+    // Funktion zum Ein-/Ausklappen der Details
+    function toggleDetails(id) {
+        const details = document.getElementById(id);
+        if (details.style.display === 'none' || !details.style.display) {
+            details.style.display = 'block';
+        } else {
+            details.style.display = 'none';
+        }
+    }
+
+    // Event-Listener für Modal-Buttons
+    document.addEventListener('DOMContentLoaded', function() {
+        const modalButtons = document.querySelectorAll('[data-bs-toggle="modal"]');
+        modalButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.stopPropagation(); // Verhindert, dass der Click-Event zum Parent propagiert
+            });
+        });
+    });
+</script>
+{% endblock %} 

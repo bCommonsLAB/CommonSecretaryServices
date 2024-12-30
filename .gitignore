@@ -1,0 +1,9 @@
+# ... andere Einträge
+.env 
+venv/
+logs/
+__pycache__/
+.pytest_cache/
+cache/
+temp-processing/
+
