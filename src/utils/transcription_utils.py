@@ -1,19 +1,24 @@
-import re
-
-import openai
-import io
-from typing import List, Dict, Any, Optional, Type, Tuple
-import tempfile
 import os
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Type, Tuple, Union
+import json
+import time
+import asyncio
+from openai import OpenAI
+import tiktoken
+
+from src.utils.logger import ProcessingLogger
+
+import re
 from pydub import AudioSegment
 import wave
-import json
-from utils.logger import ProcessingLogger
-from pathlib import Path
 from pydantic import BaseModel, Field, ValidationError, create_model
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import math
+
+from src.core.config import Config
+from src.core.config_keys import ConfigKeys
 
 # Basis-Schemas für wiederverwendbare Komponenten
 class Step(BaseModel):
@@ -124,13 +129,14 @@ class WhisperTranscriber:
         'he': 'Hebrew'
     }
     
-    def __init__(self, api_key: str, config: Dict[str, Any] = None):
-        """
+    def __init__(self, config: Dict[str, Any] = None):
+        """Initialisiert den WhisperTranscriber.
+        
         Args:
-            api_key (str): OpenAI API-Schlüssel
             config (Dict[str, Any], optional): Konfigurationsobjekt mit Prozessor-Einstellungen
         """
-        self.client = openai.OpenAI(api_key=api_key)
+        config_keys = ConfigKeys()
+        self.client = OpenAI(api_key=config_keys.openai_api_key)
         self.config = config or {}
         # Erstelle temp-processing/audio Verzeichnis
         self.temp_dir = self.config.get('processors', {}).get('audio', {}).get('temp_dir', "temp-processing/audio")
@@ -202,7 +208,12 @@ class WhisperTranscriber:
 
             # Extrahiere und validiere das Ergebnis
             result_json = response.choices[0].message.function_call.arguments
-            result = TranslationResult.model_validate_json(result_json)
+            result_dict = json.loads(result_json)
+            
+            # Füge token_count hinzu
+            result_dict['token_count'] = response.usage.total_tokens
+            
+            result = TranslationResult.model_validate(result_dict)
             
             if logger:
                 logger.info("Übersetzung abgeschlossen",
@@ -477,7 +488,7 @@ class WhisperTranscriber:
         """
         # Verwende batch_size aus Konfiguration, falls nicht explizit angegeben
         if batch_size is None:
-            batch_size = self.config.get('processors', {}).get('audio', {}).get('batch_size', 3)
+            raise ValueError(f"batch_size ist nicht gesetzt")
             
         if logger:
             logger.info(f"Starte parallele Transkription von {len(segments)} Segmenten in Batches von {batch_size}")

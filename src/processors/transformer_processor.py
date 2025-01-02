@@ -1,27 +1,53 @@
+import os
 import re
-from typing import Any, Dict
-from utils.logger import ProcessingLogger
-from core.config import Config
-from utils.transcription_utils import WhisperTranscriber
+from pathlib import Path
+from typing import Dict, Any, Optional
+import json
+
+from src.utils.logger import get_logger
+from src.core.config import Config
+from src.core.config_keys import ConfigKeys
+from src.utils.transcription_utils import WhisperTranscriber
 from openai import OpenAI
 
 class TransformerProcessor:
+    """TransformerProcessor für die Verarbeitung von Text-Transformationen.
+    
+    Diese Klasse kümmert sich um Übersetzung und (optionale) Zusammenfassung von Text.
+    Die Konfiguration wird direkt aus der Config-Klasse geladen.
+    
+    Attributes:
+        model (str): Name des zu verwendenden Sprachmodells
+        target_format (str): Zielformat für die Ausgabe (text, html, markdown)
+        client (OpenAI): OpenAI Client für API-Zugriff
+        process_id (str): Eindeutige Prozess-ID
+        logger: Logger-Instanz für diesen Processor
     """
-    TransformerProcessor kümmert sich um Übersetzung und (optionale) Zusammenfassung
-    von Text. Die Modell-Auswahl und weitere Parameter können aus der config
-    bezogen werden.
-    """
-    def __init__(self, logger=None):
+    def __init__(self):
+        # Konfiguration aus Config laden
         config = Config()
+        config_keys = ConfigKeys()
         transform_config = config.get('processors.transformer', {})
-        self.logger = logger or ProcessingLogger(
-            process_id="transformer",
-            processor_name="TransformerProcessor"
-        )
-        self.transcriber = WhisperTranscriber(config.openai_api_key)
+        
+        # Konfigurationswerte mit Validierung laden
         self.model = transform_config.get('model', 'gpt-4')
-        self.target_format = transform_config.get('target_format', 'text')  # Unterstützt: text, html, markdown
-        self.client = OpenAI(api_key=config.openai_api_key)  # Initialisiere OpenAI Client
+        self.target_format = transform_config.get('target_format', 'text')
+        
+        # Validierung der erforderlichen Konfigurationswerte
+        if not config_keys.openai_api_key:
+            raise ValueError("OpenAI API Key muss in der Konfiguration angegeben werden")
+            
+        # Weitere Konfigurationswerte laden
+        self.process_id = "transformer"
+        self.logger = get_logger(process_id=self.process_id, processor_name="TransformerProcessor")
+        self.transcriber = WhisperTranscriber(transform_config)
+        
+        # OpenAI Client initialisieren
+        self.client = OpenAI(api_key=config_keys.openai_api_key)
+        
+        self.logger.debug("Transformer Processor initialisiert",
+                         model=self.model,
+                         target_format=self.target_format)
 
     def transform(self, source_text: str, source_language: str, target_language: str, summarize: bool = False, target_format: str = None) -> Dict[str, Any]:
         """
@@ -64,10 +90,10 @@ class TransformerProcessor:
 
         # Rückgabe in einheitlicher Struktur
         return {
-            "text": translation_result['text'],
+            "text": translation_result.text,
             "source_text": source_text,
             "translation_model": self.model,
-            "token_count": translation_result['token_count'],
+            "token_count": translation_result.token_count,
             "format": format_to_use
         }
 

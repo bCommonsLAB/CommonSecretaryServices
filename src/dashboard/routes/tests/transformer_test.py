@@ -5,9 +5,16 @@ from flask import render_template, request
 import requests
 import json
 import traceback
-from utils.logger import ProcessingLogger
+import os
+from datetime import datetime
+from pathlib import Path
+from flask import jsonify
 
-logger = ProcessingLogger(process_id="dashboard")
+from src.utils.logger import get_logger
+from src.processors.transformer_processor import TransformerProcessor
+
+# Initialize logger
+logger = get_logger(process_id="dashboard")
 
 def run_transformer_test():
     """
@@ -29,7 +36,7 @@ def run_transformer_test():
         summarize = request.form.get('model_type') == 'summarize'
         
         if not text:
-            return render_template('test.html', test_results={
+            return render_template('test_procedures.html', test_results={
                 'success': False,
                 'message': 'Missing required parameter',
                 'details': {'error': 'Input text is required'}
@@ -88,14 +95,14 @@ def run_transformer_test():
             'details': details
         }
 
-        return render_template('test.html', test_results=test_results)
+        return render_template('test_procedures.html', test_results=test_results)
 
     except Exception as e:
         logger.error("Transformer test failed", 
                     error=str(e),
                     error_type=type(e).__name__,
                     stack_trace=traceback.format_exc())
-        return render_template('test.html', test_results={
+        return render_template('test_procedures.html', test_results={
             'success': False,
             'message': f'Text transformation failed: {str(e)}',
             'details': {

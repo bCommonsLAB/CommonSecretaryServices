@@ -7,6 +7,9 @@ import json
 import os
 import re
 from datetime import datetime
+import yaml
+from src.core.config import Config
+from pathlib import Path
 
 # Create the blueprint
 logs = Blueprint('logs', __name__)
@@ -27,66 +30,70 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, page
             - entries: List of log entries for the current page
             - pagination: Dictionary with pagination information
     """
-    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'detailed.log')
+    # Lade Log-Pfad aus der Konfiguration
+    config = Config()
+    log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
+    log_path = Path(log_file)
     entries = []
     
     try:
-        with open(log_path, 'r') as f:
-            current_entry = None
-            details_lines = []
-            collecting_details = False
-            
-            for line in f:
-                line = line.strip()
+        if log_path.exists():
+            with open(log_path, 'r') as f:
+                current_entry = None
+                details_lines = []
+                collecting_details = False
                 
-                # Check if this is a new log entry (starts with timestamp)
-                if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
-                    # Save previous entry if exists
-                    if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
-                        if details_lines:
-                            try:
-                                details_text = '\n'.join(details_lines)
-                                if details_text.startswith('Details: '):
-                                    details_text = details_text[9:]  # Remove "Details: " prefix
-                                current_entry['details'] = json.loads(details_text)
-                            except json.JSONDecodeError:
-                                current_entry['details'] = {'raw': '\n'.join(details_lines)}
-                        entries.append(current_entry)
+                for line in f:
+                    line = line.strip()
                     
-                    # Parse new entry
-                    parts = line.split(' - ', 4)
-                    if len(parts) >= 5:
-                        timestamp, level, source, process, message = parts
-                        current_entry = {
-                            'timestamp': timestamp,
-                            'level': level.strip(),
-                            'source': source.strip('[]'),
-                            'process_id': process.split('[')[1].split(']')[0] if '[' in process else '',
-                            'message': message.strip()
-                        }
-                        details_lines = []
-                        collecting_details = False
+                    # Check if this is a new log entry (starts with timestamp)
+                    if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
+                        # Save previous entry if exists
+                        if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
+                            if details_lines:
+                                try:
+                                    details_text = '\n'.join(details_lines)
+                                    if details_text.startswith('Details: '):
+                                        details_text = details_text[9:]  # Remove "Details: " prefix
+                                    current_entry['details'] = json.loads(details_text)
+                                except json.JSONDecodeError:
+                                    current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                            entries.append(current_entry)
+                        
+                        # Parse new entry
+                        parts = line.split(' - ', 4)
+                        if len(parts) >= 5:
+                            timestamp, level, source, process, message = parts
+                            current_entry = {
+                                'timestamp': timestamp,
+                                'level': level.strip(),
+                                'source': source.strip('[]'),
+                                'process_id': process.split('[')[1].split(']')[0] if '[' in process else '',
+                                'message': message.strip()
+                            }
+                            details_lines = []
+                            collecting_details = False
+                    
+                    # Check if this is the start of details
+                    elif line.startswith('Details: '):
+                        collecting_details = True
+                        details_lines = [line]
+                    
+                    # Add to details if we're collecting them
+                    elif collecting_details and line:
+                        details_lines.append(line)
                 
-                # Check if this is the start of details
-                elif line.startswith('Details: '):
-                    collecting_details = True
-                    details_lines = [line]
-                
-                # Add to details if we're collecting them
-                elif collecting_details and line:
-                    details_lines.append(line)
-            
-            # Don't forget to add the last entry
-            if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
-                if details_lines:
-                    try:
-                        details_text = '\n'.join(details_lines)
-                        if details_text.startswith('Details: '):
-                            details_text = details_text[9:]  # Remove "Details: " prefix
-                        current_entry['details'] = json.loads(details_text)
-                    except json.JSONDecodeError:
-                        current_entry['details'] = {'raw': '\n'.join(details_lines)}
-                entries.append(current_entry)
+                # Don't forget to add the last entry
+                if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
+                    if details_lines:
+                        try:
+                            details_text = '\n'.join(details_lines)
+                            if details_text.startswith('Details: '):
+                                details_text = details_text[9:]  # Remove "Details: " prefix
+                            current_entry['details'] = json.loads(details_text)
+                        except json.JSONDecodeError:
+                            current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                    entries.append(current_entry)
                 
     except Exception as e:
         print(f"Error reading log file: {e}")

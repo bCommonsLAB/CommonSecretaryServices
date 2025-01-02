@@ -101,7 +101,7 @@ source venv/bin/activate  # Linux/Mac
 # ein (venv) sollte in console erscheinen
 # Setzen Sie die PYTHONPATH Variable
 # z.B. $env:PYTHONPATH = "C:\Users\username\projekte\CommonSecretaryServices"
-PYTHONPATH = "<pfad des Projektes>"  
+$env:PYTHONPATH = "<pfad des Projektes>"  
 # Starten Sie die Anwendung
 python src/main.py
 ```

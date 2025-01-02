@@ -1,46 +1,61 @@
-from pathlib import Path
-from typing import Dict, Any, List, Tuple, Union
-import tempfile
-from pydub import AudioSegment
-import time
 import os
-import requests
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple, Union
+import time
 import hashlib
-import json
-import shutil
+from pydub import AudioSegment
+import traceback
 
 from .base_processor import BaseProcessor
-from core.resource_tracking import ResourceUsage
-from core.exceptions import ProcessingError
-from utils.logger import ProcessingLogger
-from utils.transcription_utils import WhisperTranscriber
-from core.config import Config
+from src.core.resource_tracking import ResourceUsage
+from src.core.exceptions import ProcessingError
+from src.utils.logger import get_logger, track_performance
+from src.utils.transcription_utils import WhisperTranscriber
+from src.core.config import Config
+from src.core.config_keys import ConfigKeys
 from .transformer_processor import TransformerProcessor
 
 class AudioProcessor(BaseProcessor):
-    def __init__(self, resource_calculator, max_file_size: int = None, segment_duration: int = None, batch_size: int = None):
-        # Lade Konfiguration
-        config = Config()
-        audio_config = config.get('processors.audio', {})
+    """Audio Processor für die Verarbeitung von Audio-Dateien.
+    
+    Diese Klasse verarbeitet Audio-Dateien, segmentiert sie bei Bedarf und führt Transkription/Übersetzung durch.
+    Die Konfiguration wird direkt aus der Config-Klasse geladen.
+    
+    Attributes:
+        max_file_size (int): Maximale Dateigröße in Bytes (Default: 100MB)
+        segment_duration (int): Dauer der Audio-Segmente in Sekunden
+        batch_size (int): Größe der Verarbeitungsbatches
+        export_format (str): Format für exportierte Audio-Dateien
+        temp_file_suffix (str): Suffix für temporäre Dateien
+    """
+    def __init__(self, resource_calculator):
+        # Basis-Klasse zuerst initialisieren
+        super().__init__(resource_calculator)
         
-        # Verwende entweder übergebene Parameter oder Werte aus der Konfiguration
-        max_file_size = max_file_size or audio_config.get('max_file_size')
-        segment_duration = segment_duration or audio_config.get('segment_duration')
-        batch_size = batch_size or audio_config.get('batch_size')
-        super().__init__(resource_calculator, max_file_size)
-        # Eigener Logger ohne externe Übergabe
-        self.logger = ProcessingLogger(
-            process_id=self.process_id,
-            processor_name="AudioProcessor"
-        )
-        self.transcriber = WhisperTranscriber(config.openai_api_key)
+        # Konfiguration aus Config laden
+        config = Config()
+        processors_config = config.get('processors', {})
+        audio_config = processors_config.get('audio', {})
+        
+        # Konfigurationswerte mit Validierung laden
+        self.max_file_size = audio_config.get('max_file_size', 104857600)  # Default: 100MB
+        self.segment_duration = audio_config.get('segment_duration')
+        self.batch_size = audio_config.get('batch_size')
+        
+        # Validierung der erforderlichen Konfigurationswerte
+        if not self.segment_duration:
+            raise ValueError("segment_duration muss in der Konfiguration angegeben werden")
+        if not self.batch_size:
+            raise ValueError("batch_size muss in der Konfiguration angegeben werden")
+        
+        # Weitere Konfigurationswerte laden
+        self.logger = get_logger(process_id=self.process_id, processor_name="AudioProcessor")
+        self.transcriber = WhisperTranscriber(audio_config)
         self.temp_dir = Path(audio_config.get('temp_dir', "temp-processing/audio"))
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        self.segment_duration = segment_duration
-        self.batch_size = batch_size
         self.export_format = audio_config.get('export_format', 'mp3')
         self.temp_file_suffix = audio_config.get('temp_file_suffix', '.mp3')
-        self.transformer = TransformerProcessor() 
+        self.transformer = TransformerProcessor()
 
     def _safe_delete(self, file_path: Union[str, Path]) -> None:
         """Löscht eine Datei sicher und ignoriert Fehler wenn die Datei nicht gelöscht werden kann.
@@ -183,7 +198,7 @@ class AudioProcessor(BaseProcessor):
         return process_dir
 
 
-    def process_audio_file(self, audio_path: str, process_dir: Path) -> AudioSegment:
+    def process_audio_file(self, audio_path: str) -> AudioSegment:
         """Lädt und analysiert eine Audio-Datei."""
         audio = AudioSegment.from_file(audio_path)
         
@@ -256,7 +271,7 @@ class AudioProcessor(BaseProcessor):
             self.logger.warning(f"Fehler beim Lesen der existierenden Transkription: {str(e)}")
         return None
 
-    @ProcessingLogger.track_performance("audio_processing")
+    @track_performance("audio_processing")
     async def process(self, audio_source: Union[str, bytes, Path], source_info: Dict[str, Any] = None, target_language: str = 'en', template: str = '') -> Dict[str, Any]:
         """Verarbeitet eine Audio-Quelle.
         
@@ -270,6 +285,7 @@ class AudioProcessor(BaseProcessor):
             template: Name der zu verwendenden Vorlage
         """
         temp_file_path = None
+        audio = None
         try:
             # Speichere source_info für get_process_dir
             self._current_source_info = source_info
@@ -299,7 +315,7 @@ class AudioProcessor(BaseProcessor):
 
             # Prüfe auf existierende Transkription
             transcription_result = self._read_existing_transcript(process_dir)
-            audio = self.process_audio_file(str(temp_file_path), process_dir)
+            audio = self.process_audio_file(str(temp_file_path))
             
             if transcription_result:
                 self.logger.info("Existierende Transkription gefunden")
@@ -314,7 +330,6 @@ class AudioProcessor(BaseProcessor):
 
             # Übersetze den kompletten Text wenn nötig
             detected_language = transcription_result.get('detected_language')
-
 
             if template:
                 self.logger.info(f"3. Text transformation mit Vorlage wird ausgeführt {template}")
@@ -348,6 +363,9 @@ class AudioProcessor(BaseProcessor):
                     'token_count': transcription_result['token_count'] + transformation_result['token_count']
                 }
 
+            if not audio:
+                raise ProcessingError("Audio konnte nicht verarbeitet werden")
+
             result = {
                 "duration": len(audio) / 1000.0,
                 "detected_language": detected_language,
@@ -364,7 +382,7 @@ class AudioProcessor(BaseProcessor):
                     "template": template
                 }
             }
-            
+
             if source_info:
                 source_info_clean = {k: v for k, v in source_info.items() if k not in ['process_id', 'language']}
                 result.update(source_info_clean)
@@ -377,5 +395,5 @@ class AudioProcessor(BaseProcessor):
             raise ProcessingError(f"Audio-Verarbeitungsfehler: {str(e)}")
         finally:
             # Cleanup: Versuche temporäre Dateien zu löschen
-            if temp_file_path and isinstance(audio_source, (bytes, str)) and str(temp_file_path) != str(audio_source):
+            if temp_file_path and isinstance(audio_source, (str, bytes)) and str(temp_file_path) != str(audio_source):
                 self._safe_delete(temp_file_path) 

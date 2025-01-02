@@ -5,9 +5,18 @@ from flask import render_template, request, make_response
 import requests
 import json
 import traceback
-from utils.logger import ProcessingLogger
+import os
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from flask import jsonify
 
-logger = ProcessingLogger(process_id="dashboard")
+from src.utils.logger import get_logger
+from src.processors.youtube_processor import YoutubeProcessor
+from src.core.resource_tracking import ResourceCalculator
+
+# Initialize logger
+logger = get_logger(process_id="dashboard")
 
 def run_youtube_test():
     """
@@ -34,8 +43,9 @@ def run_youtube_test():
             'template': template
         }
 
-        # Call the YouTube processing API endpoint
-        api_url = request.url_root.rstrip('/') + '/api/process-youtube'
+        # Use the container's own IP address since we're calling ourselves
+        host = request.host.split(':')[0]  # Get the host without port
+        api_url = f'http://{host}:5000/api/process-youtube'
         logger.info("Calling YouTube API endpoint", 
                    api_url=api_url,
                    params=params)
@@ -75,7 +85,7 @@ def run_youtube_test():
         }
 
         # Create response object to set cookies
-        response = make_response(render_template('test.html', test_results=test_results))
+        response = make_response(render_template('test_procedures.html', test_results=test_results))
         
         # Set cookies with form values (expire in 30 days)
         max_age = 30 * 24 * 60 * 60  # 30 days in seconds
@@ -106,4 +116,4 @@ def run_youtube_test():
                 'stack_trace': traceback.format_exc()
             }
         }
-        return render_template('test.html', test_results=test_results) 
+        return render_template('test_procedures.html', test_results=test_results) 

@@ -126,7 +126,13 @@
                                     </tr>
                                     <tr>
                                         <th>Größe:</th>
-                                        <td>{{ (entry.main_process.file_size / 1024 / 1024)|round(2) }}MB</td>
+                                        <td>
+                                            {% if entry.main_process.file_size %}
+                                                {{ (entry.main_process.file_size / 1024 / 1024)|round(2) }}MB
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                     <tr>
                                         <th>Text:</th>

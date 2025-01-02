@@ -5,9 +5,18 @@ from flask import render_template, request, make_response
 import requests
 import json
 import traceback
-from utils.logger import ProcessingLogger
+import os
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from flask import jsonify
 
-logger = ProcessingLogger(process_id="dashboard")
+from src.utils.logger import get_logger
+from src.processors.audio_processor import AudioProcessor
+from src.core.resource_tracking import ResourceCalculator
+
+# Initialize logger
+logger = get_logger(process_id="dashboard")
 
 def run_audio_test():
     """
@@ -19,7 +28,11 @@ def run_audio_test():
     
     try:
         if 'audio_file' not in request.files:
-            raise ValueError("Audio file is required")
+            return render_template('test_procedures.html', test_results={
+                'success': False,
+                'message': 'No audio file provided',
+                'details': {'error': 'Missing audio file in request'}
+            })
             
         audio_file = request.files['audio_file']
         if audio_file.filename == '':
@@ -84,7 +97,7 @@ def run_audio_test():
         }
 
         # Create response object to set cookies
-        response = make_response(render_template('test.html', test_results=test_results))
+        response = make_response(render_template('test_procedures.html', test_results=test_results))
         
         # Set cookies with form values (expire in 30 days)
         max_age = 30 * 24 * 60 * 60  # 30 days in seconds
@@ -113,4 +126,4 @@ def run_audio_test():
                 'stack_trace': traceback.format_exc()
             }
         }
-        return render_template('test.html', test_results=test_results) 
+        return render_template('test_procedures.html', test_results=test_results) 

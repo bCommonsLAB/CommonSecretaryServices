@@ -10,13 +10,14 @@ import re
 from ..utils import get_system_info
 from pathlib import Path
 import yaml
-from core.config import Config
-from utils.logger import ProcessingLogger
+from src.core.config import Config
+from src.utils.logger import get_logger
 from .tests import run_youtube_test, run_audio_test, run_transformer_test, run_health_test
+import ast
 
 # Create the blueprint
 main = Blueprint('main', __name__)
-logger = ProcessingLogger(process_id="dashboard")
+logger = get_logger(process_id="dashboard")
 
 def load_logs_for_requests(recent_requests):
     """
@@ -28,7 +29,10 @@ def load_logs_for_requests(recent_requests):
     Returns:
         dict: Dictionary mapping process_ids to their log entries
     """
-    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'detailed.log')
+    # Lade Log-Pfad aus der Konfiguration
+    config = Config()
+    log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
+    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', log_file)
     request_logs = {}
     
     try:
@@ -236,68 +240,76 @@ def home():
 def save_config():
     """Speichert die Konfiguration in der config.yaml."""
     try:
-        config_data = request.get_json()
+        yaml_content = request.get_json()
+        if yaml_content is None:
+            return jsonify({"status": "error", "message": "Keine YAML-Daten empfangen"}), 400
+            
+        # Parse YAML-String zu Dictionary
+        try:
+            config_data = yaml.safe_load(yaml_content)
+        except yaml.YAMLError as e:
+            return jsonify({"status": "error", "message": f"Ungültiges YAML Format: {str(e)}"}), 400
+            
+        config = Config()
+        
+        # Extrahiere und validiere API Key, falls vorhanden
+        api_key_updated = False
+        if 'api_keys' in config_data and 'openai_api_key' in config_data['api_keys']:
+            api_key = config_data['api_keys']['openai_api_key']
+            if api_key and not api_key.startswith('sk-...'):  # Nur speichern wenn es kein maskierter Key ist
+                try:
+                    config.set_api_key(api_key)
+                    api_key_updated = True
+                except ValueError as e:
+                    return jsonify({"status": "error", "message": str(e)}), 400
+            # Entferne API Keys aus config_data
+            del config_data['api_keys']
         
         # Hole den Pfad zur config.yaml
         config_path = Path(__file__).parents[3] / 'config' / 'config.yaml'
         
-        # Lade aktuelle Konfiguration
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                current_config = yaml.safe_load(f) or {}
-        except Exception:
-            current_config = {}
-            
-        # Aktualisiere die Konfiguration
-        def deep_update(source, updates):
-            for key, value in updates.items():
-                if key in source and isinstance(source[key], dict) and isinstance(value, dict):
-                    deep_update(source[key], value)
-                else:
-                    source[key] = value
-            return source
-            
-        updated_config = deep_update(current_config, config_data)
-        
         # Speichere die aktualisierte Konfiguration
         with open(config_path, 'w', encoding='utf-8') as f:
-            yaml.safe_dump(updated_config, f, default_flow_style=False, allow_unicode=True)
+            yaml.safe_dump(config_data, f, default_flow_style=False, allow_unicode=True)
             
-        # Aktualisiere auch die .env Datei für API Keys
-        if 'openai_api_key' in config_data:
-            env_path = Path(__file__).parents[3] / '.env'
-            env_content = []
-            
-            # Lese existierende .env Datei
-            if env_path.exists():
-                with open(env_path, 'r', encoding='utf-8') as f:
-                    env_content = f.readlines()
-            
-            # Finde und aktualisiere oder füge OpenAI API Key hinzu
-            openai_key_found = False
-            for i, line in enumerate(env_content):
-                if line.startswith('OPENAI_API_KEY='):
-                    env_content[i] = f'OPENAI_API_KEY={config_data["openai_api_key"]}\n'
-                    openai_key_found = True
-                    break
-            
-            if not openai_key_found:
-                env_content.append(f'OPENAI_API_KEY={config_data["openai_api_key"]}\n')
-            
-            # Schreibe aktualisierte .env Datei
-            with open(env_path, 'w', encoding='utf-8') as f:
-                f.writelines(env_content)
+        message = "API Key aktualisiert. " if api_key_updated else ""
         
-        return jsonify({"status": "success", "message": "Configuration saved successfully"})
+        # Lade die aktuelle Konfiguration neu
+        config_yaml = yaml.safe_dump(config.get_all(), default_flow_style=False, allow_unicode=True)
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"{message}Konfiguration erfolgreich gespeichert",
+            "config": config_yaml
+        })
         
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error("Fehler beim Speichern der Konfiguration", error=str(e))
+        return jsonify({"status": "error", "message": f"Fehler beim Speichern: {str(e)}"}), 500
 
 @main.route('/config')
 def config_page():
-    """Zeigt die Konfigurationsseite an."""
-    config = Config()
-    return render_template('config.html', config=config) 
+    """
+    Zeigt die Konfigurationsseite an.
+    
+    Returns:
+        rendered template: Die config.html Template mit der aktuellen Konfiguration
+    """
+    try:
+        # Lade die aktuelle Konfiguration
+        config = Config()
+        config_data = config.get_all()
+        print("Config Data:", config_data)  # Debug-Ausgabe
+        
+        # Konvertiere zu YAML
+        config_yaml = yaml.safe_dump(config_data, default_flow_style=False, allow_unicode=True)
+        print("Config YAML:", config_yaml)  # Debug-Ausgabe
+            
+        return render_template('config.html', config=config_yaml)
+    except Exception as e:
+        logger.error("Fehler beim Laden der Konfiguration", error=str(e))
+        print("Error:", str(e))  # Debug-Ausgabe
+        return render_template('config.html', config="", error=str(e))
 
 @main.route('/test')
 def test_page():
@@ -309,15 +321,15 @@ def test_page():
     """
     return render_template('apitest.html')
 
-@main.route('/test_procedures')
+@main.route('/test-procedures')
 def test_procedures():
     """
-    Test procedures page for running various system tests
+    Zeigt die Testseite an.
     
     Returns:
-        rendered template: The test.html template with test options and results
+        rendered template: Die test_procedures.html Template
     """
-    return render_template('test.html', test_results=None)
+    return render_template('test_procedures.html')
 
 @main.route('/run_youtube_test', methods=['POST'])
 def youtube_test():
@@ -341,122 +353,59 @@ def health_test():
 
 @main.route('/logs')
 def logs():
-    """Show system logs with filtering options"""
-    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'detailed.log')
-    logs = []
+    """
+    Zeigt die Logs der Anwendung an.
     
+    Diese Funktion lädt die in der config.yaml definierte Log-Datei und zeigt die letzten X Einträge an.
+    Die Log-Datei wird zentral durch den LoggerService initialisiert.
+    
+    Returns:
+        rendered template: Die logs.html Template mit den Log-Einträgen
+    """
     try:
-        with open(log_path, 'r') as f:
-            current_entry = None
-            details_lines = []
-            
-            for line in f:
-                line = line.strip()
+        # Lade Konfiguration
+        config = Config()
+        config_data = config.get_all()
+        
+        max_entries = config_data.get('logging', {}).get('max_log_entries', 1000)
+        log_file = config_data.get('logging', {}).get('file', 'logs/detailed.log')
+        log_path = Path(log_file)
+        
+        log_files = {}
+        
+        # Lese die Log-Datei
+        if log_path.exists():
+            with open(log_path, 'r') as f:
+                log_files[log_file] = f.readlines()[-max_entries:]
+        else:
+            log_files[log_file] = []
                 
-                if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
-                    # Save previous entry if exists
-                    if current_entry is not None:
-                        if details_lines:
-                            try:
-                                details_text = '\n'.join(details_lines)
-                                if details_text.startswith('Details: '):
-                                    details_text = details_text[9:]
-                                current_entry['details'] = json.loads(details_text)
-                            except json.JSONDecodeError:
-                                current_entry['details'] = {'raw': '\n'.join(details_lines)}
-                        logs.append(current_entry)
-                    
-                    # Parse new entry
-                    parts = line.split(' - ')
-                    if len(parts) >= 5:
-                        timestamp = parts[0]
-                        level = parts[1]
-                        source = parts[2]  # [logger.py:97]
-                        process_info = parts[3]  # [TransformerProcessor] Process[1735640951800]
-                        message = ' - '.join(parts[4:])  # Join remaining parts in case message contains ' - '
-                        
-                        try:
-                            # Extrahiere processor_name und process_id
-                            if '] Process[' in process_info:
-                                parts = process_info.split('] Process[')
-                                processor_name = parts[0].strip('[')
-                                process_id = parts[1].strip(']')
-                            else:
-                                processor_name = ""
-                                process_id = ""
-                            
-                            current_entry = {
-                                'timestamp': timestamp,
-                                'level': level.strip(),
-                                'source': source.strip('[]'),
-                                'processor_name': processor_name,
-                                'process_id': process_id,
-                                'message': message.strip(),
-                                'details': None  # Initialize details as None
-                            }
-                        except Exception as e:
-                            print(f"Error parsing log line: {line}")
-                            print(f"Error: {str(e)}")
-                            current_entry = {
-                                'timestamp': timestamp,
-                                'level': level.strip(),
-                                'source': source.strip('[]'),
-                                'processor_name': "",
-                                'process_id': "",
-                                'message': message.strip(),
-                                'details': None  # Initialize details as None
-                            }
-                    details_lines = []
-                
-                elif line.startswith('Details: '):
-                    details_lines = [line]
-                elif details_lines:
-                    details_lines.append(line)
-            
-            # Add last entry
-            if current_entry is not None:
-                if details_lines:
-                    try:
-                        details_text = '\n'.join(details_lines)
-                        if details_text.startswith('Details: '):
-                            details_text = details_text[9:]
-                        current_entry['details'] = json.loads(details_text)
-                    except json.JSONDecodeError:
-                        current_entry['details'] = {'raw': '\n'.join(details_lines)}
-                logs.append(current_entry)
-        
-        # Apply filters
-        filter_level = request.args.get('level')
-        filter_date = request.args.get('date')
-        search_query = request.args.get('search')
-        
-        if filter_level:
-            logs = [log for log in logs if log['level'] == filter_level]
-        if filter_date:
-            logs = [log for log in logs if log['timestamp'].startswith(filter_date)]
-        if search_query:
-            logs = [log for log in logs if search_query.lower() in log['message'].lower()]
-        
-        # Sort logs by timestamp (newest first)
-        logs.sort(key=lambda x: x['timestamp'], reverse=True)
-        
-        return render_template('logs.html', 
-                             logs=logs, 
-                             filter_level=filter_level,
-                             filter_date=filter_date,
-                             search_query=search_query)
-                             
+        return render_template('logs.html', log_files=log_files)
     except Exception as e:
-        return f"Error reading logs: {str(e)}", 500 
+        print(f"Fehler beim Laden der Logs: {str(e)}")
+        return f"Fehler beim Laden der Logs: {str(e)}", 500
 
 @main.route('/clear-logs', methods=['POST'])
 def clear_logs():
     """
-    Löscht den Inhalt der detailed.log Datei
+    Löscht den Inhalt der Log-Datei und stellt sicher, dass sie danach wieder existiert.
+    Die Log-Datei wird mit einem leeren Inhalt neu erstellt.
+    
+    Returns:
+        redirect: Leitet zurück zur Logs-Ansicht
     """
     try:
-        with open('logs/detailed.log', 'w') as f:
-            f.write('')
+        # Lade Log-Pfad aus der Konfiguration
+        config = Config()
+        log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
+        log_path = Path(log_file)
+        
+        # Stelle sicher, dass das Verzeichnis existiert
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Leere die Datei oder erstelle sie neu
+        log_path.write_text('')
+        
         return redirect(url_for('main.logs'))
     except Exception as e:
         return f"Error clearing logs: {str(e)}", 500 

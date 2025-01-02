@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app, send_from_directory
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, redirect, url_for
 from flask_restx import Api, Resource, fields, reqparse
 import tempfile
 import os
@@ -8,18 +8,19 @@ import asyncio
 import werkzeug.datastructures
 from typing import Union
 
-from core.rate_limiting import RateLimiter
-from core.resource_tracking import ResourceCalculator
-from processors.pdf_processor import PDFProcessor
-from processors.image_processor import ImageProcessor
-from processors.youtube_processor import YoutubeProcessor
-from processors.audio_processor import AudioProcessor
-from core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
-from utils.logger import ProcessingLogger
-from processors.transformer_processor import TransformerProcessor
+from src.core.rate_limiting import RateLimiter
+from src.core.resource_tracking import ResourceCalculator
+from src.processors.pdf_processor import PDFProcessor
+from src.processors.image_processor import ImageProcessor
+from src.processors.youtube_processor import YoutubeProcessor
+from src.processors.audio_processor import AudioProcessor
+from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
+from src.utils.logger import get_logger
+from src.processors.transformer_processor import TransformerProcessor
 
 # Blueprint erstellen
 blueprint = Blueprint('api', __name__)
+
 api = Api(blueprint,
     title='Processing Service API',
     version='1.0',
@@ -28,7 +29,7 @@ api = Api(blueprint,
     prefix=''
 )
 
-logger = ProcessingLogger(process_id="api")
+logger = get_logger(process_id="api")
 
 # Initialisierung der gemeinsam genutzten Komponenten
 resource_calculator = ResourceCalculator()
@@ -37,13 +38,25 @@ rate_limiter = RateLimiter(
     max_file_size=50 * 1024 * 1024  # 50MB
 )
 
-# Prozessor-Instanzen
-pdf_processor = PDFProcessor(resource_calculator, max_file_size=100 * 1024 * 1024)
-image_processor = ImageProcessor(resource_calculator, max_file_size=50 * 1024 * 1024)
-youtube_processor = YoutubeProcessor(resource_calculator, max_file_size=100 * 1024 * 1024)
-audio_processor = AudioProcessor(resource_calculator, max_file_size=50 * 1024 * 1024)
+def get_pdf_processor():
+    """Get or create PDF processor instance with unique process ID"""
+    return PDFProcessor(resource_calculator)
 
-transformer_processor = TransformerProcessor()
+def get_image_processor():
+    """Get or create image processor instance with unique process ID"""
+    return ImageProcessor(resource_calculator)
+
+def get_youtube_processor():
+    """Get or create YouTube processor instance with unique process ID"""
+    return YoutubeProcessor(resource_calculator)
+
+def get_audio_processor():
+    """Get or create audio processor instance with unique process ID"""
+    return AudioProcessor(resource_calculator)
+
+def get_transformer_processor():
+    """Get or create transformer processor instance with unique process ID"""
+    return TransformerProcessor()
 
 # Parser für File-Uploads
 file_upload = reqparse.RequestParser()
@@ -152,14 +165,10 @@ class PDFEndpoint(Resource):
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen')
     async def post(self):
-        """
-        PDF-Datei verarbeiten
-        
-        Lädt eine PDF-Datei hoch und extrahiert relevante Informationen wie Seitenanzahl,
-        Text und Metadaten.
-        """
+        """PDF-Datei verarbeiten"""
         args = file_upload.parse_args()
         file = args['file']
+        pdf_processor = None
         
         if not file.filename.lower().endswith('.pdf'):
             return {'error': 'Nur PDF-Dateien erlaubt'}, 400
@@ -167,10 +176,13 @@ class PDFEndpoint(Resource):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
             file.save(temp_file.name)
             try:
+                pdf_processor = get_pdf_processor()
                 result = await pdf_processor.process(temp_file.name)
                 return result
             finally:
                 os.unlink(temp_file.name)
+                if pdf_processor:
+                    pdf_processor.logger.info("PDF-Verarbeitung beendet")
 
 @api.route('/process-image')
 class ImageEndpoint(Resource):
@@ -179,14 +191,10 @@ class ImageEndpoint(Resource):
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet ein Bild und extrahiert Informationen')
     async def post(self):
-        """
-        Bild verarbeiten
-        
-        Lädt ein Bild hoch und extrahiert relevante Informationen wie Dimensionen,
-        Format und Metadaten.
-        """
+        """Bild verarbeiten"""
         args = file_upload.parse_args()
         file = args['file']
+        image_processor = None
         
         if not any(file.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
             return {'error': 'Nur PNG/JPG Dateien erlaubt'}, 400
@@ -194,14 +202,16 @@ class ImageEndpoint(Resource):
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
             file.save(temp_file.name)
             try:
+                image_processor = get_image_processor()
                 result = await image_processor.process(temp_file.name)
                 return result
             finally:
                 os.unlink(temp_file.name)
+                if image_processor:
+                    image_processor.logger.info("Bild-Verarbeitung beendet")
 
 @api.route('/process-youtube')
 class YouTubeProcessor(Resource):
-
     # Definiere das Request-Model für Swagger
     youtube_request = api.model('YouTubeRequest', {
         'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='YouTube Video URL'),
@@ -211,37 +221,38 @@ class YouTubeProcessor(Resource):
 
     @api.expect(youtube_request)
     def post(self):
-        """Verarbeitet ein YouTube-Video: Download, Transkription und optionale Transformation."""
+        """Verarbeitet ein YouTube-Video"""
+        youtube_processor = None
         try:
             data = request.get_json()
             url = data.get('url')
             target_language = data.get('target_language', 'de')
             template = data.get('template')
 
-            # Validiere erforderliche Parameter
             if not url:
                 raise ValueError("YouTube-URL ist erforderlich")
 
-            # Verarbeite das Video
+            youtube_processor = get_youtube_processor()
             result = asyncio.run(youtube_processor.process(
                 url=url,
                 target_language=target_language,
                 template=template
             ))
             return result
-
         except ValueError as ve:
             logger.error("Validierungsfehler",
                         error=str(ve),
                         error_type="ValidationError")
             return {'error': str(ve)}, 400
-            
         except Exception as e:
             logger.error("YouTube-Verarbeitungsfehler",
                         error=str(e),
                         error_type=type(e).__name__,
                         stack_trace=traceback.format_exc())
             raise
+        finally:
+            if youtube_processor:
+                youtube_processor.logger.info("YouTube-Verarbeitung beendet")
 
 @api.route('/process-audio')
 class AudioEndpoint(Resource):
@@ -258,30 +269,26 @@ class AudioEndpoint(Resource):
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine Audio-Datei')
     def post(self):
-        """
-        Audio-Datei verarbeiten
-        
-        Lädt eine Audio-Datei hoch und verarbeitet sie (Transkription, etc.)
-        """
+        """Audio-Datei verarbeiten"""
         temp_file = None
+        audio_processor = None
         try:
             args = upload_parser.parse_args()
             file = args['file']
             target_language = args['target_language']
             template = args['template']
             
-            # Validiere Dateiendung
             if not any(file.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.m4a']):
                 return {'error': 'Nur MP3/WAV/M4A Dateien erlaubt'}, 400
             
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix)
             file.save(temp_file.name)
-            temp_file.close()  # Wichtig: Schließe die Datei explizit
+            temp_file.close()
             
-            # Füge original_filename zum source_info hinzu für konsistentes Caching
             source_info = {
                 'original_filename': file.filename
             }
+            audio_processor = get_audio_processor()
             result = asyncio.run(audio_processor.process(
                 temp_file.name,
                 source_info=source_info,
@@ -289,7 +296,6 @@ class AudioEndpoint(Resource):
                 template=template
             ))
             return result
-            
         except Exception as e:
             logger.error("Audio-Verarbeitungsfehler",
                         error=str(e),
@@ -297,9 +303,10 @@ class AudioEndpoint(Resource):
                         stack_trace=traceback.format_exc())
             raise
         finally:
-            # Cleanup: Versuche temporäre Datei zu löschen
             if temp_file:
                 self._safe_delete(temp_file.name)
+            if audio_processor:
+                audio_processor.logger.info("Audio-Verarbeitung beendet")
 
 @api.route('/transform-text')
 class TextTransformEndpoint(Resource):
@@ -318,16 +325,10 @@ class TextTransformEndpoint(Resource):
         'format': fields.String(description='Verwendetes Ausgabeformat')
     }))
     def post(self):
-        """
-        Text transformieren
-
-        Dieser Endpunkt kann:
-        - Text in eine andere Sprache übersetzen
-        - Eine Zusammenfassung des Textes erstellen
-        - Das Ausgabeformat bestimmen (text, html, markdown)
-        """
+        """Text transformieren"""
         data = request.get_json()
         
+        transformer_processor = get_transformer_processor()
         result = transformer_processor.transform(
             source_text=data['text'],
             source_language=data.get('source_language', 'en'),
@@ -355,16 +356,10 @@ class TemplateTransformEndpoint(Resource):
         'structured_data': fields.Raw(description='Strukturierte Daten aus der Template-Verarbeitung')
     }))
     def post(self):
-        """
-        Text mit Template transformieren
-
-        Dieser Endpunkt kann:
-        - Text anhand eines Markdown-Templates strukturieren
-        - Template-Variablen mit LLM-generierten Werten ersetzen
-        - Strukturierte Daten aus dem Text extrahieren
-        """
+        """Text mit Template transformieren"""
         data = request.get_json()
         
+        transformer_processor = get_transformer_processor()
         result = transformer_processor.transformByTemplate(
             source_text=data['text'],
             source_language=data.get('source_language', ''),
@@ -397,10 +392,12 @@ class AudioCacheEndpoint(Resource):
             delete_transcripts = data.get('delete_transcripts', False)
             
             if filename:
+                audio_processor = get_audio_processor()
                 audio_processor.delete_cache(filename, delete_transcript=delete_transcripts)
                 msg = 'komplett' if delete_transcripts else 'Segmente'
                 return {'message': f'Cache für {filename} wurde {msg} gelöscht'}
             else:
+                audio_processor = get_audio_processor()
                 audio_processor.cleanup_cache(max_age_days, delete_transcripts=delete_transcripts)
                 msg = 'komplett' if delete_transcripts else 'Segmente'
                 return {'message': f'Alte Cache-Verzeichnisse (>{max_age_days} Tage) wurden {msg} gelöscht'}

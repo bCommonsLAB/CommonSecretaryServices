@@ -6,9 +6,18 @@ from flask import Blueprint, render_template, request, jsonify
 import json
 import os
 import pkg_resources
+from openai import OpenAI
+from openai import OpenAIError
+import yaml
+from src.core.config import Config
+from src.core.config_keys import ConfigKeys
+from src.utils.logger import get_logger
 
 # Create the blueprint
 config = Blueprint('config', __name__)
+
+# Initialize logger
+logger = get_logger(process_id="dashboard-config")
 
 def get_system_info():
     """
@@ -33,9 +42,9 @@ def load_config():
     config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config', 'config.yaml')
     try:
         with open(config_path, 'r') as f:
-            return json.load(f)
+            return yaml.safe_load(f) or {}
     except Exception as e:
-        print(f"Error loading config: {e}")
+        logger.error(f"Error loading config", error=str(e))
         return {}
 
 def save_config(config_data):
@@ -44,24 +53,152 @@ def save_config(config_data):
     """
     config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config', 'config.yaml')
     try:
+        # Konvertiere String zu YAML wenn nötig
+        if isinstance(config_data, str):
+            config_data = yaml.safe_load(config_data)
+        
         with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=4)
+            yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+        logger.info("Konfiguration erfolgreich gespeichert", config_path=config_path)
         return True
     except Exception as e:
-        print(f"Error saving config: {e}")
+        logger.error("Fehler beim Speichern der Konfiguration", error=str(e))
         return False
 
-@config.route('/config', methods=['GET', 'POST'])
-def manage_config():
+def test_openai_api_key(api_key):
+    """
+    Test if the provided OpenAI API key is valid
+    
+    Args:
+        api_key (str): The OpenAI API key to test
+        
+    Returns:
+        tuple: (bool, str) - (Success status, Message)
+    """
+    if not api_key:
+        return False, "Kein API Key angegeben"
+    
+    try:
+        # Temporärer OpenAI Client nur für den Test
+        client = OpenAI(api_key=api_key)
+        # Führe einen einfachen API-Aufruf durch
+        models = client.models.list()
+        logger.info("OpenAI API Key erfolgreich validiert")
+        return True, "API Key ist gültig"
+    except OpenAIError as e:
+        logger.error("OpenAI API Fehler", error=str(e))
+        return False, f"API Fehler: {str(e)}"
+    except Exception as e:
+        logger.error("Unerwarteter Fehler bei API Key Test", error=str(e))
+        return False, f"Unerwarteter Fehler: {str(e)}"
+
+@config.route('/config', methods=['GET'])
+def config_page():
     """
     Configuration management page
     """
-    if request.method == 'POST':
-        config_data = request.get_json()
-        if save_config(config_data):
-            return jsonify({'status': 'success'})
-        return jsonify({'status': 'error'})
+    # Lade aktuelle Konfiguration
+    current_config = load_config()
     
-    return render_template('config.html', 
-                         config=load_config(),
-                         system_info=get_system_info()) 
+    # Hole den API Key aus ConfigKeys
+    config_keys = ConfigKeys()
+    try:
+        raw_api_key = config_keys.openai_api_key
+        masked_api_key = f"{raw_api_key[:7]}...{raw_api_key[-5:]}" if raw_api_key and len(raw_api_key) >= 12 else ""
+    except ValueError:
+        masked_api_key = ""
+    
+    # Konvertiere zu YAML String für die Anzeige
+    config_yaml = yaml.dump(current_config, default_flow_style=False, allow_unicode=True)
+    
+    # Erstelle Template-Kontext
+    context = {
+        'config': config_yaml,
+        'api_key': masked_api_key,
+        'system_info': get_system_info()
+    }
+    
+    return render_template('config.html', **context)
+
+@config.route('/config/api-key', methods=['GET', 'POST'])
+def handle_api_key():
+    """
+    Handle API key operations
+    """
+    config_keys = ConfigKeys()
+    
+    if request.method == 'GET':
+        try:
+            raw_api_key = config_keys.openai_api_key
+            # Erstelle maskierten Key
+            masked_api_key = f"{raw_api_key[:7]}...{raw_api_key[-5:]}" if len(raw_api_key) >= 12 else raw_api_key
+            return jsonify({
+                'status': 'success',
+                'api_key': masked_api_key
+            })
+        except ValueError as e:
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            })
+        
+    # POST request
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key', '').strip()
+        
+        # Validiere und teste den API Key
+        success, message = test_openai_api_key(api_key)
+        if not success:
+            return jsonify({'status': 'error', 'message': message})
+        
+        # Speichere den API Key über ConfigKeys
+        config_keys.set_openai_api_key(api_key)
+        logger.info("OpenAI API Key erfolgreich gespeichert")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'API Key wurde erfolgreich gespeichert und validiert'
+        })
+    except ValueError as e:
+        logger.error("Fehler beim Speichern des API Keys", error=str(e))
+        return jsonify({'status': 'error', 'message': str(e)})
+    except Exception as e:
+        logger.error("Unerwarteter Fehler beim Speichern des API Keys", error=str(e))
+        return jsonify({'status': 'error', 'message': f'Fehler beim Speichern des API Keys: {str(e)}'})
+
+@config.route('/config/yaml', methods=['POST'])
+def update_yaml_config():
+    """
+    Update the YAML configuration
+    """
+    try:
+        data = request.get_json()
+        yaml_content = data.get('config', '')
+        
+        # Parse YAML um sicherzustellen, dass es gültig ist
+        config_data = yaml.safe_load(yaml_content)
+        
+        # Speichere die Konfiguration
+        if save_config(config_data):
+            logger.info("YAML Konfiguration erfolgreich aktualisiert")
+            return jsonify({
+                'status': 'success',
+                'message': 'Konfiguration wurde erfolgreich gespeichert'
+            })
+        return jsonify({
+            'status': 'error',
+            'message': 'Fehler beim Speichern der Konfiguration'
+        })
+    except yaml.YAMLError as e:
+        logger.error("Ungültiges YAML Format", error=str(e))
+        return jsonify({
+            'status': 'error',
+            'message': f'Ungültiges YAML Format: {str(e)}'
+        })
+    except Exception as e:
+        logger.error("Fehler beim Aktualisieren der YAML Konfiguration", error=str(e))
+        return jsonify({
+            'status': 'error',
+            'message': f'Fehler: {str(e)}'
+        }) 

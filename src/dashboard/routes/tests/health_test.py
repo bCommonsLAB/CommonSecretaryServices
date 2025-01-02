@@ -1,10 +1,17 @@
 """
 System health test route handler
 """
-from flask import render_template, request
-from utils.logger import ProcessingLogger
+import os
+import json
+from datetime import datetime
+from pathlib import Path
+import traceback
+from flask import jsonify, render_template, request
 
-logger = ProcessingLogger(process_id="dashboard")
+from src.utils.logger import get_logger
+
+# Initialize logger
+logger = get_logger(process_id="dashboard")
 
 def run_health_test():
     """
@@ -43,4 +50,4 @@ def run_health_test():
             }
         }
     
-    return render_template('test.html', test_results=test_results) 
+    return render_template('test_procedures.html', test_results=test_results) 

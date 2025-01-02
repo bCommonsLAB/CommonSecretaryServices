@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 from processors.youtube_processor import YoutubeProcessor
 from core.exceptions import ProcessingError
 from utils.logger import ProcessingLogger
+from core.config import Config
 
 @pytest.fixture
 def mock_calculator():
@@ -21,6 +22,29 @@ def mock_calculator():
     calculator.calculate_storage_units.return_value = 1.0
     calculator.calculate_total_units.return_value = 2.0
     return calculator
+
+@pytest.fixture
+def mock_config():
+    """Erstellt einen Mock für die Config-Klasse.
+    
+    Dieser Mock simuliert die Konfiguration mit Test-Werten:
+    - max_file_size: 1000000 (Bytes)
+    - max_duration: 3600 (Sekunden)
+    
+    Returns:
+        MagicMock: Ein vorkonfigurierter Mock der Config-Klasse
+    """
+    with patch('src.core.config.Config', autospec=True) as mock_config:
+        mock_instance = MagicMock()
+        mock_instance.get.return_value = {
+            'max_file_size': 1000000,
+            'max_duration': 3600,
+            'temp_dir': "temp-processing/video",
+            'audio_cache_dir': "temp-processing/youtube-audio",
+            'ydl_opts': {}
+        }
+        mock_config.return_value = mock_instance
+        yield mock_config
 
 @pytest.fixture
 def mock_yt_dlp():
@@ -64,14 +88,14 @@ class TestYoutubeProcessor:
     """
     
     @pytest.mark.asyncio
-    async def test_process_video_too_long(self, mock_calculator, mock_yt_dlp):
+    async def test_process_video_too_long(self, mock_calculator, mock_yt_dlp, mock_config):
         """Testet die Fehlerbehandlung bei zu langen Videos.
         
         Dieser Test überprüft, ob der YoutubeProcessor korrekt reagiert,
         wenn ein Video die maximale Länge überschreitet.
         
         Testschritte:
-        1. Erstellen eines YoutubeProcessors mit max_duration=3600 (1 Stunde)
+        1. Erstellen eines YoutubeProcessors mit gemockter Konfiguration
         2. Simulieren eines 4000 Sekunden langen Videos (via mock_yt_dlp)
         3. Überprüfen, ob eine ProcessingError Exception mit korrekter
            Fehlermeldung ausgelöst wird
@@ -79,32 +103,23 @@ class TestYoutubeProcessor:
         Args:
             mock_calculator: Mock des ResourceCalculators
             mock_yt_dlp: Mock der YouTube-DL Bibliothek
+            mock_config: Mock der Config-Klasse
         
         Assertions:
             - Prüft, ob ProcessingError mit "Video zu lang" ausgelöst wird
         """
-        processor = YoutubeProcessor(
-            resource_calculator=mock_calculator,
-            max_file_size=1000000,
-            max_duration=3600
-        )
+        processor = YoutubeProcessor(resource_calculator=mock_calculator)
 
         with pytest.raises(ProcessingError) as exc_info:
             await processor.process("https://youtube.com/test")
 
-        assert "Video zu lang" in str(exc_info.value) 
+        assert "Video zu lang" in str(exc_info.value)
 
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_real_video_processing(self, mock_calculator):
         """Integrationstest: Verarbeitet ein echtes YouTube-Video."""
-        logger = ProcessingLogger(process_id="test_real_video_processing")
-        
-        processor = YoutubeProcessor(
-            resource_calculator=mock_calculator,
-            max_file_size=10 * 1024 * 1024,  # 10MB
-            max_duration=60 * 30  # 30 Minuten
-        )
+        processor = YoutubeProcessor(resource_calculator=mock_calculator)
 
         # "Me at the zoo" - erstes YouTube Video (21 Sekunden)
         #url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"

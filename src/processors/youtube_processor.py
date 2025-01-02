@@ -1,50 +1,59 @@
 import os
-import time
 from pathlib import Path
-import tempfile
+from typing import Dict, Any, Optional, List, Tuple, Union
 import yt_dlp
-from typing import Dict, Any
-import glob
+import time
+import tempfile
 from pydub import AudioSegment
 import traceback
 
 from .base_processor import BaseProcessor
-from core.resource_tracking import ResourceUsage
-from core.exceptions import ProcessingError
-from utils.logger import ProcessingLogger
-from utils.transcription_utils import WhisperTranscriber
-from core.config import Config
+from .audio_processor import AudioProcessor
+from src.core.resource_tracking import ResourceUsage
+from src.core.exceptions import ProcessingError
+from src.utils.logger import get_logger, track_performance
+from src.utils.transcription_utils import WhisperTranscriber
+from src.core.config import Config
+from src.core.config_keys import ConfigKeys
 
 class YoutubeProcessor(BaseProcessor):
-    def __init__(self, resource_calculator, max_file_size: int = None, max_duration: int = None):
-        # Lade Konfiguration
+    """YouTube Processor für die Verarbeitung von YouTube-Videos.
+    
+    Diese Klasse lädt Videos von YouTube herunter, extrahiert die Audio-Spur
+    und führt optional eine Transkription durch.
+    Die Konfiguration wird direkt aus der Config-Klasse geladen.
+    
+    Attributes:
+        max_file_size (int): Maximale Dateigröße in Bytes (Default: 100MB)
+        max_duration (int): Maximale Video-Länge in Sekunden (Default: 3600)
+        temp_dir (Path): Verzeichnis für temporäre Verarbeitung
+        audio_cache_dir (Path): Verzeichnis für Audio-Cache
+        ydl_opts (dict): Optionen für youtube-dl
+        output_template (str): Template für Output-Dateien
+    """
+    def __init__(self, resource_calculator):
+        # Basis-Klasse zuerst initialisieren
+        super().__init__(resource_calculator)
+        
+        # Konfiguration aus Config laden
         config = Config()
-        youtube_config = config.get('processors.youtube', {})
+        processors_config = config.get('processors', {})
+        youtube_config = processors_config.get('youtube', {})
         
-        # Verwende entweder übergebene Parameter oder Werte aus der Konfiguration
-        max_file_size = max_file_size or youtube_config.get('max_file_size')
-        max_duration = max_duration or youtube_config.get('max_duration')
+        # Konfigurationswerte mit Validierung laden
+        self.max_file_size = youtube_config.get('max_file_size', 104857600)  # Default: 100MB
+        self.max_duration = youtube_config.get('max_duration')
         
-        super().__init__(resource_calculator, max_file_size)
-        self.max_duration = max_duration
-        self.logger = ProcessingLogger(
-            process_id=self.process_id,
-            processor_name="YoutubeProcessor"
-        )
+        # Validierung der erforderlichen Konfigurationswerte
+        if not self.max_duration:
+            raise ValueError("max_duration muss in der Konfiguration angegeben werden")
         
-        # Erstelle absolute Pfade für die Verzeichnisse
-        self.temp_dir = Path(youtube_config.get('temp_dir', "temp-processing/video")).resolve()
-        self.audio_cache_dir = Path(youtube_config.get('audio_cache_dir', "temp-processing/youtube-audio")).resolve()
-        self.ydl_opts = youtube_config.get('ydl_opts', {})
-        self.output_template = youtube_config.get('output_template')
-        
-        # Erstelle Verzeichnisse
+        # Weitere Konfigurationswerte laden
+        self.logger = get_logger(process_id=self.process_id, processor_name="YoutubeProcessor")
+        self.temp_dir = Path(youtube_config.get('temp_dir', "temp-processing/video"))
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        self.audio_cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.logger.debug("YouTube Processor initialisiert",
-                         temp_dir=str(self.temp_dir),
-                         audio_cache_dir=str(self.audio_cache_dir))
+        self.audio_processor = AudioProcessor(resource_calculator)
+        self.ydl_opts = youtube_config.get('ydl_opts', {})
 
     def create_process_dir(self) -> Path:
         """Erstellt ein eindeutiges Verarbeitungsverzeichnis."""
@@ -69,7 +78,8 @@ class YoutubeProcessor(BaseProcessor):
 
     def _get_cached_audio_path(self, video_id: str) -> Path:
         """Gibt den Pfad zur zwischengespeicherten Audio-Datei zurück."""
-        return self.audio_cache_dir / f"{video_id}.mp3"
+        process_dir = self.create_process_dir()
+        return process_dir / f"{video_id}.mp3"
 
     def _check_cached_audio(self, video_id: str) -> Path:
         """Prüft, ob eine Audio-Datei im Cache existiert."""
@@ -90,7 +100,7 @@ class YoutubeProcessor(BaseProcessor):
         remaining_seconds = seconds % 60
         return f"{minutes}:{remaining_seconds:02d}"
 
-    @ProcessingLogger.track_performance("youtube_processing")
+    @track_performance("youtube_processing")
     async def process(self, url: str, target_language: str = 'de', extract_audio: bool = True, template: str = 'Youtube') -> Dict[str, Any]:
         """
         Verarbeitet ein YouTube-Video.
@@ -113,9 +123,6 @@ class YoutubeProcessor(BaseProcessor):
 
             # Extrahiere Video-ID und prüfe Cache
             video_id = self._extract_video_id(url)
-            cached_audio_path = self._get_cached_audio_path(video_id)
-            
-            # Initialisiere audio_path als None
             audio_path = None
 
             with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
@@ -134,33 +141,39 @@ class YoutubeProcessor(BaseProcessor):
                         f"(Maximum: {self.max_duration} Sekunden)"
                     )
 
-                # Prüfe, ob Audio bereits im Cache ist
-                audio_path = self._check_cached_audio(video_id)
-                if audio_path:
-                    self.logger.info("Verwende zwischengespeicherte Audio-Datei",
-                                   path=str(audio_path))
-                else:
-                    # Verwende die Basis-Optionen aus der Konfiguration
-                    download_opts = self.ydl_opts.copy()
-                    # Überschreibe den Output-Template für das Caching
-                    # Entferne .mp3 aus dem Pfad, da yt-dlp die Endung automatisch hinzufügt
-                    output_path = str(cached_audio_path).replace('.mp3', '')
-                    download_opts.update({
-                        'outtmpl': output_path,  # Ohne Endung
-                        'format': 'bestaudio/best',
-                        'postprocessors': [{
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                        }]
-                    })
+                # Verwende die Basis-Optionen aus der Konfiguration
+                download_opts = self.ydl_opts.copy()
+                
+                # Setze den Output-Template für das aktuelle Verzeichnis
+                output_path = str(process_dir / "%(title)s.%(ext)s")
+                download_opts.update({
+                    'outtmpl': output_path,
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                    }]
+                })
 
-                    # Video herunterladen
-                    self.logger.debug("Starte Download", 
-                                    output_path=output_path,
-                                    format=download_opts.get('format'))
-                    with yt_dlp.YoutubeDL(download_opts) as ydl:
-                        ydl.download([url])
-                    audio_path = Path(f"{output_path}.mp3")  # Füge Endung für den weiteren Gebrauch hinzu
+                # Video herunterladen und zu MP3 konvertieren
+                # yt-dlp lädt zuerst die Datei herunter und konvertiert sie dann automatisch zu MP3
+                # durch den konfigurierten FFmpeg postprocessor
+                self.logger.debug("Starte Download und MP3-Konvertierung", 
+                                output_path=output_path,
+                                format=download_opts.get('format'))
+                
+                # Erstelle neuen YoutubeDL-Instance mit den aktualisierten Optionen
+                with yt_dlp.YoutubeDL(download_opts) as ydl_download:
+                    ydl_download.download([url])
+                
+                # Nach der Konvertierung suchen wir die resultierende MP3-Datei
+                # Es sollte genau eine MP3-Datei im Verzeichnis sein
+                mp3_files = list(process_dir.glob("*.mp3"))
+                if not mp3_files:
+                    raise ProcessingError("Keine MP3-Datei nach Download und Konvertierung gefunden")
+                audio_path = mp3_files[0]
+                
+                self.logger.debug("MP3-Datei gefunden", audio_file=str(audio_path))
 
                 # Initialisiere audio_result als None
                 audio_result = None
@@ -171,7 +184,7 @@ class YoutubeProcessor(BaseProcessor):
                         "url": url,
                         "source_type": "youtube",
                         "duration": info.get('duration'),
-                        "duration_formatted": self._format_duration(info.get('duration')),  # Formatierte Dauer
+                        "duration_formatted": self._format_duration(info.get('duration')),
                         "video_id": video_id,
                         "availability": info.get('availability'),
                         "categories": info.get('categories'),
@@ -192,7 +205,7 @@ class YoutubeProcessor(BaseProcessor):
 
                     # Direkter Aufruf des AudioProcessors
                     from processors.audio_processor import AudioProcessor
-                    audio_processor = AudioProcessor(self.calculator, self.max_file_size)
+                    audio_processor = AudioProcessor(self.calculator)
                     
                     self.logger.debug("Vor Audio Processing Aufruf")
                     
@@ -208,14 +221,9 @@ class YoutubeProcessor(BaseProcessor):
                     "duration": info.get('duration', 0),
                     "url": url,
                     "video_id": video_id,
-                    "cached_audio_path": str(audio_path) if audio_path else None,
+                    "file_size": audio_path.stat().st_size if audio_path else None,
                     "process_dir": str(process_dir),
-                    "process_id": self.process_id,
-                    "args": {
-                        "target_language": target_language,
-                        "extract_audio": extract_audio,
-                        "template": template
-                    }
+                    "audio_file": str(audio_path) if audio_path else None
                 }
 
                 # Füge Audio-Verarbeitungsergebnisse hinzu, wenn vorhanden
