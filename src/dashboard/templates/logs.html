@@ -47,6 +47,7 @@
                             <tr>
                                 <th>Timestamp</th>
                                 <th>Level</th>
+                                <th>Processor</th>
                                 <th>Process ID</th>
                                 <th>Message</th>
                                 <th>Details</th>
@@ -60,6 +61,9 @@
                                     <span class="badge {{ 'bg-danger' if log.level == 'ERROR' else 'bg-warning' if log.level == 'WARNING' else 'bg-info' if log.level == 'INFO' else 'bg-secondary' }}">
                                         {{ log.level }}
                                     </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ log.processor_name }}</span>
                                 </td>
                                 <td><code>{{ log.process_id }}</code></td>
                                 <td>{{ log.message }}</td>
@@ -112,4 +116,8 @@
         </div>
     </div>
 </div>
+
+<form action="{{ url_for('main.clear_logs') }}" method="post" class="mt-4 mb-4">
+    <button type="submit" class="btn btn-danger">Clear List</button>
+</form>
 {% endblock %} 

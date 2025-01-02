@@ -2,22 +2,102 @@
 
 {% block title %}Test Procedures - Processing Service{% endblock %}
 
+{% block extra_head %}
+<!-- Toast UI Editor -->
+<link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
+<script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
+<style>
+.modal-body {
+    max-height: 80vh;
+    overflow-y: auto;
+}
+#viewer {
+    height: 100%;
+    min-height: 400px;
+    overflow-y: auto;
+}
+.toastui-editor-contents {
+    max-height: none !important;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <h1>Test Procedures</h1>
 
-<div class="row mt-4">
-    <!-- YouTube Processing Tests -->
-    <div class="col-md-6 mb-4">
+<!-- Loading Spinner -->
+<div id="loadingSpinner" class="text-center" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-2">Processing test, please wait...</p>
+</div>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs mt-4" id="testTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="youtube-tab" data-bs-toggle="tab" data-bs-target="#youtube" 
+                type="button" role="tab" aria-controls="youtube" aria-selected="true">
+            YouTube Test
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio" 
+                type="button" role="tab" aria-controls="audio" aria-selected="false">
+            Audio Test
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="transformer-tab" data-bs-toggle="tab" data-bs-target="#transformer" 
+                type="button" role="tab" aria-controls="transformer" aria-selected="false">
+            Transformer Test
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health" 
+                type="button" role="tab" aria-controls="health" aria-selected="false">
+            Health Check
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content mt-3" id="testTabsContent">
+    <!-- YouTube Test Tab -->
+    <div class="tab-pane fade show active" id="youtube" role="tabpanel" aria-labelledby="youtube-tab">
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">YouTube Processing Test</h5>
                 <p class="card-text">Test the YouTube processing functionality by providing a video URL.</p>
-                <form action="{{ url_for('main.run_youtube_test') }}" method="POST" class="mt-3">
+                <form action="{{ url_for('main.youtube_test') }}" method="POST" class="mt-3 test-form">
                     <div class="mb-3">
                         <label for="youtube_url" class="form-label">YouTube URL</label>
                         <input type="url" class="form-control" id="youtube_url" name="youtube_url" 
-                               placeholder="https://www.youtube.com/watch?v=..." required>
+                               placeholder="https://www.youtube.com/watch?v=..." 
+                               value="{{ request.cookies.get('youtube_last_url', '') }}"
+                               required>
                         <div class="form-text">Enter a YouTube video URL to test the processing pipeline.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="target_language" class="form-label">Generate Language</label>
+                        <select name="target_language" class="form-control">
+                            <option value="de">German</option>
+                            <option value="en">English</option>
+                            <option value="fr">French</option>
+                            <option value="es">Spanish</option>
+                            <option value="it">Italian</option>
+                        </select>
+                        <div class="form-text">Select the language of the video content.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="template" class="form-label">Template</label>
+                        <select name="template" class="form-control" id="template">
+                            <option value="YouTube" selected>YouTube</option>
+                            <option value="Article">Article</option>
+                            <option value="Podcast">Podcast</option>
+                            <option value="Interview">Interview</option>
+                        </select>
+                        <div class="form-text">Select the template format for content processing.</div>
                     </div>
                     <button type="submit" class="btn btn-primary">Run Test</button>
                 </form>
@@ -25,32 +105,89 @@
         </div>
     </div>
 
-    <!-- Audio Processing Tests -->
-    <div class="col-md-6 mb-4">
+    <!-- Audio Test Tab -->
+    <div class="tab-pane fade" id="audio" role="tabpanel" aria-labelledby="audio-tab">
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Audio Processing Test</h5>
                 <p class="card-text">Test the audio processing functionality by uploading an audio file.</p>
-                <form action="{{ url_for('main.run_audio_test') }}" method="POST" class="mt-3" enctype="multipart/form-data">
+                <form action="{{ url_for('main.audio_test') }}" method="POST" class="mt-3 test-form" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label for="audio_file" class="form-label">Audio File</label>
                         <input type="file" class="form-control" id="audio_file" name="audio_file" 
                                accept="audio/*" required>
                         <div class="form-text">Select an audio file to test the processing pipeline.</div>
                     </div>
+                    <div class="mb-3">
+                        <label for="target_language" class="form-label">Generate Language</label>
+                        <select name="target_language" class="form-control">
+                            <option value="en">English</option>
+                            <option value="de">German</option>
+                            <option value="fr">French</option>
+                            <option value="es">Spanish</option>
+                            <option value="it">Italian</option>
+                        </select>
+                        <div class="form-text">Select the language of the audio content.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="template" class="form-label">Template</label>
+                        <select name="template" class="form-control" id="template">
+                            <option value="Gedanken" selected>Gedanken</option>
+                            <option value="Besprechung">Besprechung</option>
+                        </select>
+                        <div class="form-text">Select the template format for content processing.</div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Run Test</button>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- System Health Test -->
-    <div class="col-md-6 mb-4">
+    <!-- Transformer Test Tab -->
+    <div class="tab-pane fade" id="transformer" role="tabpanel" aria-labelledby="transformer-tab">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Transformer Processing Test</h5>
+                <p class="card-text">Test the transformer processing functionality by providing input text.</p>
+                <form action="{{ url_for('main.transformer_test') }}" method="POST" class="mt-3 test-form">
+                    <div class="mb-3">
+                        <label for="input_text" class="form-label">Input Text</label>
+                        <textarea class="form-control" id="input_text" name="input_text" 
+                                rows="4" required
+                                placeholder="Enter the text you want to process..."></textarea>
+                        <div class="form-text">Enter the text you want to process with the transformer.</div>
+                    </div>
+                    <div class="mb-3"></div>
+                        <label for="target_language" class="form-label">Generate Language</label>
+                        <select name="target_language" class="form-control">
+                            <option value="de">German</option>
+                            <option value="en">English</option>
+                            <option value="fr">French</option>
+                            <option value="es">Spanish</option>
+                            <option value="it">Italian</option>
+                        </select>
+                        <div class="form-text">Select the language of the audio content.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="model_type" class="form-label">Model Type</label>
+                        <select name="model_type" class="form-control" id="model_type">
+                            <option value="summarize">Summarization</option>
+                        </select>
+                        <div class="form-text">Select the type of transformer processing to perform.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Run Test</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Health Check Tab -->
+    <div class="tab-pane fade" id="health" role="tabpanel" aria-labelledby="health-tab">
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">System Health Test</h5>
                 <p class="card-text">Run system health checks to verify the functionality of various components.</p>
-                <form action="{{ url_for('main.run_health_test') }}" method="POST" class="mt-3">
+                <form action="{{ url_for('main.health_test') }}" method="POST" class="mt-3 test-form">
                     <div class="mb-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="check_api" name="check_api" checked>
@@ -79,15 +216,22 @@
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Test Results -->
-    {% if test_results %}
-    <div class="col-12">
+<!-- Test Results -->
+{% if test_results %}
+<div class="row mt-4">
+    <div class="col-12" id="testResults">
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Test Results</h5>
                 <div class="alert alert-{{ 'success' if test_results.success else 'danger' }} mt-3">
                     {{ test_results.message }}
+                    {% if test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
+                        <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#markdownModal">
+                            <i class="bi bi-eye"></i> View Markdown
+                        </button>
+                    {% endif %}
                 </div>
                 {% if test_results.details %}
                 <div class="mt-3">
@@ -98,6 +242,103 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
+
+<!-- Markdown Modal -->
+{% if test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
+<div class="modal fade" id="markdownModal" tabindex="-1" aria-labelledby="markdownModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="markdownModalLabel">Markdown Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="viewer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Get all forms with class 'test-form'
+    const testForms = document.querySelectorAll('.test-form');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const testResults = document.getElementById('testResults');
+
+    testForms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            loadingSpinner.style.display = 'block';
+            if (testResults) {
+                testResults.style.display = 'none';
+            }
+        });
+    });
+
+    // Handle transformer form dynamic fields
+    const modelTypeSelect = document.getElementById('model_type');
+    if (modelTypeSelect) {
+        const translationOptions = document.querySelector('.translation-options');
+        const qaOptions = document.querySelector('.qa-options');
+
+        modelTypeSelect.addEventListener('change', function() {
+            if (translationOptions) translationOptions.style.display = 'none';
+            if (qaOptions) qaOptions.style.display = 'none';
+
+            if (this.value === 'translate' && translationOptions) {
+                translationOptions.style.display = 'block';
+            } else if (this.value === 'qa' && qaOptions) {
+                qaOptions.style.display = 'block';
+            }
+        });
+    }
+
+    // Initialize Toast UI Viewer if content exists
+    {% if test_results and test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
+    const rawMarkdown = {{ test_results.details.api_response.audio_process.text|tojson|safe }};
+    if (rawMarkdown) {
+        const viewer = new toastui.Editor.factory({
+            el: document.querySelector('#viewer'),
+            viewer: true,
+            initialValue: rawMarkdown,
+            height: 'auto',
+            theme: 'dark',
+            previewStyle: 'vertical'
+        });
+    }
+    {% endif %}
+
+    // Handle tab switching for test results
+    {% if test_results and test_results.details and test_results.details.test_type %}
+    const testType = {{ test_results.details.test_type|tojson|safe }};
+    let tabId = null;
+    
+    switch(testType) {
+        case 'youtube_processing':
+            tabId = 'youtube-tab';
+            break;
+        case 'audio_processing':
+            tabId = 'audio-tab';
+            break;
+        case 'transformer_processing':
+            tabId = 'transformer-tab';
+            break;
+        case 'health_check':
+            tabId = 'health-tab';
+            break;
+    }
+    
+    if (tabId) {
+        const tab = document.getElementById(tabId);
+        if (tab) {
+            const bsTab = new bootstrap.Tab(tab);
+            bsTab.show();
+        }
+    }
+    {% endif %}
+});
+</script>
 {% endblock %} 

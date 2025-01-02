@@ -2,7 +2,7 @@
 Main routes for the dashboard application.
 Contains the main dashboard view and test routes.
 """
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, make_response, redirect, url_for
 from datetime import datetime, timedelta
 import json
 import os
@@ -10,11 +10,9 @@ import re
 from ..utils import get_system_info
 from pathlib import Path
 import yaml
-from src.core.config import Config
-import requests
-from urllib.parse import urlparse, parse_qs
-from src.utils.logger import ProcessingLogger
-import traceback
+from core.config import Config
+from utils.logger import ProcessingLogger
+from .tests import run_youtube_test, run_audio_test, run_transformer_test, run_health_test
 
 # Create the blueprint
 main = Blueprint('main', __name__)
@@ -55,29 +53,54 @@ def load_logs_for_requests(recent_requests):
                             except json.JSONDecodeError:
                                 current_entry['details'] = {'raw': '\n'.join(details_lines)}
                         
-                        # Add to request logs if process_id matches
                         if current_entry['process_id'] in request_logs:
                             request_logs[current_entry['process_id']].append(current_entry)
                     
                     # Parse new entry
-                    parts = line.split(' - ', 4)
+                    parts = line.split(' - ')
                     if len(parts) >= 5:
-                        timestamp, level, source, process, message = parts
-                        process_id = process.split('[')[1].split(']')[0] if '[' in process else ''
+                        timestamp = parts[0]
+                        level = parts[1]
+                        source = parts[2]  # [logger.py:97]
+                        process_info = parts[3]  # [TransformerProcessor] Process[1735640951800]
+                        message = ' - '.join(parts[4:])  # Join remaining parts in case message contains ' - '
                         
-                        # Initialize logs list for process_id if it's in recent requests
-                        for request in recent_requests:
-                            if request.get('process_id') == process_id:
-                                if process_id not in request_logs:
-                                    request_logs[process_id] = []
-                        
-                        current_entry = {
-                            'timestamp': timestamp,
-                            'level': level.strip(),
-                            'source': source.strip('[]'),
-                            'process_id': process_id,
-                            'message': message.strip()
-                        }
+                        try:
+                            # Extrahiere processor_name und process_id
+                            # Format: "[YoutubeProcessor] Process[1735641423754]"
+                            if '] Process[' in process_info:
+                                parts = process_info.split('] Process[')
+                                processor_name = parts[0].strip('[')  # YoutubeProcessor
+                                process_id = parts[1].strip(']')      # 1735641423754
+                            else:
+                                processor_name = ""
+                                process_id = ""
+                            
+                            # Initialize logs list for process_id if it's in recent requests
+                            for request in recent_requests:
+                                if request.get('process_id') == process_id:
+                                    if process_id not in request_logs:
+                                        request_logs[process_id] = []
+                            
+                            current_entry = {
+                                'timestamp': timestamp,
+                                'level': level.strip(),
+                                'source': source.strip('[]'),
+                                'processor_name': processor_name,
+                                'process_id': process_id,
+                                'message': message.strip()
+                            }
+                        except Exception as e:
+                            print(f"Error parsing log line: {line}")
+                            print(f"Error: {str(e)}")
+                            current_entry = {
+                                'timestamp': timestamp,
+                                'level': level.strip(),
+                                'source': source.strip('[]'),
+                                'processor_name': "",
+                                'process_id': "",
+                                'message': message.strip()
+                            }
                         details_lines = []
                         collecting_details = False
                 
@@ -89,6 +112,7 @@ def load_logs_for_requests(recent_requests):
                 # Add to details if we're collecting them
                 elif collecting_details and line:
                     details_lines.append(line)
+            
             
             # Don't forget to add the last entry
             if current_entry is not None:
@@ -158,7 +182,7 @@ def home():
             
             # Operation statistics
             for r in recent_requests:
-                op = r.get('operation', 'unknown')
+                op = r.get('operation', '')
                 stats['operations'][op] = stats['operations'].get(op, 0) + 1
             
             # Hourly statistics
@@ -180,7 +204,7 @@ def home():
                     'timestamp': request['timestamp'],
                     'duration_seconds': request['duration_seconds'],
                     'operation': request['operation'],
-                    'processor': request.get('processor', 'unknown'),
+                    'processor': request.get('processor', ''),
                     'success': request.get('details', {}).get('success', False),
                     'function': request.get('details', {}).get('function', ''),
                     'file_size': request.get('details', {}).get('file_size', 0),
@@ -296,161 +320,143 @@ def test_procedures():
     return render_template('test.html', test_results=None)
 
 @main.route('/run_youtube_test', methods=['POST'])
-def run_youtube_test():
-    """
-    Run a test for YouTube processing by calling the API endpoint
-    """
-    logger.info("Starting YouTube test procedure", 
-                endpoint="run_youtube_test",
-                method=request.method)
-    
-    try:
-        url = request.form.get('youtube_url')
-        if not url:
-            logger.error("YouTube URL missing in form data")
-            raise ValueError("YouTube URL is required")
-
-        # Call the YouTube processing API endpoint
-        api_url = request.url_root.rstrip('/') + '/api/process-youtube'
-        logger.info("Calling YouTube API endpoint", 
-                   api_url=api_url,
-                   youtube_url=url)
-
-        try:
-            api_response = requests.post(
-                api_url,
-                json={
-                    'url': url
-                },
-                headers={'Content-Type': 'application/json'}
-            )
-            
-            logger.info("Received API response", 
-                       status_code=api_response.status_code,
-                       response_headers=dict(api_response.headers),
-                       content_type=api_response.headers.get('content-type'))
-
-            # Log raw response content for debugging
-            logger.debug("Raw API response content",
-                        content=api_response.text[:1000])  # First 1000 chars to avoid huge logs
-
-            if api_response.status_code != 200:
-                try:
-                    error_data = api_response.json()
-                    error_msg = error_data.get('error', 'Unknown error')
-                except json.JSONDecodeError as je:
-                    error_msg = f"Invalid JSON response (Status {api_response.status_code}): {api_response.text}"
-                
-                logger.error("API request failed", 
-                            status_code=api_response.status_code,
-                            error_message=error_msg,
-                            response_content=api_response.text[:1000])
-                raise ValueError(f"API request failed: {error_msg}")
-
-            api_data = api_response.json()
-            logger.info("API request successful", 
-                       response_data=api_data)
-            
-        except requests.RequestException as e:
-            logger.error("HTTP Request failed",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc())
-            raise ValueError(f"HTTP Request failed: {str(e)}")
-        
-        test_results = {
-            'success': True,
-            'message': 'YouTube processing test completed successfully',
-            'details': {
-                'url': url,
-                'test_type': 'youtube_processing',
-                'api_response': api_data
-            }
-        }
-        
-    except Exception as e:
-        logger.error("YouTube test failed", 
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    stack_trace=traceback.format_exc())
-        test_results = {
-            'success': False,
-            'message': f'YouTube processing test failed: {str(e)}',
-            'details': {
-                'error': str(e),
-                'error_type': type(e).__name__,
-                'stack_trace': traceback.format_exc()
-            }
-        }
-    
-    return render_template('test.html', test_results=test_results)
+def youtube_test():
+    """Route handler for YouTube test"""
+    return run_youtube_test()
 
 @main.route('/run_audio_test', methods=['POST'])
-def run_audio_test():
-    """
-    Run a test for audio processing
-    """
-    try:
-        if 'audio_file' not in request.files:
-            raise ValueError("Audio file is required")
-            
-        audio_file = request.files['audio_file']
-        if audio_file.filename == '':
-            raise ValueError("No selected file")
-            
-        # Hier würde die eigentliche Testlogik implementiert
-        # Zum Beispiel: Verarbeitung einer kurzen Audiodatei
-        
-        test_results = {
-            'success': True,
-            'message': 'Audio processing test completed successfully',
-            'details': {
-                'filename': audio_file.filename,
-                'test_type': 'audio_processing'
-            }
-        }
-        
-    except Exception as e:
-        test_results = {
-            'success': False,
-            'message': f'Audio processing test failed: {str(e)}',
-            'details': {
-                'error': str(e),
-                'test_type': 'audio_processing'
-            }
-        }
-    
-    return render_template('test.html', test_results=test_results)
+def audio_test():
+    """Route handler for audio test"""
+    return run_audio_test()
+
+@main.route('/run_transformer_test', methods=['POST'])
+def transformer_test():
+    """Route handler for transformer test"""
+    return run_transformer_test()
 
 @main.route('/run_health_test', methods=['POST'])
-def run_health_test():
+def health_test():
+    """Route handler for health test"""
+    return run_health_test()
+
+@main.route('/logs')
+def logs():
+    """Show system logs with filtering options"""
+    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'detailed.log')
+    logs = []
+    
+    try:
+        with open(log_path, 'r') as f:
+            current_entry = None
+            details_lines = []
+            
+            for line in f:
+                line = line.strip()
+                
+                if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
+                    # Save previous entry if exists
+                    if current_entry is not None:
+                        if details_lines:
+                            try:
+                                details_text = '\n'.join(details_lines)
+                                if details_text.startswith('Details: '):
+                                    details_text = details_text[9:]
+                                current_entry['details'] = json.loads(details_text)
+                            except json.JSONDecodeError:
+                                current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                        logs.append(current_entry)
+                    
+                    # Parse new entry
+                    parts = line.split(' - ')
+                    if len(parts) >= 5:
+                        timestamp = parts[0]
+                        level = parts[1]
+                        source = parts[2]  # [logger.py:97]
+                        process_info = parts[3]  # [TransformerProcessor] Process[1735640951800]
+                        message = ' - '.join(parts[4:])  # Join remaining parts in case message contains ' - '
+                        
+                        try:
+                            # Extrahiere processor_name und process_id
+                            if '] Process[' in process_info:
+                                parts = process_info.split('] Process[')
+                                processor_name = parts[0].strip('[')
+                                process_id = parts[1].strip(']')
+                            else:
+                                processor_name = ""
+                                process_id = ""
+                            
+                            current_entry = {
+                                'timestamp': timestamp,
+                                'level': level.strip(),
+                                'source': source.strip('[]'),
+                                'processor_name': processor_name,
+                                'process_id': process_id,
+                                'message': message.strip(),
+                                'details': None  # Initialize details as None
+                            }
+                        except Exception as e:
+                            print(f"Error parsing log line: {line}")
+                            print(f"Error: {str(e)}")
+                            current_entry = {
+                                'timestamp': timestamp,
+                                'level': level.strip(),
+                                'source': source.strip('[]'),
+                                'processor_name': "",
+                                'process_id': "",
+                                'message': message.strip(),
+                                'details': None  # Initialize details as None
+                            }
+                    details_lines = []
+                
+                elif line.startswith('Details: '):
+                    details_lines = [line]
+                elif details_lines:
+                    details_lines.append(line)
+            
+            # Add last entry
+            if current_entry is not None:
+                if details_lines:
+                    try:
+                        details_text = '\n'.join(details_lines)
+                        if details_text.startswith('Details: '):
+                            details_text = details_text[9:]
+                        current_entry['details'] = json.loads(details_text)
+                    except json.JSONDecodeError:
+                        current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                logs.append(current_entry)
+        
+        # Apply filters
+        filter_level = request.args.get('level')
+        filter_date = request.args.get('date')
+        search_query = request.args.get('search')
+        
+        if filter_level:
+            logs = [log for log in logs if log['level'] == filter_level]
+        if filter_date:
+            logs = [log for log in logs if log['timestamp'].startswith(filter_date)]
+        if search_query:
+            logs = [log for log in logs if search_query.lower() in log['message'].lower()]
+        
+        # Sort logs by timestamp (newest first)
+        logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        return render_template('logs.html', 
+                             logs=logs, 
+                             filter_level=filter_level,
+                             filter_date=filter_date,
+                             search_query=search_query)
+                             
+    except Exception as e:
+        return f"Error reading logs: {str(e)}", 500 
+
+@main.route('/clear-logs', methods=['POST'])
+def clear_logs():
     """
-    Run system health tests
+    Löscht den Inhalt der detailed.log Datei
     """
     try:
-        check_api = request.form.get('check_api') == 'on'
-        check_storage = request.form.get('check_storage') == 'on'
-        check_processors = request.form.get('check_processors') == 'on'
-        
-        test_results = {
-            'success': True,
-            'message': 'System health check completed successfully',
-            'details': {
-                'api_status': 'OK' if check_api else 'Not checked',
-                'storage_status': 'OK' if check_storage else 'Not checked',
-                'processors_status': 'OK' if check_processors else 'Not checked',
-                'test_type': 'health_check'
-            }
-        }
-        
+        with open('logs/detailed.log', 'w') as f:
+            f.write('')
+        return redirect(url_for('main.logs'))
     except Exception as e:
-        test_results = {
-            'success': False,
-            'message': f'System health check failed: {str(e)}',
-            'details': {
-                'error': str(e),
-                'test_type': 'health_check'
-            }
-        }
-    
-    return render_template('test.html', test_results=test_results) 
+        return f"Error clearing logs: {str(e)}", 500 

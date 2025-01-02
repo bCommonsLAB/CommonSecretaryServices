@@ -36,6 +36,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 3. Abhängigkeiten installieren:
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 
@@ -180,7 +181,18 @@ curl -X POST -F "file=@image.jpg" http://localhost:5000/api/process-image
 ```
 
 
-### 3. YouTube-Verarbeitung
+### 3. Audio-Verarbeitung
+
+**Endpoint:** `/api/process-audio`  
+**Methode:** POST  
+**Content-Type:** multipart/form-data
+
+```bash
+curl -X POST -F "file=@audio.mp3" http://localhost:5000/api/process-audio
+```
+
+
+### 4. YouTube-Verarbeitung
 
 **Endpoint:** `/api/process-youtube`  
 **Methode:** POST  
@@ -190,6 +202,18 @@ curl -X POST -F "file=@image.jpg" http://localhost:5000/api/process-image
 curl -X POST -H "Content-Type: application/json" \
 -d '{"url":"https://www.youtube.com/watch?v=example"}' \
 http://localhost:5000/api/process-youtube
+```
+
+### 5. Text-Transformation
+
+**Endpoint:** `/api/transform-text`  
+**Methode:** POST  
+**Content-Type:** application/json
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+-d '{"text":"Dies ist ein Test"}' \
+http://localhost:5000/api/transform-text
 ```
 
 ## Beispiele

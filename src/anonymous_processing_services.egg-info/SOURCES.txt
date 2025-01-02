@@ -15,12 +15,14 @@ src/core/exceptions.py
 src/core/rate_limiting.py
 src/core/resource_tracking.py
 src/processors/__init__.py
+src/processors/audio_processor.py
 src/processors/base_processor.py
 src/processors/image_processor.py
 src/processors/pdf_processor.py
 src/processors/youtube_processor.py
 src/utils/__init__.py
 src/utils/audio_utils.py
+src/utils/logger.py
 src/utils/transcription_utils.py
 tests/test_pdf_processor.py
 tests/test_utils.py

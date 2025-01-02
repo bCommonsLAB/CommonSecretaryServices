@@ -6,7 +6,7 @@ from flask import Flask
 from .routes.main_routes import main
 from .routes.log_routes import logs
 from .routes.config_routes import config
-from src.api import api_blueprint
+from api import api_blueprint
 
 def create_app():
     """

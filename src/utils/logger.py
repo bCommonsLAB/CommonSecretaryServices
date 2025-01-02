@@ -10,43 +10,40 @@ from functools import wraps
 class ProcessingLogger:
     _shared_handlers_initialized = False
     
-    def __init__(self, log_dir: str = "logs", process_id: str = None):
+    def __init__(self, log_dir: str = "logs", process_id: str = None, processor_name: str = None):
         if not process_id:
             raise ValueError("process_id ist ein Pflichtfeld")
             
         self.process_id = process_id
+        self.processor_name = processor_name or ""  # Fallback wenn kein Name angegeben
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Haupt-Logger Setup mit eindeutigem Namen für jeden Prozessor
         self.logger = logging.getLogger(f"processing_service.{process_id}")
         self.logger.setLevel(logging.DEBUG)
+        self.logger.propagate = False  # Verhindert Weiterleitung an Parent-Logger
         
-        # Initialisiere Handler nur einmal für alle Logger
+        # Shared Handler Konfiguration, nur einmal erstellen
         if not ProcessingLogger._shared_handlers_initialized:
             # Console Handler
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(logging.INFO)
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - Process[%(process_id)s] - %(message)s'
+            ProcessingLogger._console_handler = logging.StreamHandler(sys.stdout)
+            ProcessingLogger._console_handler.setLevel(logging.INFO)
+            formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - [%(processor_name)s] Process[%(process_id)s] - %(message)s - Args: %(kwargs)s'
             )
-            console_handler.setFormatter(console_formatter)
+            ProcessingLogger._console_handler.setFormatter(formatter)
             
             # File Handler für detaillierte Logs
-            detail_handler = logging.FileHandler(
+            ProcessingLogger._detail_handler = logging.FileHandler(
                 self.log_dir / "detailed.log",
                 encoding='utf-8'
             )
-            detail_handler.setLevel(logging.DEBUG)
+            ProcessingLogger._detail_handler.setLevel(logging.DEBUG)
             detail_formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - Process[%(process_id)s] - %(message)s'
+                '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - [%(processor_name)s] Process[%(process_id)s] - %(message)s'
             )
-            detail_handler.setFormatter(detail_formatter)
-            
-            # Füge Handler zum Root-Logger hinzu
-            root_logger = logging.getLogger("processing_service")
-            root_logger.addHandler(console_handler)
-            root_logger.addHandler(detail_handler)
+            ProcessingLogger._detail_handler.setFormatter(detail_formatter)
             
             # Performance Log (JSON)
             self.perf_log_path = self.log_dir / "performance.json"
@@ -54,6 +51,11 @@ class ProcessingLogger:
                 self.perf_log_path.write_text("[]")
             
             ProcessingLogger._shared_handlers_initialized = True
+        
+        # Füge die Handler zum Logger hinzu
+        if not self.logger.handlers:
+            self.logger.addHandler(ProcessingLogger._console_handler)
+            self.logger.addHandler(ProcessingLogger._detail_handler)
         
         # Hole die gemeinsamen Handler vom Root-Logger
         self.perf_log_path = self.log_dir / "performance.json"
@@ -69,40 +71,45 @@ class ProcessingLogger:
             return [self._clean_process_id(item) for item in data]
         return data
     
-    def debug(self, message: str, **kwargs):
-        """Debug-Level Logging mit optionalen strukturierten Daten."""
-        extra = {'process_id': self.process_id}
+    def _prepare_extra(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Bereitet die Extra-Daten für das Logging vor."""
+        extra = {
+            'process_id': self.process_id,
+            'processor_name': self.processor_name,
+            'kwargs': '{}'  # Default leeres JSON wenn keine kwargs vorhanden
+        }
         if kwargs:
             # Entferne process_id rekursiv aus kwargs
             clean_kwargs = self._clean_process_id(kwargs)
             if clean_kwargs:
-                details = json.dumps(clean_kwargs, indent=2)
-                message = f"{message}\nDetails: {details}"
+                extra['kwargs'] = json.dumps(clean_kwargs)
+        return extra
+
+    def debug(self, message: str, **kwargs):
+        """Debug-Level Logging mit optionalen strukturierten Daten."""
+        extra = self._prepare_extra(kwargs)
+        if kwargs:  # Nur wenn kwargs vorhanden sind
+            message = f"{message} - Args: {extra['kwargs']}"
         self.logger.debug(message, extra=extra)
 
     def info(self, message: str, **kwargs):
         """Info-Level Logging mit optionalen strukturierten Daten."""
-        extra = {'process_id': self.process_id}
-        if kwargs:
-            # Entferne process_id rekursiv aus kwargs
-            clean_kwargs = self._clean_process_id(kwargs)
-            if clean_kwargs:
-                details = json.dumps(clean_kwargs, indent=2)
-                message = f"{message}\nDetails: {details}"
+        extra = self._prepare_extra(kwargs)
+        if kwargs:  # Nur wenn kwargs vorhanden sind
+            message = f"{message} - Args: {extra['kwargs']}"
         self.logger.info(message, extra=extra)
 
     def error(self, message: str, error: Optional[Exception] = None, **kwargs):
         """Error-Level Logging mit Exception-Details."""
-        extra = {'process_id': self.process_id}
         if error:
             message = f"{message}\nError: {str(error)}"
-        if kwargs:
-            # Entferne process_id rekursiv aus kwargs
-            clean_kwargs = self._clean_process_id(kwargs)
-            if clean_kwargs:
-                details = json.dumps(clean_kwargs, indent=2)
-                message = f"{message}\nDetails: {details}"
+        extra = self._prepare_extra(kwargs)
         self.logger.error(message, extra=extra)
+
+    def warning(self, message: str, **kwargs):
+        """Warning-Level Logging mit strukturierten Daten."""
+        extra = self._prepare_extra(kwargs)
+        self.logger.warning(message, extra=extra)
 
     def log_performance(self, operation: str, duration: float, details: Dict[str, Any]):
         """Loggt Performance-Daten in JSON-Format."""

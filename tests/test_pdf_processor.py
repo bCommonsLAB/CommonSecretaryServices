@@ -1,8 +1,8 @@
 import pytest
 pytestmark = pytest.mark.asyncio
 from pathlib import Path
-from src.processors.pdf_processor import PDFProcessor
-from src.core.exceptions import FileSizeLimitExceeded, ProcessingError
+from processors.pdf_processor import PDFProcessor
+from core.exceptions import FileSizeLimitExceeded, ProcessingError
 
 @pytest.fixture
 def pdf_processor(resource_calculator):

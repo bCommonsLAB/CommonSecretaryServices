@@ -9,11 +9,11 @@ from pydub import AudioSegment
 import traceback
 
 from .base_processor import BaseProcessor
-from src.core.resource_tracking import ResourceUsage
-from src.core.exceptions import ProcessingError
-from src.utils.logger import ProcessingLogger
-from src.utils.transcription_utils import WhisperTranscriber
-from src.core.config import Config
+from core.resource_tracking import ResourceUsage
+from core.exceptions import ProcessingError
+from utils.logger import ProcessingLogger
+from utils.transcription_utils import WhisperTranscriber
+from core.config import Config
 
 class YoutubeProcessor(BaseProcessor):
     def __init__(self, resource_calculator, max_file_size: int = None, max_duration: int = None):
@@ -27,7 +27,10 @@ class YoutubeProcessor(BaseProcessor):
         
         super().__init__(resource_calculator, max_file_size)
         self.max_duration = max_duration
-        self.logger = ProcessingLogger(process_id=self.process_id)
+        self.logger = ProcessingLogger(
+            process_id=self.process_id,
+            processor_name="YoutubeProcessor"
+        )
         
         # Erstelle absolute Pfade für die Verzeichnisse
         self.temp_dir = Path(youtube_config.get('temp_dir', "temp-processing/video")).resolve()
@@ -73,16 +76,30 @@ class YoutubeProcessor(BaseProcessor):
         cached_path = self._get_cached_audio_path(video_id)
         return cached_path if cached_path.exists() else None
 
+    def _format_duration(self, seconds: int) -> str:
+        """
+        Formatiert die Dauer von Sekunden in ein lesbares Format (MM:SS).
+        
+        Args:
+            seconds (int): Dauer in Sekunden
+            
+        Returns:
+            str: Formatierte Dauer im Format MM:SS
+        """
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{minutes}:{remaining_seconds:02d}"
+
     @ProcessingLogger.track_performance("youtube_processing")
-    async def process(self, url: str, language: str = 'en', extract_audio: bool = True, summarize: bool = False) -> Dict[str, Any]:
+    async def process(self, url: str, target_language: str = 'de', extract_audio: bool = True, template: str = 'Youtube') -> Dict[str, Any]:
         """
         Verarbeitet ein YouTube-Video.
         
         Args:
             url (str): Die URL des zu verarbeitenden YouTube-Videos
-            language (str): Die Sprache für die Transkription (ISO 639-1 code)
+            target_language (str): Die Zielsprache für die Transkription (ISO 639-1 code)
             extract_audio (bool): Ob Audio extrahiert werden soll
-            summarize (bool): Ob eine Zusammenfassung generiert werden soll
+            template (str): Name der zu verwendenden Vorlage
             
         Returns:
             Dict[str, Any]: Ein Dictionary mit den Verarbeitungsergebnissen
@@ -90,9 +107,9 @@ class YoutubeProcessor(BaseProcessor):
         try:
             process_dir = self.create_process_dir()
             self.logger.debug("YouTube Processing Start", 
-                            language=language,
+                            target_language=target_language,
                             extract_audio=extract_audio,
-                            summarize=summarize)
+                            template=template)
 
             # Extrahiere Video-ID und prüfe Cache
             video_id = self._extract_video_id(url)
@@ -154,17 +171,33 @@ class YoutubeProcessor(BaseProcessor):
                         "url": url,
                         "source_type": "youtube",
                         "duration": info.get('duration'),
-                        "video_id": video_id
+                        "duration_formatted": self._format_duration(info.get('duration')),  # Formatierte Dauer
+                        "video_id": video_id,
+                        "availability": info.get('availability'),
+                        "categories": info.get('categories'),
+                        "description": info.get('description'),
+                        "tags": info.get('tags'),
+                        "thumbnail": info.get('thumbnail'),
+                        "upload_date": info.get('upload_date'),
+                        "uploader": info.get('uploader'),
+                        "uploader_id": info.get('uploader_id'),
+                        "chapters": info.get('chapters'),
+                        "view_count": info.get('view_count'),
+                        "like_count": info.get('like_count'),
+                        "dislike_count": info.get('dislike_count'),
+                        "average_rating": info.get('average_rating'),
+                        "age_limit": info.get('age_limit'),
+                        "webpage_url": info.get('webpage_url')
                     }
 
                     # Direkter Aufruf des AudioProcessors
-                    from src.processors.audio_processor import AudioProcessor
-                    audio_processor = AudioProcessor(self.calculator, self.max_file_size, logger=self.logger)
+                    from processors.audio_processor import AudioProcessor
+                    audio_processor = AudioProcessor(self.calculator, self.max_file_size)
                     
                     self.logger.debug("Vor Audio Processing Aufruf")
-
+                    
                     # Übergebe den Dateipfad statt der Bytes
-                    audio_result = await audio_processor.process(audio_path, source_info, language, summarize)
+                    audio_result = await audio_processor.process(audio_path, source_info, target_language, template)
 
                     self.logger.debug("Nach Audio Processing",
                                     audio_result_id=audio_result.get('process_id'))
@@ -172,16 +205,16 @@ class YoutubeProcessor(BaseProcessor):
                 # Erstelle eigenes Result mit YouTube-spezifischen Informationen
                 result = {
                     "title": info.get('title'),
-                    "duration": info.get('duration'),
+                    "duration": info.get('duration', 0),
                     "url": url,
                     "video_id": video_id,
                     "cached_audio_path": str(audio_path) if audio_path else None,
                     "process_dir": str(process_dir),
                     "process_id": self.process_id,
                     "args": {
-                        "language": language,
+                        "target_language": target_language,
                         "extract_audio": extract_audio,
-                        "summarize": summarize
+                        "template": template
                     }
                 }
 
@@ -198,7 +231,7 @@ class YoutubeProcessor(BaseProcessor):
                 'stack_trace': traceback.format_exc(),
                 'url': url,
                 'process_dir': str(process_dir) if 'process_dir' in locals() else None,
-                'stage': 'unknown'
+                'stage': ''
             }
             
             # Bestimme die Verarbeitungsstufe

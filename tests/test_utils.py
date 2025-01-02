@@ -1,6 +1,6 @@
 import pytest
-from src.utils.audio_utils import AudioProcessor
-from src.utils.transcription_utils import WhisperTranscriber
+from utils.audio_utils import AudioProcessor
+from utils.transcription_utils import WhisperTranscriber
 from pathlib import Path
 
 @pytest.fixture

@@ -7,15 +7,18 @@ import os
 from typing import Dict, Any, List
 
 from .base_processor import BaseProcessor
-from src.core.resource_tracking import ResourceUsage
-from src.core.exceptions import ProcessingError
-from src.utils.logger import ProcessingLogger
+from core.resource_tracking import ResourceUsage
+from core.exceptions import ProcessingError
+from utils.logger import ProcessingLogger
 
 class PDFProcessor(BaseProcessor):
     def __init__(self, resource_calculator, max_file_size: int, max_pages: int = 100):
         super().__init__(resource_calculator, max_file_size)
         self.max_pages = max_pages
-        self.logger = ProcessingLogger(process_id=self.process_id)
+        self.logger = ProcessingLogger(
+            process_id=self.process_id,
+            processor_name="PDFProcessor"
+        )
         # Verzeichnis für temporäre Verarbeitung
         self.temp_dir = Path("temp-processing/pdf")
         self.temp_dir.mkdir(parents=True, exist_ok=True)

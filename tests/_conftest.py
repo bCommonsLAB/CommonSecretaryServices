@@ -1,6 +1,6 @@
 import pytest
 pytestmark = pytest.mark.asyncio
-from src.core.resource_tracking import ResourceCalculator
+from core.resource_tracking import ResourceCalculator
 
 pytest_plugins = ["pytest_asyncio"]
 

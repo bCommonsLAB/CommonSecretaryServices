@@ -188,6 +188,8 @@
                                             <tr>
                                                 <th>Zeit</th>
                                                 <th>Level</th>
+                                                <th>Processor</th>
+                                                <th>Process ID</th>
                                                 <th>Nachricht</th>
                                             </tr>
                                         </thead>
@@ -200,6 +202,12 @@
                                                         <span class="badge {{ 'bg-danger' if 'ERROR' in log.level else 'bg-info' if 'INFO' in log.level else 'bg-secondary' }}">
                                                             {{ log.level }}
                                                         </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="badge bg-secondary">{{ log.processor_name }}</span>
+                                                    </td>
+                                                    <td>
+                                                        <code>{{ log.process_id }}</code>
                                                     </td>
                                                     <td>
                                                         {{ log.message }}

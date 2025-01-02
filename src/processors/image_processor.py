@@ -5,15 +5,18 @@ from pathlib import Path
 import time
 
 from .base_processor import BaseProcessor
-from src.core.resource_tracking import ResourceUsage
-from src.core.exceptions import ProcessingError
-from src.utils.logger import ProcessingLogger
+from core.resource_tracking import ResourceUsage
+from core.exceptions import ProcessingError
+from utils.logger import ProcessingLogger
 
 class ImageProcessor(BaseProcessor):
     def __init__(self, resource_calculator, max_file_size: int, max_resolution: int = 4096):
         super().__init__(resource_calculator, max_file_size)
         self.max_resolution = max_resolution
-        self.logger = ProcessingLogger(process_id=self.process_id)
+        self.logger = ProcessingLogger(
+            process_id=self.process_id,
+            processor_name="ImageProcessor"
+        )
         self.temp_dir = Path("temp-processing/image")
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 

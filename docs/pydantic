@@ -1,0 +1,61 @@
+Um mit Pydantic dynamisch ein structured output Schema zu erstellen und es mit OpenAI GPT-4o in Python anzuwenden, können Sie folgende Schritte befolgen:
+Dynamisches Schema erstellen
+Zunächst erstellen wir eine Funktion, die dynamisch ein Pydantic-Modell generiert:
+python
+from pydantic import create_model, Field
+from typing import Dict, Any
+
+def create_dynamic_model(properties: Dict[str, Any], model_name: str = "DynamicModel"):
+    field_definitions = {}
+    for prop, definition in properties.items():
+        prop_type = definition.get("type")
+        if prop_type == "string":
+            field_definitions[prop] = (str, Field(..., description=definition.get("description", "")))
+        elif prop_type == "integer":
+            field_definitions[prop] = (int, Field(..., description=definition.get("description", "")))
+        # Fügen Sie hier weitere Typen hinzu, falls benötigt
+    
+    return create_model(model_name, **field_definitions)
+Schema anwenden
+Nun können wir das dynamisch erstellte Schema mit der OpenAI API verwenden:
+python
+from openai import OpenAI
+import os
+
+# OpenAI Client initialisieren
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# Dynamisches Modell erstellen
+schema = {
+    "name": {"type": "string", "description": "Der Name der Person"},
+    "age": {"type": "integer", "description": "Das Alter der Person in Jahren"}
+}
+DynamicModel = create_dynamic_model(schema)
+
+# Structured Output mit GPT-4o
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "Du bist ein hilfreicher Assistent."},
+        {"role": "user", "content": "Gib mir Informationen über eine fiktive Person."}
+    ],
+    functions=[{
+        "name": "output_person_info",
+        "description": "Gibt Informationen über eine Person aus",
+        "parameters": DynamicModel.model_json_schema()
+    }],
+    function_call={"name": "output_person_info"}
+)
+
+# Ergebnis verarbeiten
+result = response.choices[0].message.function_call.arguments
+parsed_result = DynamicModel.model_validate_json(result)
+
+print(parsed_result)
+Erklärung
+Die Funktion create_dynamic_model erstellt ein Pydantic-Modell basierend auf einem Dictionary von Eigenschaften12.
+Wir definieren ein Schema für unser dynamisches Modell. In diesem Beispiel enthält es "name" und "age"1.
+Mit der OpenAI API erstellen wir eine Chat-Completion und übergeben unser dynamisches Modell als Funktionsparameter7.
+Die API gibt eine strukturierte Antwort zurück, die wir mit unserem dynamischen Modell validieren und parsen15.
+Diese Methode ermöglicht es, flexibel strukturierte Ausgaben von GPT-4o zu erhalten, die sich an das dynamisch erstellte Schema anpassen. Sie können das Schema je nach Bedarf erweitern oder ändern, ohne den Code für die Modellverarbeitung anpassen zu müssen10.
+Beachten Sie, dass Sie für die Verwendung von GPT-4o einen gültigen API-Schlüssel benötigen und möglicherweise Zugang zur neuesten Version der OpenAI API haben müssen37.

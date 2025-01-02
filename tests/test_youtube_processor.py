@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.processors.youtube_processor import YoutubeProcessor
+from processors.youtube_processor import YoutubeProcessor
 from core.exceptions import ProcessingError
-from src.utils.logger import ProcessingLogger
+from utils.logger import ProcessingLogger
 
 @pytest.fixture
 def mock_calculator():
