@@ -13,8 +13,8 @@ class Config:
     Sensitive Daten wie API-Keys werden NICHT hier verwaltet.
     """
     _instance = None
-    _config = None
     _logger = None
+    _config_path = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -22,10 +22,10 @@ class Config:
         return cls._instance
     
     def __init__(self):
-        if self._config is None:
+        if self._logger is None:
             self._setup_basic_logger()
-            self._load_config()
-            self._logger.info("Konfiguration geladen")
+            self._config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml')
+            self._logger.info("Config Manager initialisiert")
     
     def _setup_basic_logger(self):
         """Initialisiert einen einfachen Logger für die Konfiguration."""
@@ -33,7 +33,6 @@ class Config:
             self._logger = logging.getLogger('config')
             self._logger.setLevel(logging.INFO)
             
-            # Konsolen-Handler
             console_handler = logging.StreamHandler()
             console_handler.setLevel(logging.INFO)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -41,23 +40,27 @@ class Config:
             
             self._logger.addHandler(console_handler)
     
-    def _load_config(self):
-        """Lädt die Konfiguration aus config.yaml"""
+    def _read_config(self):
+        """Liest die aktuelle Konfiguration aus der YAML-Datei."""
         try:
-            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml')
-            with open(config_path, 'r', encoding='utf-8') as f:
-                self._config = yaml.safe_load(f) or {}
-                
-            # Setze Standard-Werte wenn nicht vorhanden
-            self._config = {**self.DEFAULT_CONFIG, **self._config}
-            
+            with open(self._config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+            return {**self.DEFAULT_CONFIG, **config}
         except Exception as e:
             self._logger.error(f"Fehler beim Laden der Konfiguration: {str(e)}")
-            self._config = self.DEFAULT_CONFIG.copy()
+            return self.DEFAULT_CONFIG.copy()
+
+    def _write_config(self, config):
+        """Schreibt die Konfiguration in die YAML-Datei."""
+        try:
+            with open(self._config_path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True)
+        except Exception as e:
+            self._logger.error(f"Fehler beim Speichern der Konfiguration: {str(e)}")
     
     def get_all(self):
         """Gibt die gesamte Konfiguration zurück"""
-        return self._config
+        return self._read_config()
     
     def get(self, key, default=None):
         """Gibt einen spezifischen Konfigurationswert zurück.
@@ -72,25 +75,46 @@ class Config:
         Returns:
             Den Konfigurationswert oder den default-Wert
         """
+        config = self._read_config()
         try:
-            value = self._config
+            value = config
             for k in key.split('.'):
                 value = value[k]
             return value
         except (KeyError, TypeError):
             return default
     
-    def set(self, key, value):
-        """Setzt einen Konfigurationswert"""
-        self._config[key] = value
+    def set(self, key: str, value):
+        """Setzt einen Konfigurationswert und speichert die Änderung.
+        
+        Args:
+            key: Der Schlüssel als String, kann Punkt-Notation enthalten
+            value: Der zu setzende Wert
+        """
+        config = self._read_config()
+        keys = key.split('.')
+        current = config
+        
+        # Navigiere zur richtigen Stelle in der verschachtelten Struktur
+        for k in keys[:-1]:
+            if k not in current:
+                current[k] = {}
+            current = current[k]
+        
+        # Setze den Wert
+        current[keys[-1]] = value
         self._logger.info(f"Konfigurationswert gesetzt: {key}")
+        
+        # Speichere die Änderung
+        self._write_config(config)
     
     # Standard-Konfiguration
     DEFAULT_CONFIG = {
         'server': {
             'host': '0.0.0.0',
             'port': 5000,
-            'debug': False
+            'debug': False,
+            'api_port': 5001  # API Port für interne Kommunikation
         },
         'processors': {
             'youtube': {
@@ -119,3 +143,5 @@ class Config:
             'backup_count': 5
         }
     } 
+
+# Ende der Datei 

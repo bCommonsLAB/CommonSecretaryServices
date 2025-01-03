@@ -17,9 +17,9 @@ from src.core.config import Config
 from src.core.config_keys import ConfigKeys
 
 class YoutubeProcessor(BaseProcessor):
-    """YouTube Processor für die Verarbeitung von YouTube-Videos.
+    """Youtube Processor für die Verarbeitung von Youtube-Videos.
     
-    Diese Klasse lädt Videos von YouTube herunter, extrahiert die Audio-Spur
+    Diese Klasse lädt Videos von Youtube herunter, extrahiert die Audio-Spur
     und führt optional eine Transkription durch.
     Die Konfiguration wird direkt aus der Config-Klasse geladen.
     
@@ -62,9 +62,9 @@ class YoutubeProcessor(BaseProcessor):
         return process_dir
 
     def _extract_video_id(self, url: str) -> str:
-        """Extrahiert die YouTube Video-ID aus der URL."""
+        """Extrahiert die Youtube Video-ID aus der URL."""
         import re
-        # Unterstützt verschiedene YouTube URL-Formate
+        # Unterstützt verschiedene Youtube URL-Formate
         patterns = [
             r'(?:youtube\.com\/watch\?v=|youtu.be\/|youtube.com\/embed\/)([^&\n?]+)',
             r'youtube.com\/shorts\/([^&\n?]+)'
@@ -74,7 +74,7 @@ class YoutubeProcessor(BaseProcessor):
             match = re.search(pattern, url)
             if match:
                 return match.group(1)
-        raise ValueError(f"Konnte keine YouTube Video-ID aus der URL extrahieren: {url}")
+        raise ValueError(f"Konnte keine Youtube Video-ID aus der URL extrahieren: {url}")
 
     def _get_cached_audio_path(self, video_id: str) -> Path:
         """Gibt den Pfad zur zwischengespeicherten Audio-Datei zurück."""
@@ -101,12 +101,12 @@ class YoutubeProcessor(BaseProcessor):
         return f"{minutes}:{remaining_seconds:02d}"
 
     @track_performance("youtube_processing")
-    async def process(self, url: str, target_language: str = 'de', extract_audio: bool = True, template: str = 'Youtube') -> Dict[str, Any]:
+    async def process(self, file_path: str, target_language: str = 'de', extract_audio: bool = True, template: str = 'Youtube') -> Dict[str, Any]:
         """
-        Verarbeitet ein YouTube-Video.
+        Verarbeitet ein Youtube-Video.
         
         Args:
-            url (str): Die URL des zu verarbeitenden YouTube-Videos
+            file_path (str): Die URL des zu verarbeitenden Youtube-Videos
             target_language (str): Die Zielsprache für die Transkription (ISO 639-1 code)
             extract_audio (bool): Ob Audio extrahiert werden soll
             template (str): Name der zu verwendenden Vorlage
@@ -114,9 +114,10 @@ class YoutubeProcessor(BaseProcessor):
         Returns:
             Dict[str, Any]: Ein Dictionary mit den Verarbeitungsergebnissen
         """
+        url = file_path  # file_path ist in diesem Fall die URL
         try:
             process_dir = self.create_process_dir()
-            self.logger.debug("YouTube Processing Start", 
+            self.logger.debug("Youtube Processing Start", 
                             target_language=target_language,
                             extract_audio=extract_audio,
                             template=template)
@@ -203,19 +204,16 @@ class YoutubeProcessor(BaseProcessor):
                         "webpage_url": info.get('webpage_url')
                     }
 
-                    # Direkter Aufruf des AudioProcessors
-                    from processors.audio_processor import AudioProcessor
-                    audio_processor = AudioProcessor(self.calculator)
-                    
+                    # Use the already initialized audio_processor instance
                     self.logger.debug("Vor Audio Processing Aufruf")
                     
-                    # Übergebe den Dateipfad statt der Bytes
-                    audio_result = await audio_processor.process(audio_path, source_info, target_language, template)
+                    # Pass the file path instead of bytes
+                    audio_result = await self.audio_processor.process(audio_path, source_info, target_language, template)
 
                     self.logger.debug("Nach Audio Processing",
                                     audio_result_id=audio_result.get('process_id'))
 
-                # Erstelle eigenes Result mit YouTube-spezifischen Informationen
+                # Erstelle eigenes Result mit Youtube-spezifischen Informationen
                 result = {
                     "title": info.get('title'),
                     "duration": info.get('duration', 0),
@@ -259,9 +257,9 @@ class YoutubeProcessor(BaseProcessor):
                     'video_duration': info.get('duration')
                 })
             
-            self.logger.error("YouTube-Verarbeitungsfehler", 
+            self.logger.error("Youtube-Verarbeitungsfehler", 
                             **error_context)
             
             raise ProcessingError(
-                f"YouTube Verarbeitungsfehler in Phase '{error_context['stage']}': {str(e)}"
+                f"Youtube Verarbeitungsfehler in Phase '{error_context['stage']}': {str(e)}"
             ) 

@@ -6,15 +6,29 @@ import requests
 import json
 import traceback
 import os
+import socket
 from datetime import datetime
 from pathlib import Path
 from flask import jsonify
 
 from src.utils.logger import get_logger
 from src.processors.transformer_processor import TransformerProcessor
+from src.core.config import Config
 
 # Initialize logger
 logger = get_logger(process_id="dashboard")
+config = Config()
+
+def get_container_ip():
+    """Get the container's IP address"""
+    try:
+        # Get the container's hostname
+        hostname = socket.gethostname()
+        # Get the IP address
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except Exception:
+        return "localhost"  # Fallback to localhost if IP detection fails
 
 def run_transformer_test():
     """
@@ -42,8 +56,17 @@ def run_transformer_test():
                 'details': {'error': 'Input text is required'}
             })
 
-        # Prepare API request parameters
-        api_url = request.url_root.rstrip('/') + '/api/transform-text'
+        # Use container IP for API URL
+        container_ip = get_container_ip()
+        api_port = config.get('server.api_port', 5001)  # Fallback auf 5001
+        api_base_url = os.getenv('API_URL', f'http://{container_ip}:{api_port}')
+        api_url = f"{api_base_url}/api/transform-text"
+        
+        # Log the IP and URL being used
+        logger.debug("Using API endpoint", 
+                    container_ip=container_ip,
+                    api_url=api_url)
+
         params = {
             'text': text,
             'target_language': target_language,

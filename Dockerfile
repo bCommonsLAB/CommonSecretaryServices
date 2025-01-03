@@ -18,15 +18,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Verzeichnisse erstellen
-RUN mkdir -p logs temp-processing cache
+RUN mkdir -p logs temp-processing cache config
 
 # Umgebungsvariablen setzen
 ENV PYTHONPATH=/app
-ENV FLASK_APP=src.api:app
+ENV FLASK_APP=src.main:app
 ENV FLASK_ENV=production
+ENV FLASK_DEBUG=0
 
 # Port exponieren
-EXPOSE 5000
+EXPOSE 5001
 
 # Startbefehl
-CMD ["flask", "run", "--host=0.0.0.0"] 
+CMD ["python", "-m", "src.main"] 

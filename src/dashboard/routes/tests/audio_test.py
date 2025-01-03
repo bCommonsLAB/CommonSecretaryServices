@@ -7,6 +7,7 @@ import json
 import traceback
 import os
 import asyncio
+import socket
 from datetime import datetime
 from pathlib import Path
 from flask import jsonify
@@ -14,9 +15,22 @@ from flask import jsonify
 from src.utils.logger import get_logger
 from src.processors.audio_processor import AudioProcessor
 from src.core.resource_tracking import ResourceCalculator
+from src.core.config import Config
 
 # Initialize logger
 logger = get_logger(process_id="dashboard")
+config = Config()
+
+def get_container_ip():
+    """Get the container's IP address"""
+    try:
+        # Get the container's hostname
+        hostname = socket.gethostname()
+        # Get the IP address
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except Exception:
+        return "localhost"  # Fallback to localhost if IP detection fails
 
 def run_audio_test():
     """
@@ -54,12 +68,16 @@ def run_audio_test():
             'template': str(template)
         }
 
-        # Define the API URL
-        api_url = request.url_root.rstrip('/') + '/api/process-audio'
+        # Use container IP for API URL
+        container_ip = get_container_ip()
+        api_port = config.get('server.api_port', 5001)  # Fallback auf 5001
+        api_base_url = os.getenv('API_URL', f'http://{container_ip}:{api_port}')
+        api_url = f"{api_base_url}/api/process-audio"
 
         # Log request details before sending
         logger.debug("Sending API request", 
                     api_url=api_url,
+                    container_ip=container_ip,
                     file_name=audio_file.filename,
                     data=data)
 

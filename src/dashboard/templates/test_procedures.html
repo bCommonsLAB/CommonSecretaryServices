@@ -38,7 +38,7 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link active" id="youtube-tab" data-bs-toggle="tab" data-bs-target="#youtube" 
                 type="button" role="tab" aria-controls="youtube" aria-selected="true">
-            YouTube Test
+            Youtube Test
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -63,20 +63,20 @@
 
 <!-- Tab Content -->
 <div class="tab-content mt-3" id="testTabsContent">
-    <!-- YouTube Test Tab -->
+    <!-- Youtube Test Tab -->
     <div class="tab-pane fade show active" id="youtube" role="tabpanel" aria-labelledby="youtube-tab">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">YouTube Processing Test</h5>
-                <p class="card-text">Test the YouTube processing functionality by providing a video URL.</p>
+                <h5 class="card-title">Youtube Processing Test</h5>
+                <p class="card-text">Test the Youtube processing functionality by providing a video URL.</p>
                 <form action="{{ url_for('main.youtube_test') }}" method="POST" class="mt-3 test-form">
                     <div class="mb-3">
-                        <label for="youtube_url" class="form-label">YouTube URL</label>
+                        <label for="youtube_url" class="form-label">Youtube URL</label>
                         <input type="url" class="form-control" id="youtube_url" name="youtube_url" 
                                placeholder="https://www.youtube.com/watch?v=..." 
                                value="{{ request.cookies.get('youtube_last_url', '') }}"
                                required>
-                        <div class="form-text">Enter a YouTube video URL to test the processing pipeline.</div>
+                        <div class="form-text">Enter a Youtube video URL to test the processing pipeline.</div>
                     </div>
                     <div class="mb-3">
                         <label for="target_language" class="form-label">Generate Language</label>
@@ -92,7 +92,7 @@
                     <div class="mb-3">
                         <label for="template" class="form-label">Template</label>
                         <select name="template" class="form-control" id="template">
-                            <option value="YouTube" selected>YouTube</option>
+                            <option value="Youtube" selected>Youtube</option>
                             <option value="Article">Article</option>
                             <option value="Podcast">Podcast</option>
                             <option value="Interview">Interview</option>

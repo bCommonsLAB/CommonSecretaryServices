@@ -6,7 +6,7 @@ logging:
   max_size: 10485760
 processors:
   audio:
-    batch_size: 4
+    batch_size: 5
     export_format: mp3
     max_file_size: 104857600
     segment_duration: 300
@@ -30,4 +30,4 @@ rate_limiting:
 server:
   debug: true
   host: 127.0.0.1
-  port: 5000
+  port: 5001

@@ -1,5 +1,5 @@
 """
-YouTube test route handler
+Youtube test route handler
 """
 from flask import render_template, request, make_response
 import requests
@@ -7,6 +7,7 @@ import json
 import traceback
 import os
 import asyncio
+import socket
 from datetime import datetime
 from pathlib import Path
 from flask import jsonify
@@ -14,15 +15,28 @@ from flask import jsonify
 from src.utils.logger import get_logger
 from src.processors.youtube_processor import YoutubeProcessor
 from src.core.resource_tracking import ResourceCalculator
+from src.core.config import Config
 
 # Initialize logger
 logger = get_logger(process_id="dashboard")
+config = Config()
+
+def get_container_ip():
+    """Get the container's IP address"""
+    try:
+        # Get the container's hostname
+        hostname = socket.gethostname()
+        # Get the IP address
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except Exception:
+        return "localhost"  # Fallback to localhost if IP detection fails
 
 def run_youtube_test():
     """
-    Run a test for YouTube processing by calling the API endpoint
+    Run a test for Youtube processing by calling the API endpoint
     """
-    logger.info("Starting YouTube test procedure", 
+    logger.info("Starting Youtube test procedure", 
                 endpoint="run_youtube_test",
                 method=request.method)
     
@@ -33,8 +47,8 @@ def run_youtube_test():
         template = request.form.get('template', 'youtube')
         
         if not url:
-            logger.error("YouTube URL missing in form data")
-            raise ValueError("YouTube URL is required")
+            logger.error("Youtube URL missing in form data")
+            raise ValueError("Youtube URL is required")
 
         # Prepare the request parameters
         params = {
@@ -43,11 +57,15 @@ def run_youtube_test():
             'template': template
         }
 
-        # Use the container's own IP address since we're calling ourselves
-        host = request.host.split(':')[0]  # Get the host without port
-        api_url = f'http://{host}:5000/api/process-youtube'
-        logger.info("Calling YouTube API endpoint", 
+        # Use container IP for API URL
+        container_ip = get_container_ip()
+        api_port = config.get('server.api_port', 5001)  # Fallback auf 5001
+        api_base_url = os.getenv('API_URL', f'http://{container_ip}:{api_port}')
+        api_url = f"{api_base_url}/api/process-youtube"
+        
+        logger.info("Calling Youtube API endpoint", 
                    api_url=api_url,
+                   container_ip=container_ip,
                    params=params)
                    
         response = requests.post(api_url, json=params)
@@ -76,7 +94,7 @@ def run_youtube_test():
         
         test_results = {
             'success': True,
-            'message': 'YouTube processing test completed successfully',
+            'message': 'Youtube processing test completed successfully',
             'details': {
                 'url': url,
                 'test_type': 'youtube_processing',
@@ -103,13 +121,13 @@ def run_youtube_test():
         raise ValueError(f"HTTP Request failed: {str(e)}")
     
     except Exception as e:
-        logger.error("YouTube test failed", 
+        logger.error("Youtube test failed", 
                     error=str(e),
                     error_type=type(e).__name__,
                     stack_trace=traceback.format_exc())
         test_results = {
             'success': False,
-            'message': f'YouTube processing test failed: {str(e)}',
+            'message': f'Youtube processing test failed: {str(e)}',
             'details': {
                 'error': str(e),
                 'error_type': type(e).__name__,

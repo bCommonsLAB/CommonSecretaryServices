@@ -1,12 +1,12 @@
 # Anonyme Verarbeitungsdienste
 
-Eine Flask-basierte API für die anonyme Verarbeitung von PDFs, Bildern und YouTube-Videos.
+Eine Flask-basierte API für die anonyme Verarbeitung von PDFs, Bildern und Youtube-Videos.
 
 ## Features
 
 - PDF-Textextraktion mit OCR
 - Bildtext-Extraktion
-- YouTube-Video-Download und Audio-Extraktion
+- Youtube-Video-Download und Audio-Extraktion
 - Ressourcen-Tracking
 - Rate Limiting
 - Dateigrößen-Beschränkungen
@@ -192,7 +192,7 @@ curl -X POST -F "file=@audio.mp3" http://localhost:5000/api/process-audio
 ```
 
 
-### 4. YouTube-Verarbeitung
+### 4. Youtube-Verarbeitung
 
 **Endpoint:** `/api/process-youtube`  
 **Methode:** POST  
@@ -269,7 +269,7 @@ print(f"Extrahierter Text: {result['text'][:100]}...")
 ```
 
 
-3. YouTube-Verarbeitung:
+3. Youtube-Verarbeitung:
 
 ```python
 import requests

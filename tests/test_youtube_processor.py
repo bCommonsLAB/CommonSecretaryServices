@@ -48,7 +48,7 @@ def mock_config():
 
 @pytest.fixture
 def mock_yt_dlp():
-    """Erstellt einen Mock für die YouTube-DL Bibliothek.
+    """Erstellt einen Mock für die Youtube-DL Bibliothek.
     
     Dieser Mock simuliert:
     1. Das Kontextmanager-Verhalten von YoutubeDL
@@ -102,7 +102,7 @@ class TestYoutubeProcessor:
         
         Args:
             mock_calculator: Mock des ResourceCalculators
-            mock_yt_dlp: Mock der YouTube-DL Bibliothek
+            mock_yt_dlp: Mock der Youtube-DL Bibliothek
             mock_config: Mock der Config-Klasse
         
         Assertions:
@@ -118,10 +118,10 @@ class TestYoutubeProcessor:
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_real_video_processing(self, mock_calculator):
-        """Integrationstest: Verarbeitet ein echtes YouTube-Video."""
+        """Integrationstest: Verarbeitet ein echtes Youtube-Video."""
         processor = YoutubeProcessor(resource_calculator=mock_calculator)
 
-        # "Me at the zoo" - erstes YouTube Video (21 Sekunden)
+        # "Me at the zoo" - erstes Youtube Video (21 Sekunden)
         #url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 
         # How to Build a WhatsApp AI Chatbot in Minutes Using Flowise - 19:45 Minuten

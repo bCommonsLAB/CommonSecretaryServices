@@ -333,7 +333,7 @@ def test_procedures():
 
 @main.route('/run_youtube_test', methods=['POST'])
 def youtube_test():
-    """Route handler for YouTube test"""
+    """Route handler for Youtube test"""
     return run_youtube_test()
 
 @main.route('/run_audio_test', methods=['POST'])

@@ -47,7 +47,7 @@ def get_image_processor():
     return ImageProcessor(resource_calculator)
 
 def get_youtube_processor():
-    """Get or create YouTube processor instance with unique process ID"""
+    """Get or create Youtube processor instance with unique process ID"""
     return YoutubeProcessor(resource_calculator)
 
 def get_audio_processor():
@@ -78,9 +78,9 @@ file_upload.add_argument('template',
                         help='Vorlage für die Verarbeitung',
                         trim=True)
 
-# Model für YouTube-URLs und Parameter
-youtube_input = api.model('YouTubeInput', {
-    'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='YouTube Video URL'),
+# Model für Youtube-URLs und Parameter
+youtube_input = api.model('YoutubeInput', {
+    'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
     'extract_audio': fields.Boolean(required=False, default=True, description='Audio extrahieren'),
     'target_language': fields.String(required=False, default='de', description='Sprache des Videos (ISO 639-1 code)'),
     'template': fields.String(required=False, default='Youtube', description='Vorlage für die Verarbeitung')
@@ -103,7 +103,7 @@ image_response = api.model('ImageResponse', {
     'metadata': fields.Raw(description='Bild Metadaten')
 })
 
-youtube_response = api.model('YouTubeResponse', {
+youtube_response = api.model('YoutubeResponse', {
     'title': fields.String(description='Video Titel'),
     'duration': fields.Integer(description='Video Länge in Sekunden'),
     'audio_extracted': fields.Boolean(description='Audio wurde extrahiert'),
@@ -211,17 +211,17 @@ class ImageEndpoint(Resource):
                     image_processor.logger.info("Bild-Verarbeitung beendet")
 
 @api.route('/process-youtube')
-class YouTubeProcessor(Resource):
+class YoutubeEndpoint(Resource):
     # Definiere das Request-Model für Swagger
-    youtube_request = api.model('YouTubeRequest', {
-        'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='YouTube Video URL'),
+    youtube_request = api.model('YoutubeRequest', {
+        'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
         'target_language': fields.String(required=True, default='de', description='Zielsprache (ISO 639-1 code)'),
         'template': fields.String(required=False, default='Youtube', description='Template-Name (ohne .md Endung)')
     })
 
     @api.expect(youtube_request)
     def post(self):
-        """Verarbeitet ein YouTube-Video"""
+        """Verarbeitet ein Youtube-Video"""
         youtube_processor = None
         try:
             data = request.get_json()
@@ -230,11 +230,11 @@ class YouTubeProcessor(Resource):
             template = data.get('template')
 
             if not url:
-                raise ValueError("YouTube-URL ist erforderlich")
+                raise ValueError("Youtube-URL ist erforderlich")
 
             youtube_processor = get_youtube_processor()
             result = asyncio.run(youtube_processor.process(
-                url=url,
+                file_path=url,
                 target_language=target_language,
                 template=template
             ))
@@ -245,14 +245,14 @@ class YouTubeProcessor(Resource):
                         error_type="ValidationError")
             return {'error': str(ve)}, 400
         except Exception as e:
-            logger.error("YouTube-Verarbeitungsfehler",
+            logger.error("Youtube-Verarbeitungsfehler",
                         error=str(e),
                         error_type=type(e).__name__,
                         stack_trace=traceback.format_exc())
             raise
         finally:
             if youtube_processor:
-                youtube_processor.logger.info("YouTube-Verarbeitung beendet")
+                youtube_processor.logger.info("Youtube-Verarbeitung beendet")
 
 @api.route('/process-audio')
 class AudioEndpoint(Resource):

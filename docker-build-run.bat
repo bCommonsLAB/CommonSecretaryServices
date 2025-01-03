@@ -13,24 +13,23 @@ REM Copy .env.example to temporary .env file for Docker
 echo Preparing environment file...
 copy .env.example .env.docker
 
-REM Create Docker-specific config.yaml
-echo Preparing Docker configuration...
-powershell -Command "(Get-Content config/config.yaml) -replace 'file: logs/detailed.log', 'file: logs/docker_detailed.log' | Set-Content config/config.docker.yaml"
+REM Update Docker configuration
+echo Updating Docker configuration...
+powershell -Command "(Get-Content docker\config\config.yaml) -replace 'port: 5000', 'port: 5001' -replace 'api_port: 5000', 'api_port: 5001' | Set-Content docker\config\config.yaml"
 
 REM Run the container
 echo Starting container...
 docker run -d ^
-    -p 5001:5000 ^
+    -p 5001:5001 ^
     --name secretary-services ^
     --env-file .env.docker ^
     -v "%CD%/logs:/app/logs" ^
     -v "%CD%/temp-processing:/app/temp-processing" ^
-    -v "%CD%/config/config.docker.yaml:/app/config/config.yaml" ^
+    -v "%CD%/docker/config/config.yaml:/app/config/config.yaml" ^
     secretary-services
 
 REM Clean up temporary files
 del .env.docker
-del config\config.docker.yaml
 
 REM Check container status
 echo Checking container status...
