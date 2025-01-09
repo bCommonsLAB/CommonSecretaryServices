@@ -14,21 +14,27 @@
         {% endif %}
         
         <div class="col-md-3">
-            <div class="metric-card">
-                <h5>Gesamtanfragen (24h)</h5>
-                <h2>{{ stats.get('total_requests', 0) }}</h2>
+            <div class="metric-card bg-light p-3 rounded shadow-sm">
+                <h5 class="text-muted">Gesamtanfragen (24h)</h5>
+                <h2 class="mb-0">{{ stats.get('total_requests', 0) }}</h2>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="metric-card">
-                <h5>Durchschn. Dauer</h5>
-                <h2>{{ "%.2f"|format(stats.get('avg_duration', 0)) }}s</h2>
+            <div class="metric-card bg-light p-3 rounded shadow-sm">
+                <h5 class="text-muted">Durchschn. Dauer</h5>
+                <h2 class="mb-0">{{ "%.2f"|format(stats.get('avg_duration', 0)) }}s</h2>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="metric-card">
-                <h5>Erfolgsrate</h5>
-                <h2>{{ "%.1f"|format(stats.get('success_rate', 0)) }}%</h2>
+            <div class="metric-card bg-light p-3 rounded shadow-sm">
+                <h5 class="text-muted">Erfolgsrate</h5>
+                <h2 class="mb-0">{{ "%.1f"|format(stats.get('success_rate', 0)) }}%</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card bg-light p-3 rounded shadow-sm">
+                <h5 class="text-muted">Token/Stunde</h5>
+                <h2 class="mb-0">{{ stats.get('hourly_tokens', 0) }}</h2>
             </div>
         </div>
     </div>
@@ -37,231 +43,130 @@
     {% if stats.get('operations') or stats.get('hourly_stats') %}
     <div class="row mt-4">
         <div class="col-md-6">
-            <div class="chart-container">
+            <div class="chart-container bg-light p-3 rounded shadow-sm">
                 <h4>Operationen</h4>
-                <canvas id="operationsChart"></canvas>
+                <canvas id="operationsChart" height="200"></canvas>
             </div>
         </div>
         <div class="col-md-6">
-            <div class="chart-container">
+            <div class="chart-container bg-light p-3 rounded shadow-sm">
                 <h4>Stündliche Anfragen</h4>
-                <canvas id="hourlyChart"></canvas>
+                <canvas id="hourlyChart" height="200"></canvas>
             </div>
-        </div>
-    </div>
-
-    <!-- Liste der letzten Anfragen -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <h4>Letzte Anfragen</h4>
-            <div class="request-list">
-                {% for entry in stats.get('recent_requests', []) %}
-                <div class="request-item" onclick="toggleDetails('request-{{ loop.index }}')">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong class="me-2">{{ entry.operation }}</strong>
-                            {% if entry.details.success %}
-                            <span class="badge bg-success">Erfolg</span>
-                            {% else %}
-                            <span class="badge bg-danger">Fehler</span>
-                            {% endif %}
-                        </div>
-                        <small class="text-muted">{{ entry.timestamp }}</small>
-                    </div>
-                    
-                    <div class="mt-2 small">
-                        {% if entry.operation == 'pdf_processing' %}
-                            <span class="me-3">📄 Datei: {{ entry.details.get('file_name', 'N/A') }}</span>
-                            <span class="me-3">📊 Seiten: {{ entry.details.get('page_count', 'N/A') }}</span>
-                        {% elif entry.operation == 'image_processing' %}
-                            <span class="me-3">🖼️ Datei: {{ entry.details.get('file_name', 'N/A') }}</span>
-                            <span class="me-3">📏 Größe: {{ entry.details.get('dimensions', 'N/A') }}</span>
-                        {% elif entry.operation == 'youtube_processing' %}
-                            <span class="me-3">🎥 URL: {{ entry.details.get('url', 'N/A') }}</span>
-                            <span class="me-3">⏱️ Dauer: {{ entry.details.get('duration', 'N/A') }}s</span>
-                        {% endif %}
-                        <span class="me-3">⚡ Dauer: {{ "%.2f"|format(entry.duration_seconds) }}s</span>
-                    </div>
-
-                    <div id="request-{{ loop.index }}" class="request-details">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <h6>Request Details:</h6>
-                                <table class="table table-sm">
-                                    <tr>
-                                        <th>Zeitstempel:</th>
-                                        <td>{{ entry.timestamp }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Processor:</th>
-                                        <td>{{ entry.main_process.processor }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Titel:</th>
-                                        <td>{{ entry.details.title if entry.details.title else '-' }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Process ID:</th>
-                                        <td>{{ entry.process_id }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Verarbeitungszeit:</th>
-                                        <td>{{ "%.2f"|format(entry.duration_seconds) }}s</td>
-                                    </tr>
-                                    <tr>
-                                        <th>URL/Filename:</th>
-                                        <td>
-                                            {% if entry.details.url %}
-                                                {{ entry.details.url }}
-                                            {% elif entry.details.file_name %}
-                                                {{ entry.details.file_name }}
-                                            {% else %}
-                                                -
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Länge:</th>
-                                        <td>{{ entry.main_process.duration }}s</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Größe:</th>
-                                        <td>
-                                            {% if entry.main_process.file_size %}
-                                                {{ (entry.main_process.file_size / 1024 / 1024)|round(2) }}MB
-                                            {% else %}
-                                                -
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Text:</th>
-                                        <td>
-                                            {% if entry.main_process.text %}
-                                                <span>{{ entry.main_process.text[:40] }}...</span>
-                                                <button type="button" class="btn btn-sm btn-link" data-bs-toggle="modal" data-bs-target="#textModal{{ loop.index }}">
-                                                    Mehr anzeigen
-                                                </button>
-                                                
-                                                <!-- Modal außerhalb der Tabelle platzieren -->
-                                            {% else %}
-                                                -
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Textlänge:</th>
-                                        <td>{{ entry.main_process.text_length }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>LLM:</th>
-                                        <td>{{ entry.main_process.llm_model if entry.main_process.llm_model else '-' }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Token:</th>
-                                        <td>{{ entry.main_process.token_count if entry.main_process.token_count else '-' }}</td>
-                                    </tr>
-                                    {% if entry.details.get('error') %}
-                                    <tr>
-                                        <th>Fehler:</th>
-                                        <td class="text-danger">{{ entry.details.error }}</td>
-                                    </tr>
-                                    {% endif %}
-                                </table>
-                                <!-- Modals nach der Tabelle einfügen -->
-                                {% if entry.main_process.text %}
-                                <div class="modal fade" id="textModal{{ loop.index }}" tabindex="-1" aria-labelledby="textModalLabel{{ loop.index }}" aria-hidden="true">
-                                    <div class="modal-dialog modal-lg">
-                                        <div class="modal-content">
-                                            <div class="modal-header">
-                                                <h5 class="modal-title" id="textModalLabel{{ loop.index }}">Vollständiger Text</h5>
-                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                            </div>
-                                            <div class="modal-body">
-                                                <pre class="text-wrap">{{ entry.main_process.text }}</pre>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <h6>Verarbeitungsprotokoll:</h6>
-                        
-                                <div class="log-table-container" style="max-height: 400px; overflow-y: auto;">
-                                    <table class="log-table table table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>Zeit</th>
-                                                <th>Level</th>
-                                                <th>Processor</th>
-                                                <th>Process ID</th>
-                                                <th>Nachricht</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for log in entry.logs %}
-                                                {% if log.process_id == entry.process_id %}
-                                                <tr class="{{ 'table-danger' if 'ERROR' in log.level else 'table-info' if 'INFO' in log.level else '' }}">
-                                                    <td>{{ log.timestamp.split('.')[0] }}</td>
-                                                    <td>
-                                                        <span class="badge {{ 'bg-danger' if 'ERROR' in log.level else 'bg-info' if 'INFO' in log.level else 'bg-secondary' }}">
-                                                            {{ log.level }}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <span class="badge bg-secondary">{{ log.processor_name }}</span>
-                                                    </td>
-                                                    <td>
-                                                        <code>{{ log.process_id }}</code>
-                                                    </td>
-                                                    <td>
-                                                        {{ log.message }}
-                                                        {% if log.details %}
-                                                        <div class="small text-muted">
-                                                            {{ log.details|tojson }}
-                                                        </div>
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                                {% endif %}
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            
-            <!-- Alle Modals außerhalb der request-list -->
-            {% for entry in stats.get('recent_requests', []) %}
-                {% if entry.main_process.text %}
-                <div class="modal fade" id="textModal{{ loop.index }}" tabindex="-1" aria-labelledby="textModalLabel{{ loop.index }}" aria-hidden="true">
-                    <div class="modal-dialog modal-lg">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="textModalLabel{{ loop.index }}">Vollständiger Text</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                <pre class="text-wrap">{{ entry.main_process.text }}</pre>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
         </div>
     </div>
     {% endif %}
+
+    <!-- Performance Übersichtstabelle -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="bg-light p-3 rounded shadow-sm">
+                <h4>Performance Übersicht</h4>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Processor</th>
+                                <th>Anfragen (24h)</th>
+                                <th>Durchschn. Dauer</th>
+                                <th>Erfolgsrate</th>
+                                <th>Token/Anfrage</th>
+                                <th>Kosten/Anfrage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for processor, data in stats.get('processor_stats', {}).items() %}
+                            <tr>
+                                <td>{{ processor }}</td>
+                                <td>{{ data.get('request_count', 0) }}</td>
+                                <td>{{ "%.2f"|format(data.get('avg_duration', 0)) }}s</td>
+                                <td>{{ "%.1f"|format(data.get('success_rate', 0)) }}%</td>
+                                <td>{{ data.get('avg_tokens', 0) }}</td>
+                                <td>${{ "%.3f"|format(data.get('avg_cost', 0)) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Letzte Anfragen -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="bg-light p-3 rounded shadow-sm">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">Letzte Anfragen</h4>
+                    <small class="text-muted">Automatische Aktualisierung alle 3 Sekunden</small>
+                </div>
+                <div id="recent-requests-list">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Operation</th>
+                                    <th>Dauer</th>
+                                    <th>Ressource</th>
+                                    <th>Token</th>
+                                    <th>Kosten</th>
+                                    <th>Zeitpunkt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in stats.get('recent_requests', []) %}
+                                <tr>
+                                    <td>
+                                        {% if entry.get('status') == 'success' %}
+                                            <span class="badge bg-success">✓</span>
+                                        {% elif entry.get('status') == 'running' %}
+                                            <span class="badge bg-primary running-indicator">⟳</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">✗</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ entry.get('operation', '') }}</td>
+                                    <td>
+                                        {% if entry.get('status') == 'running' %}
+                                            <div class="d-flex align-items-center">
+                                                <span>{{ "%.1f"|format(entry.get('total_duration', 0)) }}s</span>
+                                                <div class="progress ms-2" style="width: 50px; height: 3px;">
+                                                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                                                </div>
+                                            </div>
+                                        {% else %}
+                                            {{ "%.1f"|format(entry.get('total_duration', 0)) }}s
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if entry.get('operation') == 'pdf_processing' %}
+                                            📄 {{ entry.get('file_name', 'N/A') }}
+                                        {% elif entry.get('operation') == 'image_processing' %}
+                                            🖼️ {{ entry.get('file_name', 'N/A') }}
+                                        {% elif entry.get('operation') == 'youtube_processing' %}
+                                            🎥 {{ entry.get('url', 'N/A') }}
+                                        {% elif entry.get('operation') == 'audio_processing' %}
+                                            🎵 {{ entry.get('file_name', 'N/A') }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ entry.get('resources', {}).get('total_tokens', 0) }}</td>
+                                    <td>${{ "%.3f"|format(entry.get('resources', {}).get('total_cost', 0)) }}</td>
+                                    <td><small class="text-muted">{{ entry.get('timestamp', '').split('.')[0] }}</small></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-    // Nur Charts erstellen wenn Daten vorhanden
+    // Charts mit verbesserten Optionen
     {% if stats.get('operations') %}
     new Chart(document.getElementById('operationsChart'), {
         type: 'pie',
@@ -269,11 +174,16 @@
             labels: {{ stats.operations.keys()|list|tojson }},
             datasets: [{
                 data: {{ stats.operations.values()|list|tojson }},
-                backgroundColor: ['#ff6384', '#36a2eb', '#ffce56']
+                backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
             }]
         },
         options: {
-            maintainAspectRatio: false
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right'
+                }
+            }
         }
     });
     {% endif %}
@@ -286,39 +196,64 @@
             datasets: [{
                 label: 'Anfragen pro Stunde',
                 data: {{ stats.hourly_stats.values()|list|tojson }},
-                borderColor: '#36a2eb',
-                tension: 0.1
+                borderColor: '#4e73df',
+                backgroundColor: 'rgba(78, 115, 223, 0.1)',
+                tension: 0.1,
+                fill: true
             }]
         },
         options: {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                },
+                x: {
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
                 }
             }
         }
     });
     {% endif %}
 
-    // Funktion zum Ein-/Ausklappen der Details
-    function toggleDetails(id) {
-        const details = document.getElementById(id);
-        if (details.style.display === 'none' || !details.style.display) {
-            details.style.display = 'block';
-        } else {
-            details.style.display = 'none';
-        }
+    // Auto-Refresh der letzten Anfragen
+    function updateRecentRequests() {
+        fetch('/api/recent-requests')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('recent-requests-list');
+                if (container) {
+                    container.innerHTML = data.html;
+                }
+            })
+            .catch(error => console.error('Error:', error));
     }
 
-    // Event-Listener für Modal-Buttons
-    document.addEventListener('DOMContentLoaded', function() {
-        const modalButtons = document.querySelectorAll('[data-bs-toggle="modal"]');
-        modalButtons.forEach(button => {
-            button.addEventListener('click', function(e) {
-                e.stopPropagation(); // Verhindert, dass der Click-Event zum Parent propagiert
-            });
-        });
-    });
+    // Aktualisiere alle 3 Sekunden
+    setInterval(updateRecentRequests, 3000);
+
+    // Animiere die Laufanzeige
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .running-indicator {
+            display: inline-block;
+            animation: spin 2s linear infinite;
+        }
+    `;
+    document.head.appendChild(style);
 </script>
 {% endblock %} 

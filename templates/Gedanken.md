@@ -1,7 +1,7 @@
 ---
 tags: {{tags|Was sind die max. 10 wichtigsten nicht zusammengesetzte Schlüsselwörter aus dem Text? Bitte Kommagetrennt ausgeben.}}
 Personen: {{personen|Welche Personen werden erwähnt? Kommagetrennt ausgeben.}}
-Datum: {{upload_date|Welches Datum wird genannt, bitte im Format dd.mm.yyyy ausgeben}}
+Datum: {{upload_date|Welches Datum wird genannt, bitte im Format yyyy-mm-dd ausgeben}}
 Ort: {{ort|Welcher Ort wird im Text erwähnt?}}
 Type: Gedanken
 ---

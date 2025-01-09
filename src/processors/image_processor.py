@@ -4,52 +4,46 @@ from typing import Dict, Any, Optional
 from PIL import Image
 import pytesseract
 import time
+import traceback
 
 from .base_processor import BaseProcessor
 from src.core.resource_tracking import ResourceUsage
 from src.core.exceptions import ProcessingError
-from src.utils.logger import get_logger, track_performance
+from src.utils.logger import get_logger
 from src.core.config import Config
 
 class ImageProcessor(BaseProcessor):
-    """Image Processor für die Verarbeitung von Bilddateien.
-    
-    Diese Klasse verarbeitet Bilder und extrahiert Text mittels OCR.
-    Die Konfiguration wird direkt aus der Config-Klasse geladen.
-    
-    Attributes:
-        max_resolution (int): Maximale erlaubte Auflösung in Pixeln
-        temp_dir (Path): Verzeichnis für temporäre Verarbeitung
-        process_id (str): Eindeutige ID für den Verarbeitungsprozess
-        logger: Logger-Instanz für diesen Processor
     """
-    def __init__(self, resource_calculator):
-        # Basis-Klasse initialisieren
-        super().__init__(resource_calculator)
+    Prozessor für die Verarbeitung von Bildern.
+    Extrahiert Text mittels OCR und berechnet Ressourcenverbrauch.
+    """
+    
+    def __init__(self, resource_calculator, process_id: Optional[str] = None):
+        """
+        Initialisiert den ImageProcessor.
         
-        # Konfiguration aus Config laden
+        Args:
+            resource_calculator: Calculator für Ressourcenverbrauch
+            process_id (str, optional): Process-ID für Tracking
+        """
+        super().__init__(process_id)
+        self.calculator = resource_calculator
+        self.logger = get_logger(process_id, self.__class__.__name__)
+        
+        # Lade Konfiguration
         config = Config()
-        image_config = config.get('processors.image', {})
+        self.max_file_size = config.get('processors.image.max_file_size', 10 * 1024 * 1024)  # 10MB
+        self.max_resolution = config.get('processors.image.max_resolution', 4096)  # 4K
         
-        # Konfigurationswerte mit Validierung laden
-        self.max_resolution = image_config.get('max_resolution', 4096)
-        
-        # Validierung der erforderlichen Konfigurationswerte
-        if not self.max_resolution:
-            raise ValueError("max_resolution muss in der Konfiguration angegeben werden")
-        
-        # Weitere Konfigurationswerte laden
-        self.logger = get_logger(process_id=self.process_id, processor_name="ImageProcessor")
-        self.temp_dir = Path(image_config.get('temp_dir', "temp-processing/image"))
-        
-        # Verzeichnisse erstellen
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.logger.debug("Image Processor initialisiert",
-                         max_resolution=self.max_resolution,
-                         temp_dir=str(self.temp_dir))
+    def check_file_size(self, file_path: Path) -> None:
+        """Prüft ob die Dateigröße innerhalb der Limits liegt."""
+        file_size = file_path.stat().st_size
+        if file_size > self.max_file_size:
+            raise ProcessingError(
+                f"Datei zu groß: {file_size} Bytes "
+                f"(Maximum: {self.max_file_size} Bytes)"
+            )
 
-    @track_performance("image_processing")
     async def process(self, file_path: str) -> Dict[str, Any]:
         """Verarbeitet ein Bild und extrahiert Text mittels OCR.
         
@@ -68,53 +62,62 @@ class ImageProcessor(BaseProcessor):
                            file_path=str(path),
                            file_size=path.stat().st_size)
             
-            self.check_file_size(path)
-            start_time = time.time()
-            
-            # Bild öffnen und prüfen
-            with Image.open(file_path) as img:
-                width, height = img.size
-                self.logger.debug("Bild geöffnet", 
-                                dimensions=f"{width}x{height}",
-                                format=img.format)
+            with self.measure_operation('image_processing'):
+                self.check_file_size(path)
+                start_time = time.time()
                 
-                if width > self.max_resolution or height > self.max_resolution:
-                    raise ProcessingError(
-                        f"Bildauflösung zu groß: {width}x{height} "
-                        f"(Maximum: {self.max_resolution}x{self.max_resolution})"
-                    )
-                
-                # Text extrahieren
-                self.logger.debug("Starte OCR-Verarbeitung")
-                text = pytesseract.image_to_string(img)
-                self.logger.debug("OCR abgeschlossen", 
-                                text_length=len(text))
-            
-            processing_time = time.time() - start_time
+                # Bild öffnen und prüfen
+                with Image.open(file_path) as img:
+                    width, height = img.size
+                    self.logger.debug("Bild geöffnet", 
+                                    dimensions=f"{width}x{height}",
+                                    format=img.format)
+                    
+                    if width > self.max_resolution or height > self.max_resolution:
+                        raise ProcessingError(
+                            f"Bildauflösung zu groß: {width}x{height} "
+                            f"(Maximum: {self.max_resolution}x{self.max_resolution})"
+                        )
+                    
+                    # Text extrahieren
+                    self.logger.debug("Starte OCR-Verarbeitung")
+                    text = pytesseract.image_to_string(img)
+                    self.logger.debug("OCR abgeschlossen", 
+                                    text_length=len(text))
 
-            # Ressourcenverbrauch berechnen
-            resources = [
-                ResourceUsage("storage", self.calculator.calculate_storage_units(path.stat().st_size), "MB"),
-                ResourceUsage("compute", self.calculator.calculate_compute_units(processing_time), "seconds")
-            ]
-            
-            result = {
-                "file_name": str(path),
-                "file_size": path.stat().st_size,
-                "dimensions": f"{width}x{height}",
-                "text": text,
-                "resources_used": resources,
-                "total_units": self.calculator.calculate_total_units(resources)
+                processing_time = time.time() - start_time
+
+                # Ressourcenverbrauch berechnen
+                resources = [
+                    ResourceUsage("storage", self.calculator.calculate_storage_units(path.stat().st_size), "MB"),
+                    ResourceUsage("compute", self.calculator.calculate_compute_units(processing_time), "seconds")
+                ]
+                
+                result = {
+                    "file_name": str(path),
+                    "file_size": path.stat().st_size,
+                    "dimensions": f"{width}x{height}",
+                    "text": text,
+                    "resources_used": resources,
+                    "total_units": self.calculator.calculate_total_units(resources)
+                }
+                
+                self.logger.info("Bildverarbeitung abgeschlossen", 
+                               processing_time=processing_time,
+                               text_length=len(text))
+                
+                return result
+                
+        except Exception as e:
+            error_context = {
+                'error_type': type(e).__name__,
+                'error_message': str(e),
+                'stack_trace': traceback.format_exc(),
+                'stage': 'image_processing',
+                'file_path': str(path) if 'path' in locals() else None,
+                'dimensions': f"{width}x{height}" if 'width' in locals() and 'height' in locals() else None
             }
             
-            self.logger.info("Bildverarbeitung abgeschlossen", 
-                           processing_time=processing_time,
-                           text_length=len(text))
-            
-            return result
-            
-        except Exception as e:
             self.logger.error("Bildverarbeitungsfehler", 
-                            error=str(e),
-                            file_path=str(path) if 'path' in locals() else None)
+                            **error_context)
             raise ProcessingError(f"Bild Verarbeitungsfehler: {str(e)}") 

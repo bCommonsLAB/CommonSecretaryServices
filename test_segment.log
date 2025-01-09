@@ -1,0 +1,42 @@
+2025-01-07 16:15:19,297 - INFO - Starte Test-Verarbeitung
+2025-01-07 16:15:19,297 - INFO - Config Manager initialisiert
+2025-01-07 16:15:19,384 - INFO - Verarbeite Segment: temp-processing\audio\575b4aff6041be6f3e9506bc51e956b5\segment_21.mp3
+2025-01-07 16:15:19,384 - INFO - Dateigröße: 29.42 MB
+2025-01-07 16:15:58,722 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:02,844 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:03,897 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:16,080 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:19,532 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:20,214 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:23,158 - INFO - HTTP Request: POST https://api.openai.com/v1/audio/transcriptions "HTTP/1.1 200 OK"
+2025-01-07 16:16:23,307 - ERROR - Fehler bei der Verarbeitung: Audio-Verarbeitung fehlgeschlagen: cannot access local variable 'translation_result' where it is not associated with a value
+Traceback (most recent call last):
+  File "C:\Users\peter.aichner\Documents\common-secretary-services\src\processors\audio_processor.py", line 612, in process
+    transcription_result = self.transcriber.transcribe_segments(
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peter.aichner\Documents\common-secretary-services\src\utils\transcription_utils.py", line 572, in transcribe_segments
+    result = future.result()
+             ^^^^^^^^^^^^^^^
+  File "C:\Python311\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python311\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "C:\Python311\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peter.aichner\Documents\common-secretary-services\src\utils\transcription_utils.py", line 501, in transcribe_segment
+    llms=[whisper_model] + (translation_result.llms if translation_result else [])
+                                                       ^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'translation_result' where it is not associated with a value
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\peter.aichner\Documents\common-secretary-services\test_segment.py", line 32, in main
+    result = await processor.process(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peter.aichner\Documents\common-secretary-services\src\processors\audio_processor.py", line 690, in process
+    raise ProcessingError(f"Audio-Verarbeitung fehlgeschlagen: {str(e)}")
+src.core.exceptions.ProcessingError: Audio-Verarbeitung fehlgeschlagen: cannot access local variable 'translation_result' where it is not associated with a value
+2025-01-07 16:16:23,313 - INFO - Verarbeitung durch Benutzer abgebrochen

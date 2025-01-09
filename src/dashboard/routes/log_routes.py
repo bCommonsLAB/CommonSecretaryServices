@@ -14,42 +14,52 @@ from pathlib import Path
 # Create the blueprint
 logs = Blueprint('logs', __name__)
 
-def get_log_entries(filter_level=None, filter_date=None, search_query=None, page=1, per_page=50):
+def get_log_entries(filter_level=None, filter_date=None, search_query=None, session_id=None, page=1, per_page=50):
     """
-    Get log entries with filtering and pagination.
+    Liest und filtert Log-Einträge aus der Log-Datei.
     
     Args:
-        filter_level (str, optional): Filter logs by level (ERROR, WARNING, INFO, DEBUG)
-        filter_date (str, optional): Filter logs by date (YYYY-MM-DD)
-        search_query (str, optional): Search text in log messages and process IDs
-        page (int, optional): Current page number for pagination. Defaults to 1.
-        per_page (int, optional): Number of entries per page. Defaults to 50.
-    
+        filter_level (str, optional): Log-Level Filter (DEBUG, INFO, ERROR)
+        filter_date (str, optional): Datum Filter im Format YYYY-MM-DD
+        search_query (str, optional): Suchbegriff für Volltextsuche
+        session_id (str, optional): Process/Session ID für Filterung zusammengehöriger Logs
+        page (int): Aktuelle Seite für Pagination
+        per_page (int): Einträge pro Seite
+        
     Returns:
-        dict: Dictionary containing:
-            - entries: List of log entries for the current page
-            - pagination: Dictionary with pagination information
+        dict: Gefilterte Log-Einträge und Pagination-Informationen
     """
-    # Lade Log-Pfad aus der Konfiguration
-    config = Config()
-    log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
-    log_path = Path(log_file)
     entries = []
-    
+    current_entry = None
+    details_lines = []
+    collecting_details = False
+
+    def should_include_entry(entry, level=None, date=None, query=None, sid=None):
+        if level and entry['level'] != level:
+            return False
+        if date and not entry['timestamp'].startswith(date):
+            return False
+        if query:
+            search_text = f"{entry['message']} {entry.get('details', '')}"
+            if query.lower() not in search_text.lower():
+                return False
+        if sid and entry['process_id'] != sid:
+            return False
+        return True
+
     try:
-        if log_path.exists():
-            with open(log_path, 'r') as f:
-                current_entry = None
-                details_lines = []
-                collecting_details = False
-                
+        config = Config()
+        log_file = config.get('logging.file', 'logs/detailed.log')
+        
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     
                     # Check if this is a new log entry (starts with timestamp)
                     if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
                         # Save previous entry if exists
-                        if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
+                        if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query, session_id):
                             if details_lines:
                                 try:
                                     details_text = '\n'.join(details_lines)
@@ -84,7 +94,7 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, page
                         details_lines.append(line)
                 
                 # Don't forget to add the last entry
-                if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query):
+                if current_entry is not None and should_include_entry(current_entry, filter_level, filter_date, search_query, session_id):
                     if details_lines:
                         try:
                             details_text = '\n'.join(details_lines)
@@ -116,39 +126,6 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, page
         }
     }
 
-def should_include_entry(entry, filter_level=None, filter_date=None, search_query=None):
-    """
-    Helper function to determine if a log entry should be included based on filters
-    
-    Args:
-        entry (dict): The log entry to check
-        filter_level (str, optional): Level to filter by
-        filter_date (str, optional): Date to filter by (YYYY-MM-DD)
-        search_query (str, optional): Text to search for in message and process_id
-    
-    Returns:
-        bool: True if entry should be included, False otherwise
-    """
-    # Level filter
-    if filter_level and entry['level'] != filter_level:
-        return False
-    
-    # Date filter
-    if filter_date:
-        entry_date = entry['timestamp'].split()[0]
-        if entry_date != filter_date:
-            return False
-    
-    # Search filter
-    if search_query:
-        search_lower = search_query.lower()
-        # Search in message and process_id
-        if (search_lower not in entry['message'].lower() and 
-            search_lower not in entry['process_id'].lower()):
-            return False
-    
-    return True
-
 @logs.route('/logs')
 def view_logs():
     """
@@ -165,12 +142,14 @@ def view_logs():
     filter_level = request.args.get('level')
     filter_date = request.args.get('date')
     search_query = request.args.get('search')
+    session_id = request.args.get('session_id')
     page = int(request.args.get('page', 1))
     
     log_data = get_log_entries(
         filter_level=filter_level,
         filter_date=filter_date,
         search_query=search_query,
+        session_id=session_id,
         page=page
     )
     
@@ -179,4 +158,5 @@ def view_logs():
                          pagination=log_data['pagination'],
                          filter_level=filter_level,
                          filter_date=filter_date,
-                         search_query=search_query) 
+                         search_query=search_query,
+                         session_id=session_id) 

@@ -1,6 +1,9 @@
 from src.dashboard.app import app
-from src.utils.logger import get_logger
+from src.utils.logger import get_logger, logger_service
 import os
+
+# Reset Logger beim Start
+logger_service.reset()
 
 logger = get_logger(process_id="main")
 

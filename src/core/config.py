@@ -82,6 +82,7 @@ class Config:
                 value = value[k]
             return value
         except (KeyError, TypeError):
+            self._logger.warning(f"Konfigurationsschlüssel '{key}' nicht gefunden, verwende Standardwert: {default}")
             return default
     
     def set(self, key: str, value):
@@ -109,7 +110,8 @@ class Config:
         self._write_config(config)
     
     # Standard-Konfiguration
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG={}
+    DEFAULT_CONFIG1 = {
         'server': {
             'host': '0.0.0.0',
             'port': 5000,

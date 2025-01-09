@@ -1,0 +1,57 @@
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Operation</th>
+                <th>Dauer</th>
+                <th>Ressource</th>
+                <th>Token</th>
+                <th>Kosten</th>
+                <th>Zeitpunkt</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in recent_requests %}
+            <tr>
+                <td>
+                    {% if entry.get('status') == 'success' %}
+                        <span class="badge bg-success">✓</span>
+                    {% elif entry.get('status') == 'running' %}
+                        <span class="badge bg-primary running-indicator">⟳</span>
+                    {% else %}
+                        <span class="badge bg-danger">✗</span>
+                    {% endif %}
+                </td>
+                <td>{{ entry.get('operation', '') }}</td>
+                <td>
+                    {% if entry.get('status') == 'running' %}
+                        <div class="d-flex align-items-center">
+                            <span>{{ "%.1f"|format(entry.get('total_duration', 0)) }}s</span>
+                            <div class="progress ms-2" style="width: 50px; height: 3px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                            </div>
+                        </div>
+                    {% else %}
+                        {{ "%.1f"|format(entry.get('total_duration', 0)) }}s
+                    {% endif %}
+                </td>
+                <td>
+                    {% if entry.get('operation') == 'pdf_processing' %}
+                        📄 {{ entry.get('file_name', 'N/A') }}
+                    {% elif entry.get('operation') == 'image_processing' %}
+                        🖼️ {{ entry.get('file_name', 'N/A') }}
+                    {% elif entry.get('operation') == 'youtube_processing' %}
+                        🎥 {{ entry.get('url', 'N/A') }}
+                    {% elif entry.get('operation') == 'audio_processing' %}
+                        🎵 {{ entry.get('file_name', 'N/A') }}
+                    {% endif %}
+                </td>
+                <td>{{ entry.get('resources', {}).get('total_tokens', 0) }}</td>
+                <td>${{ "%.3f"|format(entry.get('resources', {}).get('total_cost', 0)) }}</td>
+                <td><small class="text-muted">{{ entry.get('timestamp', '').split('.')[0] }}</small></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div> 

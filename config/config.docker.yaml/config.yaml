@@ -15,7 +15,7 @@ processors:
   transformer:
     model: gpt-4
   youtube:
-    max_duration: 3600
+    max_duration: 15000
     max_file_size: 104857600
     output_template: '%(title)s.%(ext)s'
     temp_dir: temp-processing/video

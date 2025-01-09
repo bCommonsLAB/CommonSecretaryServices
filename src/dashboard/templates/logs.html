@@ -5,13 +5,22 @@
     <h1 class="mb-4">System Logs</h1>
     
     <div class="row mb-3">
-        <div class="col-12">
+        <div class="col-md-6">
             <div class="btn-group" role="group">
                 <button type="button" class="btn btn-outline-primary active" data-filter="all">All</button>
                 <button type="button" class="btn btn-outline-info" data-filter="INFO">Info</button>
                 <button type="button" class="btn btn-outline-warning" data-filter="DEBUG">Debug</button>
                 <button type="button" class="btn btn-outline-danger" data-filter="ERROR">Error</button>
             </div>
+        </div>
+        <div class="col-md-6">
+            <form class="d-flex" method="get">
+                <input type="text" name="session_id" class="form-control me-2" placeholder="Filter by Session ID..." value="{{ request.args.get('session_id', '') }}">
+                <button class="btn btn-outline-primary" type="submit">Filter</button>
+                {% if request.args.get('session_id') %}
+                    <a href="{{ url_for('logs.view_logs') }}" class="btn btn-outline-secondary ms-2">Clear</a>
+                {% endif %}
+            </form>
         </div>
     </div>
 
@@ -60,18 +69,24 @@
                                             
                                             <tr class="log-entry" data-level="{{ level }}">
                                                 <td>{{ timestamp }}</td>
-                                                <td><span class="badge {% if level == 'INFO' %}bg-info{% elif level == 'DEBUG' %}bg-warning{% elif level == 'ERROR' %}bg-danger{% endif %}">{{ level }}</span></td>
-                                                <td>{{ source }}</td>
-                                                <td>{{ processor }}</td>
-                                                <td><code>{{ process_id }}</code></td>
+                                                <td>
+                                                    <span class="badge {{ 'bg-danger' if level == 'ERROR' else 'bg-info' if level == 'INFO' else 'bg-warning' if level == 'DEBUG' else 'bg-secondary' }}">
+                                                        {{ level }}
+                                                    </span>
+                                                </td>
+                                                <td><code>{{ source }}</code></td>
+                                                <td>
+                                                    <span class="badge bg-secondary">{{ processor }}</span>
+                                                </td>
+                                                <td>
+                                                    <a href="{{ url_for('logs.view_logs', session_id=process_id) }}" class="text-decoration-none">
+                                                        <code>{{ process_id }}</code>
+                                                    </a>
+                                                </td>
                                                 <td>{{ message }}</td>
                                                 <td>
                                                     {% if args %}
-                                                        <span class="args-preview">{{ args[:100] }}{% if args|length > 100 %}...{% endif %}</span>
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary show-args" 
-                                                                data-args='{{ args|replace("'", "&#39;")|safe }}'>
-                                                            Details
-                                                        </button>
+                                                        <pre class="mb-0"><code>{{ args }}</code></pre>
                                                     {% endif %}
                                                 </td>
                                             </tr>
@@ -86,189 +101,28 @@
         </div>
         {% endfor %}
     </div>
-    
-    <div class="row mt-3">
-        <div class="col-12">
-            <form action="{{ url_for('main.clear_logs') }}" method="post" class="d-inline">
-                <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to clear all logs?')">
-                    Clear Logs
-                </button>
-            </form>
-        </div>
-    </div>
 </div>
-
-<!-- Native dialog for displaying args -->
-<dialog id="argsDialog" class="args-dialog">
-    <div class="dialog-content">
-        <div class="dialog-header">
-            <h5 class="dialog-title">Arguments Detail</h5>
-            <button type="button" class="btn-close" aria-label="Close"></button>
-        </div>
-        <div class="dialog-body">
-            <pre class="json-content" tabindex="0"></pre>
-        </div>
-        <div class="dialog-footer">
-            <button type="button" class="btn btn-secondary close-dialog">Close</button>
-        </div>
-    </div>
-</dialog>
-
-<style>
-.table {
-    font-size: 0.9em;
-}
-.args-preview {
-    font-family: monospace;
-    font-size: 0.9em;
-}
-.json-content {
-    background-color: #f8f9fa;
-    padding: 1rem;
-    border-radius: 4px;
-    white-space: pre-wrap;
-}
-.badge {
-    font-size: 0.8em;
-    padding: 0.4em 0.6em;
-}
-code {
-    font-size: 0.85em;
-    background-color: #f8f9fa;
-    padding: 0.2em 0.4em;
-    border-radius: 3px;
-}
-.args-dialog {
-    padding: 0;
-    border: none;
-    border-radius: 6px;
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    max-width: 800px;
-    width: 90%;
-}
-.args-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.5);
-}
-.dialog-content {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-}
-.dialog-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #dee2e6;
-}
-.dialog-title {
-    margin: 0;
-}
-.dialog-body {
-    padding: 1rem;
-    max-height: 70vh;
-    overflow-y: auto;
-}
-.dialog-footer {
-    padding: 1rem;
-    border-top: 1px solid #dee2e6;
-    display: flex;
-    justify-content: flex-end;
-}
-</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Filter functionality
-    const filterButtons = document.querySelectorAll('[data-filter]');
-    filterButtons.forEach(button => {
+    const buttons = document.querySelectorAll('[data-filter]');
+    buttons.forEach(button => {
         button.addEventListener('click', function() {
             const filter = this.dataset.filter;
+            const entries = document.querySelectorAll('.log-entry');
             
-            // Update active button
-            filterButtons.forEach(btn => btn.classList.remove('active'));
+            // Update active state of buttons
+            buttons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
             
-            // Filter table rows
-            const rows = document.querySelectorAll('.log-entry');
-            rows.forEach(row => {
-                if (filter === 'all' || row.dataset.level.includes(filter)) {
-                    row.style.display = '';
+            // Filter entries
+            entries.forEach(entry => {
+                if (filter === 'all' || entry.dataset.level === filter) {
+                    entry.style.display = '';
                 } else {
-                    row.style.display = 'none';
+                    entry.style.display = 'none';
                 }
             });
-        });
-    });
-
-    // Args dialog functionality
-    const dialog = document.getElementById('argsDialog');
-    const jsonContent = dialog.querySelector('.json-content');
-    const closeButton = dialog.querySelector('.btn-close');
-    const closeDialogButton = dialog.querySelector('.close-dialog');
-    let lastFocusedElement = null;
-
-    // Close dialog handlers
-    const closeDialog = () => {
-        dialog.close();
-        if (lastFocusedElement) {
-            lastFocusedElement.focus();
-        }
-    };
-
-    closeButton.addEventListener('click', closeDialog);
-    closeDialogButton.addEventListener('click', closeDialog);
-    dialog.addEventListener('click', (e) => {
-        if (e.target === dialog) {
-            closeDialog();
-        }
-    });
-
-    // Handle keyboard events
-    dialog.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            closeDialog();
-        }
-    });
-
-    // Show args in dialog
-    document.querySelectorAll('.show-args').forEach(button => {
-        button.addEventListener('click', function() {
-            lastFocusedElement = this;
-            try {
-                let argsStr = this.dataset.args;
-                console.log('Raw args:', argsStr); // Debug output
-                
-                // Decode HTML entities
-                argsStr = argsStr.replace(/&#39;/g, "'");
-                console.log('Decoded args:', argsStr); // Debug output
-                
-                try {
-                    const args = JSON.parse(argsStr);
-                    console.log('Parsed JSON:', args); // Debug output
-                    jsonContent.textContent = JSON.stringify(args, null, 2);
-                } catch (e) {
-                    console.log('First parse failed:', e); // Debug output
-                    // Try replacing single quotes with double quotes
-                    argsStr = argsStr.replace(/'/g, '"');
-                    console.log('Converted quotes:', argsStr); // Debug output
-                    
-                    try {
-                        const args = JSON.parse(argsStr);
-                        console.log('Parsed JSON after quote conversion:', args); // Debug output
-                        jsonContent.textContent = JSON.stringify(args, null, 2);
-                    } catch (e2) {
-                        console.log('Second parse failed:', e2); // Debug output
-                        jsonContent.textContent = argsStr;
-                    }
-                }
-                dialog.showModal();
-                jsonContent.focus();
-            } catch (error) {
-                console.error('Error handling args:', error);
-                jsonContent.textContent = 'Error parsing arguments: ' + this.dataset.args;
-                dialog.showModal();
-            }
         });
     });
 });

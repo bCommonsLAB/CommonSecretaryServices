@@ -7,6 +7,7 @@ import traceback
 import asyncio
 import werkzeug.datastructures
 from typing import Union
+import uuid
 
 from src.core.rate_limiting import RateLimiter
 from src.core.resource_tracking import ResourceCalculator
@@ -17,6 +18,7 @@ from src.processors.audio_processor import AudioProcessor
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
 from src.utils.logger import get_logger
 from src.processors.transformer_processor import TransformerProcessor
+from src.utils.performance_tracker import get_performance_tracker, clear_performance_tracker
 
 # Blueprint erstellen
 blueprint = Blueprint('api', __name__)
@@ -38,25 +40,72 @@ rate_limiter = RateLimiter(
     max_file_size=50 * 1024 * 1024  # 50MB
 )
 
-def get_pdf_processor():
-    """Get or create PDF processor instance with unique process ID"""
-    return PDFProcessor(resource_calculator)
+@blueprint.before_request
+def setup_request():
+    """
+    Bereitet die Request-Verarbeitung vor.
+    Initialisiert den Performance-Tracker für den Request.
+    """
+    process_id = str(uuid.uuid4())
+    tracker = get_performance_tracker(process_id)
+    
+    # Setze Endpoint-Informationen
+    endpoint = request.endpoint or 'unknown'
+    ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent', 'unknown')
+    tracker.set_endpoint_info(endpoint, ip, user_agent)
 
-def get_image_processor():
-    """Get or create image processor instance with unique process ID"""
-    return ImageProcessor(resource_calculator)
+@blueprint.after_request
+def cleanup_request(response):
+    """
+    Räumt nach der Request-Verarbeitung auf.
+    Schließt den Performance-Tracker ab und entfernt ihn.
+    """
+    tracker = get_performance_tracker()
+    if tracker:
+        # Setze Error-Status wenn die Response einen Fehler anzeigt
+        if response.status_code >= 400:
+            error_data = response.get_json()
+            error_message = error_data.get('error', 'Unknown error') if error_data else 'Unknown error'
+            tracker.set_error(error_message)
+            
+        tracker.complete_tracking()
+        clear_performance_tracker()
+    return response
 
-def get_youtube_processor():
-    """Get or create Youtube processor instance with unique process ID"""
-    return YoutubeProcessor(resource_calculator)
+@blueprint.errorhandler(Exception)
+def handle_error(error):
+    """Globaler Fehlerhandler für alle Exceptions"""
+    tracker = get_performance_tracker()
+    if tracker:
+        tracker.set_error(str(error))
+    
+    logger.error("API Fehler",
+                error=str(error),
+                error_type=error.__class__.__name__,
+                endpoint=request.endpoint,
+                ip=request.remote_addr)
+    return {'error': str(error)}, 500
 
-def get_audio_processor():
-    """Get or create audio processor instance with unique process ID"""
-    return AudioProcessor(resource_calculator)
+def get_pdf_processor(process_id: str = None):
+    """Get or create PDF processor instance with process ID"""
+    return PDFProcessor(resource_calculator, process_id=process_id)
 
-def get_transformer_processor():
-    """Get or create transformer processor instance with unique process ID"""
-    return TransformerProcessor()
+def get_image_processor(process_id: str = None):
+    """Get or create image processor instance with process ID"""
+    return ImageProcessor(resource_calculator, process_id=process_id)
+
+def get_youtube_processor(process_id: str = None):
+    """Get or create Youtube processor instance with process ID"""
+    return YoutubeProcessor(resource_calculator, process_id=process_id)
+
+def get_audio_processor(process_id: str = None):
+    """Get or create audio processor instance with process ID"""
+    return AudioProcessor(resource_calculator, process_id=process_id)
+
+def get_transformer_processor(process_id: str = None):
+    """Get or create transformer processor instance with process ID"""
+    return TransformerProcessor(process_id=process_id)
 
 # Parser für File-Uploads
 file_upload = reqparse.RequestParser()
@@ -94,13 +143,15 @@ error_model = api.model('Error', {
 pdf_response = api.model('PDFResponse', {
     'page_count': fields.Integer(description='Anzahl der Seiten'),
     'text_content': fields.String(description='Extrahierter Text'),
-    'metadata': fields.Raw(description='PDF Metadaten')
+    'metadata': fields.Raw(description='PDF Metadaten'),
+    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
 })
 
 image_response = api.model('ImageResponse', {
     'dimensions': fields.Raw(description='Bildabmessungen (Breite x Höhe)'),
     'format': fields.String(description='Bildformat'),
-    'metadata': fields.Raw(description='Bild Metadaten')
+    'metadata': fields.Raw(description='Bild Metadaten'),
+    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
 })
 
 youtube_response = api.model('YoutubeResponse', {
@@ -109,13 +160,23 @@ youtube_response = api.model('YoutubeResponse', {
     'audio_extracted': fields.Boolean(description='Audio wurde extrahiert'),
     'transcript': fields.String(description='Transkribierter Text (wenn verfügbar)'),
     'summary': fields.String(description='Zusammenfassung (wenn angefordert)'),
-    'metadata': fields.Raw(description='Video Metadaten')
+    'metadata': fields.Raw(description='Video Metadaten'),
+    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
 })
 
 audio_response = api.model('AudioResponse', {
     'duration': fields.Float(description='Audio Länge in Sekunden'),
-    'format': fields.String(description='Audio Format'),
-    'metadata': fields.Raw(description='Audio Metadaten')
+    'detected_language': fields.String(description='Erkannte Sprache (ISO 639-1)'),
+    'output_text': fields.String(description='Transkribierter/übersetzter Text'),
+    'original_text': fields.String(description='Original transkribierter Text'),
+    'translated_text': fields.String(description='Übersetzter Text (falls übersetzt)'),
+    'llm_model': fields.String(description='Verwendetes LLM-Modell'),
+    'translation_model': fields.String(description='Verwendetes Übersetzungsmodell (falls übersetzt)'),
+    'token_count': fields.Integer(description='Anzahl der verwendeten Tokens'),
+    'segments': fields.List(fields.Raw, description='Liste der Audio-Segmente mit Zeitstempeln'),
+    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking'),
+    'process_dir': fields.String(description='Verarbeitungsverzeichnis'),
+    'args': fields.Raw(description='Verwendete Verarbeitungsparameter')
 })
 
 # Model für Audio-Upload Parameter
@@ -165,24 +226,25 @@ class PDFEndpoint(Resource):
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen')
     async def post(self):
-        """PDF-Datei verarbeiten"""
-        args = file_upload.parse_args()
-        file = args['file']
-        pdf_processor = None
-        
-        if not file.filename.lower().endswith('.pdf'):
-            return {'error': 'Nur PDF-Dateien erlaubt'}, 400
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            file.save(temp_file.name)
-            try:
-                pdf_processor = get_pdf_processor()
-                result = await pdf_processor.process(temp_file.name)
-                return result
-            finally:
-                os.unlink(temp_file.name)
-                if pdf_processor:
-                    pdf_processor.logger.info("PDF-Verarbeitung beendet")
+        tracker = get_performance_tracker()
+        try:
+            with tracker.measure_operation('pdf_processing', 'PDFProcessor'):
+                args = file_upload.parse_args()
+                uploaded_file = args['file']
+                
+                # Verarbeitung der PDF-Datei
+                processor = get_pdf_processor(tracker.process_id)
+                result = await processor.process(uploaded_file)
+                
+                # Füge Ressourcenverbrauch zum Tracker hinzu
+                tracker.eval_result(result)
+                
+                return result.to_dict()
+                
+        except Exception as e:
+            logger.error("Fehler bei der PDF-Verarbeitung", error=str(e))
+            logger.error(traceback.format_exc())
+            raise
 
 @api.route('/process-image')
 class ImageEndpoint(Resource):
@@ -195,6 +257,7 @@ class ImageEndpoint(Resource):
         args = file_upload.parse_args()
         file = args['file']
         image_processor = None
+        tracker = get_performance_tracker()
         
         if not any(file.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
             return {'error': 'Nur PNG/JPG Dateien erlaubt'}, 400
@@ -202,9 +265,16 @@ class ImageEndpoint(Resource):
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
             file.save(temp_file.name)
             try:
-                image_processor = get_image_processor()
+                image_processor = get_image_processor(tracker.process_id)
                 result = await image_processor.process(temp_file.name)
-                return result
+                
+                # Füge Ressourcenverbrauch zum Tracker hinzu
+                tracker.eval_result(result)
+                
+                return result.to_dict()
+            except Exception as e:
+                logger.error("Bild-Verarbeitungsfehler", error=str(e))
+                raise
             finally:
                 os.unlink(temp_file.name)
                 if image_processor:
@@ -223,6 +293,8 @@ class YoutubeEndpoint(Resource):
     def post(self):
         """Verarbeitet ein Youtube-Video"""
         youtube_processor = None
+        tracker = get_performance_tracker()
+        
         try:
             data = request.get_json()
             url = data.get('url')
@@ -232,23 +304,30 @@ class YoutubeEndpoint(Resource):
             if not url:
                 raise ValueError("Youtube-URL ist erforderlich")
 
-            youtube_processor = get_youtube_processor()
+            youtube_processor = get_youtube_processor(tracker.process_id)
             result = asyncio.run(youtube_processor.process(
                 file_path=url,
                 target_language=target_language,
                 template=template
             ))
-            return result
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            tracker.eval_result(result)
+            
+            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
+            return result.to_dict()
+            
         except ValueError as ve:
             logger.error("Validierungsfehler",
                         error=str(ve),
-                        error_type="ValidationError")
-            return {'error': str(ve)}, 400
+                        error_type="ValidationError",
+                        process_id=tracker.process_id if tracker else None)
+            raise
         except Exception as e:
             logger.error("Youtube-Verarbeitungsfehler",
                         error=str(e),
                         error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc())
+                        stack_trace=traceback.format_exc(),
+                        process_id=tracker.process_id if tracker else None)
             raise
         finally:
             if youtube_processor:
@@ -272,6 +351,8 @@ class AudioEndpoint(Resource):
         """Audio-Datei verarbeiten"""
         temp_file = None
         audio_processor = None
+        tracker = get_performance_tracker()
+        
         try:
             args = upload_parser.parse_args()
             file = args['file']
@@ -288,19 +369,26 @@ class AudioEndpoint(Resource):
             source_info = {
                 'original_filename': file.filename
             }
-            audio_processor = get_audio_processor()
+            audio_processor = get_audio_processor(tracker.process_id)
             result = asyncio.run(audio_processor.process(
                 temp_file.name,
                 source_info=source_info,
                 target_language=target_language,
                 template=template
             ))
-            return result
+            
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            tracker.eval_result(result)
+            
+            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
+            return result.to_dict()
+            
         except Exception as e:
             logger.error("Audio-Verarbeitungsfehler",
                         error=str(e),
                         error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc())
+                        stack_trace=traceback.format_exc(),
+                        process_id=tracker.process_id if tracker else None)
             raise
         finally:
             if temp_file:
@@ -322,22 +410,32 @@ class TextTransformEndpoint(Resource):
         'source_text': fields.String(description='Ursprünglicher Text'),
         'translation_model': fields.String(description='Verwendetes Übersetzungsmodell'),
         'token_count': fields.Integer(description='Anzahl der verwendeten Tokens'),
-        'format': fields.String(description='Verwendetes Ausgabeformat')
+        'format': fields.String(description='Verwendetes Ausgabeformat'),
+        'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
     }))
     def post(self):
         """Text transformieren"""
         data = request.get_json()
+        tracker = get_performance_tracker()
         
-        transformer_processor = get_transformer_processor()
-        result = transformer_processor.transform(
-            source_text=data['text'],
-            source_language=data.get('source_language', 'en'),
-            target_language=data.get('target_language', 'en'),
-            summarize=data.get('summarize', False),
-            target_format=data.get('target_format', 'text')
-        )
-        
-        return result
+        try:
+            transformer_processor = get_transformer_processor(tracker.process_id)
+            result = transformer_processor.transform(
+                source_text=data['text'],
+                source_language=data.get('source_language', 'en'),
+                target_language=data.get('target_language', 'en'),
+                summarize=data.get('summarize', False),
+                target_format=data.get('target_format', 'text')
+            )
+
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            tracker.eval_result(result)
+            return result.to_dict()
+            
+        except Exception as e:
+            logger.error("Text-Transformationsfehler", 
+                        error=str(e))
+            raise
 
 @api.route('/transform-template')
 class TemplateTransformEndpoint(Resource):
@@ -353,22 +451,31 @@ class TemplateTransformEndpoint(Resource):
         'template_used': fields.String(description='Verwendetes Template'),
         'translation_model': fields.String(description='Verwendetes Übersetzungsmodell'),
         'token_count': fields.Integer(description='Anzahl der verwendeten Tokens'),
-        'structured_data': fields.Raw(description='Strukturierte Daten aus der Template-Verarbeitung')
+        'structured_data': fields.Raw(description='Strukturierte Daten aus der Template-Verarbeitung'),
+        'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
     }))
     def post(self):
         """Text mit Template transformieren"""
         data = request.get_json()
+        tracker = get_performance_tracker()
         
-        transformer_processor = get_transformer_processor()
-        result = transformer_processor.transformByTemplate(
-            source_text=data['text'],
-            source_language=data.get('source_language', ''),
-            target_language=data.get('target_language', 'de'),
-            template=data['template'],
-            context=data['context']
-        )
-        
-        return result
+        try:
+            transformer_processor = get_transformer_processor(tracker.process_id)
+            result = transformer_processor.transformByTemplate(
+                source_text=data['text'],
+                source_language=data.get('source_language', ''),
+                target_language=data.get('target_language', 'de'),
+                template=data['template'],
+                context=data['context']
+            )
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            tracker.eval_result(result)
+            return result.to_dict()
+            
+        except Exception as e:
+            logger.error("Template-Transformationsfehler", 
+                        error=str(e))
+            raise
 
 @api.route('/manage-audio-cache')
 class AudioCacheEndpoint(Resource):
@@ -385,25 +492,34 @@ class AudioCacheEndpoint(Resource):
         Wenn max_age_days angegeben ist, werden alle Cache-Verzeichnisse gelöscht die älter sind.
         Wenn delete_transcripts True ist, werden auch die Transkriptionen gelöscht, sonst nur die Segmente.
         """
+        tracker = get_performance_tracker()
+        
         try:
             data = request.get_json() or {}
             filename = data.get('filename')
             max_age_days = data.get('max_age_days', 7)
             delete_transcripts = data.get('delete_transcripts', False)
             
+            # Initialisiere AudioProcessor mit der Tracker process_id
+            audio_processor = get_audio_processor(tracker.process_id)
+            
             if filename:
-                audio_processor = get_audio_processor()
                 audio_processor.delete_cache(filename, delete_transcript=delete_transcripts)
                 msg = 'komplett' if delete_transcripts else 'Segmente'
+                logger.info("Cache für spezifische Datei gelöscht", 
+                          filename=filename, 
+                          delete_transcripts=delete_transcripts)
                 return {'message': f'Cache für {filename} wurde {msg} gelöscht'}
             else:
-                audio_processor = get_audio_processor()
                 audio_processor.cleanup_cache(max_age_days, delete_transcripts=delete_transcripts)
                 msg = 'komplett' if delete_transcripts else 'Segmente'
+                logger.info("Alte Cache-Verzeichnisse gelöscht", 
+                          max_age_days=max_age_days, 
+                          delete_transcripts=delete_transcripts)
                 return {'message': f'Alte Cache-Verzeichnisse (>{max_age_days} Tage) wurden {msg} gelöscht'}
                 
         except Exception as e:
-            logger.error("Cache-Verwaltungsfehler",
+            logger.error("Cache-Management Fehler",
                         error=str(e),
                         error_type=type(e).__name__,
                         stack_trace=traceback.format_exc())

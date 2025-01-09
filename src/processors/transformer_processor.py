@@ -1,55 +1,71 @@
-import os
+"""
+Transformer processor module.
+Handles text transformation using LLM models.
+"""
 import re
-from pathlib import Path
 from typing import Dict, Any, Optional
 import json
+import os
+from pathlib import Path
+import yaml
+from openai import OpenAI
+from datetime import datetime
 
+from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
+from src.utils.transcription_utils import WhisperTranscriber
+from src.utils.types import TranslationResult
 from src.core.config import Config
 from src.core.config_keys import ConfigKeys
-from src.utils.transcription_utils import WhisperTranscriber
-from openai import OpenAI
+from .base_processor import BaseProcessor
 
-class TransformerProcessor:
-    """TransformerProcessor für die Verarbeitung von Text-Transformationen.
-    
-    Diese Klasse kümmert sich um Übersetzung und (optionale) Zusammenfassung von Text.
-    Die Konfiguration wird direkt aus der Config-Klasse geladen.
-    
-    Attributes:
-        model (str): Name des zu verwendenden Sprachmodells
-        target_format (str): Zielformat für die Ausgabe (text, html, markdown)
-        client (OpenAI): OpenAI Client für API-Zugriff
-        process_id (str): Eindeutige Prozess-ID
-        logger: Logger-Instanz für diesen Processor
+class TransformerProcessor(BaseProcessor):
     """
-    def __init__(self):
+    Prozessor für Text-Transformationen mit LLM-Modellen.
+    Unterstützt verschiedene Modelle und Template-basierte Transformationen.
+    """
+    
+    def __init__(self, process_id: str = None):
+        """
+        Initialisiert den TransformerProcessor.
+        
+        Args:
+            process_id (str, optional): Die zu verwendende Process-ID vom API-Layer
+        """
+        # Basis-Klasse zuerst initialisieren
+        super().__init__(process_id=process_id)
+        
         # Konfiguration aus Config laden
         config = Config()
-        config_keys = ConfigKeys()
-        transform_config = config.get('processors.transformer', {})
+        processors_config = config.get('processors', {})
+        transformer_config = processors_config.get('transformer', {})
         
-        # Konfigurationswerte mit Validierung laden
-        self.model = transform_config.get('model', 'gpt-4')
-        self.target_format = transform_config.get('target_format', 'text')
-        
-        # Validierung der erforderlichen Konfigurationswerte
-        if not config_keys.openai_api_key:
-            raise ValueError("OpenAI API Key muss in der Konfiguration angegeben werden")
-            
-        # Weitere Konfigurationswerte laden
-        self.process_id = "transformer"
+        # Logger initialisieren
         self.logger = get_logger(process_id=self.process_id, processor_name="TransformerProcessor")
-        self.transcriber = WhisperTranscriber(transform_config)
         
-        # OpenAI Client initialisieren
-        self.client = OpenAI(api_key=config_keys.openai_api_key)
+        # Konfigurationswerte laden
+        self.model = transformer_config.get('model', 'gpt-4')
+        self.target_format = transformer_config.get('target_format', 'text')
         
-        self.logger.debug("Transformer Processor initialisiert",
-                         model=self.model,
-                         target_format=self.target_format)
+        try:
+            # OpenAI API Key über ConfigKeys laden
+            config_keys = ConfigKeys()
+            openai_api_key = config_keys.openai_api_key
+            
+            # OpenAI Client initialisieren
+            self.client = OpenAI(api_key=openai_api_key)
+            
+            # Transcriber für GPT-4 Interaktionen initialisieren
+            self.transcriber = WhisperTranscriber(transformer_config)
+            
+            self.logger.debug("Transformer Processor initialisiert",
+                            model=self.model,
+                            target_format=self.target_format)
+                            
+        except ValueError as e:
+            raise ProcessingError(str(e))
 
-    def transform(self, source_text: str, source_language: str, target_language: str, summarize: bool = False, target_format: str = None) -> Dict[str, Any]:
+    def transform(self, source_text: str, source_language: str, target_language: str, summarize: bool = False, target_format: str = None, context: Dict[str, Any] = None) -> TranslationResult:
         """
         Führt Übersetzung und optional Zusammenfassung durch.
 
@@ -61,8 +77,14 @@ class TransformerProcessor:
             target_format (str): Ausgabeformat (text, html, markdown). Überschreibt die Konfiguration.
 
         Returns:
-            Dict[str, Any]: Dictionary mit dem transformierten Text, Modellinfos und weiteren Metadaten
+            TranslationResult: Das validierte Übersetzungsergebnis
         """
+        # Debug-Verzeichnis definieren und erstellen
+        debug_dir = Path('./temp-processing/transform')
+        if context and 'uploader' in context:
+            debug_dir = Path(f'{debug_dir}/{context["uploader"]}')
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
         # Format aus Parameter oder Konfiguration verwenden
         format_to_use = target_format or self.target_format
         if format_to_use not in ['text', 'html', 'markdown']:
@@ -81,23 +103,28 @@ class TransformerProcessor:
         # Beispiel: Verwendung einer Methode der WhisperTranscriber-Klasse zum Übersetzen/ Zusammenfassen.
         # Hier nur Platzhalterlogik:
         translation_result = self.transcriber.translate_text(
-            source_text,
-            target_language,
-            self.logger,
-            summarize,
-            format_instruction=format_instruction  # Neue Format-Anweisung übergeben
+            text=source_text,
+            source_language=source_language,
+            target_language=target_language,
+            logger=self.logger,
+            summarize=summarize
+        )
+
+        self.transcriber.saveDebugOutput(
+            text=translation_result.text,
+            context=context,
+            logger=self.logger
         )
 
         # Rückgabe in einheitlicher Struktur
-        return {
-            "text": translation_result.text,
-            "source_text": source_text,
-            "translation_model": self.model,
-            "token_count": translation_result.token_count,
-            "format": format_to_use
-        }
+        return TranslationResult(
+            text=translation_result.text,
+            source_language=source_language,
+            target_language=target_language,
+            llms=translation_result.llms
+        )
 
-    def transformByTemplate(self, source_text: str, source_language: str, target_language: str, context: Dict[str, Any] = None, template: str = None) -> Dict[str, Any]:
+    def transformByTemplate(self, source_text: str, source_language: str, target_language: str, context: Dict[str, Any] = None, template: str = None) -> TranslationResult:
         """
         Transformiert Text basierend auf einem vordefinierten Markdown-Template.
         Die Templates befinden sich im ./templates-Ordner und enthalten Anweisungen in geschweiften Klammern
@@ -105,21 +132,14 @@ class TransformerProcessor:
 
         Args:
             source_text (str): Der zu transformierende Text
-            source_language (str): Sprachcode (ISO 639-1) für die Zielsprache
+            source_language (str): Sprachcode (ISO 639-1) für die Quellsprache
             target_language (str): Sprachcode (ISO 639-1) für die Zielsprache
             context (Dict[str, Any]): Dictionary mit Kontext-Informationen für Template-Variablen
             template (str, optional): Name des Templates (ohne .md Endung)
 
         Returns:
-            Dict[str, Any]: Dictionary mit dem transformierten Text und Metadaten
+            TranslationResult: Das validierte Übersetzungsergebnis mit transformiertem Template-Inhalt
         """
-        from datetime import datetime
-        from pathlib import Path
-        import json
-
-        # Debug-Verzeichnis definieren und erstellen
-        debug_dir = Path('./temp-processing/transform')
-        debug_dir.mkdir(parents=True, exist_ok=True)
         
         # Wenn kein Template angegeben, Error werfen
         if not template:
@@ -138,52 +158,49 @@ class TransformerProcessor:
             self.logger.debug("Context-Informationen", context=context)
 
         try:
-            # Verwende die neue Methode aus WhisperTranscriber
-            transformed_content, result = self.transcriber.transform_by_template(
-                source_text,
-                target_language,
-                template,
-                context=context,  # Context ist jetzt garantiert ein Dict oder None
+            # Zuerst den Quelltext übersetzen
+            if source_language != target_language:
+                self.logger.info("Übersetze Quelltext")
+
+                translation_result = self.transcriber.translate_text(
+                    source_text,
+                    source_language,
+                    target_language,
+                    self.logger
+                )
+                translated_text = translation_result.text
+                llms = translation_result.llms
+            else:
+                translated_text = source_text
+                llms = []
+                
+            # Verwende die neue Methode aus WhisperTranscriber mit dem übersetzten Text
+            transformed_content, template_result = self.transcriber.transform_by_template(
+                text=translated_text,  # Verwende den übersetzten Text
+                target_language=target_language,
+                template=template,  
+                context=context,
                 logger=self.logger
             )
             
             # Debug-Ausgabe in temporäres Verzeichnis
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result_dict = template_result.model_dump() if template_result else {}
             
-            # Versuche einen Titel aus der JSON-Antwort zu extrahieren
-            debug_filename = f"{timestamp}.md"
-            result_dict = result.model_dump()
-            if 'title' in result_dict:
-                # Bereinige den Titel für die Verwendung als Dateiname
-                safe_title = re.sub(r'[^\w\s-]', '', result_dict['title'])
-                safe_title = re.sub(r'[-\s]+', '-', safe_title).strip('-')
-                debug_filename = f"{safe_title}_{timestamp}.md"
-            
-            debug_file_path = debug_dir / debug_filename
-            
-            # Speichere transformiertes Template
-            with open(debug_file_path, 'w', encoding='utf-8') as f:
-                f.write(transformed_content)
-                
-            # Speichere auch die rohe JSON-Antwort
-            json_debug_path = debug_dir / f"{debug_filename}.json"
-            with open(json_debug_path, 'w', encoding='utf-8') as f:
-                json.dump(result_dict, f, indent=2, ensure_ascii=False)
-            
-            self.logger.info(f"Debug-Ausgabe gespeichert in: {debug_file_path}")
+            self.transcriber.saveDebugOutput(
+                text=transformed_content,
+                template=template,
+                result_dict=result_dict,
+                context=context,
+                logger=self.logger
+            )
 
-            return {
-                "text": transformed_content,
-                "source_text": source_text,
-                "template_used": template,
-                "translation_model": self.model,
-                "token_count": getattr(result, 'token_count', 0),
-                "structured_data": result_dict,
-                "debug_files": {
-                    "transformed": str(debug_file_path),
-                    "json": str(json_debug_path)
-                }
-            }
+            # Erstelle das TranslationResult
+            return TranslationResult(
+                text=transformed_content,
+                source_language=source_language,
+                target_language=target_language,
+                llms=llms + (template_result.llms if template_result else [])
+            )
             
         except Exception as e:
             self.logger.error(f"Fehler bei der Template-Verarbeitung: {str(e)}")

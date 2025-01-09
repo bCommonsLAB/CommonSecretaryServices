@@ -1,12 +1,13 @@
 logging:
   backup_count: 5
   file: logs/dev_detailed.log
-  level: INFO
+  level: DEBUG
   max_log_entries: 1000
   max_size: 10485760
+
 processors:
   audio:
-    batch_size: 4
+    batch_size: 5
     export_format: mp3
     max_file_size: 104857600
     segment_duration: 300
@@ -15,7 +16,7 @@ processors:
   transformer:
     model: gpt-4
   youtube:
-    max_duration: 3600
+    max_duration: 15000
     max_file_size: 104857600
     output_template: '%(title)s.%(ext)s'
     temp_dir: temp-processing/video

@@ -154,87 +154,160 @@ def home():
     Returns:
         rendered template: The dashboard.html template with statistics and system information
     """
-    # Get statistics for the dashboard
+    # Initialize statistics
     stats = {
         'total_requests': 0,
         'avg_duration': 0.0,
         'success_rate': 0.0,
+        'hourly_tokens': 0,
         'operations': {},
         'hourly_stats': {},
-        'recent_requests': []
+        'recent_requests': [],
+        'processor_stats': {}
     }
     
     try:
         # Load performance data
         perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
+        logger.info(f"Loading performance data from {perf_path}")
+        
+        if not os.path.exists(perf_path):
+            logger.warning(f"Performance file not found at {perf_path}")
+            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
+            
         with open(perf_path, 'r') as f:
             perf_data = json.load(f)
             
-        # Calculate statistics
+        if not perf_data:
+            logger.warning("Performance data is empty")
+            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
+            
+        # Calculate time window
         now = datetime.now()
         day_ago = now - timedelta(days=1)
         
-        # Filter recent requests
-        recent_requests = [r for r in perf_data 
-                         if datetime.fromisoformat(r['timestamp']) > day_ago]
+        # Filter recent requests and ensure timestamp is valid
+        recent_requests = []
+        for r in perf_data:
+            try:
+                timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
+                if timestamp > day_ago:
+                    r['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    recent_requests.append(r)
+            except (ValueError, KeyError) as e:
+                logger.error(f"Error processing request timestamp: {e}")
+                continue
         
         if recent_requests:
+            # Basic statistics
             stats['total_requests'] = len(recent_requests)
-            stats['avg_duration'] = sum(r['duration_seconds'] for r in recent_requests) / len(recent_requests)
-            success_count = sum(1 for r in recent_requests if r.get('details', {}).get('success', False))
+            total_duration = sum(float(r.get('total_duration', 0)) for r in recent_requests)
+            stats['avg_duration'] = total_duration / len(recent_requests)
+            
+            # Success rate calculation
+            success_count = sum(1 for r in recent_requests if r.get('status') == 'success')
             stats['success_rate'] = (success_count / len(recent_requests)) * 100
+            
+            # Token calculation
+            total_tokens = sum(r.get('resources', {}).get('total_tokens', 0) for r in recent_requests)
+            stats['hourly_tokens'] = total_tokens // 24 if total_tokens > 0 else 0
             
             # Operation statistics
             for r in recent_requests:
-                op = r.get('operation', '')
-                stats['operations'][op] = stats['operations'].get(op, 0) + 1
+                for op in r.get('operations', []):
+                    op_name = op.get('name', 'unknown')
+                    stats['operations'][op_name] = stats['operations'].get(op_name, 0) + 1
+            
+            # Processor statistics
+            for r in recent_requests:
+                for processor, data in r.get('processors', {}).items():
+                    if processor not in stats['processor_stats']:
+                        stats['processor_stats'][processor] = {
+                            'request_count': 0,
+                            'total_duration': 0,
+                            'success_count': 0,
+                            'error_count': 0,
+                            'total_tokens': 0,
+                            'total_cost': 0
+                        }
+                    
+                    proc_stats = stats['processor_stats'][processor]
+                    proc_stats['request_count'] += 1
+                    proc_stats['total_duration'] += float(data.get('total_duration', 0))
+                    proc_stats['success_count'] += data.get('success_count', 0)
+                    proc_stats['error_count'] += data.get('error_count', 0)
+                    
+                    # Add token and cost data if available
+                    resources = r.get('resources', {})
+                    proc_stats['total_tokens'] += resources.get('total_tokens', 0)
+                    proc_stats['total_cost'] += float(resources.get('total_cost', 0))
+            
+            # Calculate averages for processor stats
+            for proc_stats in stats['processor_stats'].values():
+                req_count = proc_stats['request_count']
+                if req_count > 0:
+                    proc_stats['avg_duration'] = proc_stats['total_duration'] / req_count
+                    proc_stats['success_rate'] = (proc_stats['success_count'] / req_count) * 100
+                    proc_stats['avg_tokens'] = proc_stats['total_tokens'] // req_count
+                    proc_stats['avg_cost'] = proc_stats['total_cost'] / req_count
             
             # Hourly statistics
-            for hour in range(24):
-                hour_start = now - timedelta(hours=hour)
-                hour_requests = [r for r in recent_requests 
-                               if datetime.fromisoformat(r['timestamp']) > hour_start]
-                stats['hourly_stats'][hour_start.strftime('%H:00')] = len(hour_requests)
+            hour_counts = {}
+            for r in recent_requests:
+                try:
+                    hour = datetime.strptime(r['timestamp'], '%Y-%m-%d %H:%M:%S').strftime('%H:00')
+                    hour_counts[hour] = hour_counts.get(hour, 0) + 1
+                except ValueError as e:
+                    logger.error(f"Error processing hour statistics: {e}")
+                    continue
             
-            # Recent requests (last 10)
+            # Sort hours and create final hourly stats
+            sorted_hours = sorted(hour_counts.keys())
+            stats['hourly_stats'] = {hour: hour_counts[hour] for hour in sorted_hours}
+            
+            # Process recent requests (last 10)
             recent_requests = sorted(recent_requests, 
-                                  key=lambda x: x['timestamp'], 
+                                  key=lambda x: x['timestamp'],
                                   reverse=True)[:10]
             
-            # Process each request to structure the data
-            for request in recent_requests:
-                # Extract main process details
-                request['main_process'] = {
-                    'timestamp': request['timestamp'],
-                    'duration_seconds': request['duration_seconds'],
-                    'operation': request['operation'],
-                    'processor': request.get('processor', ''),
-                    'success': request.get('details', {}).get('success', False),
-                    'function': request.get('details', {}).get('function', ''),
-                    'file_size': request.get('details', {}).get('file_size', 0),
-                    'duration': request.get('details', {}).get('duration', 0),
-                    'text': request.get('details', {}).get('text', 0),
-                    'text_length': request.get('details', {}).get('text_length', 0),
-                    'llm_model': request.get('details', {}).get('llm_model', ''),
-                    'token_count': request.get('details', {}).get('token_count', 0)
-                }
-            
-            # Load logs for each request
+            # Add logs to recent requests
             request_logs = load_logs_for_requests(recent_requests)
-            
-            # Add logs to each request
             for request in recent_requests:
                 process_id = request.get('process_id')
                 request['logs'] = request_logs.get(process_id, [])
+                
+                # Get the main operation
+                main_op = next((op for op in request.get('operations', []) 
+                              if op.get('name') == request.get('operation')), {})
+                
+                # Get the processor data
+                processor_name = main_op.get('processor', '')
+                processor_data = request.get('processors', {}).get(processor_name, {})
+                
+                # Prepare the main process data
+                request['main_process'] = {
+                    'timestamp': request['timestamp'],
+                    'duration_seconds': float(request.get('total_duration', 0)),
+                    'operation': main_op.get('name', ''),
+                    'processor': processor_name,
+                    'success': request.get('status') == 'success',
+                    'file_size': request.get('file_size', 0),
+                    'duration': main_op.get('duration', 0),
+                    'text': request.get('text', ''),
+                    'text_length': len(request.get('text', '')),
+                    'llm_model': request.get('resources', {}).get('models_used', [''])[0],
+                    'token_count': request.get('resources', {}).get('total_tokens', 0)
+                }
             
             stats['recent_requests'] = recent_requests
             
     except Exception as e:
-        print(f"Error loading performance data: {e}")
+        logger.error(f"Error processing dashboard data: {str(e)}", exc_info=True)
+        stats['error'] = str(e)
     
     return render_template('dashboard.html', 
                          stats=stats,
-                         system_info=get_system_info()) 
+                         system_info=get_system_info())
 
 @main.route('/api/config', methods=['POST'])
 def save_config():
@@ -409,3 +482,63 @@ def clear_logs():
         return redirect(url_for('main.logs'))
     except Exception as e:
         return f"Error clearing logs: {str(e)}", 500 
+
+@main.route('/api/recent-requests')
+def get_recent_requests():
+    """
+    API endpoint to get the latest requests for auto-refresh
+    """
+    try:
+        # Load performance data
+        perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
+        
+        if not os.path.exists(perf_path):
+            return jsonify({'html': '<div class="text-muted">Keine Daten verfügbar</div>'})
+            
+        with open(perf_path, 'r') as f:
+            perf_data = json.load(f)
+            
+        if not perf_data:
+            return jsonify({'html': '<div class="text-muted">Keine Anfragen vorhanden</div>'})
+            
+        # Calculate time window (last 24 hours)
+        now = datetime.now()
+        day_ago = now - timedelta(days=1)
+        
+        # Filter and process recent requests
+        recent_requests = []
+        for r in perf_data:
+            try:
+                timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
+                if timestamp > day_ago:
+                    r['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Check if request is still running (no end_time in operations)
+                    operations = r.get('operations', [])
+                    if operations:
+                        last_op = operations[-1]
+                        if 'end_time' not in last_op:
+                            r['status'] = 'running'
+                            # Calculate current duration
+                            start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
+                            r['total_duration'] = (now - start_time).total_seconds()
+                    
+                    recent_requests.append(r)
+            except (ValueError, KeyError) as e:
+                logger.error(f"Error processing request timestamp: {e}")
+                continue
+        
+        # Sort by timestamp (newest first) and take last 10
+        recent_requests = sorted(recent_requests, 
+                               key=lambda x: x['timestamp'],
+                               reverse=True)[:10]
+        
+        # Render only the requests list part
+        html = render_template('_recent_requests.html', 
+                             recent_requests=recent_requests)
+        
+        return jsonify({'html': html})
+        
+    except Exception as e:
+        logger.error(f"Error getting recent requests: {str(e)}", exc_info=True)
+        return jsonify({'html': f'<div class="text-danger">Fehler beim Laden: {str(e)}</div>'}) 

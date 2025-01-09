@@ -1,5 +1,11 @@
 """
 Logger implementation for the processing service.
+
+Die Logger-Klasse implementiert ein zentrales Logging-System mit folgenden Hauptfunktionen:
+- Einheitliches Logging-Format über alle Prozesse
+- Session-Tracking über process_id
+- Strukturierte Logs mit zusätzlichen Metadaten
+- Automatische Rotation der Logfiles
 """
 import logging
 import json
@@ -7,8 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 import sys
-import time
-from functools import wraps
 import os
 import yaml
 
@@ -23,67 +27,34 @@ class LoggerService:
     _loggers = {}
     _console_handler = None
     _detail_handler = None
-    
-    @staticmethod
-    def track_performance(operation: str):
-        """
-        Decorator für Performance-Tracking von Funktionen.
-        
-        Args:
-            operation (str): Name der Operation die getrackt werden soll
-            
-        Returns:
-            Decorator-Funktion die die Performance misst und loggt
-        """
-        def decorator(func):
-            @wraps(func)
-            async def wrapper(*args, **kwargs):
-                # Hole die Instanz des Processors (erstes Argument der Methode)
-                processor_instance = args[0]
-                logger = processor_instance.logger
-                start_time = time.time()
-                
-                try:
-                    # Führe die eigentliche Funktion aus
-                    result = await func(*args, **kwargs)
-                    duration = time.time() - start_time
-                    
-                    # Basis-Details für alle Operationen
-                    details = {
-                        "success": True,
-                        "function": func.__name__
-                    }
-                    
-                    # Füge spezifische Details hinzu
-                    if isinstance(result, dict):
-                        # Entferne process_id aus dem Result für die Details
-                        result_clean = {k: v for k, v in result.items() if k != 'process_id'}
-                        details.update(result_clean)
-                    
-                    # Logge Performance
-                    logger.log_performance(operation, duration, details)
-                    return result
-                    
-                except Exception as e:
-                    duration = time.time() - start_time
-                    logger.log_performance(operation, duration, {
-                        "success": False,
-                        "error": str(e),
-                        "function": func.__name__
-                    })
-                    raise
-                
-            return wrapper
-        return decorator
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(LoggerService, cls).__new__(cls)
         return cls._instance
     
     def __init__(self):
+        """Initialisiert den LoggerService"""
         if not self._shared_handlers_initialized:
             self._initialize_handlers()
+            
+    @classmethod
+    def reset(cls):
+        """Setzt alle Logger zurück und initialisiert sie neu."""
+        # Entferne alle existierenden Handler
+        for logger_name in logging.root.manager.loggerDict:
+            logger = logging.getLogger(logger_name)
+            for handler in logger.handlers[:]:
+                logger.removeHandler(handler)
+        
+        # Setze die Klassen-Attribute zurück
+        cls._shared_handlers_initialized = False
+        cls._loggers = {}
+        cls._console_handler = None
+        cls._detail_handler = None
+        
+        # Erstelle eine neue Instanz
+        return cls()
     
     def _load_config(self):
         """Lädt die Logging-Konfiguration aus config.yaml"""
@@ -100,7 +71,7 @@ class LoggerService:
                 'max_size': 10485760,
                 'backup_count': 5
             }
-    
+
     def _initialize_handlers(self):
         """
         Initialisiert die Log-Handler (Konsole und Datei).
@@ -119,8 +90,47 @@ class LoggerService:
         # Console Handler
         self._console_handler = logging.StreamHandler(sys.stdout)
         self._console_handler.setLevel(log_level)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - [%(processor_name)s] Process[%(process_id)s] - %(message)s - Args: %(kwargs)s'
+
+        class RelativePathFormatter(logging.Formatter):
+            def format(self, record):
+                # Konvertiere den absoluten Pfad in einen relativen Pfad
+                if hasattr(record, 'pathname'):
+                    try:
+                        # Konvertiere zu relativem Pfad
+                        workspace_root = Path(__file__).parent.parent.parent
+                        
+                        # Finde den tatsächlichen Caller
+                        frame = sys._getframe()
+                        found_logging = False
+                        
+                        # Gehe durch den Stack bis wir den ersten Frame nach dem Logger finden
+                        while frame:
+                            code = frame.f_code
+                            filename = code.co_filename
+                            
+                            # Wenn wir im logging-Modul sind, markiere das
+                            if 'logging' in filename or 'logger.py' in filename:
+                                found_logging = True
+                            # Wenn wir das logging-Modul verlassen haben, ist dies unser Caller
+                            elif found_logging:
+                                try:
+                                    caller_path = Path(filename)
+                                    record.pathname = str(caller_path)
+                                    record.funcName = code.co_name
+                                    record.lineno = frame.f_lineno
+                                    break
+                                except Exception:
+                                    pass
+                            frame = frame.f_back
+                        
+                        # Verwende nur den Dateinamen ohne Pfad
+                        record.source_path = Path(record.pathname).name
+                    except (ValueError, AttributeError):
+                        record.source_path = Path(record.pathname).name
+                return super().format(record)
+
+        formatter = RelativePathFormatter(
+            '%(asctime)s - %(levelname)s - [%(source_path)s:%(funcName)s:%(lineno)d] - [%(processor_name)s] Process[%(process_id)s] - %(message)s'
         )
         self._console_handler.setFormatter(formatter)
         
@@ -136,19 +146,11 @@ class LoggerService:
             log_path,
             encoding='utf-8'
         )
-        self._detail_handler.setLevel(log_level)
-        detail_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - [%(processor_name)s] Process[%(process_id)s] - %(message)s'
-        )
-        self._detail_handler.setFormatter(detail_formatter)
-        
-        # Performance Log (JSON)
-        perf_log_path = log_path.parent / "performance.json"
-        if not perf_log_path.exists():
-            perf_log_path.write_text("[]")
+        self._detail_handler.setLevel(logging.DEBUG)
+        self._detail_handler.setFormatter(formatter)
         
         self._shared_handlers_initialized = True
-    
+
     def get_logger(self, process_id: str, processor_name: str = None) -> 'ProcessingLogger':
         """Get or create a logger instance for the given process_id"""
         if process_id in self._loggers:
@@ -156,6 +158,10 @@ class LoggerService:
             if processor_name and processor_name != logger.processor_name:
                 logger.processor_name = processor_name
             return logger
+        
+        # Stelle sicher, dass die Handler initialisiert sind
+        if not self._shared_handlers_initialized:
+            self._initialize_handlers()
         
         logger = ProcessingLogger(process_id=process_id, 
                                 processor_name=processor_name,
@@ -175,7 +181,6 @@ class ProcessingLogger:
         
         self.process_id = process_id
         self.processor_name = processor_name or ""
-        self.log_dir = Path("logs")
         
         # Haupt-Logger Setup
         self.logger = logging.getLogger(f"processing_service.{process_id}")
@@ -187,7 +192,6 @@ class ProcessingLogger:
             self.logger.addHandler(console_handler)
             self.logger.addHandler(detail_handler)
         
-        self.perf_log_path = self.log_dir / "performance.json"
         self.debug("Logger initialisiert")
     
     def _clean_process_id(self, data: Any) -> Any:
@@ -197,13 +201,12 @@ class ProcessingLogger:
         elif isinstance(data, list):
             return [self._clean_process_id(item) for item in data]
         return data
-    
+
     def _prepare_extra(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Bereitet die Extra-Daten für das Logging vor."""
         extra = {
             'process_id': self.process_id,
-            'processor_name': self.processor_name,
-            'kwargs': '{}'
+            'processor_name': self.processor_name
         }
         if kwargs:
             clean_kwargs = self._clean_process_id(kwargs)
@@ -215,14 +218,14 @@ class ProcessingLogger:
         """Debug-Level Logging mit optionalen strukturierten Daten."""
         extra = self._prepare_extra(kwargs)
         if kwargs:  # Nur wenn kwargs vorhanden sind
-            message = f"{message} - Args: {extra['kwargs']}"
+            message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.debug(message, extra=extra)
 
     def info(self, message: str, **kwargs):
         """Info-Level Logging mit optionalen strukturierten Daten."""
         extra = self._prepare_extra(kwargs)
         if kwargs:  # Nur wenn kwargs vorhanden sind
-            message = f"{message} - Args: {extra['kwargs']}"
+            message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.info(message, extra=extra)
 
     def error(self, message: str, error: Optional[Exception] = None, **kwargs):
@@ -230,6 +233,8 @@ class ProcessingLogger:
         if error:
             message = f"{message}\nError: {str(error)}"
         extra = self._prepare_extra(kwargs)
+        if kwargs:  # Nur wenn kwargs vorhanden sind
+            message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.error(message, extra=extra)
 
     def warning(self, message: str, **kwargs):
@@ -237,44 +242,9 @@ class ProcessingLogger:
         extra = self._prepare_extra(kwargs)
         self.logger.warning(message, extra=extra)
 
-    def log_performance(self, operation: str, duration: float, details: Dict[str, Any]):
-        """Loggt Performance-Daten in JSON-Format."""
-        # Entferne process_id rekursiv aus den Details
-        clean_details = self._clean_process_id(details)
-        
-        entry = {
-            "timestamp": datetime.now().isoformat(),
-            "operation": operation,
-            "duration_seconds": duration,
-            "processor": operation.split('_')[0].capitalize(),
-            "process_id": self.process_id,
-            "details": clean_details
-        }
-        
-        try:
-            if not self.perf_log_path.exists() or self.perf_log_path.stat().st_size == 0:
-                self.perf_log_path.write_text("[]")
-            
-            try:
-                logs = json.loads(self.perf_log_path.read_text())
-            except json.JSONDecodeError:
-                self.logger.warning("Ungültige performance.json gefunden, erstelle neue")
-                logs = []
-            
-            logs.append(entry)
-            
-            with self.perf_log_path.open('w', encoding='utf-8') as f:
-                json.dump(logs, f, indent=2)
-                
-        except Exception as e:
-            self.logger.error(f"Fehler beim Schreiben der Performance-Logs: {str(e)}")
-
 # Globale Instanz des LoggerService
 logger_service = LoggerService()
 
-def get_logger(process_id: str, processor_name: str = None) -> ProcessingLogger:
+def get_logger(process_id: str = None, processor_name: str = None) -> ProcessingLogger:
     """Helper function to get a logger instance"""
     return logger_service.get_logger(process_id, processor_name)
-
-# Export the track_performance decorator for easier access
-track_performance = LoggerService.track_performance
