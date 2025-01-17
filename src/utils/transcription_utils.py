@@ -773,56 +773,78 @@ class WhisperTranscriber:
             # 2. Verarbeite Segmente parallel
             results = self._process_segments_parallel(all_segments, segment_to_chapter, logger, target_language)
             results.sort(key=lambda x: x.segments[0].segment_id)
-            
-            # 3. Organisiere Ergebnisse nach Kapiteln
-            chapter_texts, chapter_segments, chapter_titles, chapter_order = self._organize_results_by_chapter(results, segment_to_chapter)
-            
-            # 4. Erstelle den kompletten Text mit Kapiteln
+
+            # Bestimme die häufigste erkannte Sprache
+            detected_languages = [r.detected_language for r in results if r.detected_language]
+            most_common_language = max(detected_languages, key=detected_languages.count) if detected_languages else None
+
             combined_text_parts = []
             combined_segments = []
             combined_llms = []
-            
-            # 5. Bestimme die häufigste erkannte Sprache
-            detected_languages = [r.detected_language for r in results if r.detected_language]
-            most_common_language = max(detected_languages, key=detected_languages.count) if detected_languages else None
-            
-            # Sortiere Kapitel nach ihrer originalen Reihenfolge
-            sorted_chapter_ids = sorted(chapter_texts.keys(), key=lambda x: chapter_order[x])
-            
-            for chapter_id in sorted_chapter_ids:
-                # Füge Kapitelüberschrift hinzu
-                if chapter_titles[chapter_id]:
-                    combined_text_parts.append(f"\n\n## {chapter_titles[chapter_id]}\n\n")
+
+            # Unterscheide zwischen Kapitel- und Nicht-Kapitel-Verarbeitung
+            if segment_to_chapter:  # Wenn Kapitel vorhanden
+                # 3. Organisiere Ergebnisse nach Kapiteln
+                chapter_texts, chapter_segments, chapter_titles, chapter_order = self._organize_results_by_chapter(results, segment_to_chapter)
                 
-                # Füge Kapiteltext hinzu
-                chapter_text = "".join(chapter_texts[chapter_id])
+                # Sortiere Kapitel nach ihrer originalen Reihenfolge
+                sorted_chapter_ids = sorted(chapter_texts.keys(), key=lambda x: chapter_order[x])
                 
-                # Prüfe Wortanzahl und fasse ggf. zusammen
-                if logger:
-                    logger.info(f"Fasse Kapitel zusammen",
-                                chapter_id=chapter_id)
-                
-                summary_result = self.translate_text(
-                    text=chapter_text,
-                    source_language=most_common_language,  # Wir sind noch in der Originalsprache
-                    target_language=most_common_language,  # Noch keine Übersetzung, nur Zusammenfassung
-                    logger=logger,
-                    summarize=True,
-                    max_words=400
-                )
-                combined_llms.extend(summary_result.llms)
-                chapter_text = summary_result.text
-                
-                combined_text_parts.append(chapter_text)
-                combined_segments.extend(chapter_segments[chapter_id])
-            
+                for chapter_id in sorted_chapter_ids:
+                    # Füge Kapitelüberschrift hinzu
+                    if chapter_titles[chapter_id]:
+                        combined_text_parts.append(f"\n\n## {chapter_titles[chapter_id]}\n\n")
+                    
+                    # Füge Kapiteltext hinzu
+                    chapter_text = "".join(chapter_texts[chapter_id])
+                    
+                    # Prüfe Wortanzahl und fasse ggf. zusammen
+                    if logger:
+                        logger.info(f"Fasse Kapitel zusammen",
+                                    chapter_id=chapter_id)
+                    
+                    summary_result = self.translate_text(
+                        text=chapter_text,
+                        source_language=most_common_language,
+                        target_language=most_common_language,
+                        logger=logger,
+                        summarize=True,
+                        max_words=400
+                    )
+                    combined_llms.extend(summary_result.llms)
+                    chapter_text = summary_result.text
+                    
+                    combined_text_parts.append(chapter_text)
+                    combined_segments.extend(chapter_segments[chapter_id])
+            else:  # Wenn keine Kapitel vorhanden
+                # Verarbeite alle Segmente als einen durchgehenden Text
+                for result in results:
+                    combined_text_parts.append(result.text)
+                    combined_segments.extend(result.segments)
+
+                # Fasse den gesamten Text zusammen
+                complete_text = " ".join(combined_text_parts)
+                if len(complete_text.split()) > 400:  # Nur zusammenfassen wenn Text lang genug
+                    if logger:
+                        logger.info("Fasse Gesamttext zusammen")
+                    
+                    summary_result = self.translate_text(
+                        text=complete_text,
+                        source_language=most_common_language,
+                        target_language=most_common_language,
+                        logger=logger,
+                        summarize=True,
+                        max_words=400
+                    )
+                    combined_llms.extend(summary_result.llms)
+                    combined_text_parts = [summary_result.text]
+
             # Füge Whisper LLMs hinzu
             for result in results:
                 combined_llms.extend(result.llms)
             
-            
-            # 6. Übersetze den gesamten Text wenn nötig
-            complete_text = "".join(combined_text_parts).strip()
+            # Übersetze den gesamten Text wenn nötig
+            complete_text = " ".join(combined_text_parts).strip()
             if most_common_language and target_language and most_common_language != target_language:
                 if logger:
                     logger.info(f"Übersetze kompletten Text von {most_common_language} nach {target_language}")
@@ -836,7 +858,7 @@ class WhisperTranscriber:
                 complete_text = translation_result.text
                 combined_llms.extend(translation_result.llms)
             
-            # 7. Erstelle finales Ergebnis
+            # Erstelle finales Ergebnis
             result = TranscriptionResult(
                 text=complete_text,
                 detected_language=most_common_language,
@@ -844,7 +866,7 @@ class WhisperTranscriber:
                 llms=combined_llms
             )
             
-            # 8. Speichere Transkription
+            # Speichere Transkription
             if all_segments:
                 process_dir = all_segments[0].file_path.parent
                 full_transcript_path = process_dir / "segments_transcript.txt"
