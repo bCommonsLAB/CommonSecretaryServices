@@ -1,372 +1,112 @@
-# Anonyme Verarbeitungsdienste
+# Common Secretary Services
 
-Eine Flask-basierte API für die anonyme Verarbeitung von PDFs, Bildern und Youtube-Videos.
+Ein Python-basierter Service für die automatisierte Verarbeitung von Audio-, Video- und anderen Mediendateien mit Fokus auf Transkription und strukturierte Ausgabe mittels Templates.
 
 ## Features
 
-- PDF-Textextraktion mit OCR
-- Bildtext-Extraktion
-- Youtube-Video-Download und Audio-Extraktion
-- Ressourcen-Tracking
-- Rate Limiting
-- Dateigrößen-Beschränkungen
+- 🎵 **Audio-Verarbeitung**: Unterstützung für MP3, WAV, M4A
+- 🎥 **YouTube-Integration**: Download und Verarbeitung von Videos
+- 📝 **Template-System**: Flexible Ausgabeformatierung
+- 🚀 **RESTful API**: Vollständige API mit Swagger UI
+- 🌐 **Web-Interface**: Benutzerfreundliche Verwaltung
 
-## Installation
-1. Repository klonen:
-```bash
-git clone https://github.com/yourusername/anonymous-processing-services.git
-cd anonymous-processing-services
-```
+## Dokumentation
 
-2. Virtual Environment erstellen und aktivieren:
+### A. Grundlagen & Einstieg
+1. [Architektur](docs/01_architecture.md)
+2. [Installation & Setup](docs/02_installation.md)
+3. [Entwicklungsrichtlinien](docs/03_development.md)
+
+### B. Core-Funktionalität
+4. [API & Server](docs/04_api.md)
+5. [Typdefinitionen](docs/05_types.md)
+6. [Template-System](docs/06_templates.md)
+7. [Audio-Prozessor](docs/07_audio.md)
+8. [Web-Interface](docs/08_web_interface.md)
+
+### C. Betrieb & Wartung
+9. [Deployment](docs/09_deployment.md)
+10. [Troubleshooting](docs/10_troubleshooting.md)
+11. [Sicherheit & Datenschutz](docs/11_security.md)
+12. [Monitoring](docs/12_monitoring.md)
+
+### D. Projekt & Support
+13. [Changelog & Roadmap](docs/13_changelog.md)
+14. [FAQ](docs/14_faq.md)
+15. [Kontakt, Support & Lizenz](docs/15_support.md)
+
+## Schnellstart
+
+### Installation
+
 ```bash
-Unter Linux/Mac:
+# Repository klonen
+git clone https://github.com/yourusername/CommonSecretaryServices.git
+cd CommonSecretaryServices
+
+# Virtuelle Umgebung erstellen und aktivieren
 python -m venv venv
-source venv/bin/activate
-Unter Windows:
-python -m venv venv
-.\venv\Scripts\activate
-```
-
-evtl. muss man in Microsoft Powershell die Kommandos ausführen:
-```bash
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-3. Abhängigkeiten installieren:
-```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
-
-## Konfiguration
-Die Konfiguration erfolgt über `config/config.yaml`:
-
-```yaml
-server:
-    host: "0.0.0.0"
-    port: 5000
-    debug: true
-
-rate_limiting:
-    requests_per_hour: 100
-    max_file_size: 52428800 # 50MB
-
-processors:
-    pdf:
-        enabled: true
-        max_pages: 100
-    image:
-        enabled: true
-        max_resolution: 4096
-    youtube:
-        enabled: true
-        max_duration: 3600 # 1 Stunde
-```
-
-
-## .Env Datei erstellen und OPENAI_API_KEY setzen
-
-
-
-## Dashboard
-
-Das Dashboard bietet eine Echtzeit-Übersicht über die Verarbeitungsdienste und ist unter `http://localhost:5000/dashboard` verfügbar.
-
-### Features
-
-- **Performance-Metriken:**
-  - Gesamtanzahl der Anfragen (24h)
-  - Durchschnittliche Verarbeitungszeit
-  - Erfolgsrate
-
-- **Visualisierungen:**
-  - Verteilung der Operationen (Pie Chart)
-  - Stündliche Anfragen (Line Chart)
-
-- **Fehler-Monitoring:**
-  - Live-Anzeige der letzten Fehler
-  - Zeitstempel und Details
-
-### Zugriff auf das Dashboard
-
-1. Starten Sie die Anwendung:
-```bash
-# Aktivieren Sie zuerst das Virtual Environment
 source venv/bin/activate  # Linux/Mac
-# oder
-.\venv\Scripts\activate  # Windows
+venv\\Scripts\\activate   # Windows
 
-# ein (venv) sollte in console erscheinen
-# Setzen Sie die PYTHONPATH Variable
-# z.B. $env:PYTHONPATH = "C:/Users/username/Documents/common-secretary-services
-$env:PYTHONPATH = "<pfad des Projektes>"  
-# Starten Sie die Anwendung
-python src/main.py
+# Abhängigkeiten installieren
+pip install -r requirements.txt
+
+# Konfiguration anpassen
+cp config/config.example.yaml config/config.yaml
+# Bearbeiten Sie config.yaml mit Ihren API-Keys und Einstellungen
 ```
 
-2. Öffnen Sie einen Browser und navigieren Sie zu:
-```
-http://localhost:5000/dashboard
-```
-
-### Abhängigkeiten
-
-Das Dashboard benötigt zusätzliche Python-Pakete, die bereits in `requirements.txt` enthalten sind:
-- pandas: Für Datenanalyse
-- flask: Für das Web-Interface
-
-### Log-Dateien
-
-Das Dashboard liest Daten aus folgenden Log-Dateien:
-- `logs/performance.json`: Performance-Metriken und Statistiken
-- `logs/detailed.log`: Detaillierte Logs und Fehler
-
-Die Logs werden automatisch im `logs`-Verzeichnis erstellt.
-
-### Automatische Aktualisierung
-
-Das Dashboard aktualisiert sich nicht automatisch. Drücken Sie F5 oder die Reload-Taste im Browser, um die neuesten Daten zu sehen.
-
-
-## API-Endpunkte
-
-### 1. PDF-Verarbeitung
-
-**Endpoint:** `/api/process-pdf`  
-**Methode:** POST  
-**Content-Type:** multipart/form-data
-
-```bash
-curl -X POST -F "file=@document.pdf" http://localhost:5000/api/process-pdf
-```
-
-
-**Beispielantwort:**
-```json
-{
-    "text": "Extrahierter Text...",
-    "page_count": 1,
-    "resources_used": [
-        {
-        "type": "storage",
-        "amount": 1.5,
-        "unit": "MB"
-        },
-        {
-        "type": "compute",
-        "amount": 2.3,
-        "unit": "seconds"
-        }
-    ],
-    "total_units": {
-    "storage_mb": 1.5,
-    "compute_seconds": 2.3,
-    "total_cost": 0.00023
-    }
-}
-```
-
-
-
-### 2. Bild-Verarbeitung
-
-**Endpoint:** `/api/process-image`  
-**Methode:** POST  
-**Content-Type:** multipart/form-data
-
-```bash
-curl -X POST -F "file=@image.jpg" http://localhost:5000/api/process-image
-```
-
-
-### 3. Audio-Verarbeitung
-
-**Endpoint:** `/api/process-audio`  
-**Methode:** POST  
-**Content-Type:** multipart/form-data
-
-```bash
-curl -X POST -F "file=@audio.mp3" http://localhost:5000/api/process-audio
-```
-
-
-### 4. Youtube-Verarbeitung
-
-**Endpoint:** `/api/process-youtube`  
-**Methode:** POST  
-**Content-Type:** application/json
-
-```bash
-curl -X POST -H "Content-Type: application/json" \
--d '{"url":"https://www.youtube.com/watch?v=example"}' \
-http://localhost:5000/api/process-youtube
-```
-
-### 5. Text-Transformation
-
-**Endpoint:** `/api/transform-text`  
-**Methode:** POST  
-**Content-Type:** application/json
-
-```bash
-curl -X POST -H "Content-Type: application/json" \
--d '{"text":"Dies ist ein Test"}' \
-http://localhost:5000/api/transform-text
-```
-
-## Beispiele
-
-### Python-Beispiele
-
-1. PDF-Verarbeitung:
-```python
-import requests
-
-def process_pdf(file_path: str) -> dict:
-    with open(file_path, 'rb') as f:
-    response = requests.post(
-        'http://localhost:5000/api/process-pdf',
-        files={'file': f}
-    )
-    return response.json()
-```
-
-Verwendung
-```python   
-result = process_pdf('dokument.pdf')
-print(f"Extrahierter Text: {result['text'][:100]}...")
-print(f"Seitenanzahl: {result['page_count']}")
-```
-2. Bild-Verarbeitung:
-
-```python
-import requests
-from PIL import Image, ImageDraw, ImageFont
-
-def create_test_image(text: str, output_path: str):
-    """Erstellt ein Testbild mit Text"""
-    img = Image.new('RGB', (800, 600), color='white')
-    d = ImageDraw.Draw(img)
-    d.text((10,10), text, fill='black')
-    img.save(output_path)
-
-def process_image(file_path: str) -> dict:
-    with open(file_path, 'rb') as f:
-    response = requests.post(
-        'http://localhost:5000/api/process-image',
-        files={'file': f}
-    )
-    return response.json()
-```
-
-Verwendung
-```python   
-create_test_image("Dies ist ein Test", "test.png")
-result = process_image("test.png")
-print(f"Extrahierter Text: {result['text'][:100]}...")
-```
-
-
-3. Youtube-Verarbeitung:
+### API-Nutzung
 
 ```python
 import requests
 
-def process_youtube(url: str) -> dict:
-    response = requests.post(
-        'http://localhost:5000/api/process-youtube',
-        json={'url': url}
-    )
-    return response.json()
+# Audio-Datei verarbeiten
+response = requests.post(
+    'http://localhost:5000/api/v1/audio/process',
+    files={'file': open('audio.mp3', 'rb')},
+    headers={'Authorization': 'Bearer your-api-key'}
+)
+
+# YouTube-Video verarbeiten
+response = requests.post(
+    'http://localhost:5000/api/v1/youtube/process',
+    json={'url': 'https://youtube.com/watch?v=...'},
+    headers={'Authorization': 'Bearer your-api-key'}
+)
 ```
 
-Verwendung
-url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
-result = process_youtube(url)
+## Systemanforderungen
 
+- Python 3.11+
+- FFmpeg
+- 10GB+ freier Speicherplatz
+- Schnelle Internetverbindung für API-Zugriff
 
-## Tests
+## Externe Dienste
 
-Tests ausführen:
-```bash
-#Alle Tests
-pytest tests/
-
-# Nur Unit-Tests (ohne Integration)
-pytest tests/ -m "not integration"
-
-#Spezifische Tests
-pytest tests/test_pdf_processor.py
-pytest tests/test_image_processor.py
-pytest tests/test_youtube_processor.py
-
-# Nur Integrationstests ausführen
-pytest tests/test_youtube_processor.py -v -m integration
-
-# Mit detaillierter Ausgabe
-pytest tests/test_youtube_processor.py -v -m integration --capture=no
-
-# Mit Anzeige der print-Ausgaben
-pytest tests/test_youtube_processor.py -v -m integration -s
-
-
-#Mit detaillierter Ausgabe
-pytest -v tests/
-```
-
-
-## Fehlerbehandlung
-
-Die API verwendet standardisierte HTTP-Statuscodes:
-
-- 200: Erfolgreiche Verarbeitung
-- 400: Ungültige Anfrage (z.B. falsche Datei, ungültige URL)
-- 429: Rate Limit überschritten
-- 500: Interner Serverfehler
-
-Fehlerantworten haben folgendes Format:
-
-```json
-{
-"error": "Beschreibung des Fehlers"
-}
-```
-
-
-## Ressourcen-Tracking
-
-Das System trackt zwei Arten von Ressourcen:
-
-1. **Speicher** (in MB)
-   - Dateigröße der verarbeiteten Medien
-   - Zwischengespeicherte Daten
-
-2. **Rechenzeit** (in Sekunden)
-   - Verarbeitungszeit
-   - CPU-Nutzung
-
-Die Kosten werden wie folgt berechnet:
-- Speicher: 0.00001 EUR pro MB
-- Rechenzeit: 0.0001 EUR pro Sekunde
-
-## Sicherheitshinweise
-
-- Alle temporären Dateien werden nach der Verarbeitung gelöscht
-- Rate Limiting verhindert Überlastung
-- Maximale Dateigrößen sind beschränkt
-- Keine persistente Speicherung von Mediendaten
+- OpenAI API (für GPT-4)
+- YouTube Data API
 
 ## Lizenz
 
-MIT License
+Copyright (c) 2024 Peter Aichner. Alle Rechte vorbehalten.
+
+## Support
+
+Bei Fragen oder Problemen:
+- GitHub Issues für Bug Reports und Feature Requests
+- E-Mail Support: support@common-secretary.com
+- [Dokumentation](docs/) für detaillierte Informationen
 
 ## Beitragen
 
-1. Fork erstellen
-2. Feature Branch erstellen (`git checkout -b feature/AmazingFeature`)
-3. Änderungen committen (`git commit -m 'Add some AmazingFeature'`)
-4. Branch pushen (`git push origin feature/AmazingFeature`)
-5. Pull Request erstellen
+Wir freuen uns über Beiträge! Bitte lesen Sie unsere [Entwicklungsrichtlinien](docs/10_development.md) für Details.
+
+## Status
+
+![Build Status](build-status-badge-url)
+![Test Coverage](test-coverage-badge-url)
+![License](license-badge-url)
 
