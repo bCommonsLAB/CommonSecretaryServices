@@ -1,284 +1,184 @@
-# MetaProcessor Konzept
+# MetadataProcessor Konzept
 
-## Überblick
+## Übersicht
 
-Dieses Dokument beschreibt die Integration einer LLM-basierten Metadaten-Extraktion in die bestehende Prozessor-Architektur des Common Secretary Services Systems. Der MetadataProcessor ist als spezialisierter Prozessor konzipiert, der verschiedene Datenquellen kombiniert und analysiert.
+Der MetadataProcessor ist eine zentrale Komponente für die Extraktion und Verarbeitung von Metadaten aus verschiedenen Medientypen. Er unterstützt sowohl technische als auch inhaltliche Metadaten und bietet eine flexible Schnittstelle für verschiedene Eingabeformate.
 
-## Metadaten-Struktur
+## Hauptkomponenten
 
-Die Metadaten-Extraktion basiert auf dem in [metadata-concept.md](./metadata-concept.md) definierten Schema. Dieses umfasst:
+### 1. TechnicalMetadata
+- Extrahiert technische Eigenschaften aus Mediendateien
+- Unterstützt verschiedene Eingabeformate (bytes, file-like objects, Pfade)
+- Erkennt automatisch MIME-Types und Dateiformate
+- Spezifische Extraktion für:
+  - Audio/Video (Dauer, Bitrate, Kanäle)
+  - Bilder (Dimensionen, Farbraum)
+  - PDFs (Seitenanzahl, Verschlüsselung)
 
-### Basis-Metadaten (BaseMetadata)
-```typescript
-interface BaseMetadata {
-  type: string;    // Art der Metadaten
-  created: string; // Erstellungszeitpunkt
-  modified: string; // Letzter Änderungszeitpunkt
-}
+### 2. ContentMetadata
+- Analysiert inhaltliche Aspekte mittels LLM
+- Verwendet Template-basierte Transformation
+- Extrahiert strukturierte Metadaten wie:
+  - Bibliographische Daten
+  - Räumliche/zeitliche Einordnung
+  - Plattform-spezifische Details
+  - Event-Informationen
+  - Social Media Metriken
+
+### 3. CompleteMetadata
+- Kombiniert technische und inhaltliche Metadaten
+- Bietet ganzheitliche Sicht auf Medienobjekte
+
+## Implementierungsdetails
+
+### Methoden
+
+1. `extract_technical_metadata`
+```python
+async def extract_technical_metadata(
+    binary_data: Union[bytes, BinaryIO, Path],
+    mime_type: str = None,
+    file_extension: str = None,
+    logger: ProcessingLogger = None
+) -> TechnicalMetadata
 ```
+- Verarbeitet verschiedene Eingabeformate
+- Erstellt temporäre Dateien bei Bedarf
+- Extrahiert formatspezifische Details
+- Bereinigt temporäre Ressourcen
 
-### Wesentliche Metadaten-Kategorien
-
-1. **Technische Metadaten**
-   - Dateiinformationen (Größe, Format, MIME-Type)
-   - Medienspezifische Details (Dauer, Bitrate, Codec)
-   - Qualitätsmerkmale (Auflösung, Samplerate)
-
-2. **Inhaltliche Metadaten**
-   - Bibliographische Daten (Titel, Autoren, Datum)
-   - Wissenschaftliche Klassifikation (Fachgebiete, Keywords)
-   - Räumliche und zeitliche Einordnung
-   - Rechte und Lizenzen
-
-3. **Plattform-spezifische Metadaten**
-   - Digitale Publikationsdetails
-   - Event-spezifische Informationen
-   - Social Media Metriken
-   - Community und Engagement
-
-4. **Qualitätssicherung**
-   - Review-Status
-   - Fact-Checking
-   - Verifizierungsinformationen
-
-Der MetadataProcessor ist darauf ausgelegt, diese strukturierten Metadaten automatisch zu extrahieren und in das standardisierte Format zu überführen.
-
-## Anforderungen
-
-- Extraktion technischer und inhaltlicher Metadaten aus verschiedenen Quellen
-- Integration mit bestehendem LLM-Service
-- Flexible Erweiterbarkeit für neue Metadaten-Typen
-- Einfache Integration in bestehende Prozessoren
-- Standardisierte Ausgabe gemäß Metadaten-Schema
-- Verarbeitung von Transkriptionen und Kontextinformationen
-
-## Architektur des MetadataProcessors
-
-### Datenquellen und Verarbeitungsfluss
-
-```mermaid
-graph TD
-    A[MetadataProcessor] --> B[Originaldateien]
-    A --> C[Plattform-Kontext]
-    A --> D[Generierte Inhalte]
-    A --> E[LLM-Analyse]
-    
-    subgraph "Datenquellen"
-    B --> F[Audio/Video Dateien]
-    B --> G[Bilder]
-    B --> H[Dokumente]
-    
-    C --> I[YouTube Metadaten]
-    C --> J[Social Media]
-    C --> K[Web]
-    
-    D --> L[Audio Transkriptionen]
-    D --> M[Video Transkriptionen]
-    D --> N[Extrahierter Text]
-    
-    E --> O[Semantische Analyse]
-    E --> P[Kontextuelle Analyse]
-    E --> Q[Metadaten Mapping]
-    end
+2. `extract_content_metadata`
+```python
+async def extract_content_metadata(
+    content: str,
+    context: Dict[str, Any] = None,
+    logger: ProcessingLogger = None
+) -> ContentMetadata
 ```
+- Nutzt LLM für Inhaltsanalyse
+- Verarbeitet Kontext-Informationen
+- Verwendet Template-System
+- Validiert Ausgabe gegen ContentMetadata-Schema
 
-### Verarbeitungsphasen
+3. `extract_metadata`
+```python
+async def extract_metadata(
+    binary_data: Union[bytes, BinaryIO, Path],
+    content: str = None,
+    context: Dict[str, Any] = None,
+    logger: ProcessingLogger = None
+) -> CompleteMetadata
+```
+- Kombiniert technische und inhaltliche Analyse
+- Erweitert Kontext mit technischen Metadaten
+- Liefert vollständiges Metadaten-Objekt
 
-1. **Technische Analyse**
-   - Extraktion von Datei-Metadaten (Format, Größe, Dauer)
-   - Plattform-spezifische Informationen
-   - Medien-spezifische Details (Bitrate, Auflösung)
+## Anwendungsbeispiele
 
-2. **Kontext-Aggregation**
-   - Zusammenführung von Plattform-Metadaten
-   - Integration von Transkriptionen
-   - Verknüpfung zusammengehöriger Informationen
-
-3. **LLM-basierte Analyse**
-   - Semantische Analyse der Inhalte
-   - Kontextuelle Interpretation
-   - Mapping auf das Metadaten-Schema
-
-### Implementierung
+### 1. YouTube-Prozessor Integration
 
 ```python
-class MetadataProcessor(BaseProcessor):
-    """
-    Spezialisierter Prozessor für Metadaten-Extraktion und -Verarbeitung.
-    """
-    def __init__(self, process_id: Optional[str] = None):
-        super().__init__(process_id)
-        self.llm_service = OpenAIService()
-        
-    async def extract_metadata(self, 
-                             content: str, 
-                             context: Dict[str, Any] = None, 
-                             metadata_types: List[str] = None) -> Dict[str, Any]:
-        """
-        Extrahiert Metadaten aus Content und Context.
-        
-        Args:
-            content: Primärer Inhalt (z.B. Video-Beschreibung)
-            context: Zusätzliche Kontextinformationen, inkl:
-                    - file_info: Technische Dateiinformationen
-                    - platform_data: Plattform-spezifische Metadaten
-                    - transcription: Transkription des Audio/Video-Inhalts
-            metadata_types: Gewünschte Metadaten-Typen
-            
-        Returns:
-            Dict[str, Any]: Strukturierte Metadaten nach dem Schema aus metadata-concept.md:
-            {
-                "type": "youtube_video",
-                "created": "2024-03-20T10:00:00Z",
-                "modified": "2024-03-20T10:00:00Z",
-                
-                # Technische Metadaten
-                "file_size": 1234567,
-                "file_mime": "video/mp4",
-                "media_duration": 600,
-                "media_bitrate": 2000000,
-                
-                # Inhaltliche Metadaten
-                "title": "Beispiel Video",
-                "authors": ["Max Mustermann"],
-                "subject_areas": ["Informatik", "KI"],
-                "keywords": ["Metadaten", "Automatisierung"],
-                
-                # Plattform-spezifische Metadaten
-                "platform_type": "youtube",
-                "platform_url": "https://youtube.com/...",
-                "social_metrics_views": 1000,
-                
-                # Qualitätssicherung
-                "quality_review_status": "verified",
-                "quality_fact_checked": true
-            }
-        """
-        metadata = {}
-        
-        # Kontext aufbereiten
-        enriched_context = await self._prepare_context(content, context)
-        
-        if "technical" in (metadata_types or ["technical"]):
-            metadata.update(await self._extract_technical_metadata(enriched_context))
-            
-        if "content" in (metadata_types or ["content"]):
-            metadata.update(await self._extract_content_metadata(enriched_context))
-            
-        # Basis-Metadaten hinzufügen
-        metadata.update({
-            "type": context.get('type', 'unknown'),
-            "created": datetime.utcnow().isoformat() + "Z",
-            "modified": datetime.utcnow().isoformat() + "Z"
-        })
-            
-        return metadata
-        
-    async def _prepare_context(self,
-                             content: str,
-                             context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Bereitet den Kontext für die Analyse vor.
-        Kombiniert verschiedene Informationsquellen intelligent.
-        """
-        enriched_context = {
-            'primary_content': content,
-            'technical_info': {},
-            'platform_info': {},
-            'transcription_info': {}
-        }
-        
-        if context:
-            # Technische Informationen
-            if 'file_info' in context:
-                enriched_context['technical_info'] = context['file_info']
-            
-            # Plattform-Daten
-            if 'platform_data' in context:
-                enriched_context['platform_info'] = context['platform_data']
-            
-            # Transkriptionen (wenn vorhanden)
-            if 'transcription' in context:
-                enriched_context['transcription_info'] = {
-                    'text': context['transcription'],
-                    'confidence': context.get('transcription_confidence', 1.0)
-                }
-        
-        return enriched_context
-        
-    async def _extract_content_metadata(self, 
-                                      context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extrahiert inhaltliche Metadaten via LLM.
-        Berücksichtigt alle verfügbaren Kontextinformationen.
-        """
-        # Kombiniere relevante Informationen für die Analyse
-        analysis_text = self._build_analysis_text(context)
-        
-        # Erstelle spezifischen Prompt für Metadaten-Extraktion
-        prompt = self._build_metadata_prompt(analysis_text)
-        
-        # LLM-Analyse durchführen
-        response = await self.llm_service.analyze(prompt)
-        
-        return self._parse_llm_response(response)
-```
-
-### Verwendung im YouTubeProcessor
-
-```python
-async def process_video(self, video_url: str) -> Dict[str, Any]:
-    # Video-Informationen und Transkription
-    video_info = await self._fetch_video_info(video_url)
-    audio_transcription = await self._transcribe_audio_stream(video_info.audio_stream)
+# Im YouTubeProcessor
+async def process(self, url: str, ...) -> YoutubeProcessingResult:
+    # Video-Informationen abrufen
+    info = await self._get_video_info(url)
     
-    # Metadaten extrahieren mit allen verfügbaren Informationen
-    metadata_processor = MetadataProcessor(self.process_id)
-    metadata = await metadata_processor.extract_metadata(
-        content=video_info.description,
+    # Technische Metadaten aus Audio-Datei
+    technical_metadata = await self.metadata_processor.extract_technical_metadata(
+        binary_data=audio_path,
+        mime_type='audio/mp3'
+    )
+    
+    # Inhaltliche Metadaten aus Video-Beschreibung und Kontext
+    content_metadata = await self.metadata_processor.extract_content_metadata(
+        content=info.get('description', ''),
         context={
             'type': 'youtube',
-            'platform_data': video_info.metadata,
-            'file_info': {
-                'duration': video_info.duration,
-                'format': video_info.format,
-                'quality': video_info.quality
+            'platform_data': {
+                'title': info.get('title'),
+                'uploader': info.get('uploader'),
+                'view_count': info.get('view_count'),
+                'tags': info.get('tags', [])
             },
-            'transcription': audio_transcription.text,
-            'transcription_confidence': audio_transcription.confidence
+            'transcription': transcription_result.text,
+            'transcription_confidence': transcription_result.confidence
         }
     )
     
-    return {
-        'video_info': video_info,
-        'transcription': audio_transcription,
-        'metadata': metadata
-    }
+    # Kombinierte Metadaten
+    complete_metadata = CompleteMetadata(
+        technical=technical_metadata,
+        content=content_metadata
+    )
 ```
 
-## Vorteile dieser Architektur
+### 2. Audio-Prozessor Integration
 
-1. **Ganzheitliche Analyse**
-   - Berücksichtigung aller verfügbaren Informationsquellen
-   - Intelligente Kombination von Metadaten
-   - Kontextbasierte Interpretation
+```python
+# Im AudioProcessor
+async def process(self, audio_source: Union[str, Path, bytes], ...) -> AudioProcessingResult:
+    # Technische Metadaten extrahieren
+    technical_metadata = await self.metadata_processor.extract_technical_metadata(
+        binary_data=audio_source
+    )
+    
+    # Audio verarbeiten und transkribieren
+    transcription_result = await self.transcribe(audio_source)
+    
+    # Inhaltliche Metadaten aus Transkription
+    content_metadata = await self.metadata_processor.extract_content_metadata(
+        content=transcription_result.text,
+        context={
+            'type': 'audio',
+            'file_info': technical_metadata.dict(),
+            'transcription': transcription_result.text,
+            'transcription_confidence': transcription_result.confidence
+        }
+    )
+    
+    # Ergebnis zusammenstellen
+    return AudioProcessingResult(
+        metadata=CompleteMetadata(
+            technical=technical_metadata,
+            content=content_metadata
+        ),
+        transcription=transcription_result
+    )
+```
 
-2. **Flexible Verarbeitung**
-   - Modulare Struktur für verschiedene Datenquellen
-   - Anpassbare Analysestrategie
+## Vorteile
+
+1. **Modularität**
+   - Klare Trennung zwischen technischen und inhaltlichen Metadaten
+   - Wiederverwendbare Komponenten für verschiedene Prozessoren
+
+2. **Flexibilität**
+   - Unterstützung verschiedener Eingabeformate
    - Erweiterbare Metadaten-Schemata
+   - Anpassbare LLM-Templates
 
-3. **Qualitätssicherung**
-   - Validierung durch multiple Datenquellen
-   - Konfidenz-basierte Gewichtung von Informationen
-   - Konsistenzprüfung der Metadaten
+3. **Robustheit**
+   - Fehlerbehandlung für verschiedene Medientypen
+   - Ressourcen-Management (temporäre Dateien)
+   - Validierung der Ausgaben
 
-4. **Zentrale Verwaltung**
-   - Einheitliche Metadaten-Extraktion
-   - Konsistente Ausgabeformate
-   - Zentrale Schema-Updates
+4. **Integration**
+   - Nahtlose Einbindung in bestehende Prozessoren
+   - Konsistente Logging-Unterstützung
+   - Asynchrone Verarbeitung
 
-Die Nutzung der Audio-Transkription als zusätzlicher Kontext ist dabei besonders wertvoll, da sie:
-- Zusätzliche semantische Informationen liefert
-- Die Qualität der Metadaten-Extraktion verbessert
-- Eine Validierung der aus anderen Quellen extrahierten Metadaten ermöglicht 
+## Nächste Schritte
+
+1. **Implementierung in Prozessoren**
+   - Integration in YouTubeProcessor
+   - Integration in AudioProcessor
+   - Anpassung der Rückgabetypen
+
+2. **Template-Optimierung**
+   - Entwicklung spezifischer Templates für verschiedene Medientypen
+   - Verfeinerung der LLM-Prompts
+
+3. **Erweiterungen**
+   - Unterstützung weiterer Medienformate
+   - Caching-Mechanismen für Metadaten
+   - Batch-Verarbeitung 

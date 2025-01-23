@@ -8,4 +8,16 @@ class FileSizeLimitExceeded(Exception):
 
 class ProcessingError(Exception):
     """Basis-Exception für Verarbeitungsfehler"""
+    pass
+
+class UnsupportedMimeTypeError(ProcessingError):
+    """Wird ausgelöst, wenn ein nicht unterstützter MIME-Type verarbeitet werden soll"""
+    pass
+
+class ContentExtractionError(ProcessingError):
+    """Wird ausgelöst, wenn bei der Extraktion von Inhalten ein Fehler auftritt"""
+    pass
+
+class ValidationError(ProcessingError):
+    """Wird ausgelöst, wenn die Validierung fehlschlägt"""
     pass 

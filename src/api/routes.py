@@ -8,6 +8,7 @@ import asyncio
 import werkzeug.datastructures
 from typing import Union
 import uuid
+import json
 
 from src.core.rate_limiting import RateLimiter
 from src.core.resource_tracking import ResourceCalculator
@@ -19,6 +20,7 @@ from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimi
 from src.utils.logger import get_logger
 from src.processors.transformer_processor import TransformerProcessor
 from src.utils.performance_tracker import get_performance_tracker, clear_performance_tracker
+from src.processors.metadata_processor import MetadataProcessor
 
 # Blueprint erstellen
 blueprint = Blueprint('api', __name__)
@@ -106,6 +108,10 @@ def get_audio_processor(process_id: str = None):
 def get_transformer_processor(process_id: str = None):
     """Get or create transformer processor instance with process ID"""
     return TransformerProcessor(process_id=process_id)
+
+def get_metadata_processor(process_id: str = None):
+    """Get or create metadata processor instance with process ID"""
+    return MetadataProcessor(resource_calculator, process_id=process_id)
 
 # Parser für File-Uploads
 file_upload = reqparse.RequestParser()
@@ -531,3 +537,107 @@ class Home(Resource):
     def get(self):
         """API Willkommensseite"""
         return {'message': 'Welcome to the Processing Service API!'}
+
+# Metadata Models
+metadata_technical = api.model('TechnicalMetadata', {
+    'file_size': fields.Integer(description='Dateigröße in Bytes'),
+    'file_mime': fields.String(description='MIME-Type der Datei'),
+    'file_extension': fields.String(description='Dateiendung'),
+    'media_duration': fields.Float(description='Länge des Mediums in Sekunden', required=False),
+    'media_bitrate': fields.Integer(description='Bitrate in kbps', required=False),
+    'media_channels': fields.Integer(description='Anzahl der Audiokanäle', required=False),
+    'media_samplerate': fields.Integer(description='Abtastrate in Hz', required=False),
+    'image_width': fields.Integer(description='Bildbreite in Pixeln', required=False),
+    'image_height': fields.Integer(description='Bildhöhe in Pixeln', required=False),
+    'image_colorspace': fields.String(description='Farbraum', required=False),
+    'doc_pages': fields.Integer(description='Anzahl der Seiten', required=False),
+    'doc_encrypted': fields.Boolean(description='Verschlüsselungsstatus', required=False)
+})
+
+metadata_content = api.model('ContentMetadata', {
+    'type': fields.String(description='Art der Metadaten'),
+    'created': fields.DateTime(description='Erstellungszeitpunkt'),
+    'modified': fields.DateTime(description='Letzter Änderungszeitpunkt'),
+    'title': fields.String(description='Titel des Werks'),
+    'subtitle': fields.String(description='Untertitel des Werks', required=False),
+    'authors': fields.List(fields.String, description='Liste der Autoren'),
+    'language': fields.String(description='Sprache (ISO 639-1)'),
+    'keywords': fields.List(fields.String, description='Schlüsselwörter', required=False),
+    'abstract': fields.String(description='Kurzzusammenfassung', required=False)
+})
+
+metadata_response = api.model('MetadataResponse', {
+    'technical': fields.Nested(metadata_technical, description='Technische Metadaten'),
+    'content': fields.Nested(metadata_content, description='Inhaltliche Metadaten'),
+    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+})
+
+# Metadata Upload Parser
+metadata_upload_parser = api.parser()
+metadata_upload_parser.add_argument(
+    'file', 
+    type=werkzeug.datastructures.FileStorage, 
+    location='files',
+    required=True,
+    help='Die zu analysierende Datei'
+)
+metadata_upload_parser.add_argument(
+    'content',
+    type=str,
+    location='form',
+    required=False,
+    help='Optionaler zusätzlicher Text für die Analyse'
+)
+metadata_upload_parser.add_argument(
+    'context',
+    type=str,  # JSON string
+    location='form',
+    required=False,
+    help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
+)
+
+@api.route('/extract-metadata')
+class MetadataEndpoint(Resource):
+    @api.expect(metadata_upload_parser)
+    @api.response(200, 'Erfolg', metadata_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Extrahiert Metadaten aus einer Datei')
+    async def post(self):
+        """Extrahiert Metadaten aus einer Datei."""
+        try:
+            # Performance Tracking
+            process_id = str(uuid.uuid4())
+            tracker = get_performance_tracker(process_id)
+            
+            args = metadata_upload_parser.parse_args()
+            file = args['file']
+            
+            # Rate Limiting und Validierung
+            await rate_limiter.check_rate_limit(request)
+            rate_limiter.check_file_size(file)
+            
+            # Parse optionalen Kontext
+            context = {}
+            if args.get('context'):
+                try:
+                    context = json.loads(args['context'])
+                except json.JSONDecodeError:
+                    raise ProcessingError("Ungültiger JSON-Kontext")
+            
+            # Verarbeite Datei
+            processor = get_metadata_processor(process_id)
+            result = await processor.extract_metadata(
+                binary_data=file,
+                content=args.get('content'),
+                context=context
+            )
+            
+            return result.to_dict()
+            
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            raise e
+        except Exception as e:
+            logger.error("Fehler bei der Metadaten-Extraktion",
+                        error=str(e),
+                        traceback=traceback.format_exc())
+            raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}")

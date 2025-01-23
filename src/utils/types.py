@@ -1,9 +1,11 @@
 """
 Zentrale Typdefinitionen für die Verarbeitung von Texten, Audio und anderen Medien.
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
 from pathlib import Path
+from datetime import datetime
+from enum import Enum
 
 class Chapter(BaseModel):
     """Ein Kapitel mit Start- und Endzeit."""
@@ -195,3 +197,168 @@ class ChapterInfo(BaseModel):
 
     def __str__(self) -> str:
         return f"Chapter(title={self.title}, segments_count={len(self.segments)})" 
+
+class EventFormat(str, Enum):
+    ONLINE = "online"
+    HYBRID = "hybrid"
+    PHYSICAL = "physical"
+
+class PublicationStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+class ContentMetadata(BaseModel):
+    """Inhaltliche Metadaten für verschiedene Medientypen."""
+    
+    # Basis-Metadaten
+    type: str = Field(description="Art der Metadaten (z.B. video, audio, article)")
+    created: datetime = Field(description="Erstellungszeitpunkt")
+    modified: datetime = Field(description="Letzter Änderungszeitpunkt")
+    
+    # Bibliographische Grunddaten
+    title: str = Field(description="Haupttitel des Werks")
+    subtitle: Optional[str] = Field(None, description="Untertitel des Werks")
+    authors: List[str] = Field(description="Liste der Autoren")
+    publisher: Optional[str] = Field(None, description="Verlag oder Publisher")
+    publicationDate: Optional[str] = Field(None, description="Erscheinungsdatum")
+    isbn: Optional[str] = Field(None, description="ISBN (bei Büchern)")
+    doi: Optional[str] = Field(None, description="Digital Object Identifier")
+    edition: Optional[str] = Field(None, description="Auflage")
+    language: str = Field(description="Sprache (ISO 639-1)")
+    
+    # Wissenschaftliche Klassifikation
+    subject_areas: Optional[List[str]] = Field(None, description='Fachgebiete')
+    keywords: Optional[List[str]] = Field(None, description='Schlüsselwörter')
+    abstract: Optional[str] = Field(None, description='Kurzzusammenfassung')
+    
+    # Räumliche und zeitliche Einordnung
+    temporal_start: Optional[str] = Field(None, description="Beginn des behandelten Zeitraums")
+    temporal_end: Optional[str] = Field(None, description="Ende des behandelten Zeitraums")
+    temporal_period: Optional[str] = Field(None, description="Bezeichnung der Periode")
+    spatial_location: Optional[str] = Field(None, description="Ortsname")
+    spatial_latitude: Optional[float] = Field(None, description="Geografische Breite")
+    spatial_longitude: Optional[float] = Field(None, description="Geografische Länge")
+    spatial_habitat: Optional[str] = Field(None, description="Lebensraum/Biotop")
+    spatial_region: Optional[str] = Field(None, description="Region/Gebiet")
+    
+    # Rechte und Lizenzen
+    rights_holder: Optional[str] = Field(None, description="Rechteinhaber")
+    rights_license: Optional[str] = Field(None, description="Lizenz")
+    rights_access: Optional[str] = Field(None, description="Zugriffsrechte")
+    rights_usage: Optional[List[str]] = Field(None, description="Nutzungsbedingungen")
+    rights_attribution: Optional[str] = Field(None, description="Erforderliche Namensnennung")
+    rights_commercial: Optional[bool] = Field(None, description="Kommerzielle Nutzung erlaubt")
+    rights_modifications: Optional[bool] = Field(None, description="Modifikationen erlaubt")
+    
+    # Medienspezifische Metadaten
+    resource_type: str = Field(description="Art der Ressource")
+    resource_format: Optional[str] = Field(None, description="Physisches/digitales Format")
+    resource_extent: Optional[str] = Field(None, description="Umfang")
+    
+    # Quellenangaben
+    source_title: Optional[str] = Field(None, description="Titel der Quelle")
+    source_type: Optional[str] = Field(None, description="Art der Quelle")
+    source_identifier: Optional[str] = Field(None, description="Eindeutige Kennung der Quelle")
+    
+    # Digitale Plattform
+    platform_type: Optional[str] = Field(None, description="Art der Plattform")
+    platform_url: Optional[str] = Field(None, description="URL zur Ressource")
+    platform_id: Optional[str] = Field(None, description="Plattform-spezifische ID")
+    platform_uploader: Optional[str] = Field(None, description="Uploader/Kanal")
+    platform_category: Optional[str] = Field(None, description="Plattform-Kategorie")
+    platform_language: Optional[List[str]] = Field(None, description="Unterstützte Sprachen")
+    platform_region: Optional[List[str]] = Field(None, description="Verfügbare Regionen")
+    platform_age_rating: Optional[str] = Field(None, description="Altersfreigabe")
+    platform_subscription: Optional[str] = Field(None, description="Erforderliches Abonnement")
+    
+    # Event-spezifische Details
+    event_type: Optional[str] = Field(None, description="Art der Veranstaltung")
+    event_start: Optional[datetime] = Field(None, description="Startzeit")
+    event_end: Optional[datetime] = Field(None, description="Endzeit")
+    event_timezone: Optional[str] = Field(None, description="Zeitzone")
+    event_format: Optional[EventFormat] = Field(None, description="Veranstaltungsformat")
+    event_platform: Optional[str] = Field(None, description="Verwendete Plattform")
+    event_recording_url: Optional[str] = Field(None, description="Link zur Aufzeichnung")
+    
+    # Social Media spezifisch
+    social_platform: Optional[str] = Field(None, description="Plattform")
+    social_handle: Optional[str] = Field(None, description="Benutzername/Handle")
+    social_post_id: Optional[str] = Field(None, description="Original Post-ID")
+    social_post_url: Optional[str] = Field(None, description="Permalink zum Beitrag")
+    social_metrics_likes: Optional[int] = Field(None, description="Anzahl der Likes")
+    social_metrics_shares: Optional[int] = Field(None, description="Anzahl der Shares")
+    social_metrics_comments: Optional[int] = Field(None, description="Anzahl der Kommentare")
+    social_metrics_views: Optional[int] = Field(None, description="Anzahl der Aufrufe")
+    social_thread: Optional[List[str]] = Field(None, description="IDs verknüpfter Beiträge")
+    
+    # Blog/Artikel spezifisch
+    blog_url: Optional[str] = Field(None, description="Permalink zum Artikel")
+    blog_section: Optional[str] = Field(None, description="Rubrik/Kategorie")
+    blog_series: Optional[str] = Field(None, description="Zugehörige Serie/Reihe")
+    blog_reading_time: Optional[int] = Field(None, description="Geschätzte Lesezeit in Minuten")
+    blog_tags: Optional[List[str]] = Field(None, description="Blog-spezifische Tags")
+    blog_comments_url: Optional[str] = Field(None, description="Link zu Kommentaren")
+    
+    # Community und Engagement
+    community_target: Optional[List[str]] = Field(None, description="Zielgruppe")
+    community_hashtags: Optional[List[str]] = Field(None, description="Verwendete Hashtags")
+    community_mentions: Optional[List[str]] = Field(None, description="Erwähnte Accounts/Personen")
+    community_context: Optional[str] = Field(None, description="Kontext/Anlass")
+    
+    # Qualitätssicherung
+    quality_review_status: Optional[str] = Field(None, description="Review-Status")
+    quality_fact_checked: Optional[bool] = Field(None, description="Faktencheck durchgeführt")
+    quality_peer_reviewed: Optional[bool] = Field(None, description="Peer-Review durchgeführt")
+    quality_verified_by: Optional[List[str]] = Field(None, description="Verifiziert durch")
+    
+    # Wissenschaftliche Zusatzinformationen
+    citations: Optional[List[str]] = Field(None, description="Zitierte Werke")
+    methodology: Optional[str] = Field(None, description="Verwendete Methodik")
+    funding: Optional[str] = Field(None, description="Förderung/Finanzierung")
+    
+    # Verwaltung
+    collection: Optional[str] = Field(None, description="Zugehörige Sammlung")
+    archival_number: Optional[str] = Field(None, description="Archivnummer")
+    status: Optional[str] = Field(None, description="Status")
+    
+    # Digitale Publikationsdetails
+    digital_published: Optional[datetime] = Field(None, description="Erstveröffentlichung online")
+    digital_modified: Optional[datetime] = Field(None, description="Letzte Online-Aktualisierung")
+    digital_version: Optional[str] = Field(None, description="Versionsnummer/Stand")
+    digital_status: Optional[PublicationStatus] = Field(None, description="Publikationsstatus")
+
+class TechnicalMetadata(BaseModel):
+    """Technische Metadaten für Mediendateien."""
+    
+    # Datei-Informationen
+    file_size: int = Field(description="Dateigröße in Bytes")
+    file_mime: str = Field(description="Dateityp (MIME)")
+    file_extension: str = Field(description="Dateiendung")
+    
+    # Medienspezifische Details
+    media_duration: Optional[float] = Field(None, description="Länge des Mediums in Sekunden")
+    media_bitrate: Optional[int] = Field(None, description="Bitrate in kbps")
+    media_codec: Optional[str] = Field(None, description="Verwendeter Codec")
+    media_resolution: Optional[str] = Field(None, description="Auflösung (z.B. 1920x1080)")
+    media_format: Optional[str] = Field(None, description="Medienformat")
+    media_channels: Optional[int] = Field(None, description="Anzahl der Audiokanäle")
+    media_samplerate: Optional[int] = Field(None, description="Abtastrate in Hz")
+    
+    # Bildspezifische Details
+    image_width: Optional[int] = Field(None, description="Bildbreite in Pixeln")
+    image_height: Optional[int] = Field(None, description="Bildhöhe in Pixeln")
+    image_colorspace: Optional[str] = Field(None, description="Farbraum")
+    image_dpi: Optional[int] = Field(None, description="Auflösung in DPI")
+    
+    # Dokumentspezifische Details
+    doc_pages: Optional[int] = Field(None, description="Anzahl der Seiten")
+    doc_wordcount: Optional[int] = Field(None, description="Anzahl der Wörter")
+    doc_software: Optional[str] = Field(None, description="Erstellungssoftware")
+    doc_encrypted: Optional[bool] = Field(None, description="Verschlüsselungsstatus")
+
+class CompleteMetadata(BaseModel):
+    """Vollständige Metadaten, die technische und inhaltliche Metadaten kombinieren."""
+    
+    content: ContentMetadata
+    technical: TechnicalMetadata 

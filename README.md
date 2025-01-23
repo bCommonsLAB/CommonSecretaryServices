@@ -37,6 +37,8 @@ Ein Python-basierter Service für die automatisierte Verarbeitung von Audio-, Vi
 
 ## Schnellstart
 
+
+
 ### Installation
 
 ```bash
@@ -56,6 +58,16 @@ pip install -r requirements.txt
 cp config/config.example.yaml config/config.yaml
 # Bearbeiten Sie config.yaml mit Ihren API-Keys und Einstellungen
 ```
+
+### Dashboard
+```bash	
+# ein (venv) sollte in console erscheinen
+# Setzen Sie die PYTHONPATH Variable
+# z.B. $env:PYTHONPATH = "C:\Users\username\projekte\CommonSecretaryServices"
+$env:PYTHONPATH = "<pfad des Projektes>"  
+# Starten Sie die Anwendung
+python src/main.py
+
 
 ### API-Nutzung
 
