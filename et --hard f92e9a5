@@ -1,0 +1,10 @@
+[33m3b90e20[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Merge branch 'main' of github.com:bCommonsLAB/CommonSecretaryServices
+[33m8d65c46[m Update README.md to correct PYTHONPATH example for user-specific directory
+[33ma6167af[m Add comprehensive documentation and refactor API constants
+[33md7cb3e2[m Refactor WhisperTranscriber to improve text processing and summarization
+[33m4755f3a[m Refactor audio processing and logging features
+[33m0df7f1c[m Remove deprecated config.yaml and update Docker configuration for port changes. Refactor Dockerfile to expose port 5001 and adjust Flask app entry point. Update README for consistent terminology (YouTube to Youtube) and improve API endpoint descriptions. Enhance config management in core and processors, ensuring proper logging and error handling. Add tests for Youtube processing and improve test procedures for audio and transformer functionalities.
+[33mf92e9a5[m Add Docker support and configuration management
+[33mfe5b1fb[m Enhance README with audio processing endpoint and installation instructions; update setup.py for package configuration; add transformer processor for text transformation; implement audio processing features; introduce new test routes for audio and YouTube processing; improve logging and error handling; add new templates for structured outputs.
+[33m630eae2[m Update README.md with dashboard setup instructions and features; add PyMuPDF to requirements.txt
+[33md300011[m Initial commit

@@ -56,6 +56,89 @@ graph TD
 - Template-Verarbeitung
 - PDF- und Bildverarbeitung
 
+### Prozessor-Hierarchie
+
+Die Prozessoren sind in einer hierarchischen Struktur organisiert:
+
+```mermaid
+graph TD
+    A[BaseProcessor] --> B[AudioProcessor]
+    A --> C[YouTubeProcessor]
+    A --> D[TransformerProcessor]
+    A --> E[PDFProcessor]
+    A --> F[ImageProcessor]
+    
+    B --> D
+    C --> B
+    
+    subgraph "Prozessor-Funktionen"
+    B --> G[Audio Segmentierung]
+    B --> H[Transkription]
+    D --> I[Text Transformation]
+    D --> J[Template Anwendung]
+    C --> K[Video Download]
+    C --> L[Metadaten]
+    end
+```
+
+#### Prozessor-Interaktionen
+
+1. **BaseProcessor**
+   - Basisklasse für alle Prozessoren
+   - Stellt gemeinsame Funktionalität bereit:
+     - Prozess-ID Management
+     - Temporäre Verzeichnisse
+     - Performance Tracking
+
+2. **AudioProcessor**
+   - Hauptprozessor für Audioverarbeitung
+   - Ruft TransformerProcessor für Text-Transformationen auf
+   - Kernfunktionen:
+     - Audio-Segmentierung
+     - Transkription via Whisper
+     - Kapitel-basierte Verarbeitung
+     - Ressourcen-Management
+
+3. **TransformerProcessor**
+   - Verantwortlich für Text-Transformationen
+   - Wird von anderen Prozessoren aufgerufen
+   - Funktionen:
+     - Template-Anwendung
+     - Übersetzungen
+     - Text-Formatierung
+     - LLM-Integration (GPT-4)
+
+4. **YouTubeProcessor**
+   - Integriert mit AudioProcessor
+   - Verarbeitet YouTube-Videos zu Audio
+   - Extrahiert Metadaten
+   - Handhabt Download und Konvertierung
+
+5. **Weitere Prozessoren**
+   - PDFProcessor: PDF-Verarbeitung
+   - ImageProcessor: Bildverarbeitung
+   - Alle erben von BaseProcessor
+
+#### Datenfluss zwischen Prozessoren
+
+```mermaid
+sequenceDiagram
+    participant API
+    participant YT as YouTubeProcessor
+    participant Audio as AudioProcessor
+    participant Trans as TransformerProcessor
+    
+    API->>YT: Video URL
+    YT->>YT: Download
+    YT->>Audio: Audio Extraktion
+    Audio->>Audio: Segmentierung
+    Audio->>Audio: Transkription
+    Audio->>Trans: Text Transform
+    Trans->>Trans: Template Anwendung
+    Trans->>Audio: Formatierter Text
+    Audio->>API: Finales Ergebnis
+```
+
 ### Utils (`src/utils/`)
 - Hilfsfunktionen
 - Typdefinitionen

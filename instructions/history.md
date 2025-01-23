@@ -1,3 +1,13 @@
+24.01.2025 - ToDo
+Die nächsten Schritte, also ich werde jetzt den Secretary Service, diesen Metadatenprozessor implementieren. Es ist ein eigenständiger Prozessor, der aus einer Datei und aus einem Kontext, zum Beispiel auch die Transkription einer Datei, Metadaten extrahiert. Die Struktur ist vorgegeben und die dann erst im Client, im Knowledge Scout, das Metadaten gespeichert werden. So wäre dann auch eben das Verarbeiten der Audio-Files und der Media-Files viel einfacher, weil sie nur mehr eine Sache machen müssen und nicht alles gleichzeitig. Gut, das möchte ich gerne morgen machen.
+
+
+23.01.2025 - Abendsession
+Wir haben gerade ein Konzept für einen spezialisierten MetadataProcessor entwickelt, der als zentrale Komponente für die Extraktion und Strukturierung von Metadaten aus verschiedenen Quellen dient. Der Prozessor ist darauf ausgelegt, sowohl technische als auch inhaltliche Metadaten zu extrahieren und dabei das in metadata-concept.md definierte Schema zu verwenden. Die Hauptdokumentation befindet sich in docs/metaprocessor-concept.md und beschreibt die Architektur, Datenquellen und Implementierungsdetails des Prozessors.
+Die Kernfunktionalität basiert auf der Kombination von direkter Dateianalyse und LLM-basierter Inhaltsanalyse, wobei der Prozessor Zugriff auf Originaldateien, Plattform-Kontext, generierte Inhalte (wie Transkriptionen) und LLM-Analysen hat. Ein wichtiger Aspekt ist die Integration mit bestehenden Prozessoren wie dem YouTubeProcessor, wobei die Audio-Transkription als zusätzliche Informationsquelle für die Metadaten-Extraktion genutzt wird. Die Implementierung verwendet einen dreistufigen Prozess: technische Analyse, Kontext-Aggregation und LLM-basierte Analyse.
+Die aktuelle Entwicklung konzentriert sich auf die theoretische Konzeption - es wurde noch kein Code implementiert oder getestet. Der nächste Schritt wäre die tatsächliche Implementierung des MetadataProcessors und seine Integration in die bestehende Prozessor-Hierarchie. Besondere Aufmerksamkeit sollte dabei auf die korrekte Handhabung der verschiedenen Datenquellen, die Fehlerbehandlung bei der LLM-Integration und die Validierung der extrahierten Metadaten gegen das definierte Schema gelegt werden. Die größte potenzielle Herausforderung wird die zuverlässige Extraktion strukturierter Metadaten aus unstrukturierten Inhalten durch das LLM sein.
+
+
 22.01.2025 - Nachmittagssession 
 docs/*
 instructions/Documenter Prompts.md
