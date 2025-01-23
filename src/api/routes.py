@@ -33,6 +33,11 @@ api = Api(blueprint,
     prefix=''
 )
 
+# API Namespaces definieren
+audio_ns = api.namespace('audio', description='Audio-Verarbeitungs-Operationen')
+youtube_ns = api.namespace('youtube', description='YouTube-Verarbeitungs-Operationen')
+metadata_ns = api.namespace('metadata', description='Metadaten-Verarbeitungs-Operationen')
+
 logger = get_logger(process_id="api")
 
 # Initialisierung der gemeinsam genutzten Komponenten
