@@ -5,8 +5,8 @@ import json
 import os
 from datetime import datetime
 from src.processors.metadata_processor import MetadataProcessor
-from utils.types import TechnicalMetadata, ContentMetadata, CompleteMetadata
-from core.exceptions import ProcessingError, UnsupportedMimeTypeError
+from src.utils.types import TechnicalMetadata, ContentMetadata, CompleteMetadata
+from src.core.exceptions import ProcessingError, UnsupportedMimeTypeError
 
 def save_metadata_to_json(metadata: dict, test_name: str):
     """Speichert Metadaten als JSON für spätere Analyse."""
@@ -43,8 +43,7 @@ async def test_extract_technical_metadata_from_pdf(metadata_processor):
     
     # Ausführung
     technical_metadata = await metadata_processor.extract_technical_metadata(
-        binary_data=pdf_path,
-        mime_type="application/pdf"
+        binary_data=pdf_path
     )
     
     # Speichere Ergebnis
@@ -67,8 +66,7 @@ async def test_extract_technical_metadata_from_audio(metadata_processor):
     
     # Ausführung
     technical_metadata = await metadata_processor.extract_technical_metadata(
-        binary_data=audio_path,
-        mime_type="audio/mpeg"
+        binary_data=audio_path
     )
     
     # Speichere Ergebnis
@@ -79,7 +77,7 @@ async def test_extract_technical_metadata_from_audio(metadata_processor):
     
     # Überprüfung
     assert isinstance(technical_metadata, TechnicalMetadata)
-    assert technical_metadata.file_mime == "audio/mpeg"
+    assert technical_metadata.file_mime.startswith("audio/")  # Flexibler Test für Audio MIME-Types
     assert technical_metadata.file_size > 0
     assert technical_metadata.media_duration > 0  # Audio-spezifisch
     assert technical_metadata.media_channels is not None  # Audio-spezifisch
@@ -92,7 +90,8 @@ async def test_extract_content_metadata(metadata_processor):
     context = {
         "type": "text",
         "language": "de",
-        "created": "2025-01-23T12:00:00"
+        "created": "2025-01-23T12:00:00",
+        "Hobby": "Programmieren"
     }
     
     # Mock für transform_by_template
@@ -181,8 +180,7 @@ async def test_unsupported_mime_type(metadata_processor):
         # Überprüfung
         with pytest.raises(UnsupportedMimeTypeError):
             await metadata_processor.extract_technical_metadata(
-                binary_data=temp_file,
-                mime_type="xyz/abc"  # Eindeutig nicht unterstützter MIME-Type
+                binary_data=temp_file  # MIME-Type wird automatisch erkannt
             )
     finally:
         # Cleanup
@@ -198,6 +196,5 @@ async def test_file_not_found(metadata_processor):
     # Überprüfung
     with pytest.raises(ProcessingError):
         await metadata_processor.extract_technical_metadata(
-            binary_data=nonexistent_path,
-            mime_type="application/pdf"
+            binary_data=nonexistent_path
         ) 

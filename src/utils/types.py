@@ -2,18 +2,49 @@
 Zentrale Typdefinitionen für die Verarbeitung von Texten, Audio und anderen Medien.
 """
 from typing import Optional, Dict, Any, List, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from pathlib import Path
 from datetime import datetime
+import json
 from enum import Enum
 
-class Chapter(BaseModel):
+def make_json_serializable(obj: Any) -> Any:
+    """Konvertiert ein Objekt in ein JSON-serialisierbares Format."""
+    if isinstance(obj, (datetime, Path)):
+        return str(obj)
+    elif isinstance(obj, (list, tuple, set)):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif hasattr(obj, 'model_dump'):
+        return make_json_serializable(obj.model_dump())
+    return obj
+
+class CustomModel(BaseModel):
+    """Basismodell mit erweiterten Serialisierungs- und Validierungsfunktionen."""
+    
+    model_config = ConfigDict(
+        validate_assignment=True,  # Validierung bei Zuweisung
+        populate_by_name=True,     # Erlaubt Zugriff auf Felder via Alias
+    )
+    
+    def serializable_dict(self, **kwargs) -> dict:
+        """Gibt ein Dict zurück, das nur serialisierbare Felder enthält."""
+        default_dict = self.model_dump(**kwargs)
+        return make_json_serializable(default_dict)
+    
+    @classmethod
+    def construct_validated(cls, **data):
+        """Erstellt eine Instanz ohne Validierung, wenn die Daten bereits validiert wurden."""
+        return cls.model_construct(**data)
+
+class Chapter(CustomModel):
     """Ein Kapitel mit Start- und Endzeit."""
     title: str = Field(description="Titel des Kapitels")
     start_time: float = Field(description="Startzeit in Sekunden")
     end_time: float = Field(description="Endzeit in Sekunden")
 
-class AudioSegmentInfo(BaseModel):
+class AudioSegmentInfo(CustomModel):
     """Information über ein Audio-Segment.
     
     Attributes:
@@ -25,19 +56,19 @@ class AudioSegmentInfo(BaseModel):
     title: Optional[str] = None
     binary_data: Optional[bytes] = None
 
-class llModel(BaseModel):
+class llModel(CustomModel):
     """Informationen über die Nutzung eines LLM."""
     model: str = Field(description="Name des verwendeten Modells")
     duration: float = Field(description="Verarbeitungsdauer in Sekunden")
     token_count: int = Field(description="Anzahl der verarbeiteten Tokens")
 
-class TranscriptionSegment(BaseModel):
+class TranscriptionSegment(CustomModel):
     """Ein Segment einer Transkription mit Zeitstempeln."""
     text: str = Field(description="Der transkribierte Text des Segments")
     segment_id: int = Field(description="ID des Segments für die Sortierung")
     title: Optional[str] = Field(None, description="Titel des Segments (z.B. Kapitel-Titel)")
 
-class TranscriptionResult(BaseModel):
+class TranscriptionResult(CustomModel):
     """Ergebnis einer Transkription."""
     text: str = Field(description="Der transkribierte Text")
     detected_language: Optional[str] = Field(None, description="Erkannte Sprache (ISO 639-1)")
@@ -54,20 +85,20 @@ class TranscriptionResult(BaseModel):
         }
         return result
 
-class TranslationResult(BaseModel):
+class TranslationResult(CustomModel):
     """Ergebnis einer Übersetzung."""
     text: str = Field(description="Der übersetzte Text")
     source_language: str = Field(description="Ausgangssprache (ISO 639-1)")
     target_language: str = Field(description="Zielsprache (ISO 639-1)")
     llms: List[llModel] = Field(default_factory=list, description="Verwendete LLM-Modelle")
 
-class AudioMetadata(BaseModel):
+class AudioMetadata(CustomModel):
     """Audio-spezifische Metadaten."""
     duration: float = Field(description="Dauer der Audio-Datei in Sekunden")
     process_dir: str = Field(description="Verzeichnis mit den Verarbeitungsdaten")
     args: Dict[str, Any] = Field(default_factory=dict, description="Verwendete Verarbeitungsparameter")
 
-class AudioProcessingResult(BaseModel):
+class AudioProcessingResult(CustomModel):
     """
     Ergebnis der Audio-Verarbeitung.
     Kombiniert TranscriptionResult mit Audio-spezifischen Metadaten.
@@ -112,7 +143,7 @@ class AudioProcessingResult(BaseModel):
             "args": self.metadata.args
         } 
 
-class YoutubeMetadata(BaseModel):
+class YoutubeMetadata(CustomModel):
     """Metadaten eines YouTube-Videos."""
     title: str = Field(description="Titel des Videos")
     url: str = Field(description="YouTube-URL")
@@ -141,7 +172,7 @@ class YoutubeMetadata(BaseModel):
     age_limit: Optional[int] = Field(None, description="Altersbeschränkung")
     webpage_url: Optional[str] = Field(None, description="Vollständige Webseiten-URL")
 
-class YoutubeProcessingResult(BaseModel):
+class YoutubeProcessingResult(CustomModel):
     """
     Ergebnis der YouTube-Verarbeitung.
     Kombiniert YoutubeMetadata mit optionalem AudioProcessingResult.
@@ -185,7 +216,7 @@ class YoutubeProcessingResult(BaseModel):
 
         return result 
 
-class ChapterInfo(BaseModel):
+class ChapterInfo(CustomModel):
     """Repräsentiert ein Kapitel mit seinen Audio-Segmenten.
     
     Attributes:
@@ -208,13 +239,13 @@ class PublicationStatus(str, Enum):
     PUBLISHED = "published"
     ARCHIVED = "archived"
 
-class ContentMetadata(BaseModel):
+class ContentMetadata(CustomModel):
     """Inhaltliche Metadaten für verschiedene Medientypen."""
     
     # Basis-Metadaten
     type: str = Field(description="Art der Metadaten (z.B. video, audio, article)")
-    created: datetime = Field(description="Erstellungszeitpunkt")
-    modified: datetime = Field(description="Letzter Änderungszeitpunkt")
+    created: str = Field(description="Erstellungszeitpunkt (ISO 8601)")
+    modified: str = Field(description="Letzter Änderungszeitpunkt (ISO 8601)")
     
     # Bibliographische Grunddaten
     title: str = Field(description="Haupttitel des Werks")
@@ -252,7 +283,7 @@ class ContentMetadata(BaseModel):
     rights_modifications: Optional[bool] = Field(None, description="Modifikationen erlaubt")
     
     # Medienspezifische Metadaten
-    resource_type: str = Field(description="Art der Ressource")
+    resource_type: Optional[str] = Field(None, description="Art der Ressource")
     resource_format: Optional[str] = Field(None, description="Physisches/digitales Format")
     resource_extent: Optional[str] = Field(None, description="Umfang")
     
@@ -274,10 +305,10 @@ class ContentMetadata(BaseModel):
     
     # Event-spezifische Details
     event_type: Optional[str] = Field(None, description="Art der Veranstaltung")
-    event_start: Optional[datetime] = Field(None, description="Startzeit")
-    event_end: Optional[datetime] = Field(None, description="Endzeit")
+    event_start: Optional[str] = Field(None, description="Startzeit (ISO 8601)")
+    event_end: Optional[str] = Field(None, description="Endzeit (ISO 8601)")
     event_timezone: Optional[str] = Field(None, description="Zeitzone")
-    event_format: Optional[EventFormat] = Field(None, description="Veranstaltungsformat")
+    event_format: Optional[str] = Field(None, description="Veranstaltungsformat")
     event_platform: Optional[str] = Field(None, description="Verwendete Plattform")
     event_recording_url: Optional[str] = Field(None, description="Link zur Aufzeichnung")
     
@@ -299,6 +330,12 @@ class ContentMetadata(BaseModel):
     blog_reading_time: Optional[int] = Field(None, description="Geschätzte Lesezeit in Minuten")
     blog_tags: Optional[List[str]] = Field(None, description="Blog-spezifische Tags")
     blog_comments_url: Optional[str] = Field(None, description="Link zu Kommentaren")
+    
+    # Interaktive Medien (neu hinzugefügt)
+    interactive_type: Optional[str] = Field(None, description="Art des interaktiven Inhalts")
+    interactive_requirements: Optional[List[str]] = Field(None, description="Technische Anforderungen")
+    interactive_version: Optional[str] = Field(None, description="Version der Anwendung")
+    interactive_url: Optional[str] = Field(None, description="URL zur Anwendung")
     
     # Community und Engagement
     community_target: Optional[List[str]] = Field(None, description="Zielgruppe")
@@ -323,12 +360,12 @@ class ContentMetadata(BaseModel):
     status: Optional[str] = Field(None, description="Status")
     
     # Digitale Publikationsdetails
-    digital_published: Optional[datetime] = Field(None, description="Erstveröffentlichung online")
-    digital_modified: Optional[datetime] = Field(None, description="Letzte Online-Aktualisierung")
+    digital_published: Optional[str] = Field(None, description="Erstveröffentlichung online (ISO 8601)")
+    digital_modified: Optional[str] = Field(None, description="Letzte Online-Aktualisierung (ISO 8601)")
     digital_version: Optional[str] = Field(None, description="Versionsnummer/Stand")
-    digital_status: Optional[PublicationStatus] = Field(None, description="Publikationsstatus")
+    digital_status: Optional[str] = Field(None, description="Publikationsstatus")
 
-class TechnicalMetadata(BaseModel):
+class TechnicalMetadata(CustomModel):
     """Technische Metadaten für Mediendateien."""
     
     # Datei-Informationen
@@ -357,8 +394,15 @@ class TechnicalMetadata(BaseModel):
     doc_software: Optional[str] = Field(None, description="Erstellungssoftware")
     doc_encrypted: Optional[bool] = Field(None, description="Verschlüsselungsstatus")
 
-class CompleteMetadata(BaseModel):
+class CompleteMetadata(CustomModel):
     """Vollständige Metadaten, die technische und inhaltliche Metadaten kombinieren."""
     
     content: ContentMetadata
     technical: TechnicalMetadata 
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Modell in ein Dictionary für die API-Antwort."""
+        return {
+            'content': self.content.model_dump(),
+            'technical': self.technical.model_dump()
+        } 

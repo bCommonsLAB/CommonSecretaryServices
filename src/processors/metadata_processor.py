@@ -1,9 +1,9 @@
-from .base_processor import BaseProcessor
-from utils.types import ContentMetadata, TechnicalMetadata, CompleteMetadata
-from utils.transcription_utils import WhisperTranscriber
-from utils.logger import get_logger, ProcessingLogger
-from core.config import Config
-from core.exceptions import ProcessingError, FileSizeLimitExceeded, UnsupportedMimeTypeError, ContentExtractionError, ValidationError
+from src.processors.base_processor import BaseProcessor
+from src.utils.types import ContentMetadata, TechnicalMetadata, CompleteMetadata
+from src.utils.transcription_utils import WhisperTranscriber
+from src.utils.logger import get_logger, ProcessingLogger
+from src.core.config import Config
+from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, UnsupportedMimeTypeError, ContentExtractionError, ValidationError
 
 import os
 import mimetypes
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union, BinaryIO
 import mutagen
 from PIL import Image
-import PyPDF2
+from pypdf import PdfReader
 from datetime import datetime
 import io
 import traceback
@@ -69,17 +69,13 @@ class MetadataProcessor(BaseProcessor):
                         supported_mime_types=self.supported_mime_types,
                         features=self.features)
 
-    async def extract_technical_metadata(self, 
-                                      binary_data: Union[bytes, BinaryIO, Path],
-                                      mime_type: str = None,
-                                      file_extension: str = None,
-                                      logger: ProcessingLogger = None) -> TechnicalMetadata:
-        """Extrahiert technische Metadaten aus binären Daten oder einer Datei.
+    async def extract_technical_metadata(self,
+                                     binary_data: Union[bytes, BinaryIO, Path],
+                                     logger: ProcessingLogger = None) -> TechnicalMetadata:
+        """Extrahiert technische Metadaten aus einer Datei.
         
         Args:
-            binary_data: Binäre Daten als bytes, file-like object oder Dateipfad
-            mime_type: Optional vorgegebener MIME-Type
-            file_extension: Optional vorgegebene Dateiendung
+            binary_data: Binäre Daten oder Dateipfad
             logger: Logger-Instanz
             
         Returns:
@@ -92,150 +88,108 @@ class MetadataProcessor(BaseProcessor):
         """
         logger = logger or self.logger
         start_time = time.time()
-        logger.info("Starte technische Metadaten-Extraktion")
 
-        if not self.features['technical_enabled']:
-            logger.warning("Technische Metadaten-Extraktion deaktiviert")
-            return TechnicalMetadata(
-                file_size=0,
-                file_mime="unknown",
-                file_extension="unknown"
-            )
-
-        # Konvertiere Input in temporäre Datei wenn nötig
-        temp_file = None
         try:
-            if isinstance(binary_data, (str, Path)):
-                file_path = Path(binary_data)
-                if not file_path.exists():
-                    raise ProcessingError(f"Datei nicht gefunden: {file_path}")
-                
-                # Prüfe Dateigröße
-                if file_path.stat().st_size > self.max_file_size:
-                    raise FileSizeLimitExceeded(
-                        f"Datei zu groß: {file_path.stat().st_size} Bytes "
-                        f"(Maximum: {self.max_file_size} Bytes)"
-                    )
-            else:
-                # Erstelle temporäre Datei
-                temp_file = Path(self.temp_dir) / f"temp_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Binärdaten in temporäre Datei schreiben wenn nötig
+            if isinstance(binary_data, (bytes, BinaryIO)):
+                temp_file = self.temp_dir / f"temp_{self.process_id}"
                 if isinstance(binary_data, bytes):
-                    if len(binary_data) > self.max_file_size:
-                        raise FileSizeLimitExceeded(
-                            f"Daten zu groß: {len(binary_data)} Bytes "
-                            f"(Maximum: {self.max_file_size} Bytes)"
-                        )
                     temp_file.write_bytes(binary_data)
-                else:  # file-like object
-                    with open(temp_file, 'wb') as f:
-                        f.write(binary_data.read())
+                else:
+                    binary_data.seek(0)
+                    temp_file.write_bytes(binary_data.read())
                 file_path = temp_file
+            else:
+                file_path = binary_data
 
-            # Basis Datei-Informationen
-            file_size = file_path.stat().st_size
-            detected_mime = magic.from_file(str(file_path), mime=True)
-            mime_type = mime_type or detected_mime
-            file_extension = file_extension or file_path.suffix.lower()
+            # Dateigröße prüfen
+            file_size = os.path.getsize(file_path)
+            if file_size > self.max_file_size:
+                raise FileSizeLimitExceeded(
+                    f"Datei zu groß: {file_size} Bytes (Maximum: {self.max_file_size} Bytes)")
+
+            # MIME-Type ermitteln
+            mime = magic.Magic(mime=True)
+            file_mime = mime.from_file(str(file_path))
             
-            # Prüfe MIME-Type Support
-            mime_base = mime_type.split('/')[0]
-            if not any(supported.startswith(mime_base) or supported == mime_type 
+            # Prüfen ob MIME-Type unterstützt wird
+            mime_base = file_mime.split('/')[0]
+            if not any(supported.startswith(mime_base) or supported == file_mime 
                       for supported in self.supported_mime_types):
-                raise UnsupportedMimeTypeError(f"Nicht unterstützter MIME-Type: {mime_type}")
+                raise UnsupportedMimeTypeError(f"MIME-Type nicht unterstützt: {file_mime}")
 
-            metadata_dict = {
-                "file_size": file_size,
-                "file_mime": mime_type,
-                "file_extension": file_extension
+            # Basis-Metadaten
+            metadata = {
+                'file_size': file_size,
+                'file_mime': file_mime,
+                'file_extension': file_path.suffix.lower()
             }
 
-            # Medienspezifische Details basierend auf MIME-Type
-            if mime_type.startswith('audio/') or mime_type.startswith('video/'):
+            # Medienspezifische Metadaten extrahieren
+            if file_mime.startswith('audio/') or file_mime.startswith('video/'):
                 try:
-                    with self.measure_operation('media_analysis'):
-                        media_info = mutagen.File(file_path)
-                        if media_info:
-                            metadata_dict.update({
-                                "media_duration": media_info.info.length if hasattr(media_info.info, 'length') else None,
-                                "media_bitrate": getattr(media_info.info, 'bitrate', None),
-                                "media_channels": getattr(media_info.info, 'channels', None),
-                                "media_samplerate": getattr(media_info.info, 'sample_rate', None)
-                            })
-                            logger.debug("Audio/Video Metadaten extrahiert",
-                                       duration=metadata_dict.get('media_duration'),
-                                       bitrate=metadata_dict.get('media_bitrate'),
-                                       operation_time=self.get_last_operation_time())
+                    media_info = mutagen.File(file_path)
+                    if media_info:
+                        metadata.update({
+                            'media_duration': media_info.info.length if hasattr(media_info.info, 'length') else None,
+                            'media_bitrate': getattr(media_info.info, 'bitrate', None),
+                            'media_channels': getattr(media_info.info, 'channels', None),
+                            'media_samplerate': getattr(media_info.info, 'sample_rate', None)
+                        })
                 except Exception as e:
-                    logger.warning("Fehler bei der Medien-Analyse", 
-                                 error=str(e),
-                                 error_type=type(e).__name__,
-                                 traceback=traceback.format_exc())
+                    logger.warning(f"Fehler bei Medien-Metadaten Extraktion: {str(e)}")
 
-            # Bild-spezifische Details
-            elif mime_type.startswith('image/'):
+            elif file_mime.startswith('image/'):
                 try:
-                    with self.measure_operation('image_analysis'):
-                        with Image.open(file_path) as img:
-                            metadata_dict.update({
-                                "image_width": img.width,
-                                "image_height": img.height,
-                                "image_colorspace": img.mode,
-                                "image_dpi": img.info.get('dpi', None)
-                            })
-                            logger.debug("Bild Metadaten extrahiert",
-                                       dimensions=f"{img.width}x{img.height}",
-                                       colorspace=img.mode,
-                                       operation_time=self.get_last_operation_time())
+                    with Image.open(file_path) as img:
+                        metadata.update({
+                            'image_width': img.width,
+                            'image_height': img.height,
+                            'image_colorspace': img.mode,
+                        })
                 except Exception as e:
-                    logger.warning("Fehler bei der Bild-Analyse", 
-                                 error=str(e),
-                                 error_type=type(e).__name__,
-                                 traceback=traceback.format_exc())
+                    logger.warning(f"Fehler bei Bild-Metadaten Extraktion: {str(e)}")
 
-            # PDF-spezifische Details
-            elif mime_type == 'application/pdf':
+            elif file_mime == 'application/pdf':
                 try:
-                    with self.measure_operation('pdf_analysis'):
-                        with open(file_path, 'rb') as pdf_file:
-                            pdf_reader = PyPDF2.PdfReader(pdf_file)
-                            metadata_dict.update({
-                                "doc_pages": len(pdf_reader.pages),
-                                "doc_encrypted": pdf_reader.is_encrypted,
-                                "doc_software": pdf_reader.metadata.get('/Producer', None) if pdf_reader.metadata else None
-                            })
-                            logger.debug("PDF Metadaten extrahiert",
-                                       pages=metadata_dict['doc_pages'],
-                                       encrypted=metadata_dict['doc_encrypted'],
-                                       operation_time=self.get_last_operation_time())
+                    with open(file_path, 'rb') as pdf_file:
+                        pdf = PdfReader(pdf_file)
+                        metadata.update({
+                            'doc_pages': len(pdf.pages),
+                            'doc_encrypted': pdf.is_encrypted,
+                            'doc_software': pdf.metadata.get('/Producer', None) if pdf.metadata else None
+                        })
                 except Exception as e:
-                    logger.warning("Fehler bei der PDF-Analyse", 
-                                 error=str(e),
-                                 error_type=type(e).__name__,
-                                 traceback=traceback.format_exc())
+                    logger.warning(f"Fehler bei PDF-Metadaten Extraktion: {str(e)}")
 
+            # Temporäre Datei löschen wenn erstellt
+            if isinstance(binary_data, (bytes, BinaryIO)) and temp_file.exists():
+                temp_file.unlink()
+
+            # Metadaten validieren und zurückgeben
+            technical_metadata = TechnicalMetadata(**metadata)
+            
             processing_time = time.time() - start_time
             logger.info("Technische Metadaten extrahiert",
-                       file_size=metadata_dict['file_size'],
-                       mime_type=metadata_dict['file_mime'],
+                       mime_type=file_mime,
+                       file_size=file_size,
                        processing_time=processing_time)
 
-            return TechnicalMetadata(**metadata_dict)
+            return technical_metadata
 
         except (FileSizeLimitExceeded, UnsupportedMimeTypeError) as e:
-            logger.error(str(e), 
-                        error_type=type(e).__name__)
+            if isinstance(binary_data, (bytes, BinaryIO)) and temp_file.exists():
+                temp_file.unlink()
             raise
         except Exception as e:
+            if isinstance(binary_data, (bytes, BinaryIO)) and temp_file.exists():
+                temp_file.unlink()
             error_msg = f"Fehler bei der technischen Metadaten-Extraktion: {str(e)}"
-            logger.error(error_msg, 
+            logger.error(error_msg,
                         error=str(e),
                         error_type=type(e).__name__,
                         traceback=traceback.format_exc())
             raise ProcessingError(error_msg)
-        finally:
-            # Cleanup
-            if temp_file and temp_file.exists():
-                temp_file.unlink()
 
     async def extract_content_metadata(self,
                                     content: str,
@@ -282,20 +236,36 @@ class MetadataProcessor(BaseProcessor):
 
             # Template-Transformation durchführen
             with self.measure_operation('llm_processing'):
-                content_result, _ = await self.transcriber.transform_by_template(
+                transformed_content, template_result = self.transcriber.transform_by_template(
                     text=content,
                     target_language="de",
                     template=self.llm_config['template'],
                     context=context,
                     logger=logger
                 )
-                logger.debug("LLM Verarbeitung abgeschlossen",
-                           operation_time=self.get_last_operation_time())
+                logger.debug("LLM Verarbeitung abgeschlossen")
 
             # Ergebnis validieren
             try:
-                content_metadata = ContentMetadata.parse_raw(content_result)
-            except Exception as e:
+                content_metadata = ContentMetadata.model_validate_json(transformed_content)
+                
+                # LLM Informationen aus template_result übernehmen wenn vorhanden
+                if template_result and hasattr(template_result, 'llms'):
+                    logger.debug("LLM Informationen gefunden", llm_count=len(template_result.llms))
+                    # Hier könnten wir die LLM Informationen speichern
+                
+            except ValidationError as e:
+                # Detaillierte Fehlerbehandlung
+                error_details = []
+                for error in e.errors():
+                    error_details.append({
+                        'field': '.'.join(str(x) for x in error['loc']),
+                        'error': error['msg'],
+                        'type': error['type']
+                    })
+                logger.error("Validierungsfehler bei Metadaten", 
+                           error_details=error_details,
+                           error_type="ValidationError")
                 raise ValidationError(f"Ungültige Metadaten: {str(e)}")
 
             processing_time = time.time() - start_time
@@ -353,12 +323,11 @@ class MetadataProcessor(BaseProcessor):
                     binary_data=binary_data,
                     logger=logger
                 )
-                logger.debug("Technische Extraktion abgeschlossen",
-                           operation_time=self.get_last_operation_time())
+                logger.debug("Technische Extraktion abgeschlossen")
 
             # 2. Kontext mit technischen Metadaten erweitern
             full_context = {
-                'file_info': technical_metadata.dict(),
+                'file_info': technical_metadata.serializable_dict(),  # Verwende die neue Methode
                 **(context or {})
             }
 
@@ -369,11 +338,10 @@ class MetadataProcessor(BaseProcessor):
                     context=full_context,
                     logger=logger
                 )
-                logger.debug("Inhaltliche Extraktion abgeschlossen",
-                           operation_time=self.get_last_operation_time())
+                logger.debug("Inhaltliche Extraktion abgeschlossen")
 
-            # 4. Ergebnisse kombinieren
-            result = CompleteMetadata(
+            # 4. Ergebnisse kombinieren - Verwende construct_validated da die Daten bereits validiert wurden
+            result = CompleteMetadata.construct_validated(
                 content=content_metadata,
                 technical=technical_metadata
             )

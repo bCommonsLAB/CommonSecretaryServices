@@ -607,8 +607,9 @@ class MetadataEndpoint(Resource):
     @api.response(200, 'Erfolg', metadata_response)
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Extrahiert Metadaten aus einer Datei')
-    async def post(self):
+    def post(self):
         """Extrahiert Metadaten aus einer Datei."""
+        temp_file = None
         try:
             # Performance Tracking
             process_id = str(uuid.uuid4())
@@ -618,8 +619,8 @@ class MetadataEndpoint(Resource):
             file = args['file']
             
             # Rate Limiting und Validierung
-            await rate_limiter.check_rate_limit(request)
-            rate_limiter.check_file_size(file)
+            if not rate_limiter.check_file_size(file.content_length):
+                raise FileSizeLimitExceeded(f"Datei zu groß: {file.content_length} Bytes")
             
             # Parse optionalen Kontext
             context = {}
@@ -629,14 +630,23 @@ class MetadataEndpoint(Resource):
                 except json.JSONDecodeError:
                     raise ProcessingError("Ungültiger JSON-Kontext")
             
+            # Speichere Datei temporär
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix)
+            file.save(temp_file.name)
+            temp_file.close()
+            
             # Verarbeite Datei
             processor = get_metadata_processor(process_id)
-            result = await processor.extract_metadata(
-                binary_data=file,
+            result = asyncio.run(processor.extract_metadata(
+                binary_data=Path(temp_file.name),
                 content=args.get('content'),
                 context=context
-            )
+            ))
             
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            tracker.eval_result(result)
+            
+            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
             return result.to_dict()
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
@@ -646,3 +656,10 @@ class MetadataEndpoint(Resource):
                         error=str(e),
                         traceback=traceback.format_exc())
             raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}")
+        finally:
+            # Räume temporäre Datei auf
+            if temp_file and os.path.exists(temp_file.name):
+                try:
+                    os.unlink(temp_file.name)
+                except Exception as e:
+                    logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
