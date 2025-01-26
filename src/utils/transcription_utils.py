@@ -1,5 +1,5 @@
 from src.utils.types import (
-    llModel,
+    LLModel,
     TranscriptionSegment,
     TranscriptionResult,
     TranslationResult,
@@ -179,6 +179,9 @@ class WhisperTranscriber:
             system_prompt = "You are a precise translator and summarizer."
             user_prompt = f"{instruction}\n\n{text}"
 
+            # Zeitmessung starten
+            start_time = time.time()
+
             response = self.client.chat.completions.create(
                 model=llm_model,
                 messages=[
@@ -186,16 +189,19 @@ class WhisperTranscriber:
                     {"role": "user", "content": user_prompt}
                 ]
             )
+
+            # Zeitmessung beenden und Dauer in Millisekunden berechnen
+            duration = int((time.time() - start_time) * 1000)
             
             if not response.choices or not response.choices[0].message:
                 raise ValueError("Keine gültige Antwort vom LLM erhalten")
 
             translated_text = response.choices[0].message.content.strip()
             
-            llm_usage = llModel(
+            llm_usage = LLModel(
                 model=llm_model,
-                duration=0.0,
-                token_count=response.usage.total_tokens
+                duration=duration,  # Bereits in Millisekunden
+                tokens=response.usage.total_tokens
             )
             
             result = TranslationResult(
@@ -216,7 +222,8 @@ class WhisperTranscriber:
             
             if logger:
                 logger.info("Übersetzung abgeschlossen",
-                    token_count=llm_usage.token_count)
+                    tokens=llm_usage.tokens,
+                    duration_ms=duration)
             
             return result
             
@@ -406,7 +413,7 @@ class WhisperTranscriber:
                            error=str(e),
                            debug_dir=str(debug_dir))
 
-    def transform_by_template(self, text: str, target_language: str, template: str, context: Dict[str, Any] = None, logger: ProcessingLogger = None) -> Tuple[str, TranslationResult]:
+    def transform_by_template(self, text: str, target_language: str, template: str, context: Dict[str, Any] = None, logger: ProcessingLogger = None) -> Tuple[str, TranslationResult, Dict[str, Any]]:
         """Transformiert Text basierend auf einem Template mit GPT-4.
         
         Args:
@@ -417,7 +424,7 @@ class WhisperTranscriber:
             logger (ProcessingLogger): Logger-Instanz für Logging
             
         Returns:
-            Tuple[str, TranslationResult]: (Transformierter Template-Inhalt, Validiertes Übersetzungsergebnis)
+            Tuple[str, TranslationResult, Dict[str, Any]]: (Transformierter Template-Inhalt, Validiertes Übersetzungsergebnis, Validierte Template-Modelle)
         """
         try:
             if logger:
@@ -434,7 +441,7 @@ class WhisperTranscriber:
             
             if not field_definitions:
                 # Wenn keine strukturierten Variablen gefunden wurden, geben wir nur den Template-Inhalt zurück
-                return template_content, None
+                return template_content, None, None
 
             # 4. Pydantic Model erstellen
             DynamicTemplateModel = create_model(
@@ -447,7 +454,11 @@ class WhisperTranscriber:
 
             # 6. GPT-4 Anfrage senden
             if logger:
-                logger.info("Sende Anfrage an GPT-4")                
+                logger.info("Sende Anfrage an GPT-4")
+
+            # Zeitmessung starten
+            start_time = time.time()
+                
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -462,6 +473,9 @@ class WhisperTranscriber:
                 function_call={"name": "extract_template_info"}
             )
 
+            # Zeitmessung beenden und Dauer in Millisekunden berechnen
+            duration = int((time.time() - start_time) * 1000)
+
             # 7. LLM Interaktion speichern
             self._save_llm_interaction(template, system_prompt, user_prompt, response, logger, field_definitions)
 
@@ -470,19 +484,19 @@ class WhisperTranscriber:
 
             # 8. GPT-4 Antwort extrahieren und validieren
             result_json = response.choices[0].message.function_call.arguments
-            result = DynamicTemplateModel.model_validate_json(result_json)
+            template_model_result = DynamicTemplateModel.model_validate_json(result_json)
 
             # 9. Strukturierte Variablen ersetzen
-            for field_name, field_value in result.model_dump().items():
+            for field_name, field_value in template_model_result.model_dump().items():
                 pattern = r'\{\{' + field_name + r'\|[^}]+\}\}'
                 value = str(field_value) if field_value is not None else ""
                 template_content = re.sub(pattern, value, template_content)
 
-            # 10. Erstelle ein llModel für die GPT-4 Nutzung
-            llm_usage = llModel(
+            # 10. Erstelle ein LLModel für die GPT-4 Nutzung
+            llm_usage = LLModel(
                 model="gpt-4o-mini",
-                duration=0.0,  # Diese Information haben wir aktuell nicht
-                token_count=response.usage.total_tokens if hasattr(response, 'usage') else 0
+                duration=duration,  # Gemessene Zeit in Millisekunden
+                tokens=response.usage.total_tokens
             )
 
             # 11. Erstelle das TranslationResult
@@ -495,9 +509,10 @@ class WhisperTranscriber:
 
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
-                    token_count=llm_usage.token_count)
+                    tokens=llm_usage.tokens,
+                    duration_ms=duration)
             
-            return template_content, translation_result
+            return template_content, translation_result, template_model_result
             
         except Exception as e:
             if logger:
@@ -554,10 +569,10 @@ class WhisperTranscriber:
             detected_language_iso = self._convert_to_iso_code(detected_language)
             translated = False
 
-            whisper_model = llModel(
+            whisper_model = LLModel(
                 model="whisper-1",
                 duration=response.duration,
-                token_count=len(str(response).split())
+                tokens=response.usage.total_tokens
             )
 
             # Erstelle ein TranscriptionSegment
@@ -713,7 +728,7 @@ class WhisperTranscriber:
         return chapter_texts, chapter_segments, chapter_titles, chapter_order
 
     def _process_chapter_text(self, chapter_text: str, chapter_id: str, chapter_language: str, target_language: str,
-                            logger: ProcessingLogger = None) -> Tuple[str, List[llModel]]:
+                            logger: ProcessingLogger = None) -> Tuple[str, List[LLModel]]:
         """Verarbeitet den Text eines Kapitels (Zusammenfassung und/oder Übersetzung).
         
         Args:
@@ -724,7 +739,7 @@ class WhisperTranscriber:
             logger: Logger-Instanz
             
         Returns:
-            Tuple[str, List[llModel]]: (Verarbeiteter Text, Verwendete LLMs)
+            Tuple[str, List[LLModel]]: (Verarbeiteter Text, Verwendete LLMs)
         """
         word_count = len(chapter_text.split())
         used_llms = []
@@ -876,7 +891,7 @@ class WhisperTranscriber:
             if logger:
                 logger.info("Parallele Transkription abgeschlossen",
                     segment_count=len(all_segments),
-                    total_tokens=sum(llm.token_count for llm in result.llms))
+                    total_tokens=sum(llm.tokens for llm in result.llms))
             
             return result
             
@@ -887,49 +902,162 @@ class WhisperTranscriber:
         finally:
             gc.collect()
 
-    def _save_llm_interaction(self, template: str, system_prompt: str, user_prompt: str, response: Any, logger: ProcessingLogger = None, field_definitions: Dict[str, Any] = None) -> None:
-        """Speichert LLM Interaktionen in Logdateien."""
+    def _save_llm_interaction(self, template: str, system_prompt: str, user_prompt: str, response: Any, logger: ProcessingLogger = None, field_definitions: Dict = None):
+        """Speichert die LLM-Interaktion für Debugging und Analyse."""
         try:
-            log_dir = Path("temp-processing/llm")
-            log_dir.mkdir(parents=True, exist_ok=True)
+            debug_dir = Path('./temp-processing/llm')
+            debug_dir.mkdir(parents=True, exist_ok=True)
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            operation_type = template if template else "translation"
+            # Erstelle einen eindeutigen Dateinamen
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            template_name = template if template else 'direct'
+            filename = f"{timestamp}_{template_name}_interaction.json"
             
-            # Speichere Prompts und Template-Struktur
-            prompts_file = log_dir / f"{operation_type}_{timestamp}_prompts.txt"
-            prompts_content = (
-                f"=== System Prompt ===\n{system_prompt}\n\n"
-                f"=== User Prompt ===\n{user_prompt}\n"
-            )
+            # Bereite die Interaktionsdaten vor
+            interaction_data = {
+                'timestamp': datetime.now().isoformat(),
+                'template': template,
+                'system_prompt': system_prompt,
+                'user_prompt': user_prompt,
+                'response': {
+                    'content': response.choices[0].message.content if response.choices else None,
+                    'function_call': response.choices[0].message.function_call.arguments if hasattr(response.choices[0].message, 'function_call') else None,
+                    'usage': {
+                        'total_tokens': response.usage.total_tokens if hasattr(response, 'usage') else 0,
+                        'prompt_tokens': response.usage.prompt_tokens if hasattr(response, 'usage') else 0,
+                        'completion_tokens': response.usage.completion_tokens if hasattr(response, 'usage') else 0
+                    }
+                }
+            }
             
             if field_definitions:
-                prompts_content += "\n=== Template Structure ===\n"
-                for var_name, (type_hint, field) in field_definitions.items():
-                    prompts_content += f"{var_name}: {field.description}\n"
-                    
-            prompts_file.write_text(prompts_content, encoding='utf-8')
+                interaction_data['field_definitions'] = field_definitions
             
-            # Speichere Response
-            response_file = log_dir / f"{operation_type}_{timestamp}_response.json"
-            if hasattr(response.choices[0].message, 'function_call'):
-                response_content = response.choices[0].message.function_call.arguments
-            else:
-                response_content = response.choices[0].message.content
-            response_file.write_text(response_content, encoding='utf-8')
-            
-            # Speichere das finale Ergebnis
-            result_file = log_dir / f"{operation_type}_{timestamp}_result.json"
-            result_content = {
-                "operation_type": operation_type,
-                "timestamp": timestamp,
-                "system_prompt": system_prompt,
-                "user_prompt": user_prompt,
-                "response": response_content,
-                "field_definitions": field_definitions if field_definitions else None
-            }
-            result_file.write_text(json.dumps(result_content, indent=2, ensure_ascii=False), encoding='utf-8')
-                    
+            # Speichere die Interaktionsdaten
+            file_path = debug_dir / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(interaction_data, f, indent=2, ensure_ascii=False)
+                
+            if logger:
+                logger.debug("LLM Interaktion gespeichert",
+                           file=str(file_path),
+                           tokens=interaction_data['response']['usage']['total_tokens'])
+                
         except Exception as e:
             if logger:
-                logger.warning("LLM Interaktion konnte nicht gespeichert werden", error=str(e))
+                logger.warning("LLM Interaktion konnte nicht gespeichert werden",
+                             error=str(e),
+                             template=template)
+
+    def summarize_text(self, text: str, target_language: str, logger: ProcessingLogger = None) -> TranslationResult:
+        """Erstellt eine Zusammenfassung des Textes."""
+        if logger:
+            logger.info(f"Erstelle Zusammenfassung in {target_language}")
+
+        system_prompt = "You are a precise text summarizer. Create a concise summary that captures the main points."
+        user_prompt = f"Summarize the following text in {target_language}:\n\n{text}"
+
+        # Zeitmessung starten
+        start_time = time.time()
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+        # Zeitmessung beenden und Dauer in Millisekunden berechnen
+        duration = int((time.time() - start_time) * 1000)
+        
+        if not response.choices or not response.choices[0].message:
+            raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+        summary_text = response.choices[0].message.content.strip()
+        
+        llm_usage = LLModel(
+            model="gpt-4o-mini",
+            duration=duration,  # Bereits in Millisekunden
+            tokens=response.usage.total_tokens
+        )
+        
+        # Speichere die LLM Interaktion
+        self._save_llm_interaction(
+            template=None,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response=response,
+            logger=logger
+        )
+        
+        if logger:
+            logger.info("Zusammenfassung erstellt",
+                tokens=llm_usage.tokens,
+                duration_ms=duration)
+        
+        return TranslationResult(
+            text=summary_text,
+            source_language=target_language,
+            target_language=target_language,
+            llms=[llm_usage]
+        )
+
+    def format_text(self, text: str, format: str, logger: ProcessingLogger = None) -> TranslationResult:
+        """Formatiert den Text im angegebenen Format (html, markdown)."""
+        if logger:
+            logger.info(f"Formatiere Text in {format}")
+
+        format_instructions = {
+            'html': "Format the text as clean HTML with appropriate tags for structure and readability.",
+            'markdown': "Format the text in Markdown syntax for better structure and readability."
+        }
+
+        system_prompt = f"You are a precise text formatter. {format_instructions[format]}"
+        user_prompt = f"Format the following text:\n\n{text}"
+
+        # Zeitmessung starten
+        start_time = time.time()
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+        # Zeitmessung beenden und Dauer in Millisekunden berechnen
+        duration = int((time.time() - start_time) * 1000)
+        
+        if not response.choices or not response.choices[0].message:
+            raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+        formatted_text = response.choices[0].message.content.strip()
+        
+        llm_usage = LLModel(
+            model="gpt-4o-mini",
+            duration=duration,  # Bereits in Millisekunden
+            tokens=response.usage.total_tokens
+        )
+        
+        # Speichere die LLM Interaktion
+        self._save_llm_interaction(
+            template=None,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response=response,
+            logger=logger
+        )
+        
+        if logger:
+            logger.info("Text formatiert",
+                tokens=llm_usage.tokens,
+                duration_ms=duration)
+        
+        return TranslationResult(
+            text=formatted_text,
+            source_language='',  # Keine Sprachänderung bei Formatierung
+            target_language='',
+            llms=[llm_usage]
+        )

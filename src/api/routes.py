@@ -9,6 +9,8 @@ import werkzeug.datastructures
 from typing import Union
 import uuid
 import json
+from datetime import datetime
+import time
 
 from src.core.rate_limiting import RateLimiter
 from src.core.resource_tracking import ResourceCalculator
@@ -112,7 +114,7 @@ def get_audio_processor(process_id: str = None):
 
 def get_transformer_processor(process_id: str = None):
     """Get or create transformer processor instance with process ID"""
-    return TransformerProcessor(process_id=process_id)
+    return TransformerProcessor(resource_calculator, process_id=process_id)
 
 def get_metadata_processor(process_id: str = None):
     """Get or create metadata processor instance with process ID"""
@@ -407,6 +409,24 @@ class AudioEndpoint(Resource):
             if audio_processor:
                 audio_processor.logger.info("Audio-Verarbeitung beendet")
 
+def _truncate_text(text: str, max_length: int = 50) -> str:
+    """Kürzt einen Text auf die angegebene Länge und fügt '...' hinzu wenn gekürzt wurde."""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
+
+def _convert_llms_to_requests(llms: list) -> list:
+    """Konvertiert LLM-Modelle in das API-Response-Format."""
+    if not llms:
+        return []
+    return [{
+        'model': llm.model,
+        'purpose': 'transformation',
+        'tokens': llm.tokens,
+        'duration': llm.duration,
+        'timestamp': datetime.now().isoformat()
+    } for llm in llms]
+
 @api.route('/transform-text')
 class TextTransformEndpoint(Resource):
     @api.expect(api.model('TransformTextInput', {
@@ -416,13 +436,39 @@ class TextTransformEndpoint(Resource):
         'summarize': fields.Boolean(default=False, description='Text zusammenfassen'),
         'target_format': fields.String(default='text', enum=['text', 'html', 'markdown'], description='Ausgabeformat des transformierten Texts')
     }))
-    @api.response(200, 'Erfolg', api.model('TransformTextResponse', {
-        'text': fields.String(description='Transformierter Text'),
-        'source_text': fields.String(description='Ursprünglicher Text'),
-        'translation_model': fields.String(description='Verwendetes Übersetzungsmodell'),
-        'token_count': fields.Integer(description='Anzahl der verwendeten Tokens'),
-        'format': fields.String(description='Verwendetes Ausgabeformat'),
-        'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    @api.response(200, 'Erfolg', api.model('TransformerResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('RequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('ProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'sub_processors': fields.List(fields.String, description='Unterprozessoren'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Nested(api.model('LLMInfo', {
+                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
+                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
+                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
+                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
+                    'model': fields.String(description='Name des verwendeten Modells'),
+                    'purpose': fields.String(description='Zweck der Anfrage'),
+                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
+                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
+                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
+                })))
+            }))
+        })),
+        'data': fields.Raw(description='Transformationsergebnis'),
+        'error': fields.Nested(api.model('ErrorInfo', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
     }))
     def post(self):
         """Text transformieren"""
@@ -430,6 +476,9 @@ class TextTransformEndpoint(Resource):
         tracker = get_performance_tracker()
         
         try:
+            # Zeitmessung für Gesamtprozess starten
+            process_start = time.time()
+            
             transformer_processor = get_transformer_processor(tracker.process_id)
             result = transformer_processor.transform(
                 source_text=data['text'],
@@ -439,14 +488,79 @@ class TextTransformEndpoint(Resource):
                 target_format=data.get('target_format', 'text')
             )
 
+            # Gesamtprozessdauer in Millisekunden berechnen
+            process_duration = int((time.time() - process_start) * 1000)
+
             # Füge Ressourcenverbrauch zum Tracker hinzu
             tracker.eval_result(result)
-            return result.to_dict()
             
+            # Erstelle TransformerResponse
+            response = {
+                'status': 'success',
+                'request': {
+                    'processor': 'transformer',
+                    'timestamp': datetime.now().isoformat(),
+                    'parameters': {
+                        'source_text': _truncate_text(data['text']),
+                        'source_language': data.get('source_language', 'en'),
+                        'target_language': data.get('target_language', 'en'),
+                        'summarize': data.get('summarize', False),
+                        'target_format': data.get('target_format', 'text')
+                    }
+                },
+                'process': {
+                    'id': tracker.process_id,
+                    'main_processor': 'transformer',
+                    'sub_processors': ['openai'] if hasattr(result, 'llms') and result.llms else [],
+                    'started': datetime.fromtimestamp(process_start).isoformat(),
+                    'completed': datetime.now().isoformat(),
+                    'duration': process_duration,
+                    'llm_info': {
+                        'requests_count': len(result.llms) if hasattr(result, 'llms') else 0,
+                        'total_tokens': sum(llm.tokens for llm in result.llms) if hasattr(result, 'llms') else 0,
+                        'total_duration': sum(llm.duration for llm in result.llms) if hasattr(result, 'llms') else 0,
+                        'requests': [{
+                            'model': llm.model,
+                            'purpose': 'transformation',
+                            'tokens': llm.tokens,
+                            'duration': llm.duration,
+                            'timestamp': datetime.now().isoformat()
+                        } for llm in (result.llms if hasattr(result, 'llms') else [])]
+                    }
+                },
+                'data': {
+                    'input': {
+                        'text': data['text'],
+                        'language': data.get('source_language', 'en')
+                    },
+                    'output': {
+                        'text': result.text,
+                        'language': result.target_language
+                    }
+                }
+            }
+            
+            return response
+
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            return {
+                "status": "error",
+                "error": {
+                    "code": e.__class__.__name__,
+                    "message": str(e)
+                }
+            }, 400
         except Exception as e:
-            logger.error("Text-Transformationsfehler", 
-                        error=str(e))
-            raise
+            logger.error("Fehler bei der Text-Transformation",
+                        error=str(e),
+                        traceback=traceback.format_exc())
+            return {
+                "status": "error",
+                "error": {
+                    "code": "ProcessingError",
+                    "message": f"Fehler bei der Text-Transformation: {str(e)}"
+                }
+            }, 400
 
 @api.route('/transform-template')
 class TemplateTransformEndpoint(Resource):
@@ -456,14 +570,39 @@ class TemplateTransformEndpoint(Resource):
         'template': fields.String(required=True, description='Name des Templates (ohne .md Endung)'),
         'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung')
     }))
-    @api.response(200, 'Erfolg', api.model('TransformTemplateResponse', {
-        'text': fields.String(description='Transformierter Template-Text'),
-        'source_text': fields.String(description='Ursprünglicher Text'),
-        'template_used': fields.String(description='Verwendetes Template'),
-        'translation_model': fields.String(description='Verwendetes Übersetzungsmodell'),
-        'token_count': fields.Integer(description='Anzahl der verwendeten Tokens'),
-        'structured_data': fields.Raw(description='Strukturierte Daten aus der Template-Verarbeitung'),
-        'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    @api.response(200, 'Erfolg', api.model('TransformerTemplateResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('RequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('ProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'sub_processors': fields.List(fields.String, description='Unterprozessoren'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Nested(api.model('LLMInfo', {
+                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
+                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
+                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
+                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
+                    'model': fields.String(description='Name des verwendeten Modells'),
+                    'purpose': fields.String(description='Zweck der Anfrage'),
+                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
+                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
+                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
+                })))
+            }))
+        })),
+        'data': fields.Raw(description='Transformationsergebnis'),
+        'error': fields.Nested(api.model('ErrorInfo', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
     }))
     def post(self):
         """Text mit Template transformieren"""
@@ -471,22 +610,94 @@ class TemplateTransformEndpoint(Resource):
         tracker = get_performance_tracker()
         
         try:
+            # Zeitmessung für Gesamtprozess starten
+            process_start = time.time()
+            
             transformer_processor = get_transformer_processor(tracker.process_id)
             result = transformer_processor.transformByTemplate(
                 source_text=data['text'],
                 source_language=data.get('source_language', ''),
                 target_language=data.get('target_language', 'de'),
                 template=data['template'],
-                context=data['context']
+                context=data.get('context', {})
             )
+
+            # Gesamtprozessdauer in Millisekunden berechnen
+            process_duration = int((time.time() - process_start) * 1000)
+
             # Füge Ressourcenverbrauch zum Tracker hinzu
             tracker.eval_result(result)
-            return result.to_dict()
             
+            # Erstelle TransformerResponse
+            response = {
+                'status': 'success',
+                'request': {
+                    'processor': 'transformer',
+                    'timestamp': datetime.now().isoformat(),
+                    'parameters': {
+                        'source_text': _truncate_text(data['text']),
+                        'source_language': data.get('source_language', ''),
+                        'target_language': data.get('target_language', 'de'),
+                        'template': data['template'],
+                        'context': data.get('context', {})
+                    }
+                },
+                'process': {
+                    'id': tracker.process_id,
+                    'main_processor': 'transformer',
+                    'sub_processors': ['openai'] if hasattr(result, 'llms') and result.llms else [],
+                    'started': datetime.fromtimestamp(process_start).isoformat(),
+                    'completed': datetime.now().isoformat(),
+                    'duration': process_duration,
+                    'llm_info': {
+                        'requests_count': len(result.llms) if hasattr(result, 'llms') else 0,
+                        'total_tokens': sum(llm.tokens for llm in result.llms) if hasattr(result, 'llms') else 0,
+                        'total_duration': sum(llm.duration for llm in result.llms) if hasattr(result, 'llms') else 0,
+                        'requests': [{
+                            'model': llm.model,
+                            'purpose': 'template_transformation',
+                            'tokens': llm.tokens,
+                            'duration': llm.duration,
+                            'timestamp': datetime.now().isoformat()
+                        } for llm in (result.llms if hasattr(result, 'llms') else [])]
+                    }
+                },
+                'data': {
+                    'input': {
+                        'text': data['text'],
+                        'language': data.get('source_language', ''),
+                        'template': data['template'],
+                        'context': data.get('context', {})
+                    },
+                    'output': {
+                        'text': result.text,
+                        'language': result.target_language,
+                        'structured_data': result.structured_data if hasattr(result, 'structured_data') else {}
+                    }
+                }
+            }
+            
+            return response
+            
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            return {
+                "status": "error",
+                "error": {
+                    "code": e.__class__.__name__,
+                    "message": str(e)
+                }
+            }, 400
         except Exception as e:
-            logger.error("Template-Transformationsfehler", 
-                        error=str(e))
-            raise
+            logger.error("Fehler bei der Template-Transformation",
+                        error=str(e),
+                        traceback=traceback.format_exc())
+            return {
+                "status": "error",
+                "error": {
+                    "code": "ProcessingError",
+                    "message": f"Fehler bei der Template-Transformation: {str(e)}"
+                }
+            }, 400
 
 @api.route('/manage-audio-cache')
 class AudioCacheEndpoint(Resource):
@@ -561,20 +772,98 @@ metadata_technical = api.model('TechnicalMetadata', {
 
 metadata_content = api.model('ContentMetadata', {
     'type': fields.String(description='Art der Metadaten'),
-    'created': fields.DateTime(description='Erstellungszeitpunkt'),
-    'modified': fields.DateTime(description='Letzter Änderungszeitpunkt'),
-    'title': fields.String(description='Titel des Werks'),
+    'created': fields.String(description='Erstellungszeitpunkt (ISO 8601)'),
+    'modified': fields.String(description='Letzter Änderungszeitpunkt (ISO 8601)'),
+    'title': fields.String(description='Haupttitel des Werks'),
     'subtitle': fields.String(description='Untertitel des Werks', required=False),
-    'authors': fields.List(fields.String, description='Liste der Autoren'),
-    'language': fields.String(description='Sprache (ISO 639-1)'),
-    'keywords': fields.List(fields.String, description='Schlüsselwörter', required=False),
-    'abstract': fields.String(description='Kurzzusammenfassung', required=False)
+    'authors': fields.String(description='Komma-separierte Liste der Autoren', required=False),
+    'publisher': fields.String(description='Verlag oder Publisher', required=False),
+    'publicationDate': fields.String(description='Erscheinungsdatum', required=False),
+    'isbn': fields.String(description='ISBN (bei Büchern)', required=False),
+    'doi': fields.String(description='Digital Object Identifier', required=False),
+    'edition': fields.String(description='Auflage', required=False),
+    'language': fields.String(description='Sprache (ISO 639-1)', required=False),
+    'subject_areas': fields.String(description='Komma-separierte Liste der Fachgebiete', required=False),
+    'keywords': fields.String(description='Komma-separierte Liste der Schlüsselwörter', required=False),
+    'abstract': fields.String(description='Kurzzusammenfassung', required=False),
+    'temporal_start': fields.String(description='Beginn des behandelten Zeitraums', required=False),
+    'temporal_end': fields.String(description='Ende des behandelten Zeitraums', required=False),
+    'temporal_period': fields.String(description='Bezeichnung der Periode', required=False),
+    'spatial_location': fields.String(description='Ortsname', required=False),
+    'spatial_latitude': fields.Float(description='Geografische Breite', required=False),
+    'spatial_longitude': fields.Float(description='Geografische Länge', required=False),
+    'spatial_habitat': fields.String(description='Lebensraum/Biotop', required=False),
+    'spatial_region': fields.String(description='Region/Gebiet', required=False),
+    'rights_holder': fields.String(description='Rechteinhaber', required=False),
+    'rights_license': fields.String(description='Lizenz', required=False),
+    'rights_access': fields.String(description='Zugriffsrechte', required=False),
+    'rights_usage': fields.String(description='Komma-separierte Liste der Nutzungsbedingungen', required=False),
+    'rights_attribution': fields.String(description='Erforderliche Namensnennung', required=False),
+    'rights_commercial': fields.Boolean(description='Kommerzielle Nutzung erlaubt', required=False),
+    'rights_modifications': fields.Boolean(description='Modifikationen erlaubt', required=False),
+    'resource_type': fields.String(description='Art der Ressource', required=False),
+    'resource_format': fields.String(description='Physisches/digitales Format', required=False),
+    'resource_extent': fields.String(description='Umfang', required=False),
+    'source_title': fields.String(description='Titel der Quelle', required=False),
+    'source_type': fields.String(description='Art der Quelle', required=False),
+    'source_identifier': fields.String(description='Eindeutige Kennung der Quelle', required=False),
+    'platform_type': fields.String(description='Art der Plattform', required=False),
+    'platform_url': fields.String(description='URL zur Ressource', required=False),
+    'platform_id': fields.String(description='Plattform-spezifische ID', required=False),
+    'platform_uploader': fields.String(description='Uploader/Kanal', required=False),
+    'platform_category': fields.String(description='Plattform-Kategorie', required=False),
+    'platform_language': fields.String(description='Komma-separierte Liste der unterstützten Sprachen', required=False),
+    'platform_region': fields.String(description='Komma-separierte Liste der verfügbaren Regionen', required=False),
+    'platform_age_rating': fields.String(description='Altersfreigabe', required=False),
+    'platform_subscription': fields.String(description='Erforderliches Abonnement', required=False),
+    'event_type': fields.String(description='Art der Veranstaltung', required=False),
+    'event_start': fields.String(description='Startzeit (ISO 8601)', required=False),
+    'event_end': fields.String(description='Endzeit (ISO 8601)', required=False),
+    'event_timezone': fields.String(description='Zeitzone', required=False),
+    'event_format': fields.String(description='Veranstaltungsformat', required=False),
+    'event_platform': fields.String(description='Verwendete Plattform', required=False),
+    'event_recording_url': fields.String(description='Link zur Aufzeichnung', required=False),
+    'social_platform': fields.String(description='Plattform', required=False),
+    'social_handle': fields.String(description='Benutzername/Handle', required=False),
+    'social_post_id': fields.String(description='Original Post-ID', required=False),
+    'social_post_url': fields.String(description='Permalink zum Beitrag', required=False),
+    'social_metrics_likes': fields.Integer(description='Anzahl der Likes', required=False),
+    'social_metrics_shares': fields.Integer(description='Anzahl der Shares', required=False),
+    'social_metrics_comments': fields.Integer(description='Anzahl der Kommentare', required=False),
+    'social_metrics_views': fields.Integer(description='Anzahl der Aufrufe', required=False),
+    'social_thread': fields.String(description='Komma-separierte Liste der IDs verknüpfter Beiträge', required=False),
+    'blog_url': fields.String(description='Permalink zum Artikel', required=False),
+    'blog_section': fields.String(description='Rubrik/Kategorie', required=False),
+    'blog_series': fields.String(description='Zugehörige Serie/Reihe', required=False),
+    'blog_reading_time': fields.Integer(description='Geschätzte Lesezeit in Minuten', required=False),
+    'blog_tags': fields.String(description='Komma-separierte Liste der Blog-spezifischen Tags', required=False),
+    'blog_comments_url': fields.String(description='Link zu Kommentaren', required=False),
+    'community_target': fields.String(description='Komma-separierte Liste der Zielgruppen', required=False),
+    'community_hashtags': fields.String(description='Komma-separierte Liste der verwendeten Hashtags', required=False),
+    'community_mentions': fields.String(description='Komma-separierte Liste der erwähnten Accounts/Personen', required=False),
+    'community_context': fields.String(description='Kontext/Anlass', required=False),
+    'quality_review_status': fields.String(description='Review-Status', required=False),
+    'quality_fact_checked': fields.Boolean(description='Faktencheck durchgeführt', required=False),
+    'quality_peer_reviewed': fields.Boolean(description='Peer-Review durchgeführt', required=False),
+    'quality_verified_by': fields.String(description='Komma-separierte Liste der Verifizierer', required=False),
+    'citations': fields.String(description='Komma-separierte Liste der zitierten Werke', required=False),
+    'methodology': fields.String(description='Verwendete Methodik', required=False),
+    'funding': fields.String(description='Förderung/Finanzierung', required=False),
+    'collection': fields.String(description='Zugehörige Sammlung', required=False),
+    'archival_number': fields.String(description='Archivnummer', required=False),
+    'status': fields.String(description='Status', required=False),
+    'digital_published': fields.String(description='Erstveröffentlichung online (ISO 8601)', required=False),
+    'digital_modified': fields.String(description='Letzte Online-Aktualisierung (ISO 8601)', required=False),
+    'digital_version': fields.String(description='Versionsnummer/Stand', required=False),
+    'digital_status': fields.String(description='Publikationsstatus', required=False)
 })
 
 metadata_response = api.model('MetadataResponse', {
-    'technical': fields.Nested(metadata_technical, description='Technische Metadaten'),
-    'content': fields.Nested(metadata_content, description='Inhaltliche Metadaten'),
-    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Raw(description='Details zur Anfrage'),
+    'process': fields.Raw(description='Informationen zur Verarbeitung'),
+    'data': fields.Raw(description='Extrahierte Metadaten'),
+    'error': fields.Raw(description='Fehlerinformationen (falls vorhanden)')
 })
 
 # Metadata Upload Parser
@@ -647,15 +936,39 @@ class MetadataEndpoint(Resource):
             tracker.eval_result(result)
             
             # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
-            return result.to_dict()
+            response_data = result.to_dict()
+            
+            # Füge Transformer als Sub-Processor hinzu wenn Content-Metadaten vorhanden sind
+            if response_data.get("data", {}).get("content_available"):
+                if "sub_processors" not in response_data["process"]:
+                    response_data["process"]["sub_processors"] = []
+                response_data["process"]["sub_processors"].append("transformer")
+            
+            # Prüfe auf Fehler im Result
+            if response_data.get("status") == "error":
+                return response_data, 400
+                
+            return response_data
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
-            raise e
+            return {
+                "status": "error",
+                "error": {
+                    "code": e.__class__.__name__,
+                    "message": str(e)
+                }
+            }, 400
         except Exception as e:
             logger.error("Fehler bei der Metadaten-Extraktion",
                         error=str(e),
                         traceback=traceback.format_exc())
-            raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}")
+            return {
+                "status": "error",
+                "error": {
+                    "code": "ProcessingError",
+                    "message": f"Fehler bei der Metadaten-Extraktion: {str(e)}"
+                }
+            }, 400
         finally:
             # Räume temporäre Datei auf
             if temp_file and os.path.exists(temp_file.name):

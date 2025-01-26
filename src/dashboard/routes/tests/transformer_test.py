@@ -88,7 +88,7 @@ def run_transformer_test():
         if response.status_code != 200:
             try:
                 error_data = response.json()
-                error_msg = error_data.get('error', 'Unknown error')
+                error_msg = error_data.get('error', {}).get('message', 'Unknown error')
             except json.JSONDecodeError:
                 error_msg = f"Invalid JSON response (Status {response.status_code}): {response.text}"
             
@@ -103,17 +103,18 @@ def run_transformer_test():
         details = {
             'test_type': 'transformer_processing',
             'original_text': text,
-            'transformed_text': api_data.get('text', ''),
+            'transformed_text': api_data.get('data', {}).get('output', {}).get('text', ''),
             'original_length': len(text),
-            'transformed_length': len(api_data.get('text', '')),
+            'transformed_length': len(api_data.get('data', {}).get('output', {}).get('text', '')),
             'target_language': target_language,
             'summarize': summarize,
-            'token_count': api_data.get('token_count', 0),
-            'model': api_data.get('model', '')
+            'process_id': api_data.get('process', {}).get('process_id', ''),
+            'duration': api_data.get('process', {}).get('duration', 0),
+            'llm_requests': api_data.get('process', {}).get('llm_requests', [])
         }
 
         test_results = {
-            'success': True,
+            'success': api_data.get('status') == 'success',
             'message': 'Text transformation completed successfully',
             'details': details
         }

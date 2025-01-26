@@ -296,7 +296,7 @@ def home():
                     'text': request.get('text', ''),
                     'text_length': len(request.get('text', '')),
                     'llm_model': request.get('resources', {}).get('models_used', [''])[0],
-                    'token_count': request.get('resources', {}).get('total_tokens', 0)
+                    'tokens': request.get('resources', {}).get('total_tokens', 0)
                 }
             
             stats['recent_requests'] = recent_requests

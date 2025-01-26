@@ -1,0 +1,13 @@
+{
+  "file_name": "sample.mp3",
+  "file_mime": "audio/mpeg",
+  "file_size": 383800,
+  "created": "2025-01-26T01:36:07.518733",
+  "modified": "2025-01-26T01:36:07.518733",
+  "doc_pages": null,
+  "media_duration": 23.942,
+  "media_bitrate": 705600,
+  "media_codec": "mpeg",
+  "media_channels": 2,
+  "media_sample_rate": 44100
+}

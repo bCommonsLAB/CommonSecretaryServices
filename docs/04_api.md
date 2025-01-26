@@ -8,19 +8,25 @@ Das System verwendet Pydantic-Modelle für die Typisierung und Validierung von D
 
 ```mermaid
 graph TD
-    A[BaseModel] --> B[Chapter]
-    A --> C[AudioSegmentInfo]
-    A --> D[llModel]
-    A --> E[TranscriptionSegment]
-    A --> F[TranscriptionResult]
-    A --> G[TranslationResult]
-    A --> H[AudioMetadata]
-    A --> I[AudioProcessingResult]
-    A --> J[YoutubeMetadata]
-    A --> K[YoutubeProcessingResult]
+    A[API Response] --> B[BaseResponse]
+    B --> C[TransformerResponse]
+    A --> D[LLModel]
+    A --> E[TranscriptionResult]
+    A --> F[TranslationResult]
 ```
 
 ## Basis-Datenmodelle
+
+### LLMRequest
+```python
+class LLMRequest(BaseModel):
+    """Information über eine LLM-Anfrage."""
+    model: str  # Name des verwendeten Modells
+    purpose: str  # Zweck der Anfrage (z.B. 'transcription', 'translation')
+    tokens: int  # Anzahl der verwendeten Tokens
+    duration: float  # Verarbeitungsdauer in Sekunden
+    timestamp: str  # Zeitstempel der LLM-Nutzung
+```
 
 ### Chapter
 ```python
@@ -40,13 +46,13 @@ class AudioSegmentInfo(BaseModel):
     binary_data: Optional[bytes] = None
 ```
 
-### llModel
+### LLModel
 ```python
-class llModel(BaseModel):
-    """Informationen über die Nutzung eines LLM."""
-    model: str
-    duration: float
-    token_count: int
+class LLModel(BaseModel):
+    model: str  # Name des verwendeten Modells
+    duration: float  # Verarbeitungsdauer in Sekunden
+    tokens: int  # Anzahl der verarbeiteten Tokens
+    timestamp: str  # Zeitstempel der LLM-Nutzung
 ```
 
 ### TranscriptionSegment
@@ -63,11 +69,10 @@ class TranscriptionSegment(BaseModel):
 ### TranscriptionResult
 ```python
 class TranscriptionResult(BaseModel):
-    """Ergebnis einer Transkription."""
-    text: str
-    detected_language: Optional[str]
-    segments: List[TranscriptionSegment] = []
-    llms: List[llModel] = []
+    text: str  # Der transkribierte Text
+    detected_language: Optional[str]  # Erkannte Sprache (ISO 639-1)
+    segments: List[TranscriptionSegment]  # Liste der Transkriptionssegmente
+    llms: List[LLModel] = []  # Verwendete LLM-Modelle
 ```
 
 Beispiel-Response:
@@ -85,7 +90,7 @@ Beispiel-Response:
     {
       "model": "gpt-4",
       "duration": 5.2,
-      "token_count": 150
+      "tokens": 150
     }
   ]
 }
@@ -94,11 +99,10 @@ Beispiel-Response:
 ### TranslationResult
 ```python
 class TranslationResult(BaseModel):
-    """Ergebnis einer Übersetzung."""
-    text: str
-    source_language: str
-    target_language: str
-    llms: List[llModel] = []
+    text: str  # Der übersetzte Text
+    source_language: str  # Ausgangssprache (ISO 639-1)
+    target_language: str  # Zielsprache (ISO 639-1)
+    llms: List[LLModel] = []  # Verwendete LLM-Modelle
 ```
 
 ### AudioProcessingResult

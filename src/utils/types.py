@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 from enum import Enum
+import uuid
 
 def make_json_serializable(obj: Any) -> Any:
     """Konvertiert ein Objekt in ein JSON-serialisierbares Format."""
@@ -56,11 +57,12 @@ class AudioSegmentInfo(CustomModel):
     title: Optional[str] = None
     binary_data: Optional[bytes] = None
 
-class llModel(CustomModel):
+class LLModel(CustomModel):
     """Informationen über die Nutzung eines LLM."""
     model: str = Field(description="Name des verwendeten Modells")
     duration: float = Field(description="Verarbeitungsdauer in Sekunden")
-    token_count: int = Field(description="Anzahl der verarbeiteten Tokens")
+    tokens: int = Field(description="Anzahl der verarbeiteten Tokens")
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="Zeitstempel der LLM-Nutzung")
 
 class TranscriptionSegment(CustomModel):
     """Ein Segment einer Transkription mit Zeitstempeln."""
@@ -73,7 +75,7 @@ class TranscriptionResult(CustomModel):
     text: str = Field(description="Der transkribierte Text")
     detected_language: Optional[str] = Field(None, description="Erkannte Sprache (ISO 639-1)")
     segments: List[TranscriptionSegment] = Field(default_factory=list, description="Liste der Transkriptionssegmente")
-    llms: List[llModel] = Field(default_factory=list, description="Verwendete LLM-Modelle")
+    llms: List[LLModel] = Field(default_factory=list, description="Verwendete LLM-Modelle")
 
     def to_dict(self) -> dict:
         """Convert the result to a dictionary."""
@@ -90,7 +92,16 @@ class TranslationResult(CustomModel):
     text: str = Field(description="Der übersetzte Text")
     source_language: str = Field(description="Ausgangssprache (ISO 639-1)")
     target_language: str = Field(description="Zielsprache (ISO 639-1)")
-    llms: List[llModel] = Field(default_factory=list, description="Verwendete LLM-Modelle")
+    llms: List[LLModel] = Field(default_factory=list, description="Verwendete LLM-Modelle")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Ergebnis in ein Dictionary."""
+        return {
+            "text": self.text,
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "llms": [llm.model_dump() for llm in self.llms]
+        }
 
 class AudioMetadata(CustomModel):
     """Audio-spezifische Metadaten."""
@@ -136,7 +147,7 @@ class AudioProcessingResult(CustomModel):
             "translated_text": translated_text,
             "llm_model": self.transcription.llms[0].model if self.transcription.llms else None,
             "translation_model": self.transcription.llms[-1].model if has_translation else None,
-            "token_count": sum(llm.token_count for llm in self.transcription.llms),
+            "token_count": sum(llm.tokens for llm in self.transcription.llms),
             "segments": [segment.model_dump() for segment in self.transcription.segments],
             "process_id": self.process_id,
             "process_dir": self.metadata.process_dir,
@@ -239,28 +250,28 @@ class PublicationStatus(str, Enum):
     PUBLISHED = "published"
     ARCHIVED = "archived"
 
-class ContentMetadata(CustomModel):
+class ContentMetadata(BaseModel):
     """Inhaltliche Metadaten für verschiedene Medientypen."""
     
     # Basis-Metadaten
-    type: str = Field(description="Art der Metadaten (z.B. video, audio, article)")
-    created: str = Field(description="Erstellungszeitpunkt (ISO 8601)")
-    modified: str = Field(description="Letzter Änderungszeitpunkt (ISO 8601)")
+    type: Optional[str] = Field(None, description="Art der Metadaten (z.B. video, audio, article)")
+    created: Optional[str] = Field(None, description="Erstellungszeitpunkt (ISO 8601)")
+    modified: Optional[str] = Field(None, description="Letzter Änderungszeitpunkt (ISO 8601)")
     
     # Bibliographische Grunddaten
-    title: str = Field(description="Haupttitel des Werks")
+    title: Optional[str] = Field(None, description="Haupttitel des Werks")
     subtitle: Optional[str] = Field(None, description="Untertitel des Werks")
-    authors: List[str] = Field(description="Liste der Autoren")
+    authors: Optional[str] = Field(None, description="Komma-separierte Liste der Autoren")
     publisher: Optional[str] = Field(None, description="Verlag oder Publisher")
     publicationDate: Optional[str] = Field(None, description="Erscheinungsdatum")
     isbn: Optional[str] = Field(None, description="ISBN (bei Büchern)")
     doi: Optional[str] = Field(None, description="Digital Object Identifier")
     edition: Optional[str] = Field(None, description="Auflage")
-    language: str = Field(description="Sprache (ISO 639-1)")
+    language: Optional[str] = Field(None, description="Sprache (ISO 639-1)")
     
     # Wissenschaftliche Klassifikation
-    subject_areas: Optional[List[str]] = Field(None, description='Fachgebiete')
-    keywords: Optional[List[str]] = Field(None, description='Schlüsselwörter')
+    subject_areas: Optional[str] = Field(None, description='Komma-separierte Liste der Fachgebiete')
+    keywords: Optional[str] = Field(None, description='Komma-separierte Liste der Schlüsselwörter')
     abstract: Optional[str] = Field(None, description='Kurzzusammenfassung')
     
     # Räumliche und zeitliche Einordnung
@@ -277,7 +288,7 @@ class ContentMetadata(CustomModel):
     rights_holder: Optional[str] = Field(None, description="Rechteinhaber")
     rights_license: Optional[str] = Field(None, description="Lizenz")
     rights_access: Optional[str] = Field(None, description="Zugriffsrechte")
-    rights_usage: Optional[List[str]] = Field(None, description="Nutzungsbedingungen")
+    rights_usage: Optional[str] = Field(None, description="Komma-separierte Liste der Nutzungsbedingungen")
     rights_attribution: Optional[str] = Field(None, description="Erforderliche Namensnennung")
     rights_commercial: Optional[bool] = Field(None, description="Kommerzielle Nutzung erlaubt")
     rights_modifications: Optional[bool] = Field(None, description="Modifikationen erlaubt")
@@ -298,8 +309,8 @@ class ContentMetadata(CustomModel):
     platform_id: Optional[str] = Field(None, description="Plattform-spezifische ID")
     platform_uploader: Optional[str] = Field(None, description="Uploader/Kanal")
     platform_category: Optional[str] = Field(None, description="Plattform-Kategorie")
-    platform_language: Optional[List[str]] = Field(None, description="Unterstützte Sprachen")
-    platform_region: Optional[List[str]] = Field(None, description="Verfügbare Regionen")
+    platform_language: Optional[str] = Field(None, description="Komma-separierte Liste der unterstützten Sprachen")
+    platform_region: Optional[str] = Field(None, description="Komma-separierte Liste der verfügbaren Regionen")
     platform_age_rating: Optional[str] = Field(None, description="Altersfreigabe")
     platform_subscription: Optional[str] = Field(None, description="Erforderliches Abonnement")
     
@@ -321,36 +332,30 @@ class ContentMetadata(CustomModel):
     social_metrics_shares: Optional[int] = Field(None, description="Anzahl der Shares")
     social_metrics_comments: Optional[int] = Field(None, description="Anzahl der Kommentare")
     social_metrics_views: Optional[int] = Field(None, description="Anzahl der Aufrufe")
-    social_thread: Optional[List[str]] = Field(None, description="IDs verknüpfter Beiträge")
+    social_thread: Optional[str] = Field(None, description="Komma-separierte Liste der IDs verknüpfter Beiträge")
     
     # Blog/Artikel spezifisch
     blog_url: Optional[str] = Field(None, description="Permalink zum Artikel")
     blog_section: Optional[str] = Field(None, description="Rubrik/Kategorie")
     blog_series: Optional[str] = Field(None, description="Zugehörige Serie/Reihe")
     blog_reading_time: Optional[int] = Field(None, description="Geschätzte Lesezeit in Minuten")
-    blog_tags: Optional[List[str]] = Field(None, description="Blog-spezifische Tags")
+    blog_tags: Optional[str] = Field(None, description="Komma-separierte Liste der Blog-spezifischen Tags")
     blog_comments_url: Optional[str] = Field(None, description="Link zu Kommentaren")
     
-    # Interaktive Medien (neu hinzugefügt)
-    interactive_type: Optional[str] = Field(None, description="Art des interaktiven Inhalts")
-    interactive_requirements: Optional[List[str]] = Field(None, description="Technische Anforderungen")
-    interactive_version: Optional[str] = Field(None, description="Version der Anwendung")
-    interactive_url: Optional[str] = Field(None, description="URL zur Anwendung")
-    
     # Community und Engagement
-    community_target: Optional[List[str]] = Field(None, description="Zielgruppe")
-    community_hashtags: Optional[List[str]] = Field(None, description="Verwendete Hashtags")
-    community_mentions: Optional[List[str]] = Field(None, description="Erwähnte Accounts/Personen")
+    community_target: Optional[str] = Field(None, description="Komma-separierte Liste der Zielgruppen")
+    community_hashtags: Optional[str] = Field(None, description="Komma-separierte Liste der verwendeten Hashtags")
+    community_mentions: Optional[str] = Field(None, description="Komma-separierte Liste der erwähnten Accounts/Personen")
     community_context: Optional[str] = Field(None, description="Kontext/Anlass")
     
     # Qualitätssicherung
     quality_review_status: Optional[str] = Field(None, description="Review-Status")
     quality_fact_checked: Optional[bool] = Field(None, description="Faktencheck durchgeführt")
     quality_peer_reviewed: Optional[bool] = Field(None, description="Peer-Review durchgeführt")
-    quality_verified_by: Optional[List[str]] = Field(None, description="Verifiziert durch")
+    quality_verified_by: Optional[str] = Field(None, description="Komma-separierte Liste der Verifizierer")
     
     # Wissenschaftliche Zusatzinformationen
-    citations: Optional[List[str]] = Field(None, description="Zitierte Werke")
+    citations: Optional[str] = Field(None, description="Komma-separierte Liste der zitierten Werke")
     methodology: Optional[str] = Field(None, description="Verwendete Methodik")
     funding: Optional[str] = Field(None, description="Förderung/Finanzierung")
     
@@ -365,44 +370,176 @@ class ContentMetadata(CustomModel):
     digital_version: Optional[str] = Field(None, description="Versionsnummer/Stand")
     digital_status: Optional[str] = Field(None, description="Publikationsstatus")
 
-class TechnicalMetadata(CustomModel):
-    """Technische Metadaten für Mediendateien."""
+class TechnicalMetadata(BaseModel):
+    """Technische Metadaten einer Datei."""
+    file_name: str
+    file_mime: str = Field(alias="mime_type")
+    file_size: int
+    created: str = Field(default_factory=lambda: datetime.now().isoformat())
+    modified: str = Field(default_factory=lambda: datetime.now().isoformat())
     
-    # Datei-Informationen
-    file_size: int = Field(description="Dateigröße in Bytes")
-    file_mime: str = Field(description="Dateityp (MIME)")
-    file_extension: str = Field(description="Dateiendung")
+    # Optionale Felder für verschiedene Dateitypen
+    doc_pages: Optional[int] = None
+    media_duration: Optional[float] = None
+    media_bitrate: Optional[int] = None
+    media_codec: Optional[str] = None
+    media_channels: Optional[int] = None
+    media_sample_rate: Optional[int] = None
     
-    # Medienspezifische Details
-    media_duration: Optional[float] = Field(None, description="Länge des Mediums in Sekunden")
-    media_bitrate: Optional[int] = Field(None, description="Bitrate in kbps")
-    media_codec: Optional[str] = Field(None, description="Verwendeter Codec")
-    media_resolution: Optional[str] = Field(None, description="Auflösung (z.B. 1920x1080)")
-    media_format: Optional[str] = Field(None, description="Medienformat")
-    media_channels: Optional[int] = Field(None, description="Anzahl der Audiokanäle")
-    media_samplerate: Optional[int] = Field(None, description="Abtastrate in Hz")
-    
-    # Bildspezifische Details
-    image_width: Optional[int] = Field(None, description="Bildbreite in Pixeln")
-    image_height: Optional[int] = Field(None, description="Bildhöhe in Pixeln")
-    image_colorspace: Optional[str] = Field(None, description="Farbraum")
-    image_dpi: Optional[int] = Field(None, description="Auflösung in DPI")
-    
-    # Dokumentspezifische Details
-    doc_pages: Optional[int] = Field(None, description="Anzahl der Seiten")
-    doc_wordcount: Optional[int] = Field(None, description="Anzahl der Wörter")
-    doc_software: Optional[str] = Field(None, description="Erstellungssoftware")
-    doc_encrypted: Optional[bool] = Field(None, description="Verschlüsselungsstatus")
+    class Config:
+        populate_by_name = True
 
-class CompleteMetadata(CustomModel):
-    """Vollständige Metadaten, die technische und inhaltliche Metadaten kombinieren."""
+class LLMRequest(BaseModel):
+    """Informationen über einen einzelnen LLM-Request."""
+    model: str = Field(description="Name des verwendeten LLM-Modells")
+    duration: float = Field(description="Dauer des Requests in Sekunden")
+    tokens: int = Field(description="Anzahl der verwendeten Tokens")
+    timestamp: str = Field(description="Zeitstempel des Requests")
+
+class LLMInfo(BaseModel):
+    """Informationen über die LLM-Nutzung."""
+    model: str = Field(description="Name des verwendeten Modells")
+    purpose: str = Field(description="Zweck der LLM-Nutzung")
+    tokens: int = Field(description="Anzahl der verwendeten Tokens")
+    duration: float = Field(description="Dauer der Verarbeitung in Sekunden")
+
+class ProcessInfo(BaseModel):
+    """Informationen über den Verarbeitungsprozess."""
+    id: str = Field(description="Eindeutige ID des Prozesses")
+    main_processor: str = Field(description="Name des Hauptprozessors")
+    sub_processors: List[str] = Field(default_factory=list, description="Liste der verwendeten Unterprozessoren")
+    started: str = Field(description="Startzeitpunkt des Prozesses")
+    completed: Optional[str] = Field(default=None, description="Endzeitpunkt des Prozesses")
+    llm_info: List[LLMInfo] = Field(default_factory=list, description="Liste der LLM-Informationen")
+
+class RequestInfo(BaseModel):
+    """Informationen über den Request."""
+    processor: str = Field(description="Name des Prozessors")
+    timestamp: str = Field(description="Zeitstempel des Requests")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="Request-Parameter")
+
+class ErrorInfo(BaseModel):
+    """Fehlerinformationen."""
+    code: str = Field(description="Fehlercode")
+    message: str = Field(description="Fehlermeldung")
+    details: Optional[Dict[str, Any]] = Field(default=None, description="Zusätzliche Fehlerdetails")
+
+class BaseResponse(BaseModel):
+    """Basis-Response-Struktur für alle Prozessoren."""
+    status: str = Field(default="processing", description="Status der Verarbeitung (success, error, processing)")
+    request: RequestInfo = Field(description="Informationen über den Request")
+    process: ProcessInfo = Field(description="Informationen über den Verarbeitungsprozess")
+    error: Optional[ErrorInfo] = Field(default=None, description="Fehlerinformationen bei Status 'error'")
+
+    def __init__(self, **data):
+        # Stelle sicher, dass process.llm_info existiert
+        if "process" in data:
+            process_data = data["process"]
+            if isinstance(process_data, dict) and "llm_info" not in process_data:
+                process_data["llm_info"] = LLMInfo()
+            elif isinstance(process_data, ProcessInfo) and not process_data.llm_info:
+                process_data.llm_info = LLMInfo()
+        
+        super().__init__(**data)
+        
+        # Validiere Status und Error
+        if self.status == "error" and self.error is None:
+            raise ValueError("Error-Status erfordert error-Informationen")
+        if self.status == "success" and self.error is not None:
+            raise ValueError("Success-Status darf keine error-Informationen enthalten")
+
+    def add_llm_request(self, model: str, purpose: str, tokens: int, duration: float):
+        """Fügt einen LLM-Request zu den Prozessinformationen hinzu."""
+        request = LLMRequest(
+            model=model,
+            duration=duration,
+            tokens=tokens,
+            timestamp=datetime.now().isoformat()
+        )
+        
+        self.process.llm_info.requests.append(request)
+        self.process.llm_info.requests_count += 1
+        self.process.llm_info.total_tokens += tokens
+        self.process.llm_info.total_duration += duration
+
+class CompleteMetadata(BaseResponse):
+    """Vollständige Metadaten-Antwort."""
     
-    content: ContentMetadata
-    technical: TechnicalMetadata 
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(self, **data):
+        if "request" not in data:
+            data["request"] = RequestInfo(
+                processor="metadata",
+                timestamp=datetime.now().isoformat(),
+                parameters={}
+            )
+        if "process" not in data:
+            data["process"] = ProcessInfo(
+                id=str(uuid.uuid4()),
+                main_processor="metadata",
+                sub_processors=[],
+                started=datetime.now().isoformat(),
+                llm_info=LLMInfo()
+            )
+        super().__init__(**data)
+
+    def add_technical_metadata(self, metadata: TechnicalMetadata):
+        """Fügt technische Metadaten hinzu."""
+        self.data["technical"] = metadata.model_dump(exclude_none=True)
+
+    def add_content_metadata(self, metadata: ContentMetadata):
+        """Fügt inhaltliche Metadaten hinzu."""
+        self.data["content"] = metadata.model_dump(exclude_none=True)
+
+    def set_completed(self, success: bool = True):
+        """Setzt den Status auf abgeschlossen."""
+        self.status = "success" if success else "error"
+        self.process.completed = datetime.now().isoformat()
+        if self.process.started:
+            start = datetime.fromisoformat(self.process.started)
+            end = datetime.fromisoformat(self.process.completed)
+            self.process.duration = (end - start).total_seconds() * 1000  # in Millisekunden
+
+    def set_error(self, error: ErrorInfo):
+        """Setzt Fehlerinformationen."""
+        self.status = "error"
+        self.error = error
+        self.set_completed(success=False)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert das Modell in ein Dictionary für die API-Antwort."""
-        return {
-            'content': self.content.model_dump(),
-            'technical': self.technical.model_dump()
-        } 
+        """Konvertiert die Metadaten in ein API-kompatibles Dictionary."""
+        result = self.model_dump(exclude_none=True)
+        
+        # Zusätzliche Informationen für API-Response
+        if self.data:
+            result['data']['metadata_type'] = 'complete'
+            if 'content' in self.data:
+                result['data']['content_available'] = True
+            if 'technical' in self.data:
+                result['data']['technical_available'] = True
+                
+        return result 
+
+class TransformerResponse(BaseResponse):
+    """Response des TransformerProcessors."""
+    data: Dict[str, Any] = Field(default_factory=dict, description="Transformationsergebnis")
+    
+    def __init__(self, **data):
+        if "request" not in data:
+            data["request"] = RequestInfo(
+                processor="transformer",
+                timestamp=datetime.now().isoformat(),
+                parameters={}
+            )
+        if "process" not in data:
+            data["process"] = ProcessInfo(
+                id=str(uuid.uuid4()),
+                main_processor="transformer",
+                sub_processors=[],
+                started=datetime.now().isoformat(),
+                llm_info=LLMInfo()
+            )
+        super().__init__(**data)
+    
+    

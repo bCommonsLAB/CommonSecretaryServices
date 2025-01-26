@@ -94,7 +94,7 @@ class PerformanceTracker:
             # Für AudioProcessingResult
             if hasattr(result, 'audio_result') and hasattr(result.audio_result, 'transcription') and hasattr(result.audio_result.transcription, 'llms'):
                 llms = result.audio_result.transcription.llms
-                total_tokens = sum(llm.token_count for llm in llms)
+                total_tokens = sum(llm.tokens for llm in llms)
                 # Verwende das erste Modell als Hauptmodell
                 model = llms[0].model if llms else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
@@ -105,7 +105,7 @@ class PerformanceTracker:
                 )
             if hasattr(result, 'transcription') and hasattr(result.transcription, 'llms'):
                 llms = result.transcription.llms
-                total_tokens = sum(llm.token_count for llm in llms)
+                total_tokens = sum(llm.tokens for llm in llms)
                 # Verwende das erste Modell als Hauptmodell
                 model = llms[0].model if llms else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
@@ -117,7 +117,7 @@ class PerformanceTracker:
             # Für TranscriptionResult/TranslationResult
             elif hasattr(result, 'llms'):
                 llms = result.llms
-                total_tokens = sum(llm.token_count for llm in llms)
+                total_tokens = sum(llm.tokens for llm in llms)
                 model = llms[0].model if llms else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
@@ -126,10 +126,10 @@ class PerformanceTracker:
                     model=model
                 )
             # Für alte Dictionary-Struktur (Abwärtskompatibilität)
-            elif isinstance(result, dict) and 'token_count' in result:
-                cost = result['token_count'] * 0.0001  # Standardkosten pro Token
+            elif isinstance(result, dict) and 'tokens' in result:
+                cost = result['tokens'] * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
-                    tokens=result['token_count'],
+                    tokens=result['tokens'],
                     cost=cost,
                     model=result.get('model', 'unknown')
                 )
@@ -247,6 +247,27 @@ class PerformanceTracker:
             print(f"Fehler beim Speichern der Performance-Messung: {e}")
         
         return self.measurements
+
+    def _calculate_llm_cost(self, llms: List[Any]) -> float:
+        """Berechnet die Kosten für LLM-Nutzung."""
+        total_tokens = sum(llm.tokens for llm in llms)
+        return total_tokens * 0.0001  # Standardkosten pro Token
+
+    def _calculate_llm_cost_from_result(self, result: Any) -> float:
+        """Berechnet die LLM-Kosten aus einem Ergebnis."""
+        if hasattr(result, 'llms'):
+            total_tokens = sum(llm.tokens for llm in result.llms)
+            return total_tokens * 0.0001
+        elif hasattr(result, 'process') and hasattr(result.process, 'llm_info'):
+            total_tokens = sum(llm.tokens for llm in result.process.llm_info.requests)
+            return total_tokens * 0.0001
+        elif isinstance(result, dict) and 'tokens' in result:
+            cost = result['tokens'] * 0.0001  # Standardkosten pro Token
+            self.logger.info("LLM-Kosten berechnet",
+                tokens=result['tokens'],
+                cost=cost)
+            return cost
+        return 0.0
 
 # Globaler Performance-Tracker für den aktuellen Thread
 _performance_trackers = threading.local()

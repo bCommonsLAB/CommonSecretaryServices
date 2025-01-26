@@ -54,6 +54,42 @@ DEFAULT_SETTINGS = {
 }
 ```
 
+# Async/Sync Regeln
+
+## Immer async
+- Alle externen API-Aufrufe (OpenAI, etc.)
+- Alle Datei-I/O Operationen
+- Alle Prozessor-Hauptmethoden
+  - extract_metadata()
+  - transform()
+  - transform_by_template()
+  - extract_content_metadata()
+  - extract_technical_metadata()
+  - process()
+  - transcribe()
+
+## Immer sync
+- Hilfsfunktionen ohne I/O
+- Validierungen
+- Datenkonvertierungen
+- Interne Berechnungen
+  - validate_input()
+  - convert_format()
+  - get_last_operation_time()
+  - _clean_metadata_dict()
+  - _prepare_technical_context()
+
+## Allgemeine Regeln
+1. Wenn eine Methode I/O-Operationen durchführt (Datei, Netzwerk, API) -> async
+2. Wenn eine Methode nur Daten verarbeitet -> sync
+3. Wenn eine Methode eine async Methode aufruft -> async
+4. Wenn eine Methode nur sync Methoden aufruft -> sync
+
+## Tests
+- Tests für async Methoden müssen mit @pytest.mark.asyncio dekoriert werden
+- In async Tests muss await für async Methoden verwendet werden
+- Mocks für async Methoden müssen auch async sein
+
 ## Projektstruktur
 
 ### Verzeichnisorganisation

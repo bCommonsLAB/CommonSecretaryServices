@@ -19,7 +19,7 @@ from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.types import (
     TranscriptionResult, 
     TranscriptionSegment,
-    llModel,
+    LLModel,
     AudioProcessingResult, 
     AudioMetadata,
     AudioSegmentInfo,
@@ -28,6 +28,7 @@ from src.utils.types import (
 from src.core.config import Config
 from src.core.config_keys import ConfigKeys
 from .transformer_processor import TransformerProcessor
+from .metadata_processor import MetadataProcessor
 
 class AudioProcessor(BaseProcessor):
     """Audio Processor für die Verarbeitung von Audio-Dateien.
@@ -51,6 +52,9 @@ class AudioProcessor(BaseProcessor):
         """
         # Basis-Klasse zuerst initialisieren
         super().__init__(process_id=process_id)
+        
+        # Resource Calculator speichern
+        self.resource_calculator = resource_calculator
         
         # Konfiguration aus Config laden
         config = Config()
@@ -637,11 +641,11 @@ class AudioProcessor(BaseProcessor):
                 data = json.load(f)
                 self.logger.info("Existierende Transkription gefunden", transcript_file=str(transcript_file))
                 
-                # Erstelle ein llModel für die Whisper-Nutzung
-                whisper_model = llModel(
-                    model=data.get('model', 'whisper-1'),
-                    duration=0.0,  # Diese Information haben wir nicht
-                    token_count=data.get('token_count', 0)
+                # Erstelle ein LLModel für die Whisper-Nutzung
+                whisper_model = LLModel(
+                    model="whisper-1",
+                    duration=data.get('duration', 0.0),
+                    tokens=data.get('token_count', 0)
                 )
                 
                 # Erstelle TranscriptionSegments aus den Segmentdaten
@@ -729,16 +733,20 @@ class AudioProcessor(BaseProcessor):
                         target_language=target_language
                     )
 
-                    # Cleanup segment files
-                    # for info in segment_infos:
-                    #    self._safe_delete(info.file_path)
-
                 # Übersetze den kompletten Text wenn nötig
                 detected_language = transcription_result.detected_language
                 original_text = transcription_result.text
                 duration = source_info.get('duration', 0)
                 translated_text = None
                 translation_model = None
+
+                # Metadaten extrahieren
+                metadata_processor = MetadataProcessor(self.resource_calculator, self.process_id)
+                metadata_result = await metadata_processor.extract_metadata(
+                    binary_data=temp_file_path,
+                    content=original_text,
+                    context=source_info
+                )
 
                 if template:
                     self.logger.info(f"3. Text transformation mit Vorlage wird ausgeführt {template}")
@@ -783,7 +791,8 @@ class AudioProcessor(BaseProcessor):
                     args={
                         "target_language": target_language,
                         "template": template,
-                        "original_text": original_text  # Speichere Original-Text für spätere Verwendung
+                        "original_text": original_text,  # Speichere Original-Text für spätere Verwendung
+                        "metadata": metadata_result.to_dict()  # Füge extrahierte Metadaten hinzu
                     }
                 )
                 

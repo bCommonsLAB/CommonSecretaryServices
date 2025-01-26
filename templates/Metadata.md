@@ -9,7 +9,7 @@
 # Bibliographische Grunddaten
 {{title|Haupttitel des Werks}}
 {{subtitle|Untertitel des Werks}}
-{{authors|Liste der Autoren}}
+{{authors|Autoren (komma-separiert, z.B. "Max Mustermann, Maria Musterfrau")}}
 {{publisher|Verlag oder Publisher}}
 {{publicationDate|Erscheinungsdatum}}
 {{isbn|ISBN (bei Büchern)}}
@@ -18,8 +18,8 @@
 {{language|Sprache (ISO 639-1)}}
 
 # Wissenschaftliche Klassifikation
-{{subject_areas|Fachgebiete (z.B. "Biologie", "Ökologie")}}
-{{keywords|Schlüsselwörter}}
+{{subject_areas|Fachgebiete (komma-separiert, z.B. "Biologie, Ökologie")}}
+{{keywords|Schlüsselwörter (komma-separiert)}}
 {{abstract|Kurzzusammenfassung}}
 
 # Räumliche und zeitliche Einordnung
@@ -36,7 +36,7 @@
 {{rights_holder|Rechteinhaber}}
 {{rights_license|Lizenz (z.B. "CC BY-SA 4.0")}}
 {{rights_access|Zugriffsrechte}}
-{{rights_usage|Nutzungsbedingungen}}
+{{rights_usage|Nutzungsbedingungen (komma-separiert)}}
 {{rights_attribution|Erforderliche Namensnennung}}
 {{rights_commercial|Kommerzielle Nutzung erlaubt (true/false)}}
 {{rights_modifications|Modifikationen erlaubt (true/false)}}
@@ -57,22 +57,22 @@
 {{platform_id|Plattform-spezifische ID}}
 {{platform_uploader|Uploader/Kanal}}
 {{platform_category|Plattform-Kategorie}}
-{{platform_language|Unterstützte Sprachen}}
-{{platform_region|Verfügbare Regionen}}
+{{platform_language|Unterstützte Sprachen (komma-separiert, z.B. "de, en, fr")}}
+{{platform_region|Verfügbare Regionen (komma-separiert, z.B. "DE, AT, CH")}}
 {{platform_age_rating|Altersfreigabe}}
 {{platform_subscription|Erforderliches Abonnement}}
 
 # Event-spezifische Details
-{{event_type|Art der Veranstaltung (Webinar, Konferenz, etc.)}}
-{{event_start|Startzeit (ISO 8601 mit Zeitzone)}}
-{{event_end|Endzeit}}
+{{event_type|Art der Veranstaltung}}
+{{event_start|Startzeit (ISO 8601)}}
+{{event_end|Endzeit (ISO 8601)}}
 {{event_timezone|Zeitzone}}
-{{event_format|Veranstaltungsformat (online/hybrid/physical)}}
-{{event_platform|Verwendete Plattform (Zoom, Teams, etc.)}}
+{{event_format|Veranstaltungsformat}}
+{{event_platform|Verwendete Plattform}}
 {{event_recording_url|Link zur Aufzeichnung}}
 
 # Social Media spezifisch
-{{social_platform|Plattform (Twitter, LinkedIn, etc.)}}
+{{social_platform|Plattform}}
 {{social_handle|Benutzername/Handle}}
 {{social_post_id|Original Post-ID}}
 {{social_post_url|Permalink zum Beitrag}}
@@ -80,30 +80,30 @@
 {{social_metrics_shares|Anzahl der Shares}}
 {{social_metrics_comments|Anzahl der Kommentare}}
 {{social_metrics_views|Anzahl der Aufrufe}}
-{{social_thread|IDs verknüpfter Beiträge}}
+{{social_thread|IDs verknüpfter Beiträge (komma-separiert)}}
 
 # Blog/Artikel spezifisch
 {{blog_url|Permalink zum Artikel}}
 {{blog_section|Rubrik/Kategorie}}
 {{blog_series|Zugehörige Serie/Reihe}}
 {{blog_reading_time|Geschätzte Lesezeit in Minuten}}
-{{blog_tags|Blog-spezifische Tags}}
+{{blog_tags|Blog-spezifische Tags (komma-separiert)}}
 {{blog_comments_url|Link zu Kommentaren}}
 
 # Community und Engagement
-{{community_target|Zielgruppe}}
-{{community_hashtags|Verwendete Hashtags}}
-{{community_mentions|Erwähnte Accounts/Personen}}
+{{community_target|Zielgruppe (komma-separiert)}}
+{{community_hashtags|Verwendete Hashtags (komma-separiert)}}
+{{community_mentions|Erwähnte Accounts/Personen (komma-separiert)}}
 {{community_context|Kontext/Anlass}}
 
 # Qualitätssicherung
 {{quality_review_status|Review-Status}}
 {{quality_fact_checked|Faktencheck durchgeführt (true/false)}}
 {{quality_peer_reviewed|Peer-Review durchgeführt (true/false)}}
-{{quality_verified_by|Verifiziert durch}}
+{{quality_verified_by|Verifiziert durch (komma-separiert)}}
 
 # Wissenschaftliche Zusatzinformationen
-{{citations|Zitierte Werke}}
+{{citations|Zitierte Werke (komma-separiert)}}
 {{methodology|Verwendete Methodik}}
 {{funding|Förderung/Finanzierung}}
 
@@ -113,7 +113,7 @@
 {{status|Status (z.B. "verified", "draft")}}
 
 # Digitale Publikationsdetails
-{{digital_published|Erstveröffentlichung online}}
-{{digital_modified|Letzte Online-Aktualisierung}}
+{{digital_published|Erstveröffentlichung online (ISO 8601)}}
+{{digital_modified|Letzte Online-Aktualisierung (ISO 8601)}}
 {{digital_version|Versionsnummer/Stand}}
 {{digital_status|Publikationsstatus (draft/published/archived)}} 

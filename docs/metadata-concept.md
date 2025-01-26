@@ -15,6 +15,7 @@ Dieses Dokument beschreibt die Metadatenstruktur für die wissenschaftliche Medi
 - Präfix-basierte Gruppierung von Eigenschaften
 - Strikte Typisierung aller Felder
 - Klare Trennung von technischen und inhaltlichen Metadaten
+- Listen werden als komma-separierte Strings gespeichert
 
 ## 2. Grundlegende Metadatenstruktur
 
@@ -25,8 +26,8 @@ Die Basis-Schnittstelle, von der alle anderen Metadaten-Typen erben:
 ```typescript
 interface BaseMetadata {
   type: string;    // Art der Metadaten
-  created: string; // Erstellungszeitpunkt
-  modified: string; // Letzter Änderungszeitpunkt
+  created: string; // Erstellungszeitpunkt (ISO 8601)
+  modified: string; // Letzter Änderungszeitpunkt (ISO 8601)
 }
 ```
 
@@ -72,23 +73,23 @@ interface ContentMetadata extends BaseMetadata {
   // Bibliographische Grunddaten
   title: string;                    // Haupttitel des Werks
   subtitle?: string;                // Untertitel
-  authors: string[];                // Autor(en)
+  authors?: string;                 // Komma-separierte Liste der Autoren
   publisher?: string;               // Verlag
   publicationDate?: string;         // Erscheinungsdatum
   isbn?: string;                    // ISBN (bei Büchern)
   doi?: string;                     // Digital Object Identifier
   edition?: string;                 // Auflage
-  language: string;                 // Sprache (ISO 639-1)
+  language?: string;                // Sprache (ISO 639-1)
   
   // Wissenschaftliche Klassifikation
-  subject_areas?: string[];         // Fachgebiete (z.B. "Biologie", "Ökologie")
-  keywords?: string[];              // Schlüsselwörter
+  subject_areas?: string;           // Komma-separierte Liste der Fachgebiete
+  keywords?: string;                // Komma-separierte Liste der Schlüsselwörter
   abstract?: string;                // Kurzzusammenfassung
   
   // Räumliche und zeitliche Einordnung
   temporal_start?: string;          // Beginn des behandelten Zeitraums
   temporal_end?: string;            // Ende des behandelten Zeitraums
-  temporal_period?: string;         // Bezeichnung der Periode (z.B. "Holozän")
+  temporal_period?: string;         // Bezeichnung der Periode
   spatial_location?: string;        // Ortsname
   spatial_latitude?: number;        // Geografische Breite
   spatial_longitude?: number;       // Geografische Länge
@@ -97,52 +98,45 @@ interface ContentMetadata extends BaseMetadata {
   
   // Rechte und Lizenzen
   rights_holder?: string;           // Rechteinhaber
-  rights_license?: string;          // Lizenz (z.B. "CC BY-SA 4.0")
+  rights_license?: string;          // Lizenz
   rights_access?: string;           // Zugriffsrechte
+  rights_usage?: string;            // Komma-separierte Liste der Nutzungsbedingungen
+  rights_attribution?: string;       // Erforderliche Namensnennung
+  rights_commercial?: boolean;       // Kommerzielle Nutzung erlaubt
+  rights_modifications?: boolean;    // Modifikationen erlaubt
   
   // Medienspezifische Metadaten
-  resource_type: string;            // Art der Ressource (z.B. "Book", "Video", "Audio")
+  resource_type?: string;           // Art der Ressource
   resource_format?: string;         // Physisches/digitales Format
-  resource_extent?: string;         // Umfang (z.B. "342 Seiten", "45 Minuten")
+  resource_extent?: string;         // Umfang
   
   // Quellenangaben
   source_title?: string;            // Titel der Quelle
-  source_type?: string;            // Art der Quelle
-  source_identifier?: string;       // Eindeutige Kennung der Quelle
+  source_type?: string;             // Art der Quelle
+  source_identifier?: string;        // Eindeutige Kennung der Quelle
   
   // Digitale Plattform
-  platform_type?: string;           // Art der Plattform (z.B. "youtube", "vimeo")
+  platform_type?: string;           // Art der Plattform
   platform_url?: string;            // URL zur Ressource
   platform_id?: string;             // Plattform-spezifische ID
-  platform_uploader?: string;       // Uploader/Kanal
-  
-  // Wissenschaftliche Zusatzinformationen
-  citations?: string[];             // Zitierte Werke
-  methodology?: string;             // Verwendete Methodik
-  funding?: string;                 // Förderung/Finanzierung
-  
-  // Verwaltung
-  collection?: string;              // Zugehörige Sammlung
-  archival_number?: string;         // Archivnummer
-  status?: string;                  // Status (z.B. "verified", "draft")
-
-  // Digitale Publikationsdetails
-  digital_published?: string;        // Erstveröffentlichung online
-  digital_modified?: string;         // Letzte Online-Aktualisierung
-  digital_version?: string;          // Versionsnummer/Stand
-  digital_status?: 'draft' | 'published' | 'archived' | string;  // Publikationsstatus
+  platform_uploader?: string;        // Uploader/Kanal
+  platform_category?: string;        // Plattform-Kategorie
+  platform_language?: string;        // Komma-separierte Liste der unterstützten Sprachen
+  platform_region?: string;          // Komma-separierte Liste der verfügbaren Regionen
+  platform_age_rating?: string;      // Altersfreigabe
+  platform_subscription?: string;    // Erforderliches Abonnement
   
   // Event-spezifische Details
-  event_type?: string;              // Art der Veranstaltung (Webinar, Konferenz, etc.)
-  event_start?: string;             // Startzeit (ISO 8601 mit Zeitzone)
-  event_end?: string;               // Endzeit
+  event_type?: string;              // Art der Veranstaltung
+  event_start?: string;             // Startzeit (ISO 8601)
+  event_end?: string;               // Endzeit (ISO 8601)
   event_timezone?: string;          // Zeitzone
-  event_format?: 'online' | 'hybrid' | 'physical';  // Veranstaltungsformat
-  event_platform?: string;          // Verwendete Plattform (Zoom, Teams, etc.)
-  event_recording_url?: string;     // Link zur Aufzeichnung
+  event_format?: string;            // Veranstaltungsformat
+  event_platform?: string;          // Verwendete Plattform
+  event_recording_url?: string;      // Link zur Aufzeichnung
   
   // Social Media spezifisch
-  social_platform?: string;         // Plattform (Twitter, LinkedIn, etc.)
+  social_platform?: string;         // Plattform
   social_handle?: string;           // Benutzername/Handle
   social_post_id?: string;          // Original Post-ID
   social_post_url?: string;         // Permalink zum Beitrag
@@ -150,46 +144,43 @@ interface ContentMetadata extends BaseMetadata {
   social_metrics_shares?: number;   // Anzahl der Shares
   social_metrics_comments?: number; // Anzahl der Kommentare
   social_metrics_views?: number;    // Anzahl der Aufrufe
-  social_thread?: string[];         // IDs verknüpfter Beiträge
+  social_thread?: string;          // Komma-separierte Liste der IDs verknüpfter Beiträge
   
   // Blog/Artikel spezifisch
   blog_url?: string;               // Permalink zum Artikel
   blog_section?: string;           // Rubrik/Kategorie
   blog_series?: string;            // Zugehörige Serie/Reihe
   blog_reading_time?: number;      // Geschätzte Lesezeit in Minuten
-  blog_tags?: string[];            // Blog-spezifische Tags
+  blog_tags?: string;              // Komma-separierte Liste der Blog-spezifischen Tags
   blog_comments_url?: string;      // Link zu Kommentaren
   
-  // Interaktive Medien
-  interactive_type?: string;       // Art des interaktiven Inhalts
-  interactive_requirements?: string[]; // Technische Anforderungen
-  interactive_version?: string;    // Version der Anwendung
-  interactive_url?: string;        // URL zur Anwendung
-  
-  // Erweiterte Plattform-Details
-  platform_category?: string;      // Plattform-Kategorie
-  platform_language?: string[];    // Unterstützte Sprachen
-  platform_region?: string[];      // Verfügbare Regionen
-  platform_age_rating?: string;    // Altersfreigabe
-  platform_subscription?: string;  // Erforderliches Abonnement
-  
-  // Erweiterte Rechte/Lizenzen
-  rights_usage?: string[];        // Nutzungsbedingungen
-  rights_attribution?: string;    // Erforderliche Namensnennung
-  rights_commercial?: boolean;    // Kommerzielle Nutzung erlaubt
-  rights_modifications?: boolean; // Modifikationen erlaubt
-  
   // Community und Engagement
-  community_target?: string[];    // Zielgruppe
-  community_hashtags?: string[];  // Verwendete Hashtags
-  community_mentions?: string[];  // Erwähnte Accounts/Personen
-  community_context?: string;     // Kontext/Anlass
+  community_target?: string;       // Komma-separierte Liste der Zielgruppen
+  community_hashtags?: string;     // Komma-separierte Liste der verwendeten Hashtags
+  community_mentions?: string;     // Komma-separierte Liste der erwähnten Accounts/Personen
+  community_context?: string;      // Kontext/Anlass
   
   // Qualitätssicherung
-  quality_review_status?: string; // Review-Status
-  quality_fact_checked?: boolean; // Faktencheck durchgeführt
-  quality_peer_reviewed?: boolean;// Peer-Review durchgeführt
-  quality_verified_by?: string[]; // Verifiziert durch
+  quality_review_status?: string;  // Review-Status
+  quality_fact_checked?: boolean;  // Faktencheck durchgeführt
+  quality_peer_reviewed?: boolean; // Peer-Review durchgeführt
+  quality_verified_by?: string;    // Komma-separierte Liste der Verifizierer
+  
+  // Wissenschaftliche Zusatzinformationen
+  citations?: string;              // Komma-separierte Liste der zitierten Werke
+  methodology?: string;            // Verwendete Methodik
+  funding?: string;                // Förderung/Finanzierung
+  
+  // Verwaltung
+  collection?: string;             // Zugehörige Sammlung
+  archival_number?: string;        // Archivnummer
+  status?: string;                 // Status
+  
+  // Digitale Publikationsdetails
+  digital_published?: string;      // Erstveröffentlichung online (ISO 8601)
+  digital_modified?: string;       // Letzte Online-Aktualisierung (ISO 8601)
+  digital_version?: string;        // Versionsnummer/Stand
+  digital_status?: string;         // Publikationsstatus
 }
 ```
 
@@ -202,6 +193,7 @@ Die Metadaten werden in YAML-Format im Header von Markdown-Dateien gespeichert:
 - Klare Trennung durch Kommentare
 - Konsistente Einrückung
 - UTF-8 Kodierung
+- Listen werden als komma-separierte Strings gespeichert
 
 ### 3.2 Beispiel für ein wissenschaftliches Buch:
 
@@ -210,22 +202,15 @@ Die Metadaten werden in YAML-Format im Header von Markdown-Dateien gespeichert:
 # Bibliographische Grunddaten
 title: "Ökosysteme der Nordsee"
 subtitle: "Eine Bestandsaufnahme"
-authors: 
-  - "Dr. Maria Schmidt"
-  - "Prof. Hans Meyer"
+authors: "Dr. Maria Schmidt, Prof. Hans Meyer"
 publisher: "Wissenschaftsverlag"
 publicationDate: "2023-05-15"
 isbn: "978-3-12345-678-9"
 language: "de"
 
 # Wissenschaftliche Klassifikation
-subject_areas: 
-  - "Meeresbiologie"
-  - "Ökologie"
-keywords:
-  - "Nordsee"
-  - "Wattenmeer"
-  - "Biodiversität"
+subject_areas: "Meeresbiologie, Ökologie"
+keywords: "Nordsee, Wattenmeer, Biodiversität"
 abstract: "Eine umfassende Analyse der Ökosysteme im Wattenmeer..."
 
 # Räumliche und zeitliche Einordnung
@@ -274,10 +259,10 @@ media_codec: "h264"
 
 # Content Metadaten
 title: "Klimawandel in den Alpen: Gletscherrückgang 2024"
-authors: ["Dr. Sarah Schmidt"]
+authors: "Dr. Sarah Schmidt"
 language: "de"
-subject_areas: ["Klimatologie", "Glaziologie"]
-keywords: ["Klimawandel", "Gletscher", "Alpen", "Umweltmonitoring"]
+subject_areas: "Klimatologie, Glaziologie"
+keywords: "Klimawandel, Gletscher, Alpen, Umweltmonitoring"
 abstract: "Zeitrafferaufnahmen zeigen den dramatischen Rückgang des Hintereisferners im Vergleich zum Vorjahr."
 
 # Räumliche und zeitliche Einordnung
@@ -291,7 +276,7 @@ spatial_region: "Ötztaler Alpen"
 # Rechte und Lizenzen
 rights_holder: "Universität Innsbruck"
 rights_license: "CC BY-SA 4.0"
-rights_usage: ["Bildungszwecke", "Wissenschaftliche Nutzung"]
+rights_usage: "Bildungszwecke, Wissenschaftliche Nutzung"
 rights_attribution: "© Universität Innsbruck - Institut für Atmosphären- und Kryosphärenwissenschaften"
 
 # Social Media spezifisch
@@ -303,25 +288,25 @@ social_metrics_likes: 2453
 social_metrics_shares: 1876
 social_metrics_comments: 342
 social_metrics_views: 45678
-social_thread: ["170125847392158721", "170125847392158722"]
+social_thread: "170125847392158721, 170125847392158722"
 
 # Community und Engagement
-community_target: ["Wissenschaftler", "Umweltinteressierte", "Klimaaktivisten"]
-community_hashtags: ["#Klimawandel", "#Gletscher", "#Klimaforschung", "#Alpen"]
-community_mentions: ["@UniInnsbruck", "@Klimaforschung"]
+community_target: "Wissenschaftler, Umweltinteressierte, Klimaaktivisten"
+community_hashtags: "#Klimawandel, #Gletscher, #Klimaforschung, #Alpen"
+community_mentions: "@UniInnsbruck, @Klimaforschung"
 community_context: "Jährliche Dokumentation der Gletscherveränderungen"
 
 # Qualitätssicherung
 quality_review_status: "verified"
 quality_fact_checked: true
-quality_verified_by: ["Institut für Atmosphären- und Kryosphärenwissenschaften"]
+quality_verified_by: "Institut für Atmosphären- und Kryosphärenwissenschaften"
 
 # Plattform-Details
 platform_type: "twitter"
 platform_url: "https://twitter.com/GlacierScience/status/170125847392158720"
 platform_category: "Wissenschaftskommunikation"
-platform_language: ["de", "en"]
-platform_region: ["AT", "DE", "CH"]
+platform_language: "de, en"
+platform_region: "AT, DE, CH"
 ---
 ```
 
@@ -471,7 +456,7 @@ authors: ["Lukas Kafmann"]
 language: "de"
 subject_areas: ["Gesellschaft", "Arbeitsmarkt", "Sozialpolitik"]
 keywords: ["Inklusion", "Arbeitsmarkt", "Südtirol", "ProAbility", "Behinderung"]
-abstract: "Mit einem neuen Prämiensystem will das Land Südtirol Unternehmen unterstützen, die Menschen mit Beeinträchtigung einstellen. „ProAbility" startet im Februar."
+abstract: "Mit einem neuen Prämiensystem will das Land Südtirol Unternehmen unterstützen, die Menschen mit Beeinträchtigung einstellen. "ProAbility" startet im Februar."
 
 # Digitale Publikationsdetails
 digital_published: "2025-01-22T00:00:00+01:00"
