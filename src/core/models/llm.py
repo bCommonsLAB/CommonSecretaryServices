@@ -114,18 +114,19 @@ class LLMInfo:
         if not is_non_negative(self.total_duration):
             raise ValueError("total_duration muss nicht-negativ sein")
 
-    def add_request(self, request: LLMRequest) -> None:
+    def add_request(self, requests: List[LLMRequest]) -> None:
         """
-        Fügt einen neuen Request hinzu und aktualisiert die Gesamtwerte.
+        Fügt eine Liste von Requests hinzu und aktualisiert die Gesamtwerte.
         
         Args:
-            request: Der hinzuzufügende LLM-Request
+            requests: Liste von LLM-Requests
         """
-        # Da die Klasse frozen ist, müssen wir object.__setattr__ verwenden
-        object.__setattr__(self, 'requests', [*self.requests, request])
-        object.__setattr__(self, 'requests_count', self.requests_count + 1)
-        object.__setattr__(self, 'total_tokens', self.total_tokens + request.tokens)
-        object.__setattr__(self, 'total_duration', self.total_duration + request.duration)
+        for request in requests:
+            # Da die Klasse frozen ist, müssen wir object.__setattr__ verwenden
+            object.__setattr__(self, 'requests', [*self.requests, *requests])
+            object.__setattr__(self, 'requests_count', self.requests_count + 1)
+            object.__setattr__(self, 'total_tokens', self.total_tokens + request.tokens)
+            object.__setattr__(self, 'total_duration', self.total_duration + request.duration)
 
 @dataclass(frozen=True)
 class TranscriptionSegment:

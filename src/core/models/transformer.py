@@ -2,10 +2,24 @@
 Transformer-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus, OutputFormat
 from .llm import LLMInfo, LLMRequest
+
+
+@dataclass(frozen=True)
+class TemplateField:
+    """Definiert die Felder eines Templates"""
+    description: str
+    max_length: int = 5000
+    default: Optional[str] = None
+
+@dataclass(frozen=True)
+class TemplateFields:
+    """Definiert die Felder eines Templates"""
+    fields: Dict[str, TemplateField]
 
 @dataclass(frozen=True)
 class TransformerInput:
@@ -22,6 +36,7 @@ class TransformerOutput:
     language: str
     format: OutputFormat
     summarized: bool = False
+    structured_data: Optional[Any] = None
 
 @dataclass(frozen=True)
 class TransformerData:
@@ -42,6 +57,7 @@ class TransformationResult:
     """Ergebnis einer Zusammenfassung"""
     text: str
     target_language: str
+    structured_data: Optional[Any] = None
     requests: Optional[List[LLMRequest]] = None
 
 @dataclass(frozen=True, init=False)

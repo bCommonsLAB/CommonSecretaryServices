@@ -63,11 +63,10 @@ cp config/config.example.yaml config/config.yaml
 ```bash	
 # ein (venv) sollte in console erscheinen
 # Setzen Sie die PYTHONPATH Variable
-# z.B. $env:PYTHONPATH = "C:\Users\username\projekte\common-secretary-services"
-$env:PYTHONPATH = "<pfad des Projektes>"  
+# z.B. $env:PYTHONPATH = "<pfad des Projektes>"  
+$env:PYTHONPATH = "."
 # Starten Sie die Anwendung
 python src/main.py
-
 
 ### API-Nutzung
 

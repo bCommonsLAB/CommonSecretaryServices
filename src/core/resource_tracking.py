@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, List
+from typing import Dict, List, Optional
 from datetime import datetime
 
 @dataclass
@@ -7,7 +7,7 @@ class ResourceUsage:
     type: str          # z.B. "storage", "compute"
     amount: float      # Menge der verwendeten Ressource
     unit: str          # z.B. "MB", "seconds"
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         if self.timestamp is None:

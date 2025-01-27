@@ -40,7 +40,7 @@ class TestWhisperTranscriber:
         """Test der Whisper-Transformation."""
         transcriber = WhisperTranscriber(whisper_config)
         
-        result = transcriber.transform_text(
+        result = transcriber.transform_by_template(
             text="Test text",
             template="Zusammenfassung: {{text}}",
             context={"language": "de"}

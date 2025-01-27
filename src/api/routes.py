@@ -1,14 +1,12 @@
-from flask import Blueprint, request, jsonify, current_app, send_from_directory, redirect, url_for
+from flask import Blueprint, request
 from flask_restx import Api, Resource, fields, reqparse, Namespace  # type: ignore
 import tempfile
 import os
 from pathlib import Path
 import traceback
-import asyncio
 import werkzeug.datastructures
-from typing import Union, Dict, Any, Optional, List, TypedDict, cast, NoReturn, Coroutine
+from typing import Union, Dict, Any, Optional, List, TypedDict, cast
 import uuid
-import json
 from datetime import datetime
 import time
 
@@ -23,7 +21,8 @@ from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimi
 from src.core.models.transformer import TransformerResponse
 from src.utils.logger import get_logger, ProcessingLogger
 from src.api.models.responses import ProcessInfo
-from src.processors.transformer_processor import TransformerProcessor, LLMInfo, LLMRequest
+from src.processors.transformer_processor import TransformerProcessor
+from src.core.models.llm import LLMRequest, LLMInfo
 from src.utils.performance_tracker import get_performance_tracker, clear_performance_tracker
 from src.processors.metadata_processor import (
     MetadataProcessor, 
@@ -529,9 +528,9 @@ class TextTransformEndpoint(Resource):
         
         try:
             # Zeitmessung für Gesamtprozess starten
-            process_start = time.time()
+            process_start: float = time.time()
             
-            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id)
+            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
             result: TransformerResponse = transformer_processor.transform(
                 source_text=data['text'],
                 source_language=data.get('source_language', 'en'),
@@ -544,7 +543,8 @@ class TextTransformEndpoint(Resource):
             process_duration = int((time.time() - process_start) * 1000)
 
             # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
+            if tracker:
+                tracker.eval_result(result)
             
             # Erstelle TransformerResponse
             response = {
@@ -561,7 +561,7 @@ class TextTransformEndpoint(Resource):
                     }
                 },
                 'process': {
-                    'id': tracker.process_id,
+                    'id': tracker.process_id if tracker else None,
                     'main_processor': 'transformer',
                     'sub_processors': ['openai'] if hasattr(result, 'llm_info') and result.llm_info else [],
                     'started': datetime.fromtimestamp(process_start).isoformat(),
@@ -588,23 +588,25 @@ class TextTransformEndpoint(Resource):
             
             return response
 
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
             return {
                 "status": "error",
                 "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e)
+                    "code": error.__class__.__name__,
+                    "message": str(error)
                 }
             }, 400
-        except Exception as e:
-            logger.error("Fehler bei der Text-Transformation",
-                        error=str(e),
-                        traceback=traceback.format_exc())
+        except Exception as error:
+            logger.error(
+                "Fehler bei der Text-Transformation",
+                error=error,
+                traceback=traceback.format_exc()
+            )
             return {
                 "status": "error",
                 "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Text-Transformation: {str(e)}"
+                    "code": "ProcessingError", 
+                    "message": f"Fehler bei der Text-Transformation: {error}"
                 }
             }, 400
 
@@ -612,6 +614,7 @@ class TextTransformEndpoint(Resource):
 class TemplateTransformEndpoint(Resource):
     @api.expect(api.model('TransformTemplateInput', {
         'text': fields.String(required=True, description='Der zu transformierende Text'),
+        'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
         'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
         'template': fields.String(required=True, description='Name des Templates (ohne .md Endung)'),
         'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung')
@@ -650,19 +653,19 @@ class TemplateTransformEndpoint(Resource):
             'details': fields.Raw(description='Detaillierte Fehlerinformationen')
         }))
     }))
-    def post(self):
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
-        data = request.get_json()
-        tracker = get_performance_tracker()
+        data: Any = request.get_json()
+        tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
             # Zeitmessung für Gesamtprozess starten
             process_start = time.time()
             
-            transformer_processor = get_transformer_processor(tracker.process_id)
-            result = transformer_processor.transformByTemplate(
+            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
+            result: TransformerResponse = transformer_processor.transformByTemplate(
                 source_text=data['text'],
-                source_language=data.get('source_language', ''),
+                source_language=data.get('source_language', 'de'),
                 target_language=data.get('target_language', 'de'),
                 template=data['template'],
                 context=data.get('context', {})
@@ -672,10 +675,11 @@ class TemplateTransformEndpoint(Resource):
             process_duration = int((time.time() - process_start) * 1000)
 
             # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
+            if tracker:
+                tracker.eval_result(result)
             
             # Erstelle TransformerResponse
-            response = {
+            response: Dict[str, Any] = {
                 'status': 'success',
                 'request': {
                     'processor': 'transformer',
@@ -689,7 +693,7 @@ class TemplateTransformEndpoint(Resource):
                     }
                 },
                 'process': {
-                    'id': tracker.process_id,
+                    'id': tracker.process_id if tracker else None,
                     'main_processor': 'transformer',
                     'sub_processors': ['openai'] if hasattr(result, 'llm_info') and result.llm_info else [],
                     'started': datetime.fromtimestamp(process_start).isoformat(),
@@ -710,32 +714,36 @@ class TemplateTransformEndpoint(Resource):
                         'context': data.get('context', {})
                     },
                     'output': {
-                        'text': result.text,
-                        'language': result.target_language,
-                        'structured_data': result.structured_data if hasattr(result, 'structured_data') else {}
+                        'text': result.data.output.text,
+                        'language': result.data.output.language,
+                        'structured_data': result.data.output.structured_data if hasattr(result.data.output, 'structured_data') else {}
                     }
                 }
             }
             
             return response
             
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
             return {
                 "status": "error",
                 "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e)
+                    "code": error.__class__.__name__,
+                    "message": str(error),
+                    "details": {}
                 }
             }, 400
-        except Exception as e:
-            logger.error("Fehler bei der Template-Transformation",
-                        error=str(e),
-                        traceback=traceback.format_exc())
+        except Exception as error:
+            logger.error(
+                "Fehler bei der Template-Transformation",
+                error=error,
+                traceback=traceback.format_exc()
+            )
             return {
                 "status": "error",
                 "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Template-Transformation: {str(e)}"
+                    "code": "ProcessingError", 
+                    "message": f"Fehler bei der Template-Transformation: {error}",
+                    "details": {}
                 }
             }, 400
 
@@ -992,7 +1000,7 @@ class MetadataEndpoint(Resource):
         tracker = get_performance_tracker() or get_performance_tracker(process_id)
             
         try:
-            processor = get_metadata_processor(process_id)
+            processor: MetadataProcessor = get_metadata_processor(process_id)
             result: MetadataResponse = await processor.process(uploaded_file)
             
             result_dict = result.to_dict()

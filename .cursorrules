@@ -43,6 +43,7 @@
 - Prozessor-spezifische Modelle in processors/[name]/models.py
 
 **# Validierung**
+- alle Variablen müssen mit expliziten Typ-Annotationen versehen werden
 - Implementiere Validierungs-Dekoratoren für häufige Checks
 - Nutze __post_init__ für komplexe Validierung
 - Stelle sicher, dass alle Responses dem Standard folgen

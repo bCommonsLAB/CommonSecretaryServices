@@ -140,7 +140,7 @@ class TransformerProcessor(BaseProcessor):
             format_to_use = target_format or self.target_format
             context = self.validate_context(context)
 
-            llm_info = LLMInfo(model=self.model, purpose="Translation")
+            llm_info = LLMInfo(model=self.model, purpose="transform-text")
 
             # Debug-Verzeichnis
             debug_dir = Path('./temp-processing/transform')
@@ -162,7 +162,7 @@ class TransformerProcessor(BaseProcessor):
                 )
                 result_text = translation_result.text
                 if translation_result.requests and len(translation_result.requests) > 0:
-                    llm_info.add_request(translation_result.requests[0])
+                    llm_info.add_request(translation_result.requests)
                 response = TransformerResponse(
                     request=response.request,
                     process=response.process,
@@ -188,7 +188,7 @@ class TransformerProcessor(BaseProcessor):
                 )
                 result_text: str = summary_result.text
                 if summary_result.requests and len(summary_result.requests) > 0:
-                    llm_info.add_request(summary_result.requests[0])
+                    llm_info.add_request(summary_result.requests)
                 response = TransformerResponse(
                     request=response.request,
                     process=response.process,
@@ -215,7 +215,7 @@ class TransformerProcessor(BaseProcessor):
                 )
                 result_text: str = format_result.text
                 if format_result.requests and len(format_result.requests) > 0:
-                    llm_info.add_request(format_result.requests[0])
+                    llm_info.add_request(format_result.requests)
                 response = TransformerResponse(
                     request=response.request,
                     process=response.process,
@@ -345,7 +345,7 @@ class TransformerProcessor(BaseProcessor):
                 template = self.validate_text(template, "template")
             validated_context: Dict[str, Any] | None = self.validate_context(context)
 
-            llm_info = LLMInfo(model=self.model, purpose="Template-Transformation")
+            llm_info = LLMInfo(model=self.model, purpose="transform-text-by-template")
 
             if self.logger:
                 self.logger.info(f"Starte Template-Transformation: {source_language} -> {target_language}")
@@ -354,18 +354,22 @@ class TransformerProcessor(BaseProcessor):
                     self.logger.debug("Context-Informationen", context=validated_context)
 
             # Zuerst den Quelltext übersetzen
-            result_text = source_text
+            result_text:str = source_text
             if source_language != target_language:
                 if self.logger:
                     self.logger.info("Übersetze Quelltext")
                     
-                translation_result = self.transcriber.translate_text(
+                translation_result: TranslationResult = self.transcriber.translate_text(
                     text=source_text,
                     source_language=source_language,
                     target_language=target_language,
                     logger=self.logger
                 )
                 result_text = translation_result.text
+
+                if translation_result.requests and len(translation_result.requests) > 0:
+                    llm_info.add_request(translation_result.requests)
+
                 response = TransformerResponse(
                     request=response.request,
                     process=response.process,
@@ -387,16 +391,18 @@ class TransformerProcessor(BaseProcessor):
                 if self.logger:
                     self.logger.info("Führe Template-Transformation durch")
 
-                format_result: TransformationResult = self.transcriber.format_text(
+                    # Template-Transformation durchführen
+                transformed_content: TransformationResult = self.transcriber.transform_by_template(
                     text=result_text,
-                    format=OutputFormat.MARKDOWN,
                     target_language=target_language,
+                    template=template,
+                    context=context,
                     logger=self.logger
                 )
-                result_text: str = format_result.text
-                if format_result.requests and len(format_result.requests) > 0:
-                    llm_info.add_request(format_result.requests[0])
-                
+                result_text = transformed_content.text
+                if transformed_content.requests and len(transformed_content.requests) > 0:
+                    llm_info.add_request(transformed_content.requests)
+
                 response = TransformerResponse(
                     request=response.request,
                     process=response.process,
@@ -406,7 +412,8 @@ class TransformerProcessor(BaseProcessor):
                             text=result_text,
                             language=target_language,
                             format=OutputFormat.MARKDOWN,
-                            summarized=False
+                            summarized=False,
+                            structured_data=transformed_content.structured_data
                         )
                     ),
                     status=response.status,

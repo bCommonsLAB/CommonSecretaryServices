@@ -1,21 +1,36 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, Union
 from pathlib import Path
 import time
 from datetime import datetime
+import json
+import re
+import os
+from dataclasses import dataclass
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from pydantic import Field, create_model, BaseModel
 
 from src.utils.logger import ProcessingLogger
-from src.core.models.transformer import TranslationResult, TransformationResult, TransformerResponse
+from src.core.models.transformer import (
+    TranslationResult, TransformationResult, TemplateField, TemplateFields
+)
 from src.core.models.llm import LLMRequest
-from src.core.models.base import RequestInfo, ProcessInfo
-from src.core.models.transformer import TransformerData, TransformerInput, TransformerOutput
-from src.core.models.enums import ProcessorType, OutputFormat
+from src.core.models.enums import OutputFormat
+
+# Type-Definitionen
+FieldType = tuple[Union[type[str], type[None]], Field]
+
+@dataclass
+class TemplateFieldDefinition:
+    """Definition eines Template-Feldes."""
+    description: str
+    max_length: int = 5000
+    default: Optional[str] = None
 
 class WhisperTranscriber:
     """Klasse für die Interaktion mit GPT-4."""
@@ -82,6 +97,15 @@ class WhisperTranscriber:
             message: ChatCompletionMessage = response.choices[0].message       
             translated_text: str = message.content or ""
             
+            self._save_llm_interaction(
+                purpose="translation",
+                system_prompt=system_prompt, 
+                user_prompt=user_prompt, 
+                response=response, 
+                logger=logger,
+            ) 
+
+
             # LLM-Nutzung tracken
             llm_usage = LLMRequest(
                 model=llm_model,
@@ -165,6 +189,15 @@ class WhisperTranscriber:
 
             summary: str = response.choices[0].message.content or ""
             summary = summary.strip()
+
+            self._save_llm_interaction(
+                purpose="summarization",
+                system_prompt=system_prompt, 
+                user_prompt=user_prompt, 
+                response=response, 
+                logger=logger,
+            ) 
+
             # LLM-Nutzung tracken
             llm_usage = LLMRequest(
                 model=llm_model,
@@ -251,35 +284,305 @@ class WhisperTranscriber:
         # TODO: Implementierung der Debug-Ausgabe
         pass
 
-    def transform_text(
+    def transform_by_template(
         self, 
         text: str, 
+        target_language: str,
         template: str, 
-        context: Dict[str, Any] | None = None
-    ) -> TransformerResponse:
+        context: Dict[str, Any] | None = None,
+        logger: Optional[ProcessingLogger] = None
+    ) -> TransformationResult:
         """Transformiert Text basierend auf einem Template."""
-        
-        now: datetime = datetime.now()
-        request = RequestInfo(
-            processor=ProcessorType.TRANSFORMER.value,
-            timestamp=now.isoformat()
-        )
-        process = ProcessInfo(
-            id="transform_" + now.strftime("%Y%m%d_%H%M%S"),
-            main_processor=ProcessorType.TRANSFORMER.value,
-            started=now.isoformat()
-        )
-        data = TransformerData(
-            input=TransformerInput(
-                text=text,
-                language=context.get("language", "de") if context else "de",
-                format=OutputFormat.MARKDOWN
-            ),
-            output=TransformerOutput(
-                text=template.replace("{{text}}", text),
-                language=context.get("language", "de") if context else "de",
-                format=OutputFormat.MARKDOWN
+        try:
+            if logger:
+                logger.info(f"Starte Template-Transformation: {template}")
+
+            # 1. Template-Datei lesen
+            template_content: str = self._read_template_file(template, logger)
+
+            # 2. Einfache Kontext-Variablen ersetzen
+            template_content = self._replace_context_variables(template_content, context, text, logger)
+
+            # 3. Strukturierte Variablen extrahieren und Model erstellen
+            field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
+            
+            if not field_definitions.fields:
+                # Wenn keine strukturierten Variablen gefunden wurden, erstellen wir eine einfache Response
+                return TransformationResult(
+                    text=text,
+                    target_language=target_language,
+                    requests=[]
+                )
+
+            
+
+            # 4. GPT-4 Prompts erstellen
+            context_str: str = (
+                json.dumps(context, indent=2, ensure_ascii=False)
+                if isinstance(context, dict)
+                else "No additional context."
             )
-        )
+            system_prompt: str = (
+                f"You are a precise assistant for text analysis and data extraction. "
+                f"Analyze the text and extract the requested information. "
+                f"Provide all answers in the target language ISO 639-1 code:{target_language}."
+            )
+            
+            user_prompt: str = (
+                f"Analyze the following text and extract the information:\n\n"
+                f"TEXT:\n{text}\n\n"
+                f"CONTEXT:\n{ context_str}\n\n"
+                f"Extract the information precisely and in the target language ISO 639-1 code: {target_language}."
+            )
+
+            # 5. GPT-4 Anfrage senden
+            if logger:
+                logger.info("Sende Anfrage an GPT-4")
+
+            # GPT-4 Anfrage durchführen und Ergebnis validieren
+            response = self._get_structured_gpt(
+                template=template,
+                field_definitions=field_definitions,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                logger=logger
+            )
+
+            template_model_result, result_json, llm_usage  = response
+            
+            # 9. Strukturierte Variablen ersetzen
+            for field_name, field_value in template_model_result.model_dump().items():
+                pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
+                value: str = str(field_value) if field_value is not None else ""
+                template_content = re.sub(pattern, value, template_content)
+
+            if logger:
+                logger.info("Template-Transformation abgeschlossen",
+                    tokens=llm_usage.tokens,
+                    duration_ms=llm_usage.duration)
+
+            # 11. Response erstellen
+            return TransformationResult(
+                text=template_content,
+                target_language=target_language,
+                requests=[llm_usage],
+                structured_data=result_json
+            )
+
+        except Exception as e:
+            if logger:
+                logger.error("Fehler bei der Template-Transformation", error=e)
+            raise
+
+    def _read_template_file(self, template: str, logger: Optional[ProcessingLogger]) -> str:
+        """Liest den Inhalt einer Template-Datei."""
+        template_dir: str = 'templates'
+        template_path: str = os.path.join(template_dir, f"{template}.md")
         
-        return TransformerResponse.create(request=request, process=process, data=data)
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            if logger:
+                logger.error("Template konnte nicht gelesen werden",
+                    error=e,
+                    template_path=template_path)
+            raise ValueError(f"Template '{template}' konnte nicht gelesen werden: {str(e)}")
+
+    def _replace_context_variables(self, template_content: str, context: Optional[Dict[str, Any]], text: str, logger: Optional[ProcessingLogger]) -> str:
+        """Ersetzt einfache Kontext-Variablen im Template."""
+        if not isinstance(context, dict):
+            context = {}
+        
+        # Füge text als spezielle Variable hinzu
+        if text:
+            # Ersetze {{text}} mit dem tatsächlichen Text
+            template_content = re.sub(r'\{\{text\}\}', text, template_content)
+        
+        # Finde alle einfachen Template-Variablen (ohne Description)
+        simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
+        
+        for key, value in context.items():
+            if value is not None and key in simple_variables:
+                pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
+                str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                template_content = re.sub(pattern, str_value, template_content)
+
+        return template_content
+
+    def _extract_structured_variables(self, template_content: str, logger: Optional[ProcessingLogger]) -> TemplateFields:
+        """Extrahiert strukturierte Variablen aus dem Template."""
+        pattern: str = r'\{\{([a-zA-Z][a-zA-Z0-9_]*)\|([^}]+)\}\}'
+        matches: list[re.Match[str]] = list(re.finditer(pattern, template_content))
+        
+        seen_vars: set[str] = set()
+        field_definitions: TemplateFields = TemplateFields(fields={})
+        
+        for match in matches:
+            var_name: str = match.group(1).strip()
+            if var_name in seen_vars:
+                continue
+                
+            seen_vars.add(var_name)
+            description: str = match.group(2).strip()
+            
+            field_def = TemplateField(
+                description=description,
+                max_length=5000,
+                default=None
+            )
+            
+            field_definitions.fields[var_name] = field_def
+                    
+        return field_definitions
+
+    
+    def _save_llm_interaction(
+        self, 
+        purpose: str,
+        system_prompt: str, 
+        user_prompt: str, 
+        response: ChatCompletion, 
+        logger: Optional[ProcessingLogger] = None,
+        template: Optional[str] = None, 
+        field_definitions: Optional[TemplateFields] = None,
+    ) -> None:
+        """Speichert die LLM-Interaktion für Debugging und Analyse."""
+        try:
+            debug_dir: Path = Path('./temp-processing/llm')
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Erstelle einen eindeutigen Dateinamen
+            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+            template_name: str = template if template else 'direct'
+            filename: str = f"{timestamp}_{purpose}_{template_name}.json"
+            
+            # Bereite die Interaktionsdaten vor
+            interaction_data: Dict[str, Any] = {
+                'timestamp': datetime.now().isoformat(),
+                'template': template,
+                'system_prompt': system_prompt,
+                'user_prompt': user_prompt,
+                'response': {
+                    'content': response.choices[0].message.content if response.choices and response.choices[0].message else None,
+                    'function_call': response.choices[0].message.function_call.arguments if response.choices and response.choices[0].message and hasattr(response.choices[0].message, 'function_call') and response.choices[0].message.function_call else None,
+                    'usage': {
+                        'total_tokens': response.usage.total_tokens if response.usage else 0,
+                        'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
+                        'completion_tokens': response.usage.completion_tokens if response.usage else 0
+                    }
+                }
+            }
+            
+            if field_definitions:
+                interaction_data['field_definitions'] = {
+                    name: field.description for name, field in field_definitions.fields.items()
+                }
+            
+            # Speichere die Interaktionsdaten
+            file_path: Path = debug_dir / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(interaction_data, f, indent=2, ensure_ascii=False)
+                
+            if logger:
+                logger.debug("LLM Interaktion gespeichert",
+                           file=str(file_path),
+                           tokens=interaction_data['response']['usage']['total_tokens'])
+                
+        except Exception as e:
+            if logger:
+                logger.warning("LLM Interaktion konnte nicht gespeichert werden",
+                             error=e,
+                             template=template)
+
+    def _get_structured_gpt(
+        self,
+        template: str,
+        field_definitions: TemplateFields,
+        system_prompt: str,
+        user_prompt: str,
+        logger: Optional[ProcessingLogger] = None
+    ) -> Tuple[Any, Any, LLMRequest]:
+        """Erstellt ein Pydantic Model und führt GPT-Anfrage durch.
+        
+        Args:
+            template: Name für das dynamische Pydantic Model
+            field_types: Felddefinitionen für das Model
+            system_prompt: System-Prompt für GPT
+            user_prompt: User-Prompt für GPT
+            logger: Optional, Logger für Debug-Ausgaben
+            
+        Returns:
+            Tuple[Any, LLMRequest]: (Validiertes Model-Ergebnis, LLM-Nutzung)
+        """
+        model_name: str=f'Template{template.capitalize()}Model'
+
+        # Zeitmessung starten
+        start_time: float = time.time()
+
+        # 6. Pydantic Model erstellen
+        field_types: Dict[str, FieldType] = {
+            name: (str | None, Field(
+                description=field.description,
+                max_length=field.max_length,
+                default=field.default,
+                title=name.capitalize()
+            ))
+            for name, field in field_definitions.fields.items()
+        }
+
+
+
+        # Model erstellen mit expliziter Typisierung
+        DynamicTemplateModel = create_model(
+            model_name,
+            __base__=BaseModel,
+            **field_types
+        )
+
+        # GPT-4 Anfrage senden
+        response: ChatCompletion = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            functions=[{
+                "name": "extract_template_info",
+                "description": "Extrahiert Informationen gemäß Template-Schema",
+                "parameters": DynamicTemplateModel.model_json_schema()
+            }],
+            function_call={"name": "extract_template_info"}
+        )
+
+        # Zeitmessung beenden und Dauer in Millisekunden berechnen
+        duration: int = int((time.time() - start_time) * 1000)
+
+        if not response.choices or not response.choices[0].message or not response.choices[0].message.function_call:
+            raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+        # GPT-4 Antwort extrahieren und validieren
+        result_json_str: str = response.choices[0].message.function_call.arguments
+        template_model_result: Any = DynamicTemplateModel.model_validate_json(result_json_str)
+
+        # String in ein Python-Dict umwandeln
+        result_json: Dict[str, Any] = json.loads(result_json_str)
+        self._save_llm_interaction(
+            purpose="template_transformation",
+            system_prompt=system_prompt, 
+            user_prompt=user_prompt, 
+            response=response, 
+            logger=logger,
+            field_definitions=field_definitions,
+            template=template, 
+        ) 
+
+        # LLM-Nutzung tracken
+        llm_usage: LLMRequest = LLMRequest(
+            model=self.model,
+            purpose="template_transformation",
+            tokens=response.usage.total_tokens if response.usage else 0,
+            duration=duration
+        )
+
+        return template_model_result, result_json, llm_usage
