@@ -1,106 +1,61 @@
-You are an AI assistant for the Common Secretary Services project.
+**# Grundlegende Prinzipien**
+[Bestehende Prinzipien bleiben...]
 
-Project Overview:
-- Python-based service for automated processing of audio, video, and other media files
-- Focus on transcription and structured output using templates
-- Built with Flask/Flask-RESTX for the API layer
-- Uses OpenAI GPT-4 for transcription and text processing
+**# Dataclass & Typen**
+- Verwende native Python Dataclasses statt Pydantic
+- Implementiere strikte Typ-Annotationen mit dem typing Modul
+- Validiere Daten in __post_init__ Methoden
+- Nutze frozen=True für unveränderliche Datenstrukturen
+- Implementiere to_dict() und from_dict() Methoden
+- Verwende TypeVar für generische Typen
+- Füge mypy Typ-Checks hinzu
 
-Key Components:
-1. Audio Processing
-   - Multiple format support (MP3, WAV, M4A, etc.)
-   - Automatic segmentation
-   - Noise reduction and normalization
-   - GPT-4 based transcription
+**# API Response Struktur**
+- Folge dem standardisierten Response-Format:
+  - status (success/error)
+  - request (Kontext)
+  - process (Verarbeitungsdetails)
+  - data (Ergebnisdaten)
+- Tracke LLM-Nutzung in process.llm_info
+- Gruppiere Daten logisch in input/output
+- Verwende Millisekunden für Zeitangaben
+- Dokumentiere Fehler mit code/message/details
 
-2. YouTube Integration
-   - Video download and audio extraction
-   - Metadata processing
-   - Format optimization
-   - Rate limiting and size restrictions
+**# Fehlerbehebung**
+[Bestehende Prinzipien bleiben...]
 
-3. Template System
-   - Markdown-based templates
-   - Variable substitution
-   - Multiple document types (Meeting, YouTube, Notes)
-   - Metadata handling
+**# Entwicklungsprozess**
+[Bestehende Prinzipien bleiben...]
+- Validiere neue Dataclasses mit mypy
+- Teste Response-Strukturen auf Konformität
+- Prüfe LLM-Tracking Vollständigkeit
 
-4. API Layer
-   - RESTful endpoints
-   - Rate limiting
-   - File upload handling
-   - Async processing
+**# Kommentare**
+[Bestehende Prinzipien bleiben...]
+- Dokumentiere Validierungslogik in __post_init__
+- Erkläre komplexe Typ-Annotationen
+- Beschreibe Response-Strukturen und deren Zweck
 
-5. Storage & Processing
-   - Temporary file management
-   - Cleanup strategies
-   - Resource tracking
-   - Error handling
+**# Code-Struktur**
+- Basis-Dataclasses in core/models.py
+- Validierungs-Utilities in core/validation.py
+- Response-Modelle in api/responses.py
+- Prozessor-spezifische Modelle in processors/[name]/models.py
 
-Development Guidelines:
-- Follow PEP 8 style guide
-- Write comprehensive docstrings
-- Include type hints
-- Add tests for new features
-- Document API changes
-- Handle errors gracefully
+**# Validierung**
+- Implementiere Validierungs-Dekoratoren für häufige Checks
+- Nutze __post_init__ für komplexe Validierung
+- Stelle sicher, dass alle Responses dem Standard folgen
+- Prüfe Typ-Korrektheit mit mypy
 
-File Structure:
-- src/: Source code
-  - api/: API implementation
-  - processors/: Media processors
-  - core/: Core functionality
-  - utils/: Utilities
-- docs/: Documentation
-- tests/: Test files
-- templates/: Markdown templates
-- config/: Configuration files
+**# Performance**
+- Nutze slots=True für optimierte Dataclasses
+- Implementiere caching wo sinnvoll
+- Minimiere Verschachtelung in Responses
+- Optimiere Serialisierung/Deserialisierung
 
-Common Tasks:
-1. Audio Processing:
-   - File validation
-   - Format conversion
-   - Segmentation
-   - Transcription
-
-2. Template Usage:
-   - Variable replacement
-   - Markdown generation
-   - Metadata handling
-   - Output formatting
-
-3. Error Handling:
-   - Input validation
-   - Process monitoring
-   - Error recovery
-   - User feedback
-
-4. Configuration:
-   - Environment variables
-   - YAML configuration
-   - API keys
-   - Processing parameters
-
-Dependencies:
-- flask==3.0.2
-- flask-restx==1.3.0
-- pyyaml==6.0.1
-- openai>=1.12.0
-- yt-dlp==2024.3.10
-- pydub>=0.25.1
-- FFmpeg (external)
-
-Security Notes:
-- API keys required for external services
-- Rate limiting enabled
-- File size restrictions
-- Temporary file cleanup
-- No persistent storage of media
-
-When assisting users:
-1. Refer to documentation in docs/
-2. Consider resource limitations
-3. Suggest efficient solutions
-4. Follow security guidelines
-5. Maintain code style consistency
-      
+**# Testing**
+- Teste Dataclass-Validierung
+- Prüfe Response-Konformität
+- Validiere LLM-Tracking
+- Teste Fehlerszenarien

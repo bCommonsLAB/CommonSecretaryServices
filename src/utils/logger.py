@@ -9,12 +9,33 @@ Die Logger-Klasse implementiert ein zentrales Logging-System mit folgenden Haupt
 """
 import logging
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypedDict, cast, TypeVar, Union, Mapping, Sequence, TypeGuard, overload
 import sys
 import os
 import yaml
+from logging import Handler, LogRecord, Logger
+
+T = TypeVar('T')
+K = TypeVar('K')
+V = TypeVar('V')
+
+class LogConfig(TypedDict):
+    """Konfigurationstyp für das Logging."""
+    level: str
+    file: str
+    max_size: int
+    backup_count: int
+
+class YAMLConfig(TypedDict, total=False):
+    """Konfigurationstyp für die YAML-Datei."""
+    logging: Dict[str, Union[str, int]]
+
+class ExtraDict(TypedDict):
+    """Typ für zusätzliche Logging-Informationen."""
+    process_id: str
+    processor_name: str
+    kwargs: Optional[str]
 
 class LoggerService:
     """
@@ -22,24 +43,24 @@ class LoggerService:
     Verwaltet die Logger-Instanzen und Handler für verschiedene Prozesse.
     Stellt sicher, dass die Log-Datei nur einmal initialisiert wird.
     """
-    _instance = None
-    _shared_handlers_initialized = False
-    _loggers = {}
-    _console_handler = None
-    _detail_handler = None
+    _instance: Optional['LoggerService'] = None
+    _shared_handlers_initialized: bool = False
+    _loggers: Dict[str, 'ProcessingLogger'] = {}
+    _console_handler: Optional[Handler] = None
+    _detail_handler: Optional[Handler] = None
 
-    def __new__(cls):
+    def __new__(cls) -> 'LoggerService':
         if cls._instance is None:
             cls._instance = super(LoggerService, cls).__new__(cls)
         return cls._instance
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialisiert den LoggerService"""
         if not self._shared_handlers_initialized:
             self._initialize_handlers()
             
     @classmethod
-    def reset(cls):
+    def reset(cls) -> 'LoggerService':
         """Setzt alle Logger zurück und initialisiert sie neu."""
         # Entferne alle existierenden Handler
         for logger_name in logging.root.manager.loggerDict:
@@ -56,23 +77,69 @@ class LoggerService:
         # Erstelle eine neue Instanz
         return cls()
     
-    def _load_config(self):
+    def _load_config(self) -> LogConfig:
         """Lädt die Logging-Konfiguration aus config.yaml"""
+        default_config: LogConfig = {
+            'level': 'INFO',
+            'file': 'logs/detailed.log',
+            'max_size': 10485760,
+            'backup_count': 5
+        }
+        
         try:
             config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml')
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f) or {}
-            return config.get('logging', {})
+                config_data = yaml.safe_load(f)
+                
+            if not isinstance(config_data, dict):
+                return default_config
+                
+            yaml_config: YAMLConfig = cast(YAMLConfig, config_data)
+            logging_config = yaml_config.get('logging', {})
+            
+            # Da wir bereits wissen, dass es ein Dict ist, brauchen wir keine weitere Prüfung
+            return LogConfig(
+                level=str(logging_config.get('level', default_config['level'])),
+                file=str(logging_config.get('file', default_config['file'])),
+                max_size=int(logging_config.get('max_size', default_config['max_size'])),
+                backup_count=int(logging_config.get('backup_count', default_config['backup_count']))
+            )
         except Exception as e:
             print(f"Warnung: Konnte Logging-Konfiguration nicht laden: {e}")
-            return {
-                'level': 'INFO',
-                'file': 'logs/detailed.log',
-                'max_size': 10485760,
-                'backup_count': 5
-            }
+            return default_config
 
-    def _initialize_handlers(self):
+    def is_mapping_type(self, data: Any) -> TypeGuard[Mapping[str, Any]]:
+        """Typ-Guard für Mapping-Typen"""
+        return isinstance(data, Mapping)
+
+    def is_sequence_type(self, data: Any) -> TypeGuard[Sequence[Any]]:
+        """Typ-Guard für Sequence-Typen (außer str und bytes)"""
+        return isinstance(data, Sequence) and not isinstance(data, (str, bytes))
+
+    def _clean_process_id(self, data: T) -> T:
+        """
+        Entfernt process_id rekursiv aus Dictionaries und Listen.
+        
+        Args:
+            data: Die zu bereinigenden Daten
+            
+        Returns:
+            Die bereinigten Daten vom gleichen Typ
+        """
+        if self.is_mapping_type(data):
+            cleaned_dict: Dict[str, Any] = {}
+            for key, val in data.items():
+                if key != 'process_id':
+                    cleaned_dict[str(key)] = self._clean_process_id(val)
+            return cast(T, cleaned_dict)
+        elif self.is_sequence_type(data):
+            cleaned_list: list[Any] = []
+            for item in data:
+                cleaned_list.append(self._clean_process_id(item))
+            return cast(T, cleaned_list)
+        return data
+
+    def _initialize_handlers(self) -> None:
         """
         Initialisiert die Log-Handler (Konsole und Datei).
         Lädt die Konfiguration aus der config.yaml und erstellt die notwendigen Verzeichnisse und Dateien.
@@ -84,23 +151,20 @@ class LoggerService:
         log_config = self._load_config()
         
         # Hole Log-Pfad und Level aus der Konfiguration
-        log_file = log_config.get('file', 'logs/detailed.log')
-        log_level = getattr(logging, log_config.get('level', 'INFO'))
+        log_file = log_config['file']
+        log_level = getattr(logging, log_config['level'])
         
         # Console Handler
         self._console_handler = logging.StreamHandler(sys.stdout)
         self._console_handler.setLevel(log_level)
 
         class RelativePathFormatter(logging.Formatter):
-            def format(self, record):
+            def format(self, record: LogRecord) -> str:
                 # Konvertiere den absoluten Pfad in einen relativen Pfad
                 if hasattr(record, 'pathname'):
                     try:
-                        # Konvertiere zu relativem Pfad
-                        workspace_root = Path(__file__).parent.parent.parent
-                        
                         # Finde den tatsächlichen Caller
-                        frame = sys._getframe()
+                        frame = sys._getframe()  # type: ignore
                         found_logging = False
                         
                         # Gehe durch den Stack bis wir den ersten Frame nach dem Logger finden
@@ -151,7 +215,7 @@ class LoggerService:
         
         self._shared_handlers_initialized = True
 
-    def get_logger(self, process_id: str, processor_name: str = None) -> 'ProcessingLogger':
+    def get_logger(self, process_id: str, processor_name: Optional[str] = None) -> 'ProcessingLogger':
         """Get or create a logger instance for the given process_id"""
         if process_id in self._loggers:
             logger = self._loggers[process_id]
@@ -163,10 +227,15 @@ class LoggerService:
         if not self._shared_handlers_initialized:
             self._initialize_handlers()
         
-        logger = ProcessingLogger(process_id=process_id, 
-                                processor_name=processor_name,
-                                console_handler=self._console_handler,
-                                detail_handler=self._detail_handler)
+        if self._console_handler is None or self._detail_handler is None:
+            raise RuntimeError("Handler wurden nicht korrekt initialisiert")
+            
+        logger = ProcessingLogger(
+            process_id=process_id, 
+            processor_name=processor_name or "",
+            console_handler=self._console_handler,
+            detail_handler=self._detail_handler
+        )
         self._loggers[process_id] = logger
         return logger
 
@@ -174,16 +243,16 @@ class ProcessingLogger:
     """
     Logger für einzelne Prozesse
     """
-    def __init__(self, process_id: str, processor_name: str = None,
-                 console_handler=None, detail_handler=None):
+    def __init__(self, process_id: str, processor_name: str,
+                 console_handler: Handler, detail_handler: Handler) -> None:
         if not process_id:
             raise ValueError("process_id ist ein Pflichtfeld")
         
-        self.process_id = process_id
-        self.processor_name = processor_name or ""
+        self.process_id: str = process_id
+        self.processor_name: str = processor_name
         
         # Haupt-Logger Setup
-        self.logger = logging.getLogger(f"processing_service.{process_id}")
+        self.logger: Logger = logging.getLogger(f"processing_service.{process_id}")
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
         
@@ -194,41 +263,74 @@ class ProcessingLogger:
         
         self.debug("Logger initialisiert")
     
-    def _clean_process_id(self, data: Any) -> Any:
-        """Entfernt process_id rekursiv aus Dictionaries und Listen."""
-        if isinstance(data, dict):
-            return {k: self._clean_process_id(v) for k, v in data.items() if k != 'process_id'}
-        elif isinstance(data, list):
-            return [self._clean_process_id(item) for item in data]
-        return data
+    def _is_mapping_type(self, data: Any) -> TypeGuard[Mapping[str, Any]]:
+        """Typ-Guard für Mapping-Typen"""
+        return isinstance(data, Mapping)
 
-    def _prepare_extra(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _is_sequence_type(self, data: Any) -> TypeGuard[Sequence[Any]]:
+        """Typ-Guard für Sequence-Typen (außer str und bytes)"""
+        return isinstance(data, Sequence) and not isinstance(data, (str, bytes))
+
+    @overload
+    def _clean_process_id(self, data: Dict[str, Any]) -> Dict[str, Any]: ...
+    
+    @overload
+    def _clean_process_id(self, data: list[Any]) -> list[Any]: ...
+    
+    @overload
+    def _clean_process_id(self, data: T) -> T: ...
+
+    def _clean_process_id(self, data: Any) -> Any:
+        """
+        Entfernt process_id rekursiv aus Dictionaries und Listen.
+        
+        Args:
+            data: Die zu bereinigenden Daten
+            
+        Returns:
+            Die bereinigten Daten vom gleichen Typ
+        """
+        if self._is_mapping_type(data):
+            cleaned_dict: Dict[str, Any] = {}
+            for key, val in data.items():
+                if key != 'process_id':
+                    cleaned_dict[str(key)] = self._clean_process_id(val)
+            return cleaned_dict
+        elif self._is_sequence_type(data):
+            cleaned_list: list[Any] = []
+            for item in data:
+                cleaned_list.append(self._clean_process_id(item))
+            return cleaned_list
+        return data
+    
+    def _prepare_extra(self, kwargs: Dict[str, Any]) -> ExtraDict:
         """Bereitet die Extra-Daten für das Logging vor."""
-        extra = {
+        extra: ExtraDict = {
             'process_id': self.process_id,
-            'processor_name': self.processor_name
+            'processor_name': self.processor_name,
+            'kwargs': None
         }
         if kwargs:
             clean_kwargs = self._clean_process_id(kwargs)
-            if clean_kwargs:
+            if clean_kwargs:  # Da wir wissen, dass es ein Dict ist
                 extra['kwargs'] = json.dumps(clean_kwargs)
         return extra
 
-    def debug(self, message: str, **kwargs):
+    def debug(self, message: str, **kwargs: Any) -> None:
         """Debug-Level Logging mit optionalen strukturierten Daten."""
         extra = self._prepare_extra(kwargs)
         if kwargs:  # Nur wenn kwargs vorhanden sind
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.debug(message, extra=extra)
 
-    def info(self, message: str, **kwargs):
+    def info(self, message: str, **kwargs: Any) -> None:
         """Info-Level Logging mit optionalen strukturierten Daten."""
         extra = self._prepare_extra(kwargs)
         if kwargs:  # Nur wenn kwargs vorhanden sind
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.info(message, extra=extra)
 
-    def error(self, message: str, error: Optional[Exception] = None, **kwargs):
+    def error(self, message: str, error: Optional[Exception] = None, **kwargs: Any) -> None:
         """Error-Level Logging mit Exception-Details."""
         if error:
             message = f"{message}\nError: {str(error)}"
@@ -237,7 +339,7 @@ class ProcessingLogger:
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.error(message, extra=extra)
 
-    def warning(self, message: str, **kwargs):
+    def warning(self, message: str, **kwargs: Any) -> None:
         """Warning-Level Logging mit strukturierten Daten."""
         extra = self._prepare_extra(kwargs)
         self.logger.warning(message, extra=extra)
@@ -245,6 +347,6 @@ class ProcessingLogger:
 # Globale Instanz des LoggerService
 logger_service = LoggerService()
 
-def get_logger(process_id: str = None, processor_name: str = None) -> ProcessingLogger:
+def get_logger(process_id: str, processor_name: Optional[str] = None) -> ProcessingLogger:
     """Helper function to get a logger instance"""
     return logger_service.get_logger(process_id, processor_name)

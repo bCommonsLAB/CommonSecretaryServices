@@ -8,10 +8,76 @@ the performance of API calls and their underlying processor operations.
 import time
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TypedDict, Protocol, cast
 from datetime import datetime, timedelta
 import threading
 from contextlib import contextmanager
+import logging
+from logging import Logger
+
+from src.core.models.llm import LLMInfo as CoreLLMInfo
+
+class LLMMetrics(Protocol):
+    """Protocol für grundlegende LLM-Metriken"""
+    tokens: int
+    model: str
+
+class ClientInfo(TypedDict):
+    """Client-Informationen"""
+    ip: Optional[str]
+    user_agent: Optional[str]
+
+class ResourceInfo(TypedDict):
+    """Ressourcen-Informationen"""
+    total_tokens: int
+    total_cost: float
+    models_used: List[str]
+
+class ErrorInfo(TypedDict):
+    """Fehler-Informationen"""
+    message: str
+    type: str
+
+class ProcessorStats(TypedDict):
+    """Statistiken für einen Prozessor"""
+    total_duration: float
+    operation_count: int
+    success_count: int
+    error_count: int
+
+class OperationInfo(TypedDict, total=False):
+    """Informationen über eine Operation"""
+    name: str
+    start_time: str
+    duration: float
+    processor: Optional[str]
+    status: str
+    error: Optional[str]
+    end_time: str
+
+class StoredLog(TypedDict):
+    """Gespeicherter Log-Eintrag"""
+    timestamp: str
+    process_id: str
+    measurements: Dict[str, Any]
+
+class Measurements(TypedDict):
+    """Performance-Messungen"""
+    process_id: str
+    timestamp: str
+    total_duration: float
+    status: str
+    endpoint: Optional[str]
+    client_info: ClientInfo
+    operations: List[OperationInfo]
+    processors: Dict[str, ProcessorStats]
+    resources: ResourceInfo
+    error: Optional[ErrorInfo]
+
+class PerformanceResult(TypedDict):
+    """Ergebnis eines Performance-Trackings"""
+    tokens: int
+    model: str
 
 class PerformanceTracker:
     """
@@ -36,52 +102,55 @@ class PerformanceTracker:
         """
         self.process_id = process_id
         self.start_time = time.time()
-        self.measurements: Dict[str, Any] = {
+        self.logger: Logger = logging.getLogger(f"performance_tracker.{process_id}")
+        
+        self.measurements: Measurements = {
             'process_id': process_id,
             'timestamp': datetime.now().isoformat(),
-            'total_duration': 0,
+            'total_duration': 0.0,
             'status': 'running',
-            'endpoint': None,  # Wird von der API gesetzt
+            'endpoint': None,
             'client_info': {
-                'ip': None,  # Wird von der API gesetzt
-                'user_agent': None  # Wird von der API gesetzt
+                'ip': None,
+                'user_agent': None
             },
             'operations': [],
             'processors': {},
             'resources': {
                 'total_tokens': 0,
                 'total_cost': 0.0,
-                'models_used': set()
+                'models_used': []
             },
             'error': None
         }
         self._local = threading.local()
 
-    def set_endpoint_info(self, endpoint: str, ip: str, user_agent: str):
+    def set_endpoint_info(self, endpoint: str, ip: str, user_agent: str) -> None:
         """
         Setzt die Endpoint-Informationen für den API-Aufruf.
         
         Args:
-            endpoint (str): Der aufgerufene API-Endpoint
-            ip (str): IP-Adresse des Clients
-            user_agent (str): User-Agent des Clients
+            endpoint: Der aufgerufene API-Endpoint
+            ip: IP-Adresse des Clients
+            user_agent: User-Agent des Clients
         """
         self.measurements['endpoint'] = endpoint
         self.measurements['client_info']['ip'] = ip
         self.measurements['client_info']['user_agent'] = user_agent
 
-    def add_resource_usage(self, tokens: int, cost: float, model: str):
+    def add_resource_usage(self, tokens: int, cost: float, model: str) -> None:
         """
         Fügt Ressourcenverbrauch hinzu (z.B. Token und Kosten von LLM-Aufrufen).
         
         Args:
-            tokens (int): Anzahl der verbrauchten Token
-            cost (float): Kosten des Aufrufs
-            model (str): Name des verwendeten Modells
+            tokens: Anzahl der verbrauchten Token
+            cost: Kosten des Aufrufs
+            model: Name des verwendeten Modells
         """
-        self.measurements['resources']['total_tokens'] += tokens
-        self.measurements['resources']['total_cost'] += cost
-        self.measurements['resources']['models_used'].add(model)
+        resources = self.measurements['resources']
+        resources['total_tokens'] += tokens
+        resources['total_cost'] += cost
+        resources['models_used'].append(model)
 
     def eval_result(self, result: Any) -> None:
         """
@@ -92,33 +161,35 @@ class PerformanceTracker:
         """
         try:
             # Für AudioProcessingResult
-            if hasattr(result, 'audio_result') and hasattr(result.audio_result, 'transcription') and hasattr(result.audio_result.transcription, 'llms'):
-                llms = result.audio_result.transcription.llms
-                total_tokens = sum(llm.tokens for llm in llms)
+            if hasattr(result, 'audio_result') and hasattr(result.audio_result, 'transcription') and hasattr(result.audio_result.transcription, 'requests'):
+                requests = result.audio_result.transcription.requests
+                total_tokens = sum(req.tokens for req in requests)
                 # Verwende das erste Modell als Hauptmodell
-                model = llms[0].model if llms else 'unknown'
+                model = requests[0].model if requests else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
                     tokens=total_tokens,
                     cost=cost,
                     model=model
                 )
-            if hasattr(result, 'transcription') and hasattr(result.transcription, 'llms'):
-                llms = result.transcription.llms
-                total_tokens = sum(llm.tokens for llm in llms)
+            # Für TransformerResponse mit LLMInfo
+            elif hasattr(result, 'llm_info') and result.llm_info is not None:
+                llm_info: CoreLLMInfo = result.llm_info
+                total_tokens = sum(req.tokens for req in llm_info.requests)
                 # Verwende das erste Modell als Hauptmodell
-                model = llms[0].model if llms else 'unknown'
+                model = llm_info.model
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
                     tokens=total_tokens,
                     cost=cost,
                     model=model
                 )
-            # Für TranscriptionResult/TranslationResult
-            elif hasattr(result, 'llms'):
-                llms = result.llms
-                total_tokens = sum(llm.tokens for llm in llms)
-                model = llms[0].model if llms else 'unknown'
+            # Für TranslationResult/TransformationResult mit requests
+            elif hasattr(result, 'requests') and result.requests is not None:
+                requests = result.requests
+                total_tokens = sum(req.tokens for req in requests)
+                # Verwende das erste Modell als Hauptmodell
+                model = requests[0].model if requests else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
                     tokens=total_tokens,
@@ -127,23 +198,24 @@ class PerformanceTracker:
                 )
             # Für alte Dictionary-Struktur (Abwärtskompatibilität)
             elif isinstance(result, dict) and 'tokens' in result:
-                cost = result['tokens'] * 0.0001  # Standardkosten pro Token
+                perf_result = cast(PerformanceResult, result)
+                cost = float(perf_result['tokens']) * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
-                    tokens=result['tokens'],
+                    tokens=perf_result['tokens'],
                     cost=cost,
-                    model=result.get('model', 'unknown')
+                    model=perf_result.get('model', 'unknown')
                 )
         except Exception as e:
             self.logger.error(f"Fehler beim Evaluieren des Ergebnisses: {str(e)}")
             # Fehler nicht weiterwerfen, da dies eine optionale Operation ist
 
-    def set_error(self, error: str, error_type: str = None):
+    def set_error(self, error: str, error_type: Optional[str] = None) -> None:
         """
         Setzt Fehlerinformationen für den API-Aufruf.
         
         Args:
-            error (str): Fehlermeldung
-            error_type (str, optional): Typ des Fehlers
+            error: Fehlermeldung
+            error_type: Typ des Fehlers
         """
         self.measurements['status'] = 'error'
         self.measurements['error'] = {
@@ -157,26 +229,21 @@ class PerformanceTracker:
         Context Manager zum Messen der Ausführungszeit einer Operation.
         
         Args:
-            operation_name (str): Name der zu messenden Operation
-            processor_name (str, optional): Name des Prozessors, falls zutreffend
+            operation_name: Name der zu messenden Operation
+            processor_name: Name des Prozessors, falls zutreffend
             
         Yields:
             None
-        
-        Example:
-            ```python
-            with performance_tracker.measure_operation('text_extraction', 'PDFProcessor'):
-                # Code der Operation
-                extracted_text = pdf.extract_text()
-            ```
         """
         start_time = time.time()
-        operation = {
+        operation: OperationInfo = {
             'name': operation_name,
             'start_time': datetime.now().isoformat(),
-            'duration': 0,
+            'duration': 0.0,
             'processor': processor_name,
-            'status': 'running'
+            'status': 'running',
+            'error': None,
+            'end_time': ''
         }
         self.measurements['operations'].append(operation)
         
@@ -195,7 +262,7 @@ class PerformanceTracker:
             if processor_name:
                 if processor_name not in self.measurements['processors']:
                     self.measurements['processors'][processor_name] = {
-                        'total_duration': 0,
+                        'total_duration': 0.0,
                         'operation_count': 0,
                         'success_count': 0,
                         'error_count': 0
@@ -208,19 +275,20 @@ class PerformanceTracker:
                 else:
                     proc_stats['error_count'] += 1
 
-    def complete_tracking(self):
+    def complete_tracking(self) -> Measurements:
         """
         Schließt die Performance-Messung ab und speichert die Ergebnisse.
         
         Returns:
-            Dict: Die gesammelten Performance-Metriken
+            Die gesammelten Performance-Metriken
         """
         self.measurements['total_duration'] = time.time() - self.start_time
         if not self.measurements.get('error'):
             self.measurements['status'] = 'success'
         
         # Konvertiere set zu list für JSON-Serialisierung
-        self.measurements['resources']['models_used'] = list(self.measurements['resources']['models_used'])
+        resources = self.measurements['resources']
+        resources['models_used'] = resources['models_used']
         
         # Speichere die Messung in der Performance-Log-Datei
         log_dir = Path('logs')
@@ -228,44 +296,73 @@ class PerformanceTracker:
         
         log_file = log_dir / 'performance.json'
         try:
+            logs: List[StoredLog] = []
             if log_file.exists():
                 with open(log_file, 'r', encoding='utf-8') as f:
                     logs = json.load(f)
-            else:
-                logs = []
-                
+                    
             # Entferne alte Logs (älter als 30 Tage)
             thirty_days_ago = datetime.now() - timedelta(days=30)
-            logs = [log for log in logs if datetime.fromisoformat(log['timestamp']) > thirty_days_ago]
+            logs = [
+                log for log in logs 
+                if datetime.fromisoformat(log['timestamp']) > thirty_days_ago
+            ]
             
-            logs.append(self.measurements)
+            logs.append(cast(StoredLog, {
+                'timestamp': self.measurements['timestamp'],
+                'process_id': self.measurements['process_id'],
+                'measurements': self.measurements
+            }))
             
             with open(log_file, 'w', encoding='utf-8') as f:
                 json.dump(logs, f, indent=2)
                 
         except Exception as e:
-            print(f"Fehler beim Speichern der Performance-Messung: {e}")
+            self.logger.error(f"Fehler beim Speichern der Performance-Messung: {e}")
         
         return self.measurements
 
-    def _calculate_llm_cost(self, llms: List[Any]) -> float:
-        """Berechnet die Kosten für LLM-Nutzung."""
+    def _calculate_llm_cost(self, llms: List[LLMMetrics]) -> float:
+        """
+        Berechnet die Kosten für LLM-Nutzung.
+        
+        Args:
+            llms: Liste von LLM-Informationen
+            
+        Returns:
+            Berechnete Kosten
+        """
         total_tokens = sum(llm.tokens for llm in llms)
         return total_tokens * 0.0001  # Standardkosten pro Token
 
     def _calculate_llm_cost_from_result(self, result: Any) -> float:
-        """Berechnet die LLM-Kosten aus einem Ergebnis."""
-        if hasattr(result, 'llms'):
-            total_tokens = sum(llm.tokens for llm in result.llms)
+        """
+        Berechnet die LLM-Kosten aus einem Ergebnis.
+        
+        Args:
+            result: Ergebnis eines LLM-Aufrufs
+            
+        Returns:
+            Berechnete Kosten
+        """
+        if hasattr(result, 'requests') and result.requests is not None:
+            total_tokens = sum(req.tokens for req in result.requests)
             return total_tokens * 0.0001
-        elif hasattr(result, 'process') and hasattr(result.process, 'llm_info'):
-            total_tokens = sum(llm.tokens for llm in result.process.llm_info.requests)
+        elif hasattr(result, 'llm_info') and result.llm_info is not None:
+            total_tokens = sum(req.tokens for req in result.llm_info.requests)
             return total_tokens * 0.0001
         elif isinstance(result, dict) and 'tokens' in result:
-            cost = result['tokens'] * 0.0001  # Standardkosten pro Token
-            self.logger.info("LLM-Kosten berechnet",
-                tokens=result['tokens'],
-                cost=cost)
+            perf_result = cast(PerformanceResult, result)
+            cost = float(perf_result['tokens']) * 0.0001
+            self.logger.info(
+                "LLM-Kosten berechnet",
+                extra={
+                    'process_id': self.process_id,
+                    'processor_name': 'cost_calculator',
+                    'tokens': perf_result['tokens'],
+                    'cost': cost
+                }
+            )
             return cost
         return 0.0
 

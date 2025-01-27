@@ -1,14 +1,29 @@
+"""
+API-Modul für den Processing Service.
+"""
 from flask import Flask
 from .routes import blueprint as api_blueprint
 from src.dashboard.routes.main_routes import main as dashboard_blueprint
 from src.dashboard.routes.config_routes import config as config_blueprint
 import os
-from flask_restx import Api
+from typing import Optional
 
-def create_app():
+def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = None) -> Flask:
+    """
+    Erstellt und konfiguriert die Flask-Anwendung.
+    
+    Args:
+        template_dir: Optionaler Pfad zum Template-Verzeichnis
+        static_dir: Optionaler Pfad zum Static-Verzeichnis
+        
+    Returns:
+        Flask: Die konfigurierte Flask-Anwendung
+    """
     # Template-Verzeichnis konfigurieren
-    template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'templates'))
-    static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'static'))
+    if not template_dir:
+        template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'templates'))
+    if not static_dir:
+        static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'static'))
     
     app = Flask(__name__,
                 template_folder=template_dir,
@@ -25,6 +40,7 @@ def create_app():
     
     return app
 
+# Erstelle die Anwendungsinstanz
 app = create_app()
 
 

@@ -3,38 +3,71 @@ Log routes for the dashboard application.
 Handles log viewing and filtering functionality.
 """
 from flask import Blueprint, render_template, request
-import json
 import os
 import re
-from datetime import datetime
-import yaml
+import json
+from typing import Dict, Any, Optional, List, TypedDict, cast
 from src.core.config import Config
-from pathlib import Path
 
 # Create the blueprint
 logs = Blueprint('logs', __name__)
 
-def get_log_entries(filter_level=None, filter_date=None, search_query=None, session_id=None, page=1, per_page=50):
+class LogEntry(TypedDict):
+    """Typ-Definition für einen Log-Eintrag."""
+    timestamp: str
+    level: str
+    source: str
+    process_id: str
+    message: str
+    details: Optional[Dict[str, Any]]
+
+class PaginationInfo(TypedDict):
+    """Typ-Definition für Pagination-Informationen."""
+    current_page: int
+    total_pages: int
+    total_entries: int
+    pages: List[int]
+
+class LogResponse(TypedDict):
+    """Typ-Definition für die Log-Response."""
+    entries: List[LogEntry]
+    pagination: PaginationInfo
+
+def get_log_entries(
+    filter_level: Optional[str] = None,
+    filter_date: Optional[str] = None,
+    search_query: Optional[str] = None,
+    session_id: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50
+) -> LogResponse:
     """
     Liest und filtert Log-Einträge aus der Log-Datei.
     
     Args:
-        filter_level (str, optional): Log-Level Filter (DEBUG, INFO, ERROR)
-        filter_date (str, optional): Datum Filter im Format YYYY-MM-DD
-        search_query (str, optional): Suchbegriff für Volltextsuche
-        session_id (str, optional): Process/Session ID für Filterung zusammengehöriger Logs
-        page (int): Aktuelle Seite für Pagination
-        per_page (int): Einträge pro Seite
+        filter_level: Log-Level Filter (DEBUG, INFO, ERROR)
+        filter_date: Datum Filter im Format YYYY-MM-DD
+        search_query: Suchbegriff für Volltextsuche
+        session_id: Process/Session ID für Filterung zusammengehöriger Logs
+        page: Aktuelle Seite für Pagination
+        per_page: Einträge pro Seite
         
     Returns:
-        dict: Gefilterte Log-Einträge und Pagination-Informationen
+        LogResponse: Gefilterte Log-Einträge und Pagination-Informationen
     """
-    entries = []
-    current_entry = None
-    details_lines = []
+    entries: List[LogEntry] = []
+    current_entry: Optional[LogEntry] = None
+    details_lines: List[str] = []
     collecting_details = False
 
-    def should_include_entry(entry, level=None, date=None, query=None, sid=None):
+    def should_include_entry(
+        entry: LogEntry,
+        level: Optional[str] = None,
+        date: Optional[str] = None,
+        query: Optional[str] = None,
+        sid: Optional[str] = None
+    ) -> bool:
+        """Prüft, ob ein Log-Eintrag den Filter-Kriterien entspricht."""
         if level and entry['level'] != level:
             return False
         if date and not entry['timestamp'].startswith(date):
@@ -74,13 +107,14 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, sess
                         parts = line.split(' - ', 4)
                         if len(parts) >= 5:
                             timestamp, level, source, process, message = parts
-                            current_entry = {
+                            current_entry = cast(LogEntry, {
                                 'timestamp': timestamp,
                                 'level': level.strip(),
                                 'source': source.strip('[]'),
                                 'process_id': process.split('[')[1].split(']')[0] if '[' in process else '',
-                                'message': message.strip()
-                            }
+                                'message': message.strip(),
+                                'details': None
+                            })
                             details_lines = []
                             collecting_details = False
                     
@@ -116,7 +150,7 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, sess
     start_idx = (page - 1) * per_page
     end_idx = start_idx + per_page
     
-    return {
+    return cast(LogResponse, {
         'entries': entries[start_idx:end_idx],
         'pagination': {
             'current_page': page,
@@ -124,10 +158,10 @@ def get_log_entries(filter_level=None, filter_date=None, search_query=None, sess
             'total_entries': len(entries),
             'pages': list(range(max(1, page - 2), min(total_pages + 1, page + 3)))
         }
-    }
+    })
 
 @logs.route('/logs')
-def view_logs():
+def view_logs() -> str:
     """
     Log viewer page with filtering and pagination
     
@@ -137,7 +171,7 @@ def view_logs():
     - Search text in messages and process IDs
     
     Returns:
-        rendered template: The logs.html template with filtered log entries and pagination
+        str: The rendered logs.html template with filtered log entries and pagination
     """
     filter_level = request.args.get('level')
     filter_date = request.args.get('date')

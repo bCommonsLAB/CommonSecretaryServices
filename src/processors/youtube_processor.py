@@ -15,7 +15,8 @@ from src.utils.logger import get_logger
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.config import Config
 from src.core.config_keys import ConfigKeys
-from src.utils.types import YoutubeMetadata, YoutubeProcessingResult, AudioProcessingResult
+from src.core.models.youtube import YoutubeMetadata, YoutubeProcessingResult
+from src.core.models.audio import AudioProcessingResult
 
 class YoutubeProcessor(BaseProcessor):
     """
