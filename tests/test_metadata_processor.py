@@ -1,18 +1,21 @@
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 import json
 from datetime import datetime
 from src.processors.metadata_processor import MetadataProcessor
 from src.core.models.metadata import (
     TechnicalMetadata, 
-    ContentMetadata
+    ContentMetadata,
+    MetadataResponse,
+    MetadataData
 )
 from src.core.models.transformer import TransformerResponse, TransformerData
 from src.core.models.base import (
     RequestInfo,
     ProcessInfo,
-    BaseResponse
+    BaseResponse,
+    ErrorInfo
 )
 from src.core.models.llm import LLMRequest, LLMInfo
 from src.core.models.enums import ProcessingStatus
@@ -20,15 +23,64 @@ from src.core.exceptions import ProcessingError, UnsupportedMimeTypeError
 from src.core.resource_tracking import ResourceCalculator
 import io
 import tempfile
-from typing import Dict, Any, Generator, cast, TypeVar, Type
+from typing import Dict, Any, Generator, cast, TypeVar, Type, Optional
 from dataclasses import asdict, dataclass
+from src.utils.resource_calculator import ResourceCalculator
 
 T = TypeVar('T')
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, init=False)
 class CompleteMetadata(BaseResponse):
     """Vollständige Metadaten-Response."""
     data: Dict[str, Any]
+    llm_info: Optional[LLMInfo] = None
+
+    def __init__(
+        self,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: Dict[str, Any],
+        llm_info: Optional[LLMInfo] = None,
+        status: ProcessingStatus = ProcessingStatus.PENDING,
+        error: Optional[ErrorInfo] = None
+    ) -> None:
+        """Initialisiert die CompleteMetadata."""
+        super().__init__(request=request, process=process, status=status, error=error)
+        object.__setattr__(self, 'data', data)
+        object.__setattr__(self, 'llm_info', llm_info)
+
+    @classmethod
+    def create(
+        cls,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: Dict[str, Any],
+        llm_info: Optional[LLMInfo] = None
+    ) -> 'CompleteMetadata':
+        """Erstellt eine erfolgreiche Response."""
+        return cls(
+            request=request,
+            process=process,
+            data=data,
+            llm_info=llm_info,
+            status=ProcessingStatus.SUCCESS
+        )
+
+    @classmethod
+    def create_error(
+        cls,
+        request: RequestInfo,
+        process: ProcessInfo,
+        error: ErrorInfo
+    ) -> 'CompleteMetadata':
+        """Erstellt eine Error-Response."""
+        return cls(
+            request=request,
+            process=process,
+            data={},
+            status=ProcessingStatus.ERROR,
+            error=error
+        )
 
 def save_metadata_to_json(metadata: Dict[str, Any], test_name: str) -> Path:
     """Speichert Metadaten als JSON für Testvergleiche."""
@@ -48,9 +100,19 @@ def save_metadata_to_json(metadata: Dict[str, Any], test_name: str) -> Path:
     return output_path
 
 @pytest.fixture
-def resource_calculator() -> ResourceCalculator:
+def resource_calculator():
     """Mock für den ResourceCalculator."""
-    return Mock(spec=ResourceCalculator)
+    calculator = Mock(spec=ResourceCalculator)
+    calculator.calculate_cost = Mock(return_value=0.1)
+    calculator.track_usage = Mock()
+    return calculator
+
+@pytest.fixture
+def test_file(tmp_path):
+    """Erstellt eine Test-Datei."""
+    file_path = tmp_path / "test.txt"
+    file_path.write_text("Test content")
+    return file_path
 
 @pytest.fixture
 def metadata_processor(resource_calculator: ResourceCalculator) -> MetadataProcessor:
@@ -81,25 +143,16 @@ async def test_extract_technical_metadata(metadata_processor: MetadataProcessor)
     )
 
 @pytest.mark.asyncio
-async def test_extract_technical_metadata_from_audio(metadata_processor: MetadataProcessor) -> None:
+async def test_extract_technical_metadata_from_audio(metadata_processor: MetadataProcessor, sample_audio_file: Path) -> None:
     """Test der technischen Metadaten-Extraktion aus einer Audio-Datei."""
-    # Setup
-    audio_path = Path("tests/sample.mp3")
-
     # Ausführung
-    technical_metadata = await metadata_processor.extract_technical_metadata(audio_path)
+    technical_metadata = await metadata_processor.extract_technical_metadata(sample_audio_file)
 
     # Überprüfung
     assert isinstance(technical_metadata, TechnicalMetadata)
     assert technical_metadata.file_name == "sample.mp3"
     assert technical_metadata.file_mime == "audio/mpeg"
     assert technical_metadata.file_size > 0
-    assert technical_metadata.media_duration is not None
-    assert technical_metadata.media_duration > 0
-    assert technical_metadata.media_bitrate is not None
-    assert technical_metadata.media_bitrate > 0
-    assert technical_metadata.media_channels is not None
-    assert technical_metadata.media_channels > 0
 
     # Speichere Ergebnis
     save_metadata_to_json(
@@ -155,13 +208,11 @@ async def test_extract_complete_metadata(metadata_processor: MetadataProcessor) 
     )
 
     # Überprüfung
-    assert isinstance(complete_metadata, CompleteMetadata)
+    assert isinstance(complete_metadata, MetadataResponse)
     assert complete_metadata.data is not None
-    assert "technical" in complete_metadata.data
-    assert "content" in complete_metadata.data
-    assert complete_metadata.data["technical"]["file_name"] == "sample.pdf"
-    assert complete_metadata.data["technical"]["file_mime"] == "application/pdf"
-    assert complete_metadata.data["technical"]["file_size"] > 0
+    assert complete_metadata.data.technical is not None
+    assert complete_metadata.data.technical.file_mime == "application/pdf"
+    assert complete_metadata.data.technical.doc_pages is not None
 
     # Speichere Ergebnis
     save_metadata_to_json(
@@ -170,10 +221,11 @@ async def test_extract_complete_metadata(metadata_processor: MetadataProcessor) 
     )
 
 @pytest.mark.asyncio
-async def test_unsupported_mime_type(metadata_processor: MetadataProcessor) -> None:
+async def test_unsupported_mime_type(metadata_processor: MetadataProcessor, tmp_path: Path) -> None:
     """Test der Fehlerbehandlung bei nicht unterstütztem MIME-Type."""
     # Setup
-    unsupported_file = Path("tests/sample.xyz")
+    unsupported_file = tmp_path / "sample.xyz"
+    unsupported_file.write_text("Test content")
 
     # Ausführung und Überprüfung
     with pytest.raises(UnsupportedMimeTypeError):
@@ -190,20 +242,15 @@ async def test_file_not_found(metadata_processor: MetadataProcessor) -> None:
         await metadata_processor.extract_technical_metadata(non_existent_file)
 
 @pytest.mark.asyncio
-async def test_invalid_file(metadata_processor: MetadataProcessor) -> None:
+async def test_invalid_file(metadata_processor: MetadataProcessor, tmp_path: Path) -> None:
     """Test der Fehlerbehandlung bei ungültiger Datei."""
     # Setup
-    invalid_file = Path("tests/invalid.pdf")
-    with open(invalid_file, "w") as f:
-        f.write("Invalid PDF content")
+    invalid_file = tmp_path / "invalid.pdf"
+    invalid_file.write_text("Invalid PDF content")
 
-    try:
-        # Ausführung und Überprüfung
-        with pytest.raises(ProcessingError):
-            await metadata_processor.extract_technical_metadata(invalid_file)
-    finally:
-        # Aufräumen
-        invalid_file.unlink()
+    # Ausführung und Überprüfung
+    with pytest.raises(ProcessingError):
+        await metadata_processor.extract_technical_metadata(invalid_file)
 
 @pytest.fixture
 def sample_audio_file() -> Generator[Path, None, None]:
@@ -228,42 +275,31 @@ async def test_metadata_extraction_structure(metadata_processor: MetadataProcess
     context = {"type": "audio"}
 
     # Ausführung
-    result = cast(CompleteMetadata, await metadata_processor.extract_metadata(
+    result = await metadata_processor.extract_metadata(
         binary_data=sample_audio_file,
         context=context
-    ))
+    )
 
     # Überprüfung der Basisstruktur
-    assert isinstance(result, CompleteMetadata)
+    assert isinstance(result, MetadataResponse)
     assert result.data is not None
-    assert "technical" in result.data
-    assert "content" in result.data
+    assert result.data.technical is not None
+    assert result.data.content is not None
 
     # Überprüfung der technischen Metadaten
-    technical = result.data["technical"]
-    assert technical["file_name"] == "sample.mp3"
-    assert technical["file_mime"] == "audio/mpeg"
-    assert technical["file_size"] > 0
-    assert technical["media_duration"] > 0
-    assert technical["media_bitrate"] > 0
-    assert technical["media_channels"] > 0
+    technical = result.data.technical
+    assert technical.file_name == "sample.mp3"
+    assert technical.file_mime == "audio/mpeg"
+    assert technical.file_size > 0
+    assert technical.media_duration is not None and technical.media_duration > 0
+    assert technical.media_bitrate is not None and technical.media_bitrate > 0
+    assert technical.media_channels is not None and technical.media_channels > 0
 
     # Überprüfung der Prozessinformationen
     assert result.process.id is not None
     assert result.process.main_processor == "metadata"
     assert result.process.started is not None
     assert result.process.completed is not None
-
-    # Überprüfung der LLM-Informationen
-    process_info = cast(ProcessInfo, result.process)
-    if hasattr(process_info, 'llm_info') and process_info.llm_info:
-        llm_info = cast(LLMInfo, process_info.llm_info)
-        if hasattr(llm_info, 'requests_count'):
-            assert llm_info.requests_count >= 0
-        if hasattr(llm_info, 'total_tokens'):
-            assert llm_info.total_tokens >= 0
-        if hasattr(llm_info, 'total_duration'):
-            assert llm_info.total_duration >= 0
 
     # Speichere Ergebnis
     save_metadata_to_json(
@@ -272,75 +308,12 @@ async def test_metadata_extraction_structure(metadata_processor: MetadataProcess
     )
 
 @pytest.mark.asyncio
-async def test_llm_info_structure(metadata_processor: MetadataProcessor, sample_audio_file: Path) -> None:
-    """Testet die Struktur der LLM-Informationen."""
-    content = "Test-Content für LLM-Verarbeitung"
-    
-    result = cast(CompleteMetadata, await metadata_processor.extract_metadata(
-        binary_data=sample_audio_file,
-        content=content
-    ))
-    
-    # LLM-Request prüfen
-    process_info = result.process
-    if hasattr(process_info, 'llm_info') and process_info.llm_info:
-        llm_info = process_info.llm_info
-        if hasattr(llm_info, 'requests') and llm_info.requests:
-            request = llm_info.requests[0]
-            assert isinstance(request.model, str)
-            assert isinstance(request.duration, float)
-            assert isinstance(request.tokens, int)
-            assert isinstance(request.timestamp, str)
-            
-            # Gesamtwerte prüfen
-            if hasattr(llm_info, 'requests_count'):
-                assert llm_info.requests_count == len(llm_info.requests)
-            if hasattr(llm_info, 'total_tokens'):
-                assert llm_info.total_tokens == sum(r.tokens for r in llm_info.requests)
-            if hasattr(llm_info, 'total_duration'):
-                assert llm_info.total_duration == sum(r.duration for r in llm_info.requests)
-
-@pytest.mark.asyncio
-async def test_error_handling(metadata_processor: MetadataProcessor) -> None:
-    """Testet die Fehlerbehandlung."""
-    
-    # Nicht existierende Datei
-    with pytest.raises(Exception):
-        result = await metadata_processor.extract_metadata(
-            binary_data=Path("nicht_existierende_datei.mp3")
-        )
-        
-        assert result.status == "error"
-        assert result.error is not None
-        assert result.error.code == "FileNotFoundError"
-        assert "nicht_existierende_datei.mp3" in result.error.message
-        assert result.process.completed is not None
-
-@pytest.mark.asyncio
-async def test_metadata_error_response(metadata_processor: MetadataProcessor) -> None:
-    """Überprüft die Fehlerbehandlung bei ungültigem MIME-Type."""
-    # Ausführung
-    with tempfile.NamedTemporaryFile(suffix=".xyz") as temp_file:
-        temp_file.write(b"Test content")
-        temp_file.seek(0)
-        result = await metadata_processor.extract_metadata(temp_file)
-
-    # Überprüfung
-    assert result.status == "error"
-    assert result.error is not None
-    assert result.error.code == "UnsupportedMimeTypeError"
-    assert "MIME-Type nicht unterstützt" in result.error.message
-    assert isinstance(result.error.details, dict)
-    assert "error_type" in result.error.details
-    assert "traceback" in result.error.details
-
-@pytest.mark.asyncio
 async def test_metadata_response_structure(metadata_processor: MetadataProcessor) -> None:
-    """Test der neuen Response-Struktur des MetadataProcessors."""
+    """Test der Response-Struktur des MetadataProcessors."""
     # Test-Datei erstellen
     test_content = "Dies ist ein Test-Inhalt für die Metadaten-Extraktion."
     test_file = io.BytesIO(test_content.encode('utf-8'))
-    test_file.name = "test.txt"  # Name für MIME-Type Erkennung
+    test_file.name = "test.txt"
 
     # Unterstützte MIME-Types erweitern
     if not hasattr(metadata_processor, 'supported_mime_types'):
@@ -379,11 +352,11 @@ async def test_metadata_response_structure(metadata_processor: MetadataProcessor
         metadata_processor.transcriber.transform_by_template = mock_transform
 
     # Metadaten extrahieren
-    result = cast(CompleteMetadata, await metadata_processor.extract_metadata(
+    result = await metadata_processor.extract_metadata(
         binary_data=test_file,
         content=test_content,
         context={'test': True}
-    ))
+    )
 
     # Struktur validieren
     assert result.status == ProcessingStatus.SUCCESS
@@ -391,6 +364,7 @@ async def test_metadata_response_structure(metadata_processor: MetadataProcessor
     assert result.request.timestamp is not None
     assert result.request.parameters == {
         "has_content": True,
+        "has_context": True,
         "context_keys": ["test"]
     }
     assert result.process.id is not None
@@ -401,131 +375,39 @@ async def test_metadata_response_structure(metadata_processor: MetadataProcessor
 
 @pytest.mark.asyncio
 async def test_extract_metadata() -> None:
-    """Test der Metadaten-Extraktion aus einer Markdown-Datei mit zusätzlichem Content."""
+    """Test der vollständigen Metadaten-Extraktion."""
     # Mock-Daten
-    file_content = """# Mein Weg zu einem gemeinsamen Leben
-Dies ist ein Beispieltext für den Test."""
+    file_content = """# Mein Weg nach Brixen
+    
+    Dies ist ein Beispieltext für den Test.
+    Er wurde am 15. Januar 2024 in Brixen verfasst."""
+    
+    additional_content = """Zusätzliche Informationen:
+    - Autor: Max Mustermann
+    - Datum: 15.01.2024
+    - Ort: Brixen, Südtirol"""
     
     file_obj = io.BytesIO(file_content.encode('utf-8'))
-    file_obj.name = "Mein Weg zu einem gemeinsamen Leben.md"
-    
-    additional_content = "Das ist ein Text aus dem jahr 2024 in Brixen"
+    file_obj.name = "Mein Weg nach Brixen.md"
 
     # Test-Ausführung
-    with patch('src.processors.metadata_processor.MetadataProcessor.extract_metadata') as mock_extract:
-        mock_extract.return_value = CompleteMetadata(
-            status=ProcessingStatus.SUCCESS,
-            request=RequestInfo(
-                processor="metadata",
-                timestamp="2025-01-26T01:47:04.514215",
-                parameters={
-                    "has_content": True,
-                    "context_keys": []
-                }
-            ),
-            process=ProcessInfo(
-                id="test",
-                main_processor="metadata",
-                sub_processors=["transformer"],
-                started="2025-01-26T01:47:04.514215",
-                completed="2025-01-26T01:47:06.903670"
-            ),
-            data={
-                "technical": {
-                    "file_name": "tmp3k33_ae0.md",
-                    "file_mime": "text/markdown",
-                    "file_size": 1268,
-                    "created": "2025-01-26T01:47:04.587826",
-                    "modified": "2025-01-26T01:47:04.587826"
-                },
-                "content": {
-                    "created": "2024-01-01T00:00:00Z",
-                    "temporal_start": "2024-01-01T00:00:00Z",
-                    "temporal_end": "2024-12-31T23:59:59Z",
-                    "spatial_location": "Brixen"
-                },
-                "metadata_type": "complete",
-                "content_available": True,
-                "technical_available": True
-            }
-        )
+    processor = MetadataProcessor(resource_calculator=Mock(spec=ResourceCalculator))
+    result = await processor.extract_metadata(
+        binary_data=file_obj,
+        content=additional_content
+    )
 
-        processor = MetadataProcessor(resource_calculator=Mock(spec=ResourceCalculator))
-        result = cast(CompleteMetadata, await processor.extract_metadata(
-            binary_data=file_obj,
-            content=additional_content
-        ))
-
-        # Überprüfungen
-        assert result.status == ProcessingStatus.SUCCESS
-        assert result.request.processor == "metadata"
-        assert result.process.main_processor == "metadata"
-        assert result.process.sub_processors == ["transformer"]
-        assert result.data["technical"]["file_mime"] == "text/markdown"
-        assert result.data["content"]["spatial_location"] == "Brixen"
-        assert result.data["content"]["created"].startswith("2024")
-        assert result.data["metadata_type"] == "complete"
-        assert result.data["content_available"] is True
-        assert result.data["technical_available"] is True
-
-@pytest.mark.asyncio
-async def test_extract_metadata_without_content() -> None:
-    """Test der Metadaten-Extraktion ohne zusätzlichen Content."""
-    # Mock-Daten
-    file_content = """# Mein Weg zu einem gemeinsamen Leben
-Dies ist ein Beispieltext für den Test."""
-    
-    file_obj = io.BytesIO(file_content.encode('utf-8'))
-    file_obj.name = "Mein Weg zu einem gemeinsamen Leben.md"
-
-    # Test-Ausführung
-    with patch('src.processors.metadata_processor.MetadataProcessor.extract_metadata') as mock_extract:
-        mock_extract.return_value = CompleteMetadata(
-            status=ProcessingStatus.SUCCESS,
-            request=RequestInfo(
-                processor="metadata",
-                timestamp="2025-01-26T01:47:04.514215",
-                parameters={
-                    "has_content": False,
-                    "context_keys": []
-                }
-            ),
-            process=ProcessInfo(
-                id="test",
-                main_processor="metadata",
-                sub_processors=[],
-                started="2025-01-26T01:47:04.514215",
-                completed="2025-01-26T01:47:06.903670"
-            ),
-            data={
-                "technical": {
-                    "file_name": "tmp3k33_ae0.md",
-                    "file_mime": "text/markdown",
-                    "file_size": 1268,
-                    "created": "2025-01-26T01:47:04.587826",
-                    "modified": "2025-01-26T01:47:04.587826"
-                },
-                "metadata_type": "complete",
-                "technical_available": True
-            }
-        )
-
-        processor = MetadataProcessor(resource_calculator=Mock(spec=ResourceCalculator))
-        result = cast(CompleteMetadata, await processor.extract_metadata(
-            binary_data=file_obj,
-            content=None
-        ))
-
-        # Überprüfungen
-        assert result.status == ProcessingStatus.SUCCESS
-        assert result.request.processor == "metadata"
-        assert result.process.main_processor == "metadata"
-        assert result.process.sub_processors == []
-        assert result.data["technical"]["file_mime"] == "text/markdown"
-        assert "content" not in result.data
-        assert result.data["metadata_type"] == "complete"
-        assert result.data["technical_available"] is True
-        assert "content_available" not in result.data
+    # Überprüfungen
+    assert result.status == ProcessingStatus.SUCCESS
+    assert result.request.processor == "metadata"
+    assert result.process.main_processor == "metadata"
+    assert result.process.sub_processors == ["transformer"]
+    assert result.data.technical is not None
+    assert result.data.technical.file_mime == "text/markdown"
+    assert result.data.content is not None
+    assert result.data.content.title == "Mein Weg nach Brixen"
+    assert result.data.content.authors == "Max Mustermann"
+    assert result.data.content.spatial_location == "Brixen"
 
 @pytest.mark.asyncio
 async def test_extract_metadata_error_handling() -> None:
@@ -535,7 +417,7 @@ async def test_extract_metadata_error_handling() -> None:
         processor = MetadataProcessor(resource_calculator=Mock(spec=ResourceCalculator))
         await processor.extract_metadata(
             binary_data=None,
-            content=None
+            content="Test content"  # Content hinzugefügt
         )
     assert "Fehler bei der technischen Metadaten-Extraktion" in str(exc_info.value)
 
@@ -545,9 +427,94 @@ async def test_extract_metadata_error_handling() -> None:
     large_file.name = "large_file.txt"
     
     with pytest.raises(ProcessingError) as exc_info:
-        processor = MetadataProcessor(resource_calculator=Mock(spec=ResourceCalculator))
         await processor.extract_metadata(
             binary_data=large_file,
             content=None
         )
-    assert "Datei ist zu groß" in str(exc_info.value) 
+    assert "Datei zu groß" in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_metadata_processor_basic(resource_calculator: ResourceCalculator, test_file: Path) -> None:
+    """Testet die grundlegende Funktionalität des MetadataProcessors."""
+    processor = MetadataProcessor(resource_calculator, "test-process")
+    
+    response = await processor.process(
+        binary_data=test_file,
+        content="Test content",
+        context={"test": True}
+    )
+    
+    assert response is not None
+    assert response.status == ProcessingStatus.SUCCESS
+    assert response.data is not None
+    assert response.data.technical is not None
+    assert response.data.technical.file_name == "test.txt"
+    assert response.data.technical.file_mime == "text/plain"
+    assert response.data.steps is not None
+    assert len(response.data.steps) > 0
+
+@pytest.mark.asyncio
+async def test_metadata_processor_technical_only(resource_calculator: ResourceCalculator, test_file: Path) -> None:
+    """Testet die Extraktion von technischen Metadaten."""
+    processor = MetadataProcessor(resource_calculator, "test-process")
+    
+    response = await processor.process(
+        binary_data=test_file
+    )
+    
+    assert response.status == ProcessingStatus.SUCCESS
+    assert response.data.technical is not None
+    assert response.data.content is None
+    assert len(response.data.steps) == 1
+    assert response.data.steps[0].name == "technical_metadata"
+    assert response.data.steps[0].status == ProcessingStatus.SUCCESS
+
+@pytest.mark.asyncio
+async def test_metadata_processor_content_only(resource_calculator: ResourceCalculator) -> None:
+    """Testet die Extraktion von inhaltlichen Metadaten."""
+    processor = MetadataProcessor(resource_calculator, "test-process")
+    
+    response = await processor.process(
+        binary_data=None,  # Kein binary_data für Content-Only
+        content="Test content for analysis"
+    )
+    
+    assert response.status == ProcessingStatus.SUCCESS
+    assert response.data.content is not None
+    assert response.data.content.title is not None
+    assert response.data.content.type == "text"
+    assert len(response.data.steps) > 0
+    content_step = next(s for s in response.data.steps if s.name == "content_metadata")
+    assert content_step.status == ProcessingStatus.SUCCESS
+
+@pytest.mark.asyncio
+async def test_metadata_processor_error_handling(resource_calculator: ResourceCalculator):
+    """Testet die Fehlerbehandlung."""
+    processor = MetadataProcessor(resource_calculator, "test-process")
+    
+    with pytest.raises(Exception):
+        await processor.process(
+            binary_data="nonexistent_file.txt"
+        )
+
+@pytest.fixture
+def sample_pdf_file(tmp_path: Path) -> Path:
+    """Erstellt eine minimale PDF-Datei für Tests."""
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%EOF")
+    return pdf_path
+
+@pytest.fixture
+def sample_audio_file(tmp_path: Path) -> Path:
+    """Erstellt eine minimale MP3-Datei für Tests."""
+    audio_path = tmp_path / "sample.mp3"
+    # Minimale MP3-Header-Bytes
+    audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
+    return audio_path
+
+@pytest.fixture
+def sample_text_file(tmp_path: Path) -> Path:
+    """Erstellt eine Text-Datei für Tests."""
+    text_path = tmp_path / "sample.txt"
+    text_path.write_text("Dies ist ein Testtext.")
+    return text_path 

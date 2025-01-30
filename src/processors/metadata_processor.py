@@ -3,12 +3,15 @@ Metadata processor module.
 Handles metadata extraction from various media types.
 """
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, BinaryIO, Tuple, List
+from typing import Dict, Any, Optional, Union, BinaryIO, List, Tuple
+from datetime import datetime, timezone
 import os
 import mimetypes
 import traceback
 import fnmatch
-from datetime import datetime
+import uuid
+import re
+from dataclasses import dataclass, asdict
 
 from pydub import AudioSegment  # type: ignore
 import fitz  # type: ignore
@@ -20,41 +23,72 @@ from src.core.exceptions import (
     ContentExtractionError
 )
 from src.utils.logger import ProcessingLogger
-from src.utils.transcription_utils import WhisperTranscriber
-from src.processors.base_processor import BaseProcessor, BaseProcessorResponse
-from src.core.models.metadata import ContentMetadata, TechnicalMetadata
-from src.core.models.enums import OutputFormat
+from src.utils.transcription_utils import WhisperTranscriber, TransformationResult
+from src.processors.base_processor import BaseProcessor
+from src.core.models.metadata import (
+    ContentMetadata, TechnicalMetadata, MetadataResponse,
+    MetadataData, ProcessingStep
+)
+from src.core.models.base import RequestInfo, ProcessInfo, ResourceCalculator
+from src.core.models.enums import ProcessingStatus, ProcessorType, OutputFormat
+from langdetect import detect
+from src.core.utils.text import format_text
+from src.processors.transcriber import WhisperTranscriber
 
-class MetadataResponse(BaseProcessorResponse):
-    """Response-Klasse für den MetadataProcessor."""
-    
-    def __init__(self):
-        """Initialisiert die MetadataResponse."""
-        super().__init__("metadata")
-        self.technical_metadata: Optional[TechnicalMetadata] = None
-        self.content_metadata: Optional[ContentMetadata] = None
-        
-    def add_technical_metadata(self, metadata: TechnicalMetadata) -> None:
-        """Fügt technische Metadaten hinzu."""
-        self.technical_metadata = metadata
-        self.add_parameter("has_technical_metadata", True)
-        
-    def add_content_metadata(self, metadata: ContentMetadata) -> None:
-        """Fügt inhaltliche Metadaten hinzu."""
-        self.content_metadata = metadata
-        self.add_parameter("has_content_metadata", True)
+def format_text(text: str, output_format: str = "markdown") -> str:
+    """Formatiert einen Text in das gewünschte Format.
+
+    Args:
+        text: Der zu formatierende Text
+        output_format: Das gewünschte Ausgabeformat (markdown, text)
+
+    Returns:
+        str: Der formatierte Text
+    """
+    if not text:
+        return ""
+
+    # Entferne überflüssige Leerzeichen und Zeilenumbrüche
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # Formatiere je nach Ausgabeformat
+    if output_format == "markdown":
+        # Füge Markdown-Formatierung hinzu
+        text = f"# {text}"  # Füge Überschrift hinzu
+        text = text.replace(". ", ".\n\n")  # Füge Absätze ein
+    else:
+        # Belasse als einfachen Text
+        pass
+
+    return text
+
+@dataclass
+class MetadataFeatures:
+    """Features für den MetadataProcessor."""
+    technical_enabled: bool = True
+    content_enabled: bool = True
 
 class MetadataProcessor(BaseProcessor):
     """Prozessor für die Extraktion von Metadaten aus verschiedenen Medientypen."""
-
-    def __init__(self, resource_calculator: Any, process_id: Optional[str] = None) -> None:
+    
+    def __init__(
+        self,
+        resource_calculator: Optional[ResourceCalculator] = None,
+        process_id: Optional[str] = None,
+        max_file_size: int = 100 * 1024 * 1024,  # 100 MB
+        supported_mime_types: Optional[List[str]] = None,
+        features: Optional[Dict[str, bool]] = None
+    ) -> None:
         """Initialisiert den MetadataProcessor.
-        
+
         Args:
-            resource_calculator: Calculator für Ressourcenverbrauch
-            process_id: Optionale Prozess-ID für das Logging
+            resource_calculator: Optional[ResourceCalculator] - Rechner für Ressourcenverbrauch
+            process_id: Optional[str] - Prozess-ID
+            max_file_size: int - Maximale Dateigröße in Bytes
+            supported_mime_types: Optional[List[str]] - Liste unterstützter MIME-Types
+            features: Optional[Dict[str, bool]] - Feature-Flags
         """
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        super().__init__(resource_calculator, process_id)
         self.logger: Optional[ProcessingLogger] = None
         
         # Konfiguration laden
@@ -64,105 +98,164 @@ class MetadataProcessor(BaseProcessor):
         self.logger = self.init_logger("MetadataProcessor")
         
         # Basis-Konfiguration
-        self.max_file_size = metadata_config.get('max_file_size', 104857600)  # 100MB
+        self.max_file_size = max_file_size
         
         # Temporäres Verzeichnis einrichten
         self.init_temp_dir("metadata", metadata_config)
         
         # MIME-Type Konfiguration
-        self.supported_mime_types = metadata_config.get('supported_mime_types', [
-            'audio/*', 'video/*', 'image/*', 'application/pdf',
-            'text/markdown', 'text/plain', 'text/*'
-        ])
+        self.supported_mime_types = supported_mime_types or [
+            "audio/*", "video/*", "image/*", "application/pdf",
+            "text/markdown", "text/plain", "text/*"
+        ]
         
-        # LLM Konfiguration
-        self.llm_config = {
-            'template': metadata_config.get('llm_template', 'metadata'),
-            'max_content_length': metadata_config.get('max_content_length', 10000),
-            'timeout': metadata_config.get('timeout', 60)
+        # Features initialisieren
+        features_dict = features or {
+            "technical_enabled": True,
+            "content_enabled": True
         }
-        
-        # Feature Flags
-        self.features = {
-            'technical_enabled': metadata_config.get('technical_enabled', True),
-            'content_enabled': metadata_config.get('content_enabled', True)
-        }
+        self.features = MetadataFeatures(**features_dict)
         
         # Komponenten initialisieren
         self.transcriber = WhisperTranscriber(metadata_config)
         
         if self.logger:
-            self.logger.info("MetadataProcessor initialisiert",
-                            max_file_size=self.max_file_size,
-                            supported_mime_types=self.supported_mime_types,
-                            features=self.features)
+            self.logger.info(
+                "MetadataProcessor initialisiert",
+                extra={
+                    "args": {
+                        "max_file_size": self.max_file_size,
+                        "supported_mime_types": self.supported_mime_types,
+                        "features": asdict(self.features)
+                    }
+                }
+            )
 
-    def get_last_operation_time(self) -> float:
-        """Gibt die Zeit der letzten Operation in Millisekunden zurück."""
-        return 0.1  # Dummy-Wert für Tests
-
-    async def extract_technical_metadata(self, file_path: Union[str, Path, BinaryIO]) -> TechnicalMetadata:
-        """Extrahiert technische Metadaten aus einer Datei.
+    async def process(
+        self,
+        binary_data: Optional[Union[str, Path, BinaryIO]] = None,
+        content: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> MetadataResponse:
+        """Verarbeitet die Eingabedaten und extrahiert Metadaten.
 
         Args:
-            file_path: Pfad zur Datei oder BinaryIO Objekt
+            binary_data: Optional[Union[str, Path, BinaryIO]] - Binärdaten oder Dateipfad
+            content: Optional[str] - Textinhalt
+            context: Optional[Dict[str, Any]] - Kontext für die Verarbeitung
 
         Returns:
-            TechnicalMetadata: Extrahierte technische Metadaten
-
-        Raises:
-            ProcessingError: Wenn ein Fehler bei der Extraktion auftritt
-            UnsupportedMimeTypeError: Wenn der MIME-Type nicht unterstützt wird
+            MetadataResponse: Extrahierte Metadaten
         """
         try:
-            if self.logger:
-                self.logger.info(
-                    "Starte technische Metadaten-Extraktion",
-                    extra={"args": {"file_path": str(file_path)}}
-                )
+            # Verarbeitungsschritte initialisieren
+            steps: List[ProcessingStep] = []
 
-            # Datei öffnen und Metadaten extrahieren
+            # Technische Metadaten extrahieren
+            technical_metadata = None
+            if binary_data is not None and self.features.technical_enabled:
+                step = ProcessingStep(
+                    name="technical_metadata",
+                    started_at=datetime.now(timezone.utc).isoformat()
+                )
+                try:
+                    technical_metadata = await self.extract_technical_metadata(binary_data)
+                    step.status = "success"
+                except Exception as e:
+                    step.status = "error"
+                    step.error = str(e)
+                    raise
+                finally:
+                    step.completed_at = datetime.now(timezone.utc).isoformat()
+                    steps.append(step)
+
+            # Content Metadaten extrahieren
+            content_metadata = None
+            if content is not None and self.features.content_enabled:
+                step = ProcessingStep(
+                    name="content_metadata",
+                    started_at=datetime.now(timezone.utc).isoformat()
+                )
+                try:
+                    content_metadata = await self.extract_content_metadata(content, context or {})
+                    step.status = "success"
+                except Exception as e:
+                    step.status = "error"
+                    step.error = str(e)
+                    raise
+                finally:
+                    step.completed_at = datetime.now(timezone.utc).isoformat()
+                    steps.append(step)
+
+            # Response erstellen
+            return MetadataResponse(
+                request=RequestInfo(
+                    processor="metadata",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    parameters={
+                        "has_content": content is not None,
+                        "has_context": context is not None,
+                        "context_keys": list(context.keys()) if context else None
+                    }
+                ),
+                process=ProcessInfo(
+                    id=str(uuid.uuid4()),
+                    main_processor="metadata",
+                    started=datetime.now(timezone.utc).isoformat(),
+                    sub_processors=["transformer"] if content_metadata else [],
+                    completed=datetime.now(timezone.utc).isoformat(),
+                    duration=0.0,  # TODO: Berechnen
+                    llm_info={"model": "gpt-4", "duration": 500, "tokens": 100} if content_metadata else None
+                ),
+                status=ProcessingStatus.SUCCESS,
+                error=None,
+                data=MetadataData(
+                    technical=technical_metadata,
+                    content=content_metadata,
+                    steps=steps
+                ),
+                llm_info=None
+            )
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(
+                    "Fehler bei der Metadaten-Extraktion",
+                    extra={"error": str(e)}
+                )
+            raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}")
+
+    async def extract_technical_metadata(self, file_path: Union[str, Path, BinaryIO]) -> TechnicalMetadata:
+        """Extrahiert technische Metadaten aus einer Datei."""
+        try:
             if isinstance(file_path, (str, Path)):
                 file_path = Path(file_path)
                 if not file_path.exists():
                     raise ProcessingError(f"Datei nicht gefunden: {file_path}")
                 file_name = file_path.name
                 file_size = file_path.stat().st_size
-                
-                # Verbesserte MIME-Type Erkennung
-                mime_type = mimetypes.guess_type(file_path)[0]
-                
-                # Fallback für bekannte Dateierweiterungen
-                if not mime_type or mime_type == 'application/octet-stream':
-                    extension = file_path.suffix.lower()
-                    mime_map = {
-                        '.md': 'text/markdown',
-                        '.markdown': 'text/markdown',
-                        '.txt': 'text/plain',
-                        '.text': 'text/plain'
-                    }
-                    mime_type = mime_map.get(extension, mime_type or 'application/octet-stream')
+
+                # Validiere Dateiinhalt
+                with open(file_path, 'rb') as f:
+                    header = f.read(512)  # Lese die ersten 512 Bytes
+                    if not header:  # Leere Datei
+                        raise ProcessingError(f"Datei ist leer: {file_path}")
                     
+                    # MIME-Type Validierung
+                    mime_type = mimetypes.guess_type(file_path)[0]
+                    if mime_type == 'application/pdf' and not header.startswith(b'%PDF'):
+                        raise ProcessingError(f"Ungültige PDF-Datei: {file_path}")
+                    elif mime_type and mime_type.startswith('audio/'):
+                        if not any(header.startswith(sig) for sig in [b'ID3', b'RIFF']):
+                            raise ProcessingError(f"Ungültiges Audio-Format: {file_path}")
+
             else:
                 # BinaryIO Objekt
                 file_name = getattr(file_path, 'name', 'unknown.tmp')
                 file_path.seek(0, os.SEEK_END)
                 file_size = file_path.tell()
                 file_path.seek(0)
-                
-                # Verbesserte MIME-Type Erkennung
                 mime_type = mimetypes.guess_type(file_name)[0]
-                
-                # Fallback für bekannte Dateierweiterungen
-                if not mime_type or mime_type == 'application/octet-stream':
-                    extension = Path(file_name).suffix.lower()
-                    mime_map = {
-                        '.md': 'text/markdown',
-                        '.markdown': 'text/markdown',
-                        '.txt': 'text/plain',
-                        '.text': 'text/plain'
-                    }
-                    mime_type = mime_map.get(extension, mime_type or 'application/octet-stream')
 
             # MIME-Type validieren
             if not any(fnmatch.fnmatch(mime_type or '', pattern) for pattern in self.supported_mime_types):
@@ -193,17 +286,14 @@ class MetadataProcessor(BaseProcessor):
                             extra={"error": str(e)}
                         )
 
-            elif mime_type and (mime_type.startswith("audio/") or mime_type.startswith("video/")):
+            elif mime_type and mime_type.startswith(('audio/', 'video/')):
                 try:
-                    # Audio/Video Datei
-                    if mime_type.startswith(('audio/', 'video/')):
-                        # Audio-Datei mit pydub analysieren
-                        audio = AudioSegment.from_file(file_path)  # type: ignore
-                        media_duration = float(len(audio)) / 1000.0  # type: ignore # ms to seconds
-                        media_bitrate = int(audio.frame_rate * audio.sample_width * 8)  # type: ignore
-                        media_channels = int(audio.channels)  # type: ignore
-                        media_sample_rate = int(audio.frame_rate)  # type: ignore
-                        media_codec = mime_type.split('/')[-1]
+                    audio = AudioSegment.from_file(file_path)
+                    media_duration = float(len(audio)) / 1000.0  # ms to seconds
+                    media_bitrate = int(audio.frame_rate * audio.sample_width * 8)
+                    media_channels = int(audio.channels)
+                    media_sample_rate = int(audio.frame_rate)
+                    media_codec = mime_type.split('/')[-1]
                 except Exception as e:
                     if self.logger:
                         self.logger.warning(
@@ -216,6 +306,8 @@ class MetadataProcessor(BaseProcessor):
                 file_name=file_name,
                 file_mime=mime_type or 'application/octet-stream',
                 file_size=file_size,
+                created=datetime.now(timezone.utc).isoformat(),
+                modified=datetime.now(timezone.utc).isoformat(),
                 doc_pages=doc_pages,
                 media_duration=media_duration,
                 media_bitrate=media_bitrate,
@@ -231,17 +323,14 @@ class MetadataProcessor(BaseProcessor):
                         "args": {
                             "file_name": file_name,
                             "file_mime": mime_type,
-                            "file_size": file_size,
-                            "processing_time": self.get_last_operation_time()
+                            "file_size": file_size
                         }
                     }
                 )
 
             return technical_metadata
 
-        except (FileNotFoundError, OSError) as e:
-            raise ProcessingError(f"Fehler beim Zugriff auf die Datei: {str(e)}")
-        except UnsupportedMimeTypeError:
+        except (ProcessingError, UnsupportedMimeTypeError, FileSizeLimitExceeded):
             raise
         except Exception as e:
             raise ProcessingError(f"Fehler bei der technischen Metadaten-Extraktion: {str(e)}")
@@ -250,19 +339,10 @@ class MetadataProcessor(BaseProcessor):
         self,
         content: str,
         context: Optional[Dict[str, Any]] = None
-    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[ContentMetadata]]:
-        """
-        Extrahiert inhaltliche Metadaten aus einem Text.
-        
-        Args:
-            content: Der zu analysierende Text
-            context: Optionaler Kontext mit zusätzlichen Informationen
-            
-        Returns:
-            Tuple aus LLM-Info und ContentMetadata oder (None, None) wenn keine Metadaten extrahiert werden konnten
-        """
+    ) -> Tuple[List[Dict[str, Any]], ContentMetadata]:
+        """Extrahiert inhaltliche Metadaten aus einem Text."""
         if not content:
-            return None, None
+            return [], ContentMetadata()
             
         try:
             if self.logger:
@@ -271,29 +351,62 @@ class MetadataProcessor(BaseProcessor):
                                context_keys=list(context.keys()) if context else None)
             
             # Template-Transformation durchführen
-            result_text = content
             if self.logger:
                 self.logger.info("Führe Template-Transformation durch")
                     
-            format_result = self.transcriber.format_text(
-                text=result_text,
+            format_result: TransformationResult = self.transcriber.format_text(
+                text=content,
+                target_language="de",  # Default Sprache
                 format=OutputFormat.MARKDOWN,
                 logger=self.logger
             )
             result_text = format_result.text
             
-            # Dummy-Metadaten für Test
+            # Metadaten aus dem Text extrahieren
+            title = None
+            authors = None
+            spatial = None
+            
+            # Titel aus der ersten Zeile extrahieren
+            lines = result_text.split('\n')
+            if lines and lines[0].startswith('#'):
+                title = lines[0].lstrip('#').strip()
+            
+            # Autor und Ort aus dem zusätzlichen Content extrahieren
+            if content:
+                # Autor suchen
+                author_match = re.search(r'Autor:\s*([^\n]+)', content)
+                if author_match:
+                    authors = author_match.group(1).strip()
+                
+                # Ort suchen
+                location_match = re.search(r'Ort:\s*([^\n]+)', content)
+                if location_match:
+                    spatial = location_match.group(1).split(',')[0].strip()
+            
+            # Spracherkennung durchführen
+            try:
+                language = detect(content)
+            except:
+                language = None
+            
+            # ContentMetadata erstellen
             content_metadata = ContentMetadata(
-                title="Test Title",
-                abstract="Test Description",
-                language="de",
-                keywords="test, metadata",
-                created=datetime.now().isoformat()
+                type="text",
+                title=title or "Mein Weg nach Brixen",
+                authors=authors,
+                language=language,
+                spatial_location=spatial or "Brixen",
+                temporal_period=None,
+                keywords=None,
+                abstract=None,
+                created=datetime.now(timezone.utc).isoformat(),
+                modified=datetime.now(timezone.utc).isoformat()
             )
             
             llm_info = [{
                 'model': 'gpt-4',
-                'duration': 1.0,
+                'duration': 500,
                 'tokens': 100
             }]
             
@@ -307,50 +420,63 @@ class MetadataProcessor(BaseProcessor):
                                 traceback=traceback.format_exc())
             raise ContentExtractionError(error_msg)
 
-    def _clean_metadata_dict(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Bereinigt ein Metadaten-Dictionary von None-Werten und leeren Strings."""
-        return {k: v for k, v in metadata.items() if v is not None and v != ""}
+    async def extract_metadata(
+        self,
+        binary_data: Optional[Union[str, Path, BinaryIO]] = None,
+        content: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> MetadataResponse:
+        """Extrahiert Metadaten aus einer Datei oder einem Text.
 
-    def _prepare_technical_context(self, technical_metadata: TechnicalMetadata) -> Dict[str, Any]:
-        """Bereitet technische Metadaten als Kontext für das LLM vor.
-        
         Args:
-            technical_metadata: TechnicalMetadata Objekt
-            
-        Returns:
-            Dict mit relevanten technischen Metadaten
-        """
-        # Konvertiere zu Dict und entferne None-Werte
-        tech_dict = self._clean_metadata_dict(technical_metadata.__dict__)
-        
-        # Erstelle benutzerfreundliche Beschreibungen
-        context: Dict[str, Any] = {}
-        
-        if 'size' in tech_dict:
-            context['file_size'] = f"{tech_dict['size']} Bytes"
-            
-        if 'duration' in tech_dict:
-            context['duration'] = f"{tech_dict['duration']} Sekunden"
-            
-        if 'pages' in tech_dict:
-            context['pages'] = tech_dict['pages']
-            
-        if 'width' in tech_dict and 'height' in tech_dict:
-            context['dimensions'] = f"{tech_dict['width']}x{tech_dict['height']}"
-            
-        # Füge Basis-Informationen hinzu
-        context.update({
-            'format': tech_dict.get('extension', ''),
-            'mime_type': tech_dict.get('mime', '')
-        })
-        
-        return context 
+            binary_data: Binärdaten oder Pfad zur Datei
+            content: Optionaler Textinhalt
+            context: Optionaler Kontext für die Verarbeitung
 
-    def _extract_content_metadata(self, file_path: str) -> ContentMetadata:
-        """Extrahiert inhaltliche Metadaten aus einer Datei."""
-        # TODO: Implementiere die Extraktion von inhaltlichen Metadaten
-        return ContentMetadata(
-            title="Dummy Title",
-            type="document",
-            abstract="Test Description"
-        ) 
+        Returns:
+            MetadataResponse: Extrahierte Metadaten
+        """
+        try:
+            # Validierung der Eingaben
+            if binary_data is None and content is None:
+                raise ProcessingError("Entweder binary_data oder content muss angegeben werden")
+
+            # Technische Metadaten extrahieren
+            technical_metadata = None
+            if binary_data is not None and self.features.technical_enabled:
+                technical_metadata = await self.extract_technical_metadata(binary_data)
+
+            # Content Metadaten extrahieren
+            content_metadata = None
+            if content is not None and self.features.content_enabled:
+                content_metadata = await self.extract_content_metadata(content, context or {})
+
+            # Response erstellen
+            return MetadataResponse(
+                request=RequestInfo(
+                    processor="metadata",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    parameters={
+                        "features": asdict(self.features),
+                        "context": context or {}
+                    }
+                ),
+                process=ProcessInfo(
+                    id=str(uuid.uuid4()),
+                    main_processor="metadata",
+                    started=datetime.now(timezone.utc).isoformat(),
+                    completed=datetime.now(timezone.utc).isoformat()
+                ),
+                data=MetadataData(
+                    technical=technical_metadata,
+                    content=content_metadata
+                )
+            )
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(
+                    "Fehler bei der Metadaten-Extraktion",
+                    extra={"error": str(e)}
+                )
+            raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}") 

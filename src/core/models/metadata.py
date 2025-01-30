@@ -2,8 +2,12 @@
 Metadaten-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
+from .enums import ProcessingStatus
+from .llm import LLMInfo
 
 @dataclass(frozen=True, slots=True)
 class ContentMetadata:
@@ -49,7 +53,7 @@ class ContentMetadata:
     rights_commercial: Optional[bool] = None
     rights_modifications: Optional[bool] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Validiere optionale Felder wenn sie gesetzt sind
         if self.language is not None and len(self.language) != 2:
             raise ValueError("Language code must be ISO 639-1 (2 characters)")
@@ -75,7 +79,7 @@ class TechnicalMetadata:
     media_channels: Optional[int] = None
     media_sample_rate: Optional[int] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.file_name.strip():
             raise ValueError("File name must not be empty")
         if not self.file_mime.strip():
@@ -92,3 +96,82 @@ class TechnicalMetadata:
             raise ValueError("Media channels must be positive")
         if self.media_sample_rate is not None and self.media_sample_rate <= 0:
             raise ValueError("Media sample rate must be positive") 
+
+@dataclass(frozen=True, slots=True)
+class ProcessingStep:
+    """Tracking eines einzelnen Verarbeitungsschritts."""
+    name: str
+    status: ProcessingStatus
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[float] = None
+    error: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        """Validiert die Felder nach der Initialisierung."""
+        if not self.name.strip():
+            raise ValueError("Step name must not be empty")
+        if not self.started_at:
+            raise ValueError("started_at must be provided")
+        if self.completed_at is not None and self.completed_at < self.started_at:
+            raise ValueError("completed_at must be after started_at")
+        if self.duration_ms is not None and self.duration_ms < 0:
+            raise ValueError("duration_ms must be non-negative if provided")
+
+@dataclass(frozen=True, slots=True)
+class MetadataData:
+    """Container für alle Metadaten-Informationen."""
+    technical: Optional[TechnicalMetadata] = None
+    content: Optional[ContentMetadata] = None
+    source_info: Optional[Dict[str, Any]] = None
+    steps: List[ProcessingStep] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validiert die Felder nach der Initialisierung."""
+        if not self.technical and not self.content:
+            raise ValueError("At least one of technical or content metadata must be provided")
+
+@dataclass(frozen=True, init=False)
+class MetadataResponse(BaseResponse):
+    """Hauptresponse-Klasse für den MetadataProcessor."""
+    data: MetadataData
+    llm_info: Optional[LLMInfo] = None
+    status: ProcessingStatus = ProcessingStatus.PENDING
+    error: Optional[ErrorInfo] = None
+
+    def __init__(
+        self,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: MetadataData,
+        llm_info: Optional[LLMInfo] = None,
+        status: ProcessingStatus = ProcessingStatus.PENDING,
+        error: Optional[ErrorInfo] = None
+    ) -> None:
+        """Initialisiert die MetadataResponse."""
+        super().__init__(request=request, process=process, status=status, error=error)
+        object.__setattr__(self, 'data', data)
+        object.__setattr__(self, 'llm_info', llm_info)
+
+    @classmethod
+    def create(cls, request: RequestInfo, process: ProcessInfo, data: MetadataData,
+               llm_info: Optional[LLMInfo] = None) -> 'MetadataResponse':
+        """Erstellt eine erfolgreiche Response."""
+        return cls(
+            request=request,
+            process=process,
+            data=data,
+            llm_info=llm_info,
+            status=ProcessingStatus.SUCCESS
+        )
+
+    @classmethod
+    def create_error(cls, request: RequestInfo, process: ProcessInfo, error_info: ErrorInfo) -> 'MetadataResponse':
+        """Erstellt eine Fehler-Response."""
+        return cls(
+            request=request,
+            process=process,
+            data=MetadataData(content=None, technical=None),  # Leere Metadaten bei Fehler
+            error=error_info,
+            status=ProcessingStatus.ERROR
+        ) 

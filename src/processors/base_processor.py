@@ -277,7 +277,7 @@ class BaseProcessor:
             if self.logger:
                 self.logger.error(
                     "Fehler beim Laden der Processor-Konfiguration",
-                    error=str(e),
+                    error=e,
                     processor=processor_name
                 )
             return {} 

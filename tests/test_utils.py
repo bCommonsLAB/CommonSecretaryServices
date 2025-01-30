@@ -43,6 +43,7 @@ class TestWhisperTranscriber:
         result = transcriber.transform_by_template(
             text="Test text",
             template="Zusammenfassung: {{text}}",
+            target_language="de",
             context={"language": "de"}
         )
         
