@@ -4,38 +4,15 @@ Common Secretary Services - Ein Framework für die Verarbeitung von Text und Med
 
 __version__ = "0.1.0"
 
-from src.core.models import (
-    # LLM Models
-    LLModel, LLMRequest, LLMInfo,
-    
-    # Base Models
-    ErrorInfo, RequestInfo, ProcessInfo,
-    
-    # Metadata Models
-    ContentMetadata, TechnicalMetadata,
-    
-    # Transformer Models
-    TransformerInput, TransformerOutput, TransformerData, TransformerResponse,
-    
-    # Audio Models
-    AudioSegmentInfo, Chapter, AudioMetadata, AudioProcessingResult,
-    
-    # YouTube Models
-    YoutubeMetadata, YoutubeProcessingResult
-)
-
-from src.processors import (
-    # Base Classes
-    BaseProcessor, BaseProcessorResponse,
-    
-    # Processors
-    TransformerProcessor,
-    MetadataProcessor,
-    YoutubeProcessor,
-    
-    # Response Types
-    MetadataResponse
-)
+from src.core.models import (  # LLM Models; Base Models; Metadata Models; Transformer Models; Audio Models; YouTube Models
+    AudioMetadata, AudioProcessingResult, AudioSegmentInfo, Chapter,
+    ContentMetadata, ErrorInfo, LLMInfo, LLModel, LLMRequest, ProcessInfo,
+    RequestInfo, TechnicalMetadata, TransformerData, TransformerInput,
+    TransformerOutput, TransformerResponse, YoutubeMetadata,
+    YoutubeProcessingResult)
+from src.processors import (  # Base Classes; Processors; Response Types
+    BaseProcessor, BaseProcessorResponse, MetadataProcessor, MetadataResponse,
+    TransformerProcessor, YoutubeProcessor)
 
 __all__ = [
     '__version__',

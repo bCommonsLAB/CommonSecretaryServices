@@ -1,22 +1,26 @@
 import os
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple, Union
-import yt_dlp
-import time
 import tempfile
-from pydub import AudioSegment
+import time
 import traceback
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .base_processor import BaseProcessor
-from .audio_processor import AudioProcessor
-from src.core.resource_tracking import ResourceUsage
-from src.core.exceptions import ProcessingError
-from src.utils.logger import get_logger
-from src.utils.transcription_utils import WhisperTranscriber
+import yt_dlp
+
 from src.core.config import Config
 from src.core.config_keys import ConfigKeys
-from src.core.models.youtube import YoutubeMetadata, YoutubeProcessingResult
+from src.core.exceptions import ProcessingError
 from src.core.models.audio import AudioProcessingResult
+from src.core.models.base import ProcessInfo, RequestInfo
+from src.core.models.enums import ProcessorType
+from src.core.models.youtube import YoutubeMetadata, YoutubeProcessingResult
+from src.core.resource_tracking import ResourceUsage
+from src.utils.logger import get_logger
+from src.utils.transcription_utils import WhisperTranscriber
+
+from .base_processor import BaseProcessor
+from .transformer_processor import TransformerProcessor
+
 
 class YoutubeProcessor(BaseProcessor):
     """
@@ -53,7 +57,7 @@ class YoutubeProcessor(BaseProcessor):
         }
         
         # Initialisiere Audio-Processor
-        self.audio_processor = AudioProcessor(resource_calculator, process_id)
+        self.transformer = TransformerProcessor(resource_calculator, process_id)
         
     def _extract_video_id(self, url: str) -> str:
         """Extrahiert die Video-ID aus einer YouTube-URL."""
@@ -192,12 +196,11 @@ class YoutubeProcessor(BaseProcessor):
 
                         # Verarbeite Audio
                         self.logger.debug("Vor Audio Processing Aufruf")
-                        audio_result = await self.audio_processor.process(
-                            audio_path, 
-                            source_info=metadata.model_dump(), 
-                            chapters=info.get('chapters', []),
-                            target_language=target_language, 
-                            template=template
+                        audio_result = await self.transformer.transform(
+                            source_text=audio_path,
+                            source_language="auto",
+                            target_language=target_language,
+                            context={"type": "audio"}
                         )
 
                         self.logger.debug("Nach Audio Processing",

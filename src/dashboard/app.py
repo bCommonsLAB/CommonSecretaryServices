@@ -1,17 +1,20 @@
 """
 Main Flask application module.
 """
-from flask import Flask
+import os
 import signal
 import sys
-import os
 from types import FrameType
-from typing import Optional, NoReturn, Union
+from typing import NoReturn, Optional, Union
+
+from flask import Flask
+
+from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
-from .routes.main_routes import main
+
 from .routes.config_routes import config
 from .routes.log_routes import logs
-from src.api.routes import blueprint as api_blueprint
+from .routes.main_routes import main
 
 # Reset Logger beim Start
 logger_service.reset()

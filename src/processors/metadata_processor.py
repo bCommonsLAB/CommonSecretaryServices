@@ -2,65 +2,30 @@
 Metadata processor module.
 Handles metadata extraction from various media types.
 """
-from pathlib import Path
-from typing import Dict, Any, Optional, Union, BinaryIO, List, Tuple
-from datetime import datetime, timezone
-import os
-import mimetypes
-import traceback
 import fnmatch
-import uuid
+import mimetypes
+import os
 import re
-from dataclasses import dataclass, asdict
+import traceback
+import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
-from pydub import AudioSegment  # type: ignore
 import fitz  # type: ignore
 
-from src.core.exceptions import (
-    ProcessingError, 
-    FileSizeLimitExceeded, 
-    UnsupportedMimeTypeError, 
-    ContentExtractionError
-)
-from src.utils.logger import ProcessingLogger
-from src.utils.transcription_utils import WhisperTranscriber, TransformationResult
+from src.core.exceptions import (ContentExtractionError, FileSizeLimitExceeded,
+                                 ProcessingError, UnsupportedMimeTypeError)
+from src.core.models.base import ProcessInfo, RequestInfo, ResourceCalculator
+from src.core.models.enums import OutputFormat, ProcessingStatus, ProcessorType
+from src.core.models.metadata import (ContentMetadata, MetadataData,
+                                      MetadataResponse, ProcessingStep,
+                                      TechnicalMetadata)
 from src.processors.base_processor import BaseProcessor
-from src.core.models.metadata import (
-    ContentMetadata, TechnicalMetadata, MetadataResponse,
-    MetadataData, ProcessingStep
-)
-from src.core.models.base import RequestInfo, ProcessInfo, ResourceCalculator
-from src.core.models.enums import ProcessingStatus, ProcessorType, OutputFormat
-from langdetect import detect
-from src.core.utils.text import format_text
-from src.processors.transcriber import WhisperTranscriber
+from src.processors.transformer_processor import TransformerProcessor
+from src.utils.logger import ProcessingLogger
 
-def format_text(text: str, output_format: str = "markdown") -> str:
-    """Formatiert einen Text in das gewünschte Format.
-
-    Args:
-        text: Der zu formatierende Text
-        output_format: Das gewünschte Ausgabeformat (markdown, text)
-
-    Returns:
-        str: Der formatierte Text
-    """
-    if not text:
-        return ""
-
-    # Entferne überflüssige Leerzeichen und Zeilenumbrüche
-    text = re.sub(r'\s+', ' ', text).strip()
-
-    # Formatiere je nach Ausgabeformat
-    if output_format == "markdown":
-        # Füge Markdown-Formatierung hinzu
-        text = f"# {text}"  # Füge Überschrift hinzu
-        text = text.replace(". ", ".\n\n")  # Füge Absätze ein
-    else:
-        # Belasse als einfachen Text
-        pass
-
-    return text
 
 @dataclass
 class MetadataFeatures:
@@ -79,17 +44,8 @@ class MetadataProcessor(BaseProcessor):
         supported_mime_types: Optional[List[str]] = None,
         features: Optional[Dict[str, bool]] = None
     ) -> None:
-        """Initialisiert den MetadataProcessor.
-
-        Args:
-            resource_calculator: Optional[ResourceCalculator] - Rechner für Ressourcenverbrauch
-            process_id: Optional[str] - Prozess-ID
-            max_file_size: int - Maximale Dateigröße in Bytes
-            supported_mime_types: Optional[List[str]] - Liste unterstützter MIME-Types
-            features: Optional[Dict[str, bool]] - Feature-Flags
-        """
+        """Initialisiert den MetadataProcessor."""
         super().__init__(resource_calculator, process_id)
-        self.logger: Optional[ProcessingLogger] = None
         
         # Konfiguration laden
         metadata_config = self.load_processor_config('metadata')
@@ -116,8 +72,8 @@ class MetadataProcessor(BaseProcessor):
         }
         self.features = MetadataFeatures(**features_dict)
         
-        # Komponenten initialisieren
-        self.transcriber = WhisperTranscriber(metadata_config)
+        # Transformer für Content-Analyse
+        self.transformer = TransformerProcessor(resource_calculator, process_id)
         
         if self.logger:
             self.logger.info(
@@ -354,13 +310,13 @@ class MetadataProcessor(BaseProcessor):
             if self.logger:
                 self.logger.info("Führe Template-Transformation durch")
                     
-            format_result: TransformationResult = self.transcriber.format_text(
+            transform_result = await self.transformer.transform(
                 text=content,
-                target_language="de",  # Default Sprache
-                format=OutputFormat.MARKDOWN,
-                logger=self.logger
+                source_language="de",
+                target_language="de",
+                target_format=OutputFormat.MARKDOWN
             )
-            result_text = format_result.text
+            result_text = transform_result.data.output.text
             
             # Metadaten aus dem Text extrahieren
             title = None
@@ -384,11 +340,8 @@ class MetadataProcessor(BaseProcessor):
                 if location_match:
                     spatial = location_match.group(1).split(',')[0].strip()
             
-            # Spracherkennung durchführen
-            try:
-                language = detect(content)
-            except:
-                language = None
+            # Default Sprache verwenden
+            language = "de"  # oder aus config/context
             
             # ContentMetadata erstellen
             content_metadata = ContentMetadata(

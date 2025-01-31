@@ -2,18 +2,20 @@
 Base processor module that defines the common interface and functionality for all processors.
 """
 import uuid
-import yaml
-from pathlib import Path
-from typing import Optional, Dict, Any, ContextManager
-from datetime import datetime
 from contextlib import nullcontext
+from datetime import datetime
+from pathlib import Path
+from typing import Any, ContextManager, Dict, Optional
 
-from src.core.models.base import RequestInfo, ProcessInfo, ErrorInfo
-from src.core.models.llm import LLMInfo
-from src.utils.performance_tracker import get_performance_tracker
-from src.utils.logger import get_logger, ProcessingLogger
-from src.utils.resource_calculator import ResourceCalculator
+import yaml
+
 from src.core.exceptions import ValidationError
+from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
+from src.core.models.llm import LLMInfo
+from src.utils.logger import ProcessingLogger, get_logger
+from src.utils.performance_tracker import get_performance_tracker
+from src.utils.resource_calculator import ResourceCalculator
+
 
 class BaseProcessorResponse:
     """Basis-Klasse für alle Processor-Responses."""
