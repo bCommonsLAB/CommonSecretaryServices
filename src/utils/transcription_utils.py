@@ -1,7 +1,7 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Union
 from pathlib import Path
 import time
 from datetime import datetime
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
-from pydantic import Field, create_model, BaseModel
+from pydantic import Field
 
 from src.utils.logger import ProcessingLogger
 from src.core.models.transformer import (
@@ -21,6 +21,7 @@ from src.core.models.transformer import (
 )
 from src.core.models.llm import LLMRequest
 from src.core.models.enums import OutputFormat
+from src.utils.openai_utils import get_structured_gpt
 
 # Type-Definitionen
 FieldType = tuple[Union[type[str], type[None]], Field]
@@ -314,8 +315,6 @@ class WhisperTranscriber:
                     requests=[]
                 )
 
-            
-
             # 4. GPT-4 Prompts erstellen
             context_str: str = (
                 json.dumps(context, indent=2, ensure_ascii=False)
@@ -340,15 +339,15 @@ class WhisperTranscriber:
                 logger.info("Sende Anfrage an GPT-4")
 
             # GPT-4 Anfrage durchführen und Ergebnis validieren
-            response = self._get_structured_gpt(
+            template_model_result, result_json, llm_usage = get_structured_gpt(
+                client=self.client,
                 template=template,
                 field_definitions=field_definitions,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                model=self.model,
                 logger=logger
             )
-
-            template_model_result, result_json, llm_usage  = response
             
             # 9. Strukturierte Variablen ersetzen
             for field_name, field_value in template_model_result.model_dump().items():
@@ -436,7 +435,6 @@ class WhisperTranscriber:
                     
         return field_definitions
 
-    
     def _save_llm_interaction(
         self, 
         purpose: str,
@@ -494,95 +492,3 @@ class WhisperTranscriber:
                 logger.warning("LLM Interaktion konnte nicht gespeichert werden",
                              error=e,
                              template=template)
-
-    def _get_structured_gpt(
-        self,
-        template: str,
-        field_definitions: TemplateFields,
-        system_prompt: str,
-        user_prompt: str,
-        logger: Optional[ProcessingLogger] = None
-    ) -> Tuple[Any, Any, LLMRequest]:
-        """Erstellt ein Pydantic Model und führt GPT-Anfrage durch.
-        
-        Args:
-            template: Name für das dynamische Pydantic Model
-            field_types: Felddefinitionen für das Model
-            system_prompt: System-Prompt für GPT
-            user_prompt: User-Prompt für GPT
-            logger: Optional, Logger für Debug-Ausgaben
-            
-        Returns:
-            Tuple[Any, LLMRequest]: (Validiertes Model-Ergebnis, LLM-Nutzung)
-        """
-        model_name: str=f'Template{template.capitalize()}Model'
-
-        # Zeitmessung starten
-        start_time: float = time.time()
-
-        # 6. Pydantic Model erstellen
-        field_types: Dict[str, FieldType] = {
-            name: (str | None, Field(
-                description=field.description,
-                max_length=field.max_length,
-                default=field.default,
-                title=name.capitalize()
-            ))
-            for name, field in field_definitions.fields.items()
-        }
-
-
-
-        # Model erstellen mit expliziter Typisierung
-        DynamicTemplateModel = create_model(
-            model_name,
-            __base__=BaseModel,
-            **field_types
-        )
-
-        # GPT-4 Anfrage senden
-        response: ChatCompletion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            functions=[{
-                "name": "extract_template_info",
-                "description": "Extrahiert Informationen gemäß Template-Schema",
-                "parameters": DynamicTemplateModel.model_json_schema()
-            }],
-            function_call={"name": "extract_template_info"}
-        )
-
-        # Zeitmessung beenden und Dauer in Millisekunden berechnen
-        duration: int = int((time.time() - start_time) * 1000)
-
-        if not response.choices or not response.choices[0].message or not response.choices[0].message.function_call:
-            raise ValueError("Keine gültige Antwort vom LLM erhalten")
-
-        # GPT-4 Antwort extrahieren und validieren
-        result_json_str: str = response.choices[0].message.function_call.arguments
-        template_model_result: Any = DynamicTemplateModel.model_validate_json(result_json_str)
-
-        # String in ein Python-Dict umwandeln
-        result_json: Dict[str, Any] = json.loads(result_json_str)
-        self._save_llm_interaction(
-            purpose="template_transformation",
-            system_prompt=system_prompt, 
-            user_prompt=user_prompt, 
-            response=response, 
-            logger=logger,
-            field_definitions=field_definitions,
-            template=template, 
-        ) 
-
-        # LLM-Nutzung tracken
-        llm_usage: LLMRequest = LLMRequest(
-            model=self.model,
-            purpose="template_transformation",
-            tokens=response.usage.total_tokens if response.usage else 0,
-            duration=duration
-        )
-
-        return template_model_result, result_json, llm_usage
