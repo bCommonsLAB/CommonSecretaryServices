@@ -34,6 +34,7 @@ from src.utils.performance_tracker import (clear_performance_tracker,
                                            get_performance_tracker)
 from src.utils.resource_calculator import ResourceCalculator
 from utils.performance_tracker import PerformanceTracker
+from dataclasses import asdict
 
 # Typ-Alias für bessere Lesbarkeit
 FileStorage = werkzeug.datastructures.FileStorage
@@ -43,6 +44,13 @@ class ProcessResponse(TypedDict):
     status: str
     request: Dict[str, Any]
     process: ProcessInfo
+    data: Dict[str, Any]
+    error: Optional[Dict[str, Any]]
+
+class MetadataEndpointResponse(TypedDict):
+    status: str
+    request: Dict[str, Any]
+    process: Dict[str, Any]
     data: Dict[str, Any]
     error: Optional[Dict[str, Any]]
 
@@ -683,7 +691,7 @@ class TemplateTransformEndpoint(Resource):
             
             # Erstelle TransformerResponse
             response: Dict[str, Any] = {
-                'status': 'success',
+                'status': 'error' if result.error else 'success',
                 'request': {
                     'processor': 'transformer',
                     'timestamp': datetime.now().isoformat(),
@@ -717,12 +725,21 @@ class TemplateTransformEndpoint(Resource):
                         'context': data.get('context', {})
                     },
                     'output': {
-                        'text': result.data.output.text,
-                        'language': result.data.output.language,
-                        'structured_data': result.data.output.structured_data if hasattr(result.data.output, 'structured_data') else {}
+                        'text': result.data.output.text if not result.error else None,
+                        'language': result.data.output.language if not result.error else None,
+                        'structured_data': result.data.output.structured_data if hasattr(result.data.output, 'structured_data') and not result.error else {}
                     }
                 }
             }
+
+            # Füge error-Informationen hinzu wenn vorhanden
+            if result.error:
+                response['error'] = {
+                    'code': result.error.code,
+                    'message': result.error.message,
+                    'details': result.error.details if hasattr(result.error, 'details') else {}
+                }
+                return cast(Dict[str, Any], response), 400
             
             return response
             
@@ -963,14 +980,14 @@ async def process_file(uploaded_file: FileStorage, target_language: str = 'de', 
     temp_file = None
     try:
         # Speichere Upload in temporärer Datei
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        temp_file: tempfile._TemporaryFileWrapper[bytes] = tempfile.NamedTemporaryFile(delete=False)
         uploaded_file.save(temp_file.name)
         
         # Verarbeite die Datei
         process_id = str(uuid.uuid4())
-        processor = get_audio_processor(process_id)
+        processor: AudioProcessor = get_audio_processor(process_id)
         result: AudioProcessingResult = await processor.process(
-            file_path=temp_file.name,
+            audio_source=temp_file.name,
             target_language=target_language,
             template=template
         )
@@ -990,29 +1007,87 @@ class MetadataEndpoint(Resource):
     @api.expect(metadata_upload_parser)
     @api.response(200, 'Erfolg', metadata_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Extrahiert Metadaten aus einer Datei')
-    async def post(self) -> Dict[str, Any]:
-        """
-        Extrahiert Metadaten aus einer Datei.
-        """
-        args = metadata_upload_parser.parse_args()
-        uploaded_file = args.get('file')
-        
-        # Erstelle einen neuen Tracker wenn keiner existiert
-        process_id = str(uuid.uuid4())
-        tracker = get_performance_tracker() or get_performance_tracker(process_id)
+    def post(self) -> Union[MetadataEndpointResponse, tuple[Dict[str, Any], int]]:
+        async def process_request() -> Union[MetadataEndpointResponse, tuple[Dict[str, Any], int]]:
+            args = metadata_upload_parser.parse_args()
+            uploaded_file = args.get('file')
+            content = args.get('content')
+            context = args.get('context')
             
-        try:
-            processor: MetadataProcessor = get_metadata_processor(process_id)
-            result: MetadataResponse = await processor.process(uploaded_file)
-            
-            result_dict = result.to_dict()
-            if tracker and hasattr(tracker, 'eval_result'):
-                result_dict['eval_result'] = tracker.eval_result
-            return result_dict
-            
-        except Exception as e:
-            logger.error("Fehler bei der Metadaten-Extraktion",
-                        error=e,
-                        error_type=type(e).__name__)
-            raise ProcessingError(f"Fehler bei der Metadaten-Extraktion: {str(e)}")
+            # Prozess-Tracking initialisieren
+            process_id = str(uuid.uuid4())
+            tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+            process_start: float = time.time()
+                
+            try:
+                processor: MetadataProcessor = get_metadata_processor(process_id)
+                result: MetadataResponse = await processor.process(
+                    binary_data=uploaded_file,
+                    content=content,
+                    context=context
+                )
+                
+                # Response erstellen
+                response: MetadataEndpointResponse = {
+                    'status': 'error' if result.error else 'success',
+                    'request': {
+                        'processor': 'metadata',
+                        'timestamp': datetime.now().isoformat(),
+                        'parameters': {
+                            'has_file': uploaded_file is not None,
+                            'has_content': content is not None,
+                            'context': context
+                        }
+                    },
+                    'process': {
+                        'id': tracker.process_id if tracker else None,
+                        'main_processor': 'metadata',
+                        'sub_processors': ['transformer'] if result.data.content else [],
+                        'started': datetime.fromtimestamp(process_start).isoformat(),
+                        'completed': datetime.now().isoformat(),
+                        'duration': int((time.time() - process_start) * 1000),
+                        'llm_info': asdict(result.llm_info) if result.llm_info else None
+                    },
+                    'data': {
+                        'technical': asdict(result.data.technical) if result.data.technical else None,
+                        'content': asdict(result.data.content) if result.data.content else None
+                    },
+                    'error': None
+                }
+
+                # Fehlerbehandlung
+                if result.error:
+                    response['error'] = {
+                        'code': result.error.code,
+                        'message': result.error.message,
+                        'details': result.error.details if hasattr(result.error, 'details') else {}
+                    }
+                    return cast(Dict[str, Any], response), 400
+                
+                return response
+                
+            except Exception as error:
+                error_response: Dict[str, Any] = {
+                    "status": "error",
+                    "request": {},
+                    "process": {},
+                    "data": {},
+                    "error": {
+                        "code": "ProcessingError",
+                        "message": f"Fehler bei der Metadaten-Extraktion: {str(error)}",
+                        "details": {
+                            "error_type": type(error).__name__,
+                            "traceback": traceback.format_exc()
+                        }
+                    }
+                }
+                logger.error(
+                    "Fehler bei der Metadaten-Extraktion",
+                    error=error,
+                    traceback=traceback.format_exc()
+                )
+                return error_response, 400
+
+        # Führe die asynchrone Verarbeitung aus und warte auf das Ergebnis
+        import asyncio
+        return asyncio.run(process_request())

@@ -2,7 +2,7 @@
 Metadaten-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
@@ -84,7 +84,7 @@ class TechnicalMetadata:
             raise ValueError("File name must not be empty")
         if not self.file_mime.strip():
             raise ValueError("MIME type must not be empty")
-        if self.file_size <= 0:
+        if self.file_size < 0:
             raise ValueError("File size must be positive")
         if self.doc_pages is not None and self.doc_pages <= 0:
             raise ValueError("Document pages must be positive")
@@ -98,33 +98,11 @@ class TechnicalMetadata:
             raise ValueError("Media sample rate must be positive") 
 
 @dataclass(frozen=True, slots=True)
-class ProcessingStep:
-    """Tracking eines einzelnen Verarbeitungsschritts."""
-    name: str
-    status: ProcessingStatus
-    started_at: datetime
-    completed_at: Optional[datetime] = None
-    duration_ms: Optional[float] = None
-    error: Optional[Dict[str, Any]] = None
-
-    def __post_init__(self) -> None:
-        """Validiert die Felder nach der Initialisierung."""
-        if not self.name.strip():
-            raise ValueError("Step name must not be empty")
-        if not self.started_at:
-            raise ValueError("started_at must be provided")
-        if self.completed_at is not None and self.completed_at < self.started_at:
-            raise ValueError("completed_at must be after started_at")
-        if self.duration_ms is not None and self.duration_ms < 0:
-            raise ValueError("duration_ms must be non-negative if provided")
-
-@dataclass(frozen=True, slots=True)
 class MetadataData:
     """Container für alle Metadaten-Informationen."""
     technical: Optional[TechnicalMetadata] = None
     content: Optional[ContentMetadata] = None
     source_info: Optional[Dict[str, Any]] = None
-    steps: List[ProcessingStep] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Validiert die Felder nach der Initialisierung."""
