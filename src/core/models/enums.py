@@ -39,4 +39,5 @@ class OutputFormat(str, Enum):
     """Verfügbare Ausgabeformate"""
     TEXT = "text"
     HTML = "html"
-    MARKDOWN = "markdown" 
+    MARKDOWN = "markdown"
+    JSON = "json" 

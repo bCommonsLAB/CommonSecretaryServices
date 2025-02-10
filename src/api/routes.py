@@ -767,6 +767,157 @@ class TemplateTransformEndpoint(Resource):
                 }
             }, 400
 
+@api.route('/transform-html-table')
+class HtmlTableTransformEndpoint(Resource):
+    @api.expect(api.model('TransformHtmlTableInput', {
+        'source_url': fields.String(required=True, description='Die URL der Webseite mit der HTML-Tabelle'),
+        'output_format': fields.String(default='json', enum=['json'], description='Ausgabeformat (aktuell nur JSON unterstützt)'),
+        'table_index': fields.Integer(required=False, description='Optional - Index der gewünschten Tabelle (0-basiert). Wenn nicht angegeben, werden alle Tabellen zurückgegeben.'),
+        'start_row': fields.Integer(required=False, description='Optional - Startzeile für das Paging (0-basiert)'),
+        'row_count': fields.Integer(required=False, description='Optional - Anzahl der zurückzugebenden Zeilen')
+    }))
+    @api.response(200, 'Erfolg', api.model('HtmlTableTransformResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('RequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('ProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden')
+        })),
+        'data': fields.Nested(api.model('HtmlTableData', {
+            'input': fields.Nested(api.model('TableInput', {
+                'text': fields.String(description='Original URL'),
+                'language': fields.String(description='Eingabesprache'),
+                'format': fields.String(description='Eingabeformat')
+            })),
+            'output': fields.Nested(api.model('TableOutput', {
+                'text': fields.String(description='Transformierter Text (JSON)'),
+                'language': fields.String(description='Ausgabesprache'),
+                'format': fields.String(description='Ausgabeformat'),
+                'structured_data': fields.Raw(description='Strukturierte Tabellendaten', example={
+                    "url": "https://example.com",
+                    "table_count": 1,
+                    "tables": [{
+                        "table_index": 0,
+                        "headers": ["Name", "Alter"],
+                        "rows": [{"Name": "Max", "Alter": "30"}],
+                        "metadata": {
+                            "total_rows": 1,
+                            "column_count": 2,
+                            "has_group_info": False,
+                            "paging": {
+                                "start_row": 0,
+                                "row_count": 1,
+                                "has_more": False
+                            }
+                        }
+                    }]
+                })
+            }))
+        })),
+        'error': fields.Nested(api.model('ErrorInfo', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """HTML-Tabellen von einer Webseite in JSON transformieren"""
+        data = request.get_json()
+        tracker = get_performance_tracker()
+        process_start = time.time()
+        
+        try:
+            transformer_processor = get_transformer_processor(tracker.process_id if tracker else None)
+            result = transformer_processor.transformHtmlTable(
+                source_url=data['source_url'],
+                output_format=data.get('output_format', 'json'),
+                table_index=data.get('table_index'),
+                start_row=data.get('start_row'),
+                row_count=data.get('row_count')
+            )
+
+            # Gesamtprozessdauer in Millisekunden berechnen
+            process_duration = int((time.time() - process_start) * 1000)
+
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker:
+                tracker.eval_result(result)
+            
+            # Erstelle Response
+            response = {
+                'status': 'success',
+                'request': {
+                    'processor': 'transformer',
+                    'timestamp': datetime.now().isoformat(),
+                    'parameters': {
+                        'source_url': data['source_url'],
+                        'output_format': data.get('output_format', 'json'),
+                        'table_index': data.get('table_index'),
+                        'start_row': data.get('start_row'),
+                        'row_count': data.get('row_count')
+                    }
+                },
+                'process': {
+                    'id': tracker.process_id if tracker else None,
+                    'main_processor': 'transformer',
+                    'started': datetime.fromtimestamp(process_start).isoformat(),
+                    'completed': datetime.now().isoformat(),
+                    'duration': process_duration
+                },
+                'data': {
+                    'input': {
+                        'text': result.data.input.text,
+                        'language': result.data.input.language,
+                        'format': result.data.input.format.value
+                    },
+                    'output': {
+                        'text': result.data.output.text,
+                        'language': result.data.output.language,
+                        'format': result.data.output.format.value,
+                        'structured_data': result.data.output.structured_data
+                    }
+                }
+            }
+
+            if result.error:
+                response['error'] = {
+                    'code': result.error.code,
+                    'message': result.error.message,
+                    'details': result.error.details
+                }
+                return response, 400
+
+            return response
+
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
+            return {
+                'status': 'error',
+                'error': {
+                    'code': error.__class__.__name__,
+                    'message': str(error)
+                }
+            }, 400
+        except Exception as error:
+            logger.error(
+                'Fehler bei der HTML-Tabellen-Transformation',
+                error=error,
+                traceback=traceback.format_exc()
+            )
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError',
+                    'message': f'Fehler bei der HTML-Tabellen-Transformation: {error}'
+                }
+            }, 400
+
 @api.route('/manage-audio-cache')
 class AudioCacheEndpoint(Resource):
     @api.expect(api.model('DeleteCacheInput', {
