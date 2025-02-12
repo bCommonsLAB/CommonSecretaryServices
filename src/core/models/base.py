@@ -15,12 +15,6 @@ class ProcessingLogger:
     def error(self, message: str, **kwargs: Any) -> None: ...
 
 @dataclass
-class ResourceCalculator:
-    """Interface für Resource-Berechnungen"""
-    def calculate_cost(self, tokens: int, model: str) -> float: ...
-    def track_usage(self, tokens: int, model: str, duration: float) -> None: ...
-
-@dataclass
 class ErrorInfo:
     """Fehlerinformationen für API-Responses"""
     code: str

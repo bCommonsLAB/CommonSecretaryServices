@@ -14,7 +14,7 @@ from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
 from src.core.models.llm import LLMInfo
 from src.utils.logger import ProcessingLogger, get_logger
 from src.utils.performance_tracker import get_performance_tracker
-from src.utils.resource_calculator import ResourceCalculator
+from src.core.resource_tracking import ResourceCalculator
 
 
 class BaseProcessorResponse:

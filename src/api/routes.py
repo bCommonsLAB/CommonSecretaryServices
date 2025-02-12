@@ -32,7 +32,7 @@ from src.processors.youtube_processor import YoutubeProcessor
 from src.utils.logger import ProcessingLogger, get_logger
 from src.utils.performance_tracker import (clear_performance_tracker,
                                            get_performance_tracker)
-from src.utils.resource_calculator import ResourceCalculator
+from src.core.resource_tracking import ResourceCalculator
 from utils.performance_tracker import PerformanceTracker
 from dataclasses import asdict
 
@@ -78,6 +78,51 @@ rate_limiter = RateLimiter(
     requests_per_hour=100,
     max_file_size=50 * 1024 * 1024  # 50MB
 )
+
+def _track_llm_usage(model: str, tokens: int, duration: float, purpose: str = "api") -> None:
+    """Standardisiertes LLM-Tracking für die API."""
+    try:
+        if not model:
+            raise ValueError("model darf nicht leer sein")
+        if tokens <= 0:
+            raise ValueError("tokens muss positiv sein")
+        if duration < 0:
+            raise ValueError("duration muss nicht-negativ sein")
+                
+        resource_calculator.track_usage(
+            tokens=tokens,
+            model=model,
+            duration=duration
+        )
+        
+        logger.info(
+            "LLM-Nutzung getrackt",
+            model=model,
+            tokens=tokens,
+            duration=duration,
+            purpose=purpose
+        )
+    except Exception as e:
+        logger.warning(
+            "LLM-Tracking fehlgeschlagen",
+            error=e,
+            model=model,
+            tokens=tokens,
+            duration=duration
+        )
+
+def _calculate_llm_cost(model: str, tokens: int) -> float:
+    """Berechnet die Kosten für LLM-Nutzung."""
+    try:
+        return resource_calculator.calculate_cost(tokens=tokens, model=model)
+    except Exception as e:
+        logger.warning(
+            "LLM-Kostenberechnung fehlgeschlagen",
+            error=e,
+            model=model,
+            tokens=tokens
+        )
+        return 0.0
 
 @blueprint.before_request
 def setup_request() -> None:
@@ -445,7 +490,7 @@ class AudioEndpoint(Resource):
     @api.response(200, 'Erfolg', audio_response)
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine Audio-Datei')
-    async def post(self) -> Dict[str, Any]:
+    def post(self) -> Dict[str, Any]:
         """
         Verarbeitet eine Audio-Datei.
         """
@@ -459,7 +504,33 @@ class AudioEndpoint(Resource):
         tracker = get_performance_tracker() or get_performance_tracker(process_id)
             
         try:
-            result = await process_file(uploaded_file, target_language, template)
+            # Führe die asynchrone Verarbeitung aus
+            import asyncio
+            result = asyncio.run(process_file(uploaded_file, target_language, template))
+            
+            # Tracke LLM-Nutzung wenn vorhanden
+            if 'transcription' in result and 'llms' in result['transcription']:
+                for llm in result['transcription']['llms']:
+                    _track_llm_usage(
+                        model=llm['model'],
+                        tokens=llm['tokens'],
+                        duration=llm['duration'],
+                        purpose='audio_transcription'
+                    )
+            
+            # Berechne Gesamtkosten
+            total_cost = 0.0
+            if 'transcription' in result and 'llms' in result['transcription']:
+                for llm in result['transcription']['llms']:
+                    total_cost += _calculate_llm_cost(
+                        model=llm['model'],
+                        tokens=llm['tokens']
+                    )
+            
+            # Füge Kosten zum Ergebnis hinzu
+            if 'metadata' in result and 'args' in result['metadata']:
+                result['metadata']['args']['total_cost'] = total_cost
+            
             if tracker and hasattr(tracker, 'process_id'):
                 result['process_id'] = tracker.process_id
             return result
@@ -469,7 +540,13 @@ class AudioEndpoint(Resource):
                         error=e,
                         error_type=type(e).__name__,
                         target_language=target_language)
-            raise ProcessingError(f"Fehler bei der Audio-Verarbeitung: {str(e)}")
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError',
+                    'message': f"Fehler bei der Audio-Verarbeitung: {str(e)}"
+                }
+            }, 400
 
 def _truncate_text(text: str, max_length: int = 50) -> str:
     """Kürzt einen Text auf die angegebene Länge und fügt '...' hinzu wenn gekürzt wurde."""
@@ -516,6 +593,7 @@ class TextTransformEndpoint(Resource):
                 'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
                 'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
                 'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
+                'total_cost': fields.Float(description='Gesamtkosten'),
                 'requests': fields.List(fields.Nested(api.model('LLMRequest', {
                     'model': fields.String(description='Name des verwendeten Modells'),
                     'purpose': fields.String(description='Zweck der Anfrage'),
@@ -550,6 +628,25 @@ class TextTransformEndpoint(Resource):
                 target_format=data.get('target_format', 'text')
             )
 
+            # Tracke LLM-Nutzung wenn vorhanden
+            if hasattr(result, 'llm_info') and result.llm_info:
+                for request in result.llm_info.requests:
+                    _track_llm_usage(
+                        model=request.model,
+                        tokens=request.tokens,
+                        duration=request.duration,
+                        purpose='text_transformation'
+                    )
+
+            # Berechne Gesamtkosten
+            total_cost = 0.0
+            if hasattr(result, 'llm_info') and result.llm_info:
+                for request in result.llm_info.requests:
+                    total_cost += _calculate_llm_cost(
+                        model=request.model,
+                        tokens=request.tokens
+                    )
+
             # Gesamtprozessdauer in Millisekunden berechnen
             process_duration = int((time.time() - process_start) * 1000)
 
@@ -582,6 +679,7 @@ class TextTransformEndpoint(Resource):
                         'requests_count': len(result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
                         'total_tokens': sum(req.tokens for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
                         'total_duration': sum(req.duration for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
+                        'total_cost': total_cost,
                         'requests': _convert_llms_to_requests(result.llm_info.requests if hasattr(result, 'llm_info') and result.llm_info else [])
                     }
                 },
@@ -682,6 +780,25 @@ class TemplateTransformEndpoint(Resource):
                 context=data.get('context', {})
             )
 
+            # Tracke LLM-Nutzung wenn vorhanden
+            if hasattr(result, 'llm_info') and result.llm_info:
+                for request in result.llm_info.requests:
+                    _track_llm_usage(
+                        model=request.model,
+                        tokens=request.tokens,
+                        duration=request.duration,
+                        purpose='template_transformation'
+                    )
+
+            # Berechne Gesamtkosten
+            total_cost = 0.0
+            if hasattr(result, 'llm_info') and result.llm_info:
+                for request in result.llm_info.requests:
+                    total_cost += _calculate_llm_cost(
+                        model=request.model,
+                        tokens=request.tokens
+                    )
+
             # Gesamtprozessdauer in Millisekunden berechnen
             process_duration = int((time.time() - process_start) * 1000)
 
@@ -689,7 +806,7 @@ class TemplateTransformEndpoint(Resource):
             if tracker:
                 tracker.eval_result(result)
             
-            # Erstelle TransformerResponse
+            # Erstelle Response
             response: Dict[str, Any] = {
                 'status': 'error' if result.error else 'success',
                 'request': {
@@ -714,6 +831,7 @@ class TemplateTransformEndpoint(Resource):
                         'requests_count': len(result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
                         'total_tokens': sum(req.tokens for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
                         'total_duration': sum(req.duration for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
+                        'total_cost': total_cost,
                         'requests': _convert_llms_to_requests(result.llm_info.requests if hasattr(result, 'llm_info') and result.llm_info else [])
                     }
                 },
@@ -739,31 +857,31 @@ class TemplateTransformEndpoint(Resource):
                     'message': result.error.message,
                     'details': result.error.details if hasattr(result.error, 'details') else {}
                 }
-                return cast(Dict[str, Any], response), 400
+                return response, 400
             
             return response
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
             return {
-                "status": "error",
-                "error": {
-                    "code": error.__class__.__name__,
-                    "message": str(error),
-                    "details": {}
+                'status': 'error',
+                'error': {
+                    'code': error.__class__.__name__,
+                    'message': str(error),
+                    'details': {}
                 }
             }, 400
         except Exception as error:
             logger.error(
-                "Fehler bei der Template-Transformation",
+                'Fehler bei der Template-Transformation',
                 error=error,
                 traceback=traceback.format_exc()
             )
             return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError", 
-                    "message": f"Fehler bei der Template-Transformation: {error}",
-                    "details": {}
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError', 
+                    'message': f'Fehler bei der Template-Transformation: {error}',
+                    'details': {}
                 }
             }, 400
 

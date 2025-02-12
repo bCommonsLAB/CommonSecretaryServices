@@ -1,7 +1,7 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from pathlib import Path
 import time
 from datetime import datetime
@@ -9,6 +9,7 @@ import json
 import re
 import os
 from dataclasses import dataclass
+import tempfile
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
@@ -492,3 +493,90 @@ class WhisperTranscriber:
                 logger.warning("LLM Interaktion konnte nicht gespeichert werden",
                              error=e,
                              template=template)
+
+    async def transcribe_segments(
+        self,
+        segments: List[bytes],
+        target_language: str,
+        logger: Optional[ProcessingLogger] = None
+    ) -> WhisperResponse:
+        """
+        Transkribiert eine Liste von Audio-Segmenten.
+        
+        Args:
+            segments: Liste der Audio-Segmente als Bytes
+            target_language: Zielsprache für die Transkription (ISO 639-1)
+            logger: Optional, Logger für Debug-Ausgaben
+            
+        Returns:
+            WhisperResponse: Das Transkriptionsergebnis
+        """
+        try:
+            if logger:
+                logger.info(f"Starte Transkription von {len(segments)} Segmenten")
+
+            # Zeitmessung starten
+            start_time: float = time.time()
+            
+            # Parameter für die Transkription
+            params = AudioTranscriptionParams(
+                model="whisper-1",
+                language=target_language,
+                response_format="verbose_json"
+            )
+
+            all_segments: List[WhisperSegment] = []
+            total_duration: float = 0.0
+            combined_text: List[str] = []
+
+            # Verarbeite jedes Segment
+            for i, segment_data in enumerate(segments):
+                if logger:
+                    logger.debug(f"Verarbeite Segment {i+1}/{len(segments)}")
+
+                # Erstelle temporäre Datei für das Segment
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=True) as temp_file:
+                    temp_file.write(segment_data)
+                    temp_file.flush()
+
+                    # Transkribiere das Segment
+                    with open(temp_file.name, 'rb') as audio_file:
+                        response = self.client.audio.transcriptions.create(
+                            file=audio_file,
+                            **params.to_api_params()
+                        )
+
+                    # Konvertiere die API-Antwort
+                    segment_response = WhisperResponse.from_api_response(response)
+                    
+                    # Aktualisiere die Segmentzeiten basierend auf der Gesamtdauer
+                    for seg in segment_response.segments:
+                        seg.start += total_duration
+                        seg.end += total_duration
+                        all_segments.append(seg)
+
+                    total_duration += segment_response.duration
+                    combined_text.append(segment_response.text)
+
+            # Erstelle die kombinierte Response
+            duration = int((time.time() - start_time) * 1000)
+            
+            result = WhisperResponse(
+                text=" ".join(combined_text),
+                language=target_language,
+                duration=total_duration,
+                segments=all_segments,
+                task="transcribe"
+            )
+
+            if logger:
+                logger.info("Transkription abgeschlossen",
+                    segments_count=len(segments),
+                    duration_ms=duration)
+
+            return result
+
+        except Exception as e:
+            if logger:
+                logger.error("Fehler bei der Segment-Transkription", error=e)
+            raise

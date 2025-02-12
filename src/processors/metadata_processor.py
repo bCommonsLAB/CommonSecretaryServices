@@ -25,7 +25,7 @@ from src.core.models.metadata import (ContentMetadata, ErrorInfo, MetadataData,
 from src.core.models.transformer import TransformerResponse
 from src.processors.base_processor import BaseProcessor
 from src.processors.transformer_processor import TransformerProcessor
-from src.utils.resource_calculator import ResourceCalculator
+from src.core.resource_tracking import ResourceCalculator
 from src.core.models.llm import LLMInfo
 
 T = TypeVar('T', bound=AudioSegment)

@@ -1,10 +1,10 @@
 """
 Audio-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any, Sequence
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
-from .llm import LLModel
+from .llm import LLModel, LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
 
@@ -186,28 +186,66 @@ class AudioMetadata:
 @dataclass
 class AudioProcessingResult:
     """Ergebnis der Audio-Verarbeitung."""
-    transcription: 'TranscriptionResult'
-    metadata: 'AudioMetadata'
+    transcription: Optional[TranscriptionResult]
+    metadata: Optional[AudioMetadata]
     process_id: str
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
-            "transcription": self.transcription.to_dict(),
-            "metadata": self.metadata.to_dict(),
+            "transcription": self.transcription.to_dict() if self.transcription else None,
+            "metadata": self.metadata.to_dict() if self.metadata else None,
             "process_id": self.process_id
         }
 
-@dataclass
+@dataclass(frozen=True, init=False)
 class AudioResponse(BaseResponse):
     """Standardisierte Response für Audio-Verarbeitung."""
     data: AudioProcessingResult
+    llm_info: Optional[LLMInfo] = None
+    status: ProcessingStatus = ProcessingStatus.PENDING
+    error: Optional[ErrorInfo] = None
 
-    def __post_init__(self) -> None:
-        """Validiert die Response-Daten."""
-        super().__post_init__()
-        if not isinstance(self.data, AudioProcessingResult):
-            raise TypeError(f"data muss vom Typ AudioProcessingResult sein, nicht {type(self.data)}")
+    def __init__(
+        self,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: AudioProcessingResult,
+        llm_info: Optional[LLMInfo] = None,
+        status: ProcessingStatus = ProcessingStatus.PENDING,
+        error: Optional[ErrorInfo] = None
+    ) -> None:
+        """Initialisiert die AudioResponse."""
+        super().__init__(request=request, process=process, status=status, error=error)
+        object.__setattr__(self, 'data', data)
+        object.__setattr__(self, 'llm_info', llm_info)
+
+    @classmethod
+    def create(cls, request: RequestInfo, process: ProcessInfo, data: AudioProcessingResult,
+               llm_info: Optional[LLMInfo] = None) -> 'AudioResponse':
+        """Erstellt eine erfolgreiche Response."""
+        return cls(
+            request=request,
+            process=process,
+            data=data,
+            llm_info=llm_info,
+            status=ProcessingStatus.SUCCESS
+        )
+
+    @classmethod
+    def create_error(cls, request: RequestInfo, process: ProcessInfo, error: ErrorInfo) -> 'AudioResponse':
+        """Erstellt eine Fehler-Response."""
+        return cls(
+            request=request,
+            process=process,
+            data=AudioProcessingResult(
+                transcription=None,
+                metadata=None,
+                process_id=""
+            ),
+            error=error,
+            status=ProcessingStatus.ERROR
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""

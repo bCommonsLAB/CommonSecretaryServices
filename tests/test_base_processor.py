@@ -2,7 +2,7 @@
 import pytest
 from src.processors.base_processor import BaseProcessor, BaseProcessorResponse
 from src.core.exceptions import ValidationError
-from src.utils.resource_calculator import ResourceCalculator
+from src.core.resource_tracking import ResourceCalculator
 from src.core.models.base import ErrorInfo
 from typing import Any, Dict, Optional
 

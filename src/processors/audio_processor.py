@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from core.models.transformer import TransformationResult
 from src.processors.base_processor import BaseProcessor
-from src.utils.resource_calculator import ResourceCalculator  # Nur diese Version verwenden
+from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.types.pydub_types import AudioSegmentProtocol
@@ -35,7 +35,7 @@ from src.core.models.base import (
 )
 from src.core.models.metadata import MetadataResponse
 from src.core.models.audio import AudioProcessingError
-from src.core.models.llm import LLModel  # LLModel aus core.models.llm importieren
+from src.core.models.llm import LLModel
 
 if TYPE_CHECKING:
     from .transformer_processor import TransformationResult
@@ -122,11 +122,6 @@ class TransformerProcessorProtocol(Protocol):
         template: Optional[str] = None
     ) -> 'TransformationResult': ...
 
-class ResourceCalculatorProtocol(ResourceCalculator, Protocol):
-    """Protocol für ResourceCalculator."""
-    def track_usage(self, tokens: int, model: str, duration: float) -> None: ...
-    def calculate_cost(self, tokens: int, model: str) -> float: ...
-
 @dataclass
 class AudioProcessingResult:
     """Ergebnis der Audio-Verarbeitung."""
@@ -163,26 +158,31 @@ class AudioProcessingResult:
             "process_id": self.process_id
         }
 
-@dataclass
+@dataclass(frozen=True, init=False)
 class AudioResponse(BaseResponse):
     """Standardisierte Response für Audio-Verarbeitung."""
-    data: Any  # Typ auf Any ändern, um die Laufzeit-Typprüfung zu rechtfertigen
+    data: AudioProcessingResult
+
+    def __init__(
+        self,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: AudioProcessingResult,
+        status: ProcessingStatus = ProcessingStatus.PENDING,
+        error: Optional[ErrorInfo] = None
+    ) -> None:
+        """Initialisiert die AudioResponse."""
+        super().__init__(request=request, process=process, status=status, error=error)
+        object.__setattr__(self, 'data', data)
 
     def __post_init__(self) -> None:
         """Validiert die Response-Daten."""
         super().__post_init__()
-        if not isinstance(self.data, AudioProcessingResult):
-            raise TypeError(f"data muss vom Typ AudioProcessingResult sein, nicht {type(self.data)}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
-        base_dict = {
-            'status': self.status.value,
-            'request': self.request.to_dict() if self.request else None,
-            'process': self.process.to_dict() if self.process else None,
-            'error': self.error.to_dict() if self.error else None,
-            'data': self.data.to_dict() if self.data else None
-        }
+        base_dict = super().to_dict()
+        base_dict['data'] = self.data.to_dict() if self.data else None
         return base_dict
 
 class AudioProcessor(BaseProcessor):
@@ -203,13 +203,9 @@ class AudioProcessor(BaseProcessor):
     logger: ProcessingLogger  # Explizite Typ-Annotation für logger
     temp_dir: Path  # Explizite Typ-Annotation für temp_dir
     
-    def __init__(
-        self,
-        resource_calculator: ResourceCalculatorProtocol,
-        process_id: Optional[str] = None
-    ) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
         """Initialisiert den AudioProcessor."""
-        super().__init__(resource_calculator, process_id or str(uuid.uuid4()))
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
         
         # Konfiguration laden
         config = Config()
@@ -226,7 +222,7 @@ class AudioProcessor(BaseProcessor):
             WhisperTranscriber({"process_id": process_id}))
         # logger und temp_dir werden vom BaseProcessor verwaltet
         
-        self.resource_calculator: ResourceCalculatorProtocol = resource_calculator
+        self.resource_calculator: ResourceCalculator = resource_calculator
         
         # Zeitmessung
         self.start_time: Optional[datetime] = None

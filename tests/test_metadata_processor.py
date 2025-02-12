@@ -17,15 +17,14 @@ from src.core.models.base import (
     BaseResponse,
     ErrorInfo
 )
-from src.core.models.llm import LLMRequest, LLMInfo
+from src.core.models.llm import LLMInfo
 from src.core.models.enums import ProcessingStatus
 from src.core.exceptions import ProcessingError, UnsupportedMimeTypeError
 from src.core.resource_tracking import ResourceCalculator
 import io
-import tempfile
-from typing import Dict, Any, Generator, cast, TypeVar, Type, Optional
+from typing import Dict, Any, Generator, cast, TypeVar, Optional
 from dataclasses import asdict, dataclass
-from src.utils.resource_calculator import ResourceCalculator
+from src.core.resource_tracking import ResourceCalculator
 
 T = TypeVar('T')
 
