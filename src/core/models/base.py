@@ -34,6 +34,14 @@ class ErrorInfo:
         if not self.message.strip():
             raise ValueError("Error message must not be empty")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Error-Info in ein Dictionary."""
+        return {
+            'code': self.code,
+            'message': self.message,
+            'details': self.details
+        }
+
 @dataclass
 class RequestInfo:
     """Informationen über eine Verarbeitungsanfrage"""
@@ -47,6 +55,14 @@ class RequestInfo:
             raise ValueError("Processor must not be empty")
         if not self.timestamp.strip():
             raise ValueError("Timestamp must not be empty")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Request-Info in ein Dictionary."""
+        return {
+            'processor': self.processor,
+            'timestamp': self.timestamp,
+            'parameters': self.parameters
+        }
 
 @dataclass
 class ProcessInfo:
@@ -72,6 +88,18 @@ class ProcessInfo:
         if self.duration is not None and self.duration < 0:
             raise ValueError("Duration must be non-negative if provided")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Process-Info in ein Dictionary."""
+        return {
+            'id': self.id,
+            'main_processor': self.main_processor,
+            'started': self.started,
+            'sub_processors': self.sub_processors,
+            'completed': self.completed,
+            'duration': self.duration,
+            'llm_info': self.llm_info
+        }
+
 @dataclass(frozen=True)
 class BaseResponse:
     """Basis-Klasse für alle API-Responses"""
@@ -79,6 +107,19 @@ class BaseResponse:
     process: ProcessInfo
     status: ProcessingStatus = ProcessingStatus.PENDING
     error: Optional[ErrorInfo] = None
+
+    def __post_init__(self) -> None:
+        """Validiert die Basis-Response."""
+        pass
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Response in ein Dictionary."""
+        return {
+            'status': self.status.value,
+            'request': self.request.to_dict() if self.request else None,
+            'process': self.process.to_dict() if self.process else None,
+            'error': self.error.to_dict() if self.error else None
+        }
 
     def set_completed(self) -> None:
         """Markiert den Prozess als abgeschlossen."""

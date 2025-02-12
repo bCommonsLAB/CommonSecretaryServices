@@ -99,8 +99,8 @@ class BaseProcessor:
         """
         self.process_id = process_id or str(uuid.uuid4())
         self.resource_calculator = resource_calculator
-        self.logger: Optional[ProcessingLogger] = None
-        self.temp_dir: Optional[Path] = None
+        self.logger = self.init_logger()
+        self.temp_dir = self.init_temp_dir(self.__class__.__name__.lower())
 
     def validate_text(self, text: Optional[str], field_name: str = "text") -> str:
         """

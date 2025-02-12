@@ -1,12 +1,12 @@
 """
 Transformer-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus, OutputFormat
-from .llm import LLMInfo, LLMRequest
+from .llm import LLMInfo, LLMRequest, LLModel
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,7 @@ class TransformationResult:
     target_language: str
     structured_data: Optional[Any] = None
     requests: Optional[List[LLMRequest]] = None
+    llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
 
 @dataclass(frozen=True, init=False)
 class TransformerResponse(BaseResponse):

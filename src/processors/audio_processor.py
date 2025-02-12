@@ -2,7 +2,8 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol, Type, TYPE_CHECKING, cast, Sequence
+from typing import Dict, Any, Optional, List, Union, Protocol, cast, Sequence, TYPE_CHECKING, IO
+from types import TracebackType
 import time
 import hashlib
 import json
@@ -12,22 +13,32 @@ import gc
 import uuid
 import math
 import requests
+from datetime import datetime
 from dataclasses import dataclass
 
+from core.models.transformer import TransformationResult
 from src.processors.base_processor import BaseProcessor
-from src.utils.resource_calculator import ResourceCalculator
+from src.utils.resource_calculator import ResourceCalculator  # Nur diese Version verwenden
 from src.core.exceptions import ProcessingError
-from src.utils.logger import get_logger, ProcessingLogger
 from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.types.pydub_types import AudioSegmentProtocol
-from src.utils.openai_types import WhisperResponse, WhisperSegment
 from src.core.config import Config
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.metadata_processor import MetadataProcessor
+from src.core.models.base import (
+    BaseResponse,
+    ProcessingStatus,
+    RequestInfo,
+    ProcessInfo,
+    ErrorInfo,
+    ProcessingLogger
+)
+from src.core.models.metadata import MetadataResponse
+from src.core.models.audio import AudioProcessingError
+from src.core.models.llm import LLModel  # LLModel aus core.models.llm importieren
 
 if TYPE_CHECKING:
     from .transformer_processor import TransformationResult
-    from .metadata_processor import MetadataResult
 
 try:
     from pydub import AudioSegment  # type: ignore
@@ -64,13 +75,6 @@ class TranscriptionSegment:
     title: Optional[str] = None
 
 @dataclass
-class LLModel:
-    """Informationen über ein verwendetes LLM."""
-    model: str
-    duration: float
-    tokens: int
-
-@dataclass
 class TranscriptionResult:
     """Ergebnis einer Transkription."""
     text: str
@@ -94,10 +98,13 @@ class MetadataProcessorProtocol(Protocol):
         binary_data: Union[str, Path, bytes],
         content: str,
         context: Optional[Dict[str, Any]] = None
-    ) -> 'MetadataResult': ...
+    ) -> MetadataResponse: ...
 
 class TransformerProcessorProtocol(Protocol):
     """Protocol für TransformerProcessor."""
+    model: str
+    llms: List[LLModel]
+    
     def transform(
         self,
         source_text: str,
@@ -114,6 +121,11 @@ class TransformerProcessorProtocol(Protocol):
         context: Optional[Dict[str, Any]] = None,
         template: Optional[str] = None
     ) -> 'TransformationResult': ...
+
+class ResourceCalculatorProtocol(ResourceCalculator, Protocol):
+    """Protocol für ResourceCalculator."""
+    def track_usage(self, tokens: int, model: str, duration: float) -> None: ...
+    def calculate_cost(self, tokens: int, model: str) -> float: ...
 
 @dataclass
 class AudioProcessingResult:
@@ -151,6 +163,28 @@ class AudioProcessingResult:
             "process_id": self.process_id
         }
 
+@dataclass
+class AudioResponse(BaseResponse):
+    """Standardisierte Response für Audio-Verarbeitung."""
+    data: Any  # Typ auf Any ändern, um die Laufzeit-Typprüfung zu rechtfertigen
+
+    def __post_init__(self) -> None:
+        """Validiert die Response-Daten."""
+        super().__post_init__()
+        if not isinstance(self.data, AudioProcessingResult):
+            raise TypeError(f"data muss vom Typ AudioProcessingResult sein, nicht {type(self.data)}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Response in ein Dictionary."""
+        base_dict = {
+            'status': self.status.value,
+            'request': self.request.to_dict() if self.request else None,
+            'process': self.process.to_dict() if self.process else None,
+            'error': self.error.to_dict() if self.error else None,
+            'data': self.data.to_dict() if self.data else None
+        }
+        return base_dict
+
 class AudioProcessor(BaseProcessor):
     """Audio Processor für die Verarbeitung von Audio-Dateien.
     
@@ -162,34 +196,86 @@ class AudioProcessor(BaseProcessor):
         segment_duration (int): Dauer der Audio-Segmente in Sekunden
         export_format (str): Format für exportierte Audio-Dateien
         temp_file_suffix (str): Suffix für temporäre Dateien
+        temp_dir (Path): Verzeichnis für temporäre Dateien
+        logger (ProcessingLogger): Logger für die Verarbeitung
     """
-    temp_dir: Path
-    max_file_size: int
-    segment_duration: int
-    export_format: str
-    temp_file_suffix: str
-    transformer: TransformerProcessorProtocol
-    transcriber: WhisperTranscriberProtocol
-    logger: ProcessingLogger
-    resource_calculator: ResourceCalculator
     
-    def __init__(self, process_id: Optional[str] = None) -> None:
-        """Initialisiert den AudioProcessor.
+    logger: ProcessingLogger  # Explizite Typ-Annotation für logger
+    temp_dir: Path  # Explizite Typ-Annotation für temp_dir
+    
+    def __init__(
+        self,
+        resource_calculator: ResourceCalculatorProtocol,
+        process_id: Optional[str] = None
+    ) -> None:
+        """Initialisiert den AudioProcessor."""
+        super().__init__(resource_calculator, process_id or str(uuid.uuid4()))
         
-        Args:
-            process_id: Optional[str] = None: Die Prozess-ID für das Tracking
-        """
-        super().__init__(process_id)
-        self.temp_dir: Optional[Path] = None
-        self.max_file_size = Config.get('max_file_size', 100 * 1024 * 1024)  # 100MB
-        self.segment_duration = Config.get('segment_duration', 300)  # 5 Minuten
-        self.export_format = Config.get('export_format', 'wav')
+        # Konfiguration laden
+        config = Config()
+        # temp_dir wird vom BaseProcessor verwaltet
+        self.max_file_size = config.get('max_file_size', 100 * 1024 * 1024)  # 100MB
+        self.segment_duration = config.get('segment_duration', 300)  # 5 Minuten
+        self.export_format = config.get('export_format', 'wav')
         self.temp_file_suffix = f".{self.export_format}"
         
-        self.transformer = TransformerProcessor(process_id)
-        self.transcriber = WhisperTranscriber(process_id)
-        self.logger = get_logger(process_id)
-        self.resource_calculator = ResourceCalculator()
+        # Prozessoren initialisieren
+        self.transformer: TransformerProcessorProtocol = cast(TransformerProcessorProtocol, 
+            TransformerProcessor(resource_calculator, process_id))
+        self.transcriber: WhisperTranscriberProtocol = cast(WhisperTranscriberProtocol,
+            WhisperTranscriber({"process_id": process_id}))
+        # logger und temp_dir werden vom BaseProcessor verwaltet
+        
+        self.resource_calculator: ResourceCalculatorProtocol = resource_calculator
+        
+        # Zeitmessung
+        self.start_time: Optional[datetime] = None
+        self.end_time: Optional[datetime] = None
+        self.duration: Optional[float] = None
+
+    @property
+    def process_info(self) -> ProcessInfo:
+        """Gibt die Prozess-Informationen zurück."""
+        return ProcessInfo(
+            id=self.process_id,
+            main_processor="audio",
+            started=self.start_time.isoformat() if self.start_time else datetime.now().isoformat(),
+            duration=self.duration if self.duration else None,
+            completed=self.end_time.isoformat() if self.end_time else None
+        )
+
+    def measure_operation(self, operation_name: str):
+        """Context Manager für die Zeitmessung von Operationen."""
+        class OperationTimer:
+            def __init__(self, processor: 'AudioProcessor', name: str):
+                self.processor: AudioProcessor = processor
+                self.name: str = name
+                self.start_time: Optional[datetime] = None
+
+            def __enter__(self) -> "OperationTimer":
+                self.start_time = datetime.now()
+                self.processor.logger.info(f"Starte Operation: {self.name}")
+                return self
+
+            def __exit__(self, exc_type: Optional[type[BaseException]], exc_value: Optional[BaseException], traceback: Optional[TracebackType]) -> Optional[bool]:
+                end_time: datetime = datetime.now()
+                if self.start_time:
+                    duration: float = (end_time - self.start_time).total_seconds()
+                    self.processor.logger.info(
+                        f"Operation beendet: {self.name}",
+                        duration=duration
+                    )
+                    if exc_type and exc_value:
+                        # Konvertiere BaseException zu Exception für den Logger
+                        error = Exception(str(exc_value))
+                        self.processor.logger.error(
+                            f"Fehler in Operation {self.name}",
+                            error=error,
+                            duration=duration
+                        )
+                return None
+
+        return OperationTimer(self, operation_name)
 
     def _safe_delete(self, file_path: Union[str, Path]) -> None:
         """Löscht eine Datei sicher und ignoriert Fehler wenn die Datei nicht gelöscht werden kann.
@@ -225,13 +311,13 @@ class AudioProcessor(BaseProcessor):
             delete_transcripts: Wenn True, werden auch die Transkriptionen gelöscht, sonst nur die Segmente
         """
         try:
-            now = time.time()
+            now: float = time.time()
             if not self.temp_dir.exists():
                 return
                 
             for dir_path in self.temp_dir.glob("*"):
                 if dir_path.is_dir():
-                    dir_age = now - dir_path.stat().st_mtime
+                    dir_age: float = now - dir_path.stat().st_mtime
                     if dir_age > (max_age_days * 24 * 60 * 60):
                         if delete_transcripts:
                             # Lösche das komplette Verzeichnis
@@ -253,11 +339,11 @@ class AudioProcessor(BaseProcessor):
         """Löscht das Cache-Verzeichnis für eine bestimmte Datei."""
         try:
             # Berechne den Hash des Dateinamens
-            filename_hash = hashlib.md5(filename.encode()).hexdigest()
+            filename_hash: str = hashlib.md5(filename.encode()).hexdigest()
             if not self.temp_dir.exists():
                 return
                 
-            process_dir = self.temp_dir / filename_hash
+            process_dir: Path = self.temp_dir / filename_hash
             
             if process_dir.exists():
                 if delete_transcript:
@@ -278,8 +364,8 @@ class AudioProcessor(BaseProcessor):
 
     def _load_audio_from_url(self, url: str) -> Path:
         """Lädt eine Audio-Datei von einer URL herunter."""
-        temp_file = tempfile.NamedTemporaryFile(suffix=self.temp_file_suffix, delete=False)
-        response = requests.get(url, stream=True)
+        temp_file: IO[bytes] = tempfile.NamedTemporaryFile(suffix=self.temp_file_suffix, delete=False)
+        response: requests.Response = requests.get(url, stream=True)
         response.raise_for_status()
         
         for chunk in response.iter_content(chunk_size=8192):
@@ -300,8 +386,8 @@ class AudioProcessor(BaseProcessor):
         if video_id:
             process_dir = self.temp_dir / video_id
         elif original_filename:
-            path_hash = hashlib.md5(str(original_filename).encode()).hexdigest()
-            process_dir = self.temp_dir / path_hash
+            path_hash: str = hashlib.md5(str(original_filename).encode()).hexdigest()
+            process_dir: Path = self.temp_dir / path_hash
         else:
             path_hash = hashlib.md5(str(audio_path).encode()).hexdigest()
             process_dir = self.temp_dir / path_hash
@@ -391,11 +477,11 @@ class AudioProcessor(BaseProcessor):
         """
         # Erstelle einen zufälligen Dateinamen im process_dir
         temp_filename = f'temp_segment_{uuid.uuid4()}.{format}'
-        temp_path = os.path.join(self.temp_dir, temp_filename)
+        temp_path = self.temp_dir / temp_filename
         
         try:
             # Exportiere direkt in unser temp_dir
-            segment.export(temp_path, format=format)  # type: ignore
+            segment.export(str(temp_path), format=format)  # type: ignore
             size = os.path.getsize(temp_path)
             self.logger.debug("Segment-Größe geprüft",
                             duration_seconds=len(segment)/1000.0,
@@ -403,10 +489,8 @@ class AudioProcessor(BaseProcessor):
             return size
         finally:
             # Aufräumen
-            try:
-                os.remove(temp_path)
-            except OSError:
-                self.logger.warning(f"Konnte temporäre Datei nicht löschen: {temp_path}")
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _split_large_segment(self, segment: AudioSegmentType, max_size: int = 25*1024*1024) -> List[AudioSegmentType]:
         """Teilt ein Segment in kleinere Teile auf, wenn es zu groß ist.
@@ -446,8 +530,8 @@ class AudioProcessor(BaseProcessor):
             part_number = 1
             
             while current_position < duration:
-                end_position = min(current_position + target_duration, duration)
-                part = cast(AudioSegmentType, segment[current_position:end_position])
+                end_position: int = min(current_position + target_duration, duration)
+                part: AudioSegmentProtocol = segment[current_position:end_position]
                 
                 # Prüfe die tatsächliche Größe
                 actual_size = self._check_segment_size(part)
@@ -457,8 +541,8 @@ class AudioProcessor(BaseProcessor):
                 while actual_size > max_size and retry_count < 5:
                     target_duration = target_duration // 2
                     end_position = min(current_position + target_duration, duration)
-                    part = cast(AudioSegmentType, segment[current_position:end_position])
-                    actual_size = self._check_segment_size(part)
+                    part = segment[current_position:end_position]
+                    actual_size: int = self._check_segment_size(part)
                     retry_count += 1
                     
                     self.logger.warning(f"Segment Teil {part_number} zu groß, verkleinere",
@@ -486,7 +570,7 @@ class AudioProcessor(BaseProcessor):
             return segments
             
         except Exception as e:
-            self.logger.error("Fehler beim Aufteilen des Segments", error=str(e))
+            self.logger.error("Fehler beim Aufteilen des Segments", error=e)
             raise
         finally:
             # Speicher freigeben
@@ -713,7 +797,7 @@ class AudioProcessor(BaseProcessor):
                 )
                 
                 # Erstelle TranscriptionSegments aus den Segmentdaten
-                segments = []
+                segments: List[TranscriptionSegment] = []
                 for i, segment_data in enumerate(data.get('segments', [])):
                     segment = TranscriptionSegment(
                         text=segment_data.get('text', ''),
@@ -741,7 +825,7 @@ class AudioProcessor(BaseProcessor):
         target_language: Optional[str] = None,
         template: Optional[str] = None,
         skip_segments: Optional[List[int]] = None
-    ) -> AudioProcessingResult:
+    ) -> AudioResponse:
         """
         Verarbeitet eine Audio-Datei.
         
@@ -757,7 +841,7 @@ class AudioProcessor(BaseProcessor):
             skip_segments: Liste von Segment-IDs die übersprungen werden sollen
             
         Returns:
-            AudioProcessingResult: Typisiertes Ergebnis der Audio-Verarbeitung
+            AudioResponse: Typisiertes Ergebnis der Audio-Verarbeitung
             
         Raises:
             ProcessingError: Bei Fehlern in der Verarbeitung
@@ -774,15 +858,12 @@ class AudioProcessor(BaseProcessor):
             with self.measure_operation('audio_processing'):
                 if isinstance(audio_source, bytes):
                     temp_file_path = self._load_audio_from_bytes(audio_source)
-                elif isinstance(audio_source, (str, Path)):
+                else:
                     audio_path = str(audio_source)
                     if audio_path.startswith(('http://', 'https://')):
                         temp_file_path = self._load_audio_from_url(audio_path)
                     else:
-                        # Lokale Datei, verwende direkt
                         temp_file_path = Path(audio_path)
-                else:
-                    raise ValueError(f"Nicht unterstützter Audio-Quellen-Typ: {type(audio_source)}")
 
                 process_dir = self.get_process_dir(
                     str(temp_file_path),
@@ -812,15 +893,13 @@ class AudioProcessor(BaseProcessor):
                     )
 
                 # Übersetze den kompletten Text wenn nötig
-                detected_language = transcription_result.detected_language
-                original_text = transcription_result.text
+                detected_language: str | None = transcription_result.detected_language
+                original_text: str = transcription_result.text
                 duration = source_info.get('duration', 0)
-                translated_text = None
-                translation_model = None
 
                 # Metadaten extrahieren
                 metadata_processor = MetadataProcessor(self.resource_calculator, self.process_id)
-                metadata_result = await metadata_processor.extract_metadata(
+                metadata_result: MetadataResponse = await metadata_processor.extract_metadata(
                     binary_data=temp_file_path,
                     content=original_text,
                     context=source_info
@@ -828,7 +907,7 @@ class AudioProcessor(BaseProcessor):
 
                 if template:
                     self.logger.info(f"3. Text transformation mit Vorlage wird ausgeführt {template}")
-                    transformation_result = self.transformer.transformByTemplate(
+                    transformation_result: TransformationResult = self.transformer.transformByTemplate(
                         source_text=transcription_result.text,
                         source_language=target_language or detected_language or 'de',
                         target_language=target_language or detected_language or 'de',
@@ -840,7 +919,7 @@ class AudioProcessor(BaseProcessor):
                         text=transformation_result.text,
                         detected_language=transcription_result.detected_language,
                         segments=transcription_result.segments,
-                        llms=transcription_result.llms + transformation_result.llms
+                        llms=list(transcription_result.llms) + list(transformation_result.llms)  # Explizite Listen-Konvertierung
                     )
 
                 elif detected_language and target_language and detected_language != target_language:
@@ -851,15 +930,13 @@ class AudioProcessor(BaseProcessor):
                         target_language=target_language,
                         context=source_info
                     )
-                    translated_text = transformation_result.text
-                    translation_model = self.transformer.model
                     
                     # Token Count aus der Transformation hinzufügen
                     transcription_result = TranscriptionResult(
                         text=transformation_result.text,
                         detected_language=transcription_result.detected_language,
                         segments=transcription_result.segments,
-                        llms=transcription_result.llms + transformation_result.llms
+                        llms=list(transcription_result.llms) + list(transformation_result.llms)  # Explizite Listen-Konvertierung
                     )
 
                 # Erstelle das finale Ergebnis
@@ -883,14 +960,22 @@ class AudioProcessor(BaseProcessor):
                 # Speichere das Ergebnis
                 self._save_result(result, process_dir)
                 
-                return result
+                request_data = {
+                    'source_url': str(temp_file_path) if temp_file_path else None,
+                    'original_filename': source_info.get('original_filename'),
+                    'video_id': source_info.get('video_id'),
+                    'duration': duration,
+                    'target_language': target_language,
+                    'template': template
+                }
+                
+                response = self._create_response(result, request_data)
+                return response
 
         except Exception as e:
-            self.logger.error("Fehler bei der Audio-Verarbeitung", error=e)
-            self.logger.error(traceback.format_exc())
-            raise ProcessingError(f"Audio-Verarbeitung fehlgeschlagen: {str(e)}")
+            self._handle_error(e, "audio_processing")
+            raise
             
-                
     def _save_result(self, result: AudioProcessingResult, process_dir: Path) -> None:
         """
         Speichert das Verarbeitungsergebnis.
@@ -911,28 +996,138 @@ class AudioProcessor(BaseProcessor):
             self.logger.error(f"Fehler beim Speichern des Ergebnisses: {str(e)}")
             raise ProcessingError(f"Speichern des Ergebnisses fehlgeschlagen: {str(e)}")
 
-    def _handle_error(self, e: Exception) -> None:
-        """Behandelt einen Fehler während der Verarbeitung.
+    def _handle_error(self, error: Exception, stage: str) -> None:
+        """Standardisierte Fehlerbehandlung."""
+        error_code = 'AUDIO_PROCESSING_ERROR'
+        if isinstance(error, AudioProcessingError):
+            error_code = error.error_code
+            
+        # Spezifische Error-Codes basierend auf der Stage
+        stage_error_mapping = {
+            'file_processing': 'FILE_ERROR',
+            'transcription': 'TRANSCRIPTION_ERROR',
+            'transformation': 'TRANSFORMATION_ERROR',
+            'segmentation': 'SEGMENT_ERROR',
+            'cache_management': 'CACHE_ERROR'
+        }
+        
+        if stage in stage_error_mapping:
+            error_code = stage_error_mapping[stage]
+            
+        error_info = ErrorInfo(
+            code=error_code,
+            message=str(error),
+            details={
+                'error_type': type(error).__name__,
+                'stage': stage,
+                'traceback': traceback.format_exc(),
+                'process_id': self.process_id
+            }
+        )
+        
+        if self.logger:
+            self.logger.error(
+                "Fehler bei der Audio-Verarbeitung",
+                error=error,
+                error_code=error_code,
+                stage=stage,
+                process_id=self.process_id
+            )
+        
+        raise AudioProcessingError(
+            message=str(error),
+            error_code=error_code,
+            details=error_info.details
+        )
+
+    def _track_llm_usage(
+        self,
+        model: str,
+        tokens: int,
+        duration: float,
+        purpose: str = "audio_processing"
+    ) -> None:
+        """Standardisiertes LLM-Tracking."""
+        try:
+            if not model:
+                raise ValueError("model darf nicht leer sein")
+            if tokens <= 0:
+                raise ValueError("tokens muss positiv sein")
+            if duration < 0:
+                raise ValueError("duration muss nicht-negativ sein")
+                
+            if hasattr(self.resource_calculator, 'track_usage'):
+                self.resource_calculator.track_usage(
+                    tokens=tokens,
+                    model=model,
+                    duration=duration
+                )
+            
+            if self.logger:
+                self.logger.info(
+                    "LLM-Nutzung getrackt",
+                    model=model,
+                    tokens=tokens,
+                    duration=duration,
+                    purpose=purpose,
+                    process_id=self.process_id
+                )
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(
+                    "LLM-Tracking fehlgeschlagen",
+                    error=e,
+                    model=model,
+                    tokens=tokens,
+                    duration=duration,
+                    process_id=self.process_id
+                )
+
+    def _create_response(
+        self,
+        result: AudioProcessingResult,
+        request_info: Dict[str, Any]
+    ) -> AudioResponse:
+        """Erstellt eine standardisierte Response.
         
         Args:
-            e: Die aufgetretene Exception
+            result: Verarbeitungsergebnis
+            request_info: Request-Informationen
+            
+        Returns:
+            AudioResponse: Standardisierte Response
+            
+        Raises:
+            AudioProcessingError: Bei Validierungsfehlern
         """
-        error_info = {
-            'error_type': type(e).__name__,
-            'error_message': str(e),
-            'traceback': traceback.format_exc()
-        }
-        self.logger.error("Fehler bei der Verarbeitung", **error_info)
-        
-        if self.temp_dir and self.temp_dir.exists():
-            try:
-                shutil.rmtree(self.temp_dir)
-            except Exception as cleanup_error:
-                cleanup_info = {
-                    'error_type': type(cleanup_error).__name__,
-                    'error_message': str(cleanup_error)
-                }
-                self.logger.warning(
-                    "Fehler beim Aufräumen des temporären Verzeichnisses",
-                    **cleanup_info
-                ) 
+        try:
+            # Erstelle Response
+            response = AudioResponse(
+                data=result,
+                request=RequestInfo(
+                    processor="audio",
+                    timestamp=datetime.now().isoformat(),
+                    parameters=request_info
+                ),
+                process=self.process_info,
+                status=ProcessingStatus.SUCCESS
+            )
+            
+            self.logger.info(
+                "Response erstellt",
+                process_id=self.process_id,
+                status=response.status.value
+            )
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(
+                "Fehler bei Response-Erstellung",
+                error=e,
+                process_id=self.process_id
+            )
+            raise AudioProcessingError(
+                message=f"Response-Erstellung fehlgeschlagen: {str(e)}",
+                error_code='VALIDATION_ERROR'
+            ) 

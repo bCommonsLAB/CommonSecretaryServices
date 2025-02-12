@@ -1,11 +1,35 @@
 """
 Audio-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
-from .enums import ProcessingStatus
+from dataclasses import dataclass, field, asdict
+from typing import List, Optional, Dict, Any, Sequence
+from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLModel
+from .enums import ProcessingStatus
+from ..exceptions import ProcessingError
+
+class AudioProcessingError(ProcessingError):
+    """Audio-spezifische Fehler."""
+    ERROR_CODES = {
+        'FILE_ERROR': 'Fehler beim Dateizugriff',
+        'TRANSCRIPTION_ERROR': 'Fehler bei der Transkription',
+        'TRANSFORMATION_ERROR': 'Fehler bei der Transformation',
+        'VALIDATION_ERROR': 'Validierungsfehler',
+        'SEGMENT_ERROR': 'Fehler bei der Segmentierung',
+        'CACHE_ERROR': 'Fehler beim Cache-Management'
+    }
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = 'AUDIO_PROCESSING_ERROR',
+        details: Optional[Dict[str, Any]] = None
+    ) -> None:
+        super().__init__(message)
+        if error_code not in self.ERROR_CODES and error_code != 'AUDIO_PROCESSING_ERROR':
+            raise ValueError(f"Unbekannter error_code: {error_code}")
+        self.error_code = error_code
+        self.details = details or {}
 
 @dataclass
 class TranscriptionSegment:
@@ -16,6 +40,17 @@ class TranscriptionSegment:
     speaker: Optional[str] = None
     confidence: float = 1.0
 
+    def __post_init__(self) -> None:
+        """Validiert die Segment-Daten."""
+        if not self.text.strip():
+            raise ValueError("Text darf nicht leer sein")
+        if self.start < 0:
+            raise ValueError("Start muss positiv sein")
+        if self.end <= self.start:
+            raise ValueError("End muss größer als Start sein")
+        if self.confidence < 0 or self.confidence > 1:
+            raise ValueError("Confidence muss zwischen 0 und 1 liegen")
+
 @dataclass
 class TranscriptionResult:
     """Ergebnis einer Transkription"""
@@ -23,6 +58,15 @@ class TranscriptionResult:
     detected_language: str
     segments: List[TranscriptionSegment]
     llms: List[LLModel] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validiert das Transkriptionsergebnis."""
+        if not self.text.strip():
+            raise ValueError("Text darf nicht leer sein")
+        if not self.detected_language.strip():
+            raise ValueError("Detected language darf nicht leer sein")
+        if not self.segments:
+            raise ValueError("Segments darf nicht leer sein")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -38,6 +82,14 @@ class TranscriptionResult:
                     'confidence': s.confidence
                 }
                 for s in self.segments
+            ],
+            'llms': [
+                {
+                    'model': llm.model,
+                    'duration': llm.duration,
+                    'tokens': llm.tokens
+                }
+                for llm in self.llms
             ]
         }
 
@@ -49,6 +101,17 @@ class AudioSegmentInfo:
     duration: float
     title: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """Validiert die Segment-Informationen."""
+        if self.start < 0:
+            raise ValueError("Start muss positiv sein")
+        if self.end <= self.start:
+            raise ValueError("End muss größer als Start sein")
+        if self.duration <= 0:
+            raise ValueError("Duration muss positiv sein")
+        if self.title is not None and not self.title.strip():
+            raise ValueError("Title darf nicht leer sein wenn gesetzt")
+
 @dataclass
 class Chapter:
     """Ein Kapitel in der Audio-Datei"""
@@ -56,6 +119,15 @@ class Chapter:
     start: float
     end: float
     segments: List[AudioSegmentInfo] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validiert die Kapitel-Informationen."""
+        if not self.title.strip():
+            raise ValueError("Title darf nicht leer sein")
+        if self.start < 0:
+            raise ValueError("Start muss positiv sein")
+        if self.end <= self.start:
+            raise ValueError("End muss größer als Start sein")
 
 @dataclass
 class AudioMetadata:
@@ -67,6 +139,21 @@ class AudioMetadata:
     sample_rate: int
     bit_rate: int
     chapters: List[Chapter] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Validiert die Metadaten."""
+        if not self.title.strip():
+            raise ValueError("Title darf nicht leer sein")
+        if self.duration <= 0:
+            raise ValueError("Duration muss positiv sein")
+        if not self.format.strip():
+            raise ValueError("Format darf nicht leer sein")
+        if self.channels <= 0:
+            raise ValueError("Channels muss positiv sein")
+        if self.sample_rate <= 0:
+            raise ValueError("Sample rate muss positiv sein")
+        if self.bit_rate <= 0:
+            raise ValueError("Bit rate muss positiv sein")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Metadaten in ein Dictionary."""
@@ -96,84 +183,39 @@ class AudioMetadata:
             ]
         }
 
-@dataclass(frozen=True, init=False)
-class AudioProcessingResult(BaseResponse):
-    """Ergebnis der Audio-Verarbeitung"""
-    metadata: AudioMetadata
-    transcription: TranscriptionResult
-    llm_model: Optional[LLModel] = None
-    translation_model: Optional[LLModel] = None
-
-    def __init__(
-        self,
-        request: RequestInfo,
-        process: ProcessInfo,
-        metadata: AudioMetadata,
-        transcription: TranscriptionResult,
-        llm_model: Optional[LLModel] = None,
-        translation_model: Optional[LLModel] = None,
-        status: ProcessingStatus = ProcessingStatus.PENDING,
-        error: Optional[ErrorInfo] = None
-    ) -> None:
-        """Initialisiert das AudioProcessingResult."""
-        super().__init__(request=request, process=process, status=status, error=error)
-        object.__setattr__(self, 'metadata', metadata)
-        object.__setattr__(self, 'transcription', transcription)
-        object.__setattr__(self, 'llm_model', llm_model)
-        object.__setattr__(self, 'translation_model', translation_model)
+@dataclass
+class AudioProcessingResult:
+    """Ergebnis der Audio-Verarbeitung."""
+    transcription: 'TranscriptionResult'
+    metadata: 'AudioMetadata'
+    process_id: str
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
-        segments = [
-            {
-                'text': segment.text,
-                'start': segment.start,
-                'end': segment.end,
-                'speaker': segment.speaker,
-                'confidence': segment.confidence
-            }
-            for segment in self.transcription.segments
-        ]
-
         return {
-            'metadata': {
-                'title': self.metadata.title,
-                'duration': self.metadata.duration,
-                'format': self.metadata.format,
-                'channels': self.metadata.channels,
-                'sample_rate': self.metadata.sample_rate,
-                'bit_rate': self.metadata.bit_rate,
-                'chapters': [
-                    {
-                        'title': chapter.title,
-                        'start': chapter.start,
-                        'end': chapter.end,
-                        'segments': [
-                            {
-                                'start': segment.start,
-                                'end': segment.end,
-                                'duration': segment.duration,
-                                'title': segment.title
-                            }
-                            for segment in chapter.segments
-                        ]
-                    }
-                    for chapter in self.metadata.chapters
-                ]
-            },
-            'transcription': {
-                'text': self.transcription.text,
-                'detected_language': self.transcription.detected_language,
-                'segments': segments
-            },
-            'llm_model': {
-                'model': self.llm_model.model,
-                'duration': self.llm_model.duration,
-                'tokens': self.llm_model.tokens
-            } if self.llm_model else None,
-            'translation_model': {
-                'model': self.translation_model.model,
-                'duration': self.translation_model.duration,
-                'tokens': self.translation_model.tokens
-            } if self.translation_model else None
-        } 
+            "transcription": self.transcription.to_dict(),
+            "metadata": self.metadata.to_dict(),
+            "process_id": self.process_id
+        }
+
+@dataclass
+class AudioResponse(BaseResponse):
+    """Standardisierte Response für Audio-Verarbeitung."""
+    data: AudioProcessingResult
+
+    def __post_init__(self) -> None:
+        """Validiert die Response-Daten."""
+        super().__post_init__()
+        if not isinstance(self.data, AudioProcessingResult):
+            raise TypeError(f"data muss vom Typ AudioProcessingResult sein, nicht {type(self.data)}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Response in ein Dictionary."""
+        base_dict = {
+            'status': self.status.value,
+            'request': self.request.to_dict() if self.request else None,
+            'process': self.process.to_dict() if self.process else None,
+            'error': self.error.to_dict() if self.error else None,
+            'data': self.data.to_dict() if self.data else None
+        }
+        return base_dict 

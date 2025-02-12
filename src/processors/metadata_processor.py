@@ -68,9 +68,6 @@ class MetadataProcessor(BaseProcessor):
             # Konfiguration laden
             self.load_processor_config('metadata')
             
-            # Logger initialisieren
-            self.logger = self.init_logger("MetadataProcessor")
-            
             # Basis-Konfiguration
             self.max_file_size = max_file_size
             
@@ -89,21 +86,19 @@ class MetadataProcessor(BaseProcessor):
             # Transformer für Content-Analyse
             self.transformer = TransformerProcessor(resource_calculator, process_id)
             
-            if self.logger:
-                self.logger.info(
-                    "MetadataProcessor initialisiert",
-                    extra={
-                        "args": {
-                            "max_file_size": self.max_file_size,
-                            "supported_mime_types": self.supported_mime_types,
-                            "features": asdict(self.features)
-                        }
+            self.logger.info(
+                "MetadataProcessor initialisiert",
+                extra={
+                    "args": {
+                        "max_file_size": self.max_file_size,
+                        "supported_mime_types": self.supported_mime_types,
+                        "features": asdict(self.features)
                     }
-                )
+                }
+            )
         except Exception as e:
-            if self.logger:
-                self.logger.error("Fehler bei der Initialisierung des MetadataProcessors",
-                                error=e)
+            self.logger.error("Fehler bei der Initialisierung des MetadataProcessors",
+                            error=e)
             raise ProcessingError(f"Initialisierungsfehler: {str(e)}")
 
     def validate_binary_data(self, data: Optional[Union[str, Path, BinaryIO]], param_name: str) -> Optional[Union[str, Path, BinaryIO]]:
@@ -279,6 +274,7 @@ class MetadataProcessor(BaseProcessor):
                 file_path.seek(0, os.SEEK_END)
                 file_size = file_path.tell()
                 file_path.seek(current_pos)
+                
 
             # MIME-Type validieren
             if not any(fnmatch.fnmatch(mime_type or '', pattern) for pattern in self.supported_mime_types):
@@ -290,6 +286,7 @@ class MetadataProcessor(BaseProcessor):
                     f"Datei zu groß: {file_size} Bytes (Maximum: {self.max_file_size} Bytes)"
                 )
 
+      
             # Spezifische Metadaten extrahieren
             doc_pages: Optional[int] = None
             media_duration: Optional[float] = None
@@ -303,11 +300,10 @@ class MetadataProcessor(BaseProcessor):
                     with fitz.open(file_path) as pdf:
                         doc_pages = len(pdf)
                 except Exception as e:
-                    if self.logger:
-                        self.logger.warning(
-                            "Fehler beim Extrahieren der PDF-Metadaten",
-                            extra={"error": str(e)}
-                        )
+                    self.logger.warning(
+                        "Fehler beim Extrahieren der PDF-Metadaten",
+                        extra={"error": str(e)}
+                    )
 
             elif mime_type and mime_type.startswith(('audio/', 'video/')):
                 try:
@@ -337,14 +333,13 @@ class MetadataProcessor(BaseProcessor):
                         try:
                             audio: AudioSegmentProtocol = cast(AudioSegmentProtocol, from_file(file_data, format=audio_format))
                         except Exception as decode_error:
-                            if self.logger:
-                                self.logger.warning(
-                                    "Fehler beim Dekodieren mit primärem Format, versuche Alternativen",
-                                    extra={
-                                        "error": str(decode_error),
-                                        "primary_format": audio_format
-                                    }
-                                )
+                            self.logger.warning(
+                                "Fehler beim Dekodieren mit primärem Format, versuche Alternativen",
+                                extra={
+                                    "error": str(decode_error),
+                                    "primary_format": audio_format
+                                }
+                            )
                             # Versuche alternative Formate wenn primäres Format fehlschlägt
                             alternative_formats = ['m4a', 'mp4', 'mp3', 'wav']
                             for alt_format in alternative_formats:
@@ -352,10 +347,9 @@ class MetadataProcessor(BaseProcessor):
                                     try:
                                         file_data.seek(0)
                                         audio = cast(AudioSegmentProtocol, from_file(file_data, format=alt_format))
-                                        if self.logger:
-                                            self.logger.info(
-                                                f"Erfolgreich mit alternativem Format {alt_format} dekodiert"
-                                            )
+                                        self.logger.info(
+                                            f"Erfolgreich mit alternativem Format {alt_format} dekodiert"
+                                        )
                                         break
                                     except Exception:
                                         continue
@@ -368,15 +362,14 @@ class MetadataProcessor(BaseProcessor):
                         try:
                             audio = cast(AudioSegmentProtocol, from_file(str(file_path), format=audio_format))
                         except Exception as decode_error:
-                            if self.logger:
-                                self.logger.warning(
-                                    "Fehler beim Dekodieren der Audio-Datei",
-                                    extra={
-                                        "error": str(decode_error),
-                                        "format": audio_format,
-                                        "file": str(file_path)
-                                    }
-                                )
+                            self.logger.warning(
+                                "Fehler beim Dekodieren der Audio-Datei",
+                                extra={
+                                    "error": str(decode_error),
+                                    "format": audio_format,
+                                    "file": str(file_path)
+                                }
+                            )
                             # Versuche ohne Format-Spezifikation
                             audio = cast(AudioSegmentProtocol, from_file(str(file_path)))
                     
@@ -386,28 +379,26 @@ class MetadataProcessor(BaseProcessor):
                     media_sample_rate = int(audio.frame_rate)
                     media_codec = audio_format
                     
-                    if self.logger:
-                        self.logger.info(
-                            "Audio-Metadaten erfolgreich extrahiert",
-                            extra={
-                                "format": audio_format,
-                                "duration": media_duration,
-                                "channels": media_channels,
-                                "sample_rate": media_sample_rate
-                            }
-                        )
+                    self.logger.info(
+                        "Audio-Metadaten erfolgreich extrahiert",
+                        extra={
+                            "format": audio_format,
+                            "duration": media_duration,
+                            "channels": media_channels,
+                            "sample_rate": media_sample_rate
+                        }
+                    )
                         
                 except Exception as e:
-                    if self.logger:
-                        self.logger.warning(
-                            "Fehler beim Extrahieren der Media-Metadaten",
-                            extra={
-                                "error": str(e),
-                                "error_type": type(e).__name__,
-                                "mime_type": mime_type,
-                                "file_name": file_name
-                            }
-                        )
+                    self.logger.warning(
+                        "Fehler beim Extrahieren der Media-Metadaten",
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "mime_type": mime_type,
+                            "file_name": file_name
+                        }
+                    )
                     # Setze Felder auf None bei Fehler
                     media_duration = None
                     media_bitrate = None
@@ -430,17 +421,16 @@ class MetadataProcessor(BaseProcessor):
                 media_sample_rate=media_sample_rate
             )
 
-            if self.logger:
-                self.logger.info(
-                    "Technische Metadaten extrahiert",
-                    extra={
-                        "args": {
-                            "file_name": file_name,
-                            "file_mime": mime_type,
-                            "file_size": file_size
-                        }
+            self.logger.info(
+                "Technische Metadaten extrahiert",
+                extra={
+                    "args": {
+                        "file_name": file_name,
+                        "file_mime": mime_type,
+                        "file_size": file_size
                     }
-                )
+                }
+            )
 
             return technical_metadata
 
@@ -454,16 +444,14 @@ class MetadataProcessor(BaseProcessor):
         content: str,
         context: Optional[Dict[str, Any]] = None
     ) -> Tuple[LLMInfo, ContentMetadata]:
-
         """Extrahiert inhaltliche Metadaten aus einem Text."""
         if not content:
             return LLMInfo(model="", purpose=""), ContentMetadata()
             
         try:
-            if self.logger:
-                self.logger.info("Starte inhaltliche Metadaten-Extraktion",
-                               content_length=len(content),
-                               context_keys=list(context.keys()) if context else None)
+            self.logger.info("Starte inhaltliche Metadaten-Extraktion",
+                           content_length=len(content),
+                           context_keys=list(context.keys()) if context else None)
             
             # LLMInfo für Content-Analyse initialisieren
             llm_info = LLMInfo(
@@ -472,8 +460,7 @@ class MetadataProcessor(BaseProcessor):
             )
             
             # Template-Transformation mit Metadaten-Template durchführen
-            if self.logger:
-                self.logger.info("Führe Template-Transformation durch")
+            self.logger.info("Führe Template-Transformation durch")
                     
             transform_result: TransformerResponse = self.transformer.transformByTemplate(
                 source_text=content,
@@ -514,10 +501,9 @@ class MetadataProcessor(BaseProcessor):
             
         except Exception as e:
             error_msg = f"Fehler bei der inhaltlichen Metadaten-Extraktion: {str(e)}"
-            if self.logger:
-                self.logger.error(error_msg,
-                                error_type=type(e).__name__,
-                                traceback=traceback.format_exc())
+            self.logger.error(error_msg,
+                            error_type=type(e).__name__,
+                            traceback=traceback.format_exc())
             raise ContentExtractionError(error_msg)
 
     async def extract_metadata(
@@ -538,8 +524,7 @@ class MetadataProcessor(BaseProcessor):
         Returns:
             MetadataResponse: Extrahierte Metadaten
         """
-        if self.logger:
-            self.logger.info("extract_metadata() wird als Alias für process() verwendet")
+        self.logger.info("extract_metadata() wird als Alias für process() verwendet")
             
         return await self.process(
             binary_data=binary_data,

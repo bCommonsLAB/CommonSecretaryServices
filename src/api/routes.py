@@ -834,13 +834,18 @@ class HtmlTableTransformEndpoint(Resource):
         process_start = time.time()
         
         try:
+            # Konvertiere numerische Parameter explizit zu Integer
+            table_index = int(data.get('table_index')) if data.get('table_index') is not None else None
+            start_row = int(data.get('start_row')) if data.get('start_row') is not None else None
+            row_count = int(data.get('row_count')) if data.get('row_count') is not None else None
+
             transformer_processor = get_transformer_processor(tracker.process_id if tracker else None)
             result = transformer_processor.transformHtmlTable(
                 source_url=data['source_url'],
                 output_format=data.get('output_format', 'json'),
-                table_index=data.get('table_index'),
-                start_row=data.get('start_row'),
-                row_count=data.get('row_count')
+                table_index=table_index,
+                start_row=start_row,
+                row_count=row_count
             )
 
             # Gesamtprozessdauer in Millisekunden berechnen
