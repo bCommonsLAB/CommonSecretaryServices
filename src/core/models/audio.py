@@ -2,11 +2,12 @@
 Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Sequence
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLModel, LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
+from pathlib import Path
 
 class AudioProcessingError(ProcessingError):
     """Audio-spezifische Fehler."""
@@ -35,21 +36,27 @@ class AudioProcessingError(ProcessingError):
 class TranscriptionSegment:
     """Ein Segment einer Transkription"""
     text: str
+    segment_id: int
     start: float
     end: float
     speaker: Optional[str] = None
     confidence: float = 1.0
+    title: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validiert die Segment-Daten."""
         if not self.text.strip():
             raise ValueError("Text darf nicht leer sein")
+        if self.segment_id < 0:
+            raise ValueError("Segment ID muss positiv sein")
         if self.start < 0:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:
             raise ValueError("End muss größer als Start sein")
         if self.confidence < 0 or self.confidence > 1:
             raise ValueError("Confidence muss zwischen 0 und 1 liegen")
+        if self.title is not None and not self.title.strip():
+            raise ValueError("Title darf nicht leer sein wenn gesetzt")
 
 @dataclass
 class TranscriptionResult:
@@ -76,10 +83,12 @@ class TranscriptionResult:
             'segments': [
                 {
                     'text': s.text,
+                    'segment_id': s.segment_id,
                     'start': s.start,
                     'end': s.end,
                     'speaker': s.speaker,
-                    'confidence': s.confidence
+                    'confidence': s.confidence,
+                    'title': s.title
                 }
                 for s in self.segments
             ],
@@ -96,6 +105,7 @@ class TranscriptionResult:
 @dataclass
 class AudioSegmentInfo:
     """Informationen über ein Audio-Segment"""
+    file_path: Path  # Pfad zur Audio-Datei
     start: float  # Start in Sekunden
     end: float    # Ende in Sekunden
     duration: float
@@ -103,6 +113,8 @@ class AudioSegmentInfo:
 
     def __post_init__(self) -> None:
         """Validiert die Segment-Informationen."""
+        if not isinstance(self.file_path, Path):
+            self.file_path = Path(self.file_path)
         if self.start < 0:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:
@@ -132,12 +144,14 @@ class Chapter:
 @dataclass
 class AudioMetadata:
     """Metadaten einer Audio-Datei"""
-    title: str
     duration: float
-    format: str
-    channels: int
-    sample_rate: int
-    bit_rate: int
+    process_dir: str
+    args: Dict[str, Any]
+    title: str = "Unbekannt"
+    format: str = "mp3"
+    channels: int = 2
+    sample_rate: int = 44100
+    bit_rate: int = 128000
     chapters: List[Chapter] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -164,6 +178,8 @@ class AudioMetadata:
             'channels': self.channels,
             'sample_rate': self.sample_rate,
             'bit_rate': self.bit_rate,
+            'process_dir': self.process_dir,
+            'args': self.args,
             'chapters': [
                 {
                     'title': c.title,
@@ -186,8 +202,8 @@ class AudioMetadata:
 @dataclass
 class AudioProcessingResult:
     """Ergebnis der Audio-Verarbeitung."""
-    transcription: Optional[TranscriptionResult]
-    metadata: Optional[AudioMetadata]
+    transcription: TranscriptionResult
+    metadata: AudioMetadata
     process_id: str
 
     def to_dict(self) -> Dict[str, Any]:
@@ -257,3 +273,95 @@ class AudioResponse(BaseResponse):
             'data': self.data.to_dict() if self.data else None
         }
         return base_dict 
+
+@dataclass
+class WhisperSegment:
+    """Ein Segment aus der Whisper API."""
+    text: str
+    start: float
+    end: float
+    confidence: float = 1.0
+    
+    def __post_init__(self) -> None:
+        """Validiert die Segment-Daten."""
+        if not self.text.strip():
+            raise ValueError("Text darf nicht leer sein")
+        if self.start < 0:
+            raise ValueError("Start muss positiv sein")
+        if self.end <= self.start:
+            raise ValueError("End muss größer als Start sein")
+        if self.confidence < 0 or self.confidence > 1:
+            raise ValueError("Confidence muss zwischen 0 und 1 liegen")
+
+@dataclass
+class WhisperResponse:
+    """Response von der Whisper API."""
+    text: str
+    language: str
+    duration: float
+    segments: List[WhisperSegment]
+    task: str = "transcribe"
+    
+    def __post_init__(self) -> None:
+        """Validiert die Response-Daten."""
+        if not self.text.strip():
+            raise ValueError("Text darf nicht leer sein")
+        if not self.language.strip():
+            raise ValueError("Language darf nicht leer sein")
+        if self.duration <= 0:
+            raise ValueError("Duration muss positiv sein")
+        if not self.segments:
+            raise ValueError("Segments darf nicht leer sein")
+        if not self.task in ["transcribe", "translate"]:
+            raise ValueError("Task muss 'transcribe' oder 'translate' sein")
+            
+    @classmethod
+    def from_api_response(cls, response: Dict[str, Any]) -> 'WhisperResponse':
+        """Erstellt eine WhisperResponse aus der API-Antwort."""
+        segments = [
+            WhisperSegment(
+                text=seg.get('text', ''),
+                start=seg.get('start', 0.0),
+                end=seg.get('end', 0.0),
+                confidence=seg.get('confidence', 1.0)
+            )
+            for seg in response.get('segments', [])
+        ]
+        
+        return cls(
+            text=response.get('text', ''),
+            language=response.get('language', ''),
+            duration=response.get('duration', 0.0),
+            segments=segments,
+            task=response.get('task', 'transcribe')
+        )
+
+@dataclass
+class AudioTranscriptionParams:
+    """Parameter für die Audio-Transkription."""
+    model: str = "whisper-1"
+    language: Optional[str] = None
+    response_format: str = "verbose_json"
+    temperature: float = 0.0
+    
+    def __post_init__(self) -> None:
+        """Validiert die Parameter."""
+        if not self.model.strip():
+            raise ValueError("Model darf nicht leer sein")
+        if self.language is not None and not self.language.strip():
+            raise ValueError("Language darf nicht leer sein wenn gesetzt")
+        if not self.response_format in ["json", "text", "srt", "verbose_json", "vtt"]:
+            raise ValueError("Response format muss einer der folgenden Werte sein: json, text, srt, verbose_json, vtt")
+        if self.temperature < 0 or self.temperature > 1:
+            raise ValueError("Temperature muss zwischen 0 und 1 liegen")
+            
+    def to_api_params(self) -> Dict[str, Any]:
+        """Konvertiert die Parameter in ein Dictionary für die API."""
+        params = {
+            "model": self.model,
+            "response_format": self.response_format,
+            "temperature": self.temperature
+        }
+        if self.language:
+            params["language"] = self.language
+        return params 
