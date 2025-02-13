@@ -2,18 +2,16 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol, cast, TYPE_CHECKING, IO
+from typing import Dict, Any, Optional, List, Union, Protocol, cast, TYPE_CHECKING
 from types import TracebackType
 import time
 import hashlib
 import json
 import traceback
-import tempfile
-import gc
 import uuid
 import requests
 from datetime import datetime
-import asyncio
+import io
 
 from core.models.transformer import TransformationResult
 from src.processors.base_processor import BaseProcessor
@@ -21,7 +19,7 @@ from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.types.pydub_types import AudioSegmentProtocol
-from src.core.config import Config
+from src.core.config import Config, ApplicationConfig
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.metadata_processor import MetadataProcessor
 from src.core.models.base import (
@@ -56,6 +54,7 @@ class WhisperTranscriberProtocol(Protocol):
         self,
         *,
         segments: Union[List[AudioSegmentInfo], List[Chapter]],
+        source_language: str,
         target_language: str,
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult: ...
@@ -115,10 +114,11 @@ class AudioProcessor(BaseProcessor):
         
         # Konfiguration laden
         config = Config()
+        self.config: ApplicationConfig = config.get_all()  # Korrekte Typ-Annotation
         # temp_dir wird vom BaseProcessor verwaltet
-        self.max_file_size = config.get('max_file_size', 100 * 1024 * 1024)  # 100MB
-        self.segment_duration = config.get('segment_duration', 300)  # 5 Minuten
-        self.export_format = config.get('export_format', 'mp3')
+        self.max_file_size = self.config.get('processors', {}).get('audio', {}).get('max_file_size', 100 * 1024 * 1024)  # 100MB
+        self.segment_duration = self.config.get('processors', {}).get('audio', {}).get('segment_duration', 300)  # 5 Minuten
+        self.export_format = self.config.get('processors', {}).get('audio', {}).get('export_format', 'mp3')
         self.temp_file_suffix = f".{self.export_format}"
         
         # Prozessoren initialisieren
@@ -419,14 +419,16 @@ class AudioProcessor(BaseProcessor):
                 for i, segment_data in enumerate(data.get('segments', [])):
                     segment = TranscriptionSegment(
                         text=segment_data.get('text', ''),
-                        segment_id=i,  # Füge segment_id hinzu
-                        title=segment_data.get('title')  # Füge auch title hinzu für Vollständigkeit
+                        segment_id=i,
+                        start=segment_data.get('start', 0.0),
+                        end=segment_data.get('end', 0.0),
+                        title=segment_data.get('title')
                     )
                     segments.append(segment)
                 
                 return TranscriptionResult(
                     text=data.get('text', ''),
-                    detected_language=data.get('detected_language'),
+                    source_language=data.get('detected_language', 'de'),
                     segments=segments,
                     llms=[whisper_model]
                 )
@@ -440,6 +442,7 @@ class AudioProcessor(BaseProcessor):
         audio_source: Union[str, Path, bytes],
         source_info: Optional[Dict[str, Any]] = None,
         chapters: Optional[List[Dict[str, Any]]] = None,
+        source_language: Optional[str] = None,
         target_language: Optional[str] = None,
         template: Optional[str] = None,
         skip_segments: Optional[List[int]] = None
@@ -450,7 +453,8 @@ class AudioProcessor(BaseProcessor):
             audio_source: Die Audio-Quelle (URL, Pfad oder Bytes)
             source_info: Optionale Informationen zur Quelle
             chapters: Optionale Kapitel-Informationen
-            target_language: Optionale Zielsprache
+            source_language: Quellsprache der Audio-Datei (ISO 639-1)
+            target_language: Zielsprache für die Transkription (ISO 639-1)
             template: Optionales Template für die Transformation
             skip_segments: Optionale Liste von Segment-IDs die übersprungen werden sollen
             
@@ -460,6 +464,8 @@ class AudioProcessor(BaseProcessor):
         try:
             # Initialisiere source_info wenn nicht vorhanden
             source_info = source_info or {}
+            source_language = source_language or "de"  # Fallback auf Deutsch
+            target_language = target_language or source_language  # Fallback auf Quellsprache
             
             # Erstelle temporäre Datei aus der Quelle
             if isinstance(audio_source, bytes):
@@ -470,7 +476,7 @@ class AudioProcessor(BaseProcessor):
                 temp_file_path = Path(audio_source)
 
             # Erstelle Verarbeitungsverzeichnis
-            process_dir = self.get_process_dir(
+            process_dir: Path = self.get_process_dir(
                 str(temp_file_path),
                 source_info.get('original_filename'),
                 source_info.get('video_id')
@@ -490,15 +496,14 @@ class AudioProcessor(BaseProcessor):
                 self.logger.info(f"Verarbeite {len(segment_infos)} Segmente")
                 transcription_result: TranscriptionResult = await self.transcriber.transcribe_segments(
                     segments=segment_infos,
-                    target_language=target_language or "de",  # Fallback auf Deutsch wenn keine Sprache angegeben
+                    source_language=source_language,
+                    target_language=target_language,
                     logger=self.logger
                 )
 
                 if not transcription_result:
                     raise ProcessingError("Keine Transkription erstellt")
 
-                # Übersetze den kompletten Text wenn nötig
-                detected_language: str = transcription_result.detected_language
                 original_text: str = transcription_result.text
                 duration = source_info.get('duration', 0)
 
@@ -514,17 +519,17 @@ class AudioProcessor(BaseProcessor):
                     # Transformiere den Text mit dem Template
                     transformation_result = self.transformer.transformByTemplate(
                         source_text=original_text,
-                        source_language=detected_language,
-                        target_language=target_language or detected_language,
+                        source_language=source_language,
+                        target_language=target_language,
                         template=template
                     )
                     
-                    if transformation_result and transformation_result.transformed_text:
-                        original_text = transformation_result.transformed_text
+                    if transformation_result and transformation_result.text:
+                        original_text = transformation_result.text
 
                 # Erstelle das finale Ergebnis
                 metadata = AudioMetadata(
-                    duration=duration,
+                    duration=max(duration, 0.001),  # Mindestens 1ms
                     process_dir=str(process_dir),
                     args={
                         "target_language": target_language,
@@ -726,7 +731,7 @@ class AudioProcessor(BaseProcessor):
         """Erstellt ein einzelnes Segment aus dem kompletten Audio.
         
         Args:
-            audio: Das Audio-Segment das gespeichert werden soll
+            audio: Das Audio-Segment das verarbeitet werden soll
             
         Returns:
             List[AudioSegmentInfo]: Liste mit einem einzelnen Segment
@@ -735,102 +740,62 @@ class AudioProcessor(BaseProcessor):
             AudioProcessingError: Wenn die Konvertierung fehlschlägt
         """
         try:
-            # Stelle sicher dass der temp_dir existiert
-            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            # Erstelle BytesIO Objekt für die Audio-Daten
+            audio_bytes = io.BytesIO()
             
-            # Erstelle den Segment-Pfad
-            segment_path = self.temp_dir / "segment_0.mp3"  # Immer .mp3 Extension verwenden
-            
-            # Logge Audio-Informationen vor der Konvertierung
             self.logger.info(
-                "Audio-Informationen vor Konvertierung",
-                frame_rate=audio.frame_rate,
-                channels=audio.channels,
-                sample_width=audio.sample_width,
-                duration_ms=len(audio)
+                "Starte Audio-Konvertierung",
+                format="mp3",
+                parameters={
+                    "sample_rate": "16000",
+                    "channels": "1"
+                }
             )
             
-            # Exportiere als MP3 mit optimalen Parametern für Whisper
-            try:
-                self.logger.info(
-                    "Starte Audio-Konvertierung",
-                    target_path=str(segment_path),
-                    format="mp3",
-                    parameters={
-                        "sample_rate": "16000",
-                        "channels": "1",
-                        "bitrate": "128k"
-                    }
-                )
-                
-                audio.export(
-                    str(segment_path),
-                    format="mp3",
-                    parameters=[
-                        "-ar", "16000",  # Sample Rate: 16kHz
-                        "-ac", "1",      # Mono Audio
-                        "-b:a", "128k"   # Bitrate: 128k
-                    ]
-                )
-                
-                # Verifiziere die exportierte Datei
-                if not segment_path.exists():
-                    raise AudioProcessingError(
-                        message="Exportierte Audio-Datei wurde nicht erstellt",
-                        error_code="SEGMENT_ERROR"
-                    )
-                    
-                file_size = segment_path.stat().st_size
-                self.logger.info(
-                    "Audio-Konvertierung abgeschlossen",
-                    file_size_bytes=file_size,
-                    file_path=str(segment_path)
-                )
-                
-            except Exception as e:
-                # Spezifische Fehlerbehandlung für Audio-Konvertierung
-                error_msg = str(e)
-                if "format not supported" in error_msg.lower():
-                    raise AudioProcessingError(
-                        message="Das Audio-Format wird nicht unterstützt. Bitte verwenden Sie ein gängiges Format wie MP3, WAV oder FLAC.",
-                        error_code="FORMAT_ERROR"
-                    )
-                elif "codec not supported" in error_msg.lower():
-                    raise AudioProcessingError(
-                        message="Der Audio-Codec wird nicht unterstützt. Bitte verwenden Sie einen Standard-Codec.",
-                        error_code="CODEC_ERROR"
-                    )
-                else:
-                    raise AudioProcessingError(
-                        message=f"Audio-Konvertierung fehlgeschlagen: {error_msg}",
-                        error_code="SEGMENT_ERROR"
-                    )
-
+            # Exportiere ins BytesIO Objekt mit optimalen Whisper-Parametern
+            audio.export(
+                audio_bytes,
+                format="mp3",
+                parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
+            )
+            
             # Berechne die Dauer in Sekunden
             duration = len(audio) / 1000.0  # Konvertiere von Millisekunden zu Sekunden
             
             # Erstelle das AudioSegmentInfo
             segment = AudioSegmentInfo(
-                file_path=segment_path,
+                file_path=audio_bytes,  # Speichere BytesIO statt Pfad
                 start=0.0,
                 end=duration,
                 duration=duration
             )
             
+            self.logger.info(
+                "Audio-Konvertierung abgeschlossen",
+                duration_seconds=duration,
+                audio_size_bytes=len(audio_bytes.getvalue())
+            )
+            
             return [segment]
             
         except Exception as e:
-            if not isinstance(e, AudioProcessingError):
-                self.logger.error(
-                    "Unerwarteter Fehler bei der Segment-Erstellung",
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
+            # Spezifische Fehlerbehandlung für Audio-Konvertierung
+            error_msg = str(e)
+            if "format not supported" in error_msg.lower():
                 raise AudioProcessingError(
-                    message=f"Segment-Erstellung fehlgeschlagen: {str(e)}",
+                    message="Das Audio-Format wird nicht unterstützt. Bitte verwenden Sie ein gängiges Format wie MP3, WAV oder FLAC.",
+                    error_code="FORMAT_ERROR"
+                )
+            elif "codec not supported" in error_msg.lower():
+                raise AudioProcessingError(
+                    message="Der Audio-Codec wird nicht unterstützt. Bitte verwenden Sie einen Standard-Codec.",
+                    error_code="CODEC_ERROR"
+                )
+            else:
+                raise AudioProcessingError(
+                    message=f"Audio-Konvertierung fehlgeschlagen: {error_msg}",
                     error_code="SEGMENT_ERROR"
                 )
-            raise
 
     def _create_chapter(self, title: str, start: float, end: float, segments: List[AudioSegmentInfo]) -> Chapter:
         """Erstellt ein Kapitel mit den gegebenen Informationen.

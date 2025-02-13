@@ -1,7 +1,7 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Union, List, cast, Sequence, Tuple
+from typing import Dict, Any, Optional, Union, List, cast, Sequence, Tuple, Protocol
 from pathlib import Path
 import time
 from datetime import datetime
@@ -11,16 +11,15 @@ import os
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 import gc
-import tempfile
 import io
-from pydub import AudioSegment
+import uuid
 
 from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
-
 from pydantic import Field
+from pydub import AudioSegment
 
 from src.utils.logger import ProcessingLogger
 from src.core.models.transformer import (
@@ -36,6 +35,26 @@ from src.core.exceptions import ProcessingError
 
 # Type-Definitionen
 FieldType = tuple[Union[type[str], type[None]], Field]
+
+class AudioSegmentProtocol(Protocol):
+    """Protocol für AudioSegment Typisierung."""
+    @classmethod
+    def from_file(
+        cls,
+        file: Union[str, io.BytesIO],
+        format: Optional[str] = None,
+        codec: Optional[str] = None,
+        parameters: Optional[List[str]] = None,
+        start_second: Optional[float] = None,
+        duration: Optional[float] = None,
+        **kwargs: Any
+    ) -> Any: ...
+    
+    def export(self, out_f: Union[str, io.BytesIO], format: str, parameters: Optional[List[str]] = None, **kwargs: Any) -> Any: ...
+    def __len__(self) -> int: ...
+
+# Typ-Alias für AudioSegment
+AudioSegmentType = AudioSegmentProtocol
 
 @dataclass
 class TemplateFieldDefinition:
@@ -514,6 +533,7 @@ class WhisperTranscriber:
         self,
         *,  # Erzwinge Keyword-Argumente
         segments: Union[Sequence[AudioSegmentInfo], Sequence[Chapter]],
+        source_language: str,
         target_language: str,
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult:
@@ -521,6 +541,7 @@ class WhisperTranscriber:
         
         Args:
             segments: Liste der Audio-Segmente oder Kapitel
+            source_language: Quellsprache der Audio-Datei (ISO 639-1)
             target_language: Zielsprache für die Transkription (ISO 639-1)
             logger: Optional, Logger für Debug-Ausgaben
             
@@ -539,24 +560,39 @@ class WhisperTranscriber:
                 futures: List[Future[TranscriptionResult]] = []
                 for i, segment in enumerate(all_segments):
                     if logger:
-                        logger.debug(f"Erstelle Future für Segment {i}: {segment.file_path.name}")
+                        # Prüfe ob file_path ein BytesIO oder Path ist
+                        segment_info = f"BytesIO Objekt" if isinstance(segment.file_path, io.BytesIO) else str(segment.file_path.name)
+                        logger.debug(f"Erstelle Future für Segment {i}: {segment_info}")
                     
-                    binary_data: bytes = bytes()
+                    # Wenn segment.file_path ein BytesIO ist, direkt verwenden
+                    if isinstance(segment.file_path, io.BytesIO):
+                        audio_data = segment.file_path
+                        audio_data.seek(0)  # Zurück zum Anfang
+                    else:
+                        # Sonst aus Datei lesen
+                        try:
+                            with open(segment.file_path, 'rb') as audio_file:
+                                audio_data = io.BytesIO(audio_file.read())
+                        except Exception as e:
+                            if logger:
+                                logger.error(f"Fehler beim Lesen von {segment.file_path}: {e}")
+                            continue
+
                     try:
-                        with open(segment.file_path, 'rb') as audio_file:
-                            binary_data: bytes = audio_file.read()
-                            future: Future[TranscriptionResult] = executor.submit(
-                                self.transcribe_segment, 
-                                binary_data, 
-                                segment.file_path, 
-                                logger, 
-                                i,
-                                segment_to_chapter.get(i)
-                            )
-                            futures.append(future)
+                        future: Future[TranscriptionResult] = executor.submit(
+                            self.transcribe_segment, 
+                            audio_data,  # BytesIO direkt übergeben
+                            segment.file_path if not isinstance(segment.file_path, io.BytesIO) else None,
+                            logger, 
+                            i,
+                            segment_to_chapter.get(i),
+                            source_language,
+                            target_language
+                        )
+                        futures.append(future)
                     finally:
-                        if binary_data:
-                            del binary_data
+                        if not isinstance(segment.file_path, io.BytesIO):
+                            audio_data.close()
                 
                 for future in as_completed(futures):
                     try:
@@ -571,17 +607,13 @@ class WhisperTranscriber:
 
             results.sort(key=lambda x: x.segments[0].segment_id)
 
-            # Bestimme die häufigste erkannte Sprache
-            detected_languages: List[str] = [r.detected_language for r in results if r.detected_language]
-            most_common_language: str | None = max(detected_languages, key=detected_languages.count) if detected_languages else None
-
             combined_text_parts: List[str] = []
             combined_segments: List[TranscriptionSegment] = []
             combined_requests: List[LLMRequest] = []
 
             # Unterscheide zwischen Kapitel- und Nicht-Kapitel-Verarbeitung
             if segment_to_chapter:  # Wenn Kapitel vorhanden
-                # 3. Organisiere Ergebnisse nach Kapiteln
+                # Organisiere Ergebnisse nach Kapiteln
                 chapter_texts: Dict[str, List[str]] = {}      # Kapitel-ID -> Liste von Texten
                 chapter_segments: Dict[str, List[TranscriptionSegment]] = {}   # Kapitel-ID -> Liste von Segmenten
                 chapter_titles: Dict[str, str] = {}     # Kapitel-ID -> Titel
@@ -626,7 +658,7 @@ class WhisperTranscriber:
                     
                     summary_result: TransformationResult = self.summarize_text(
                         text=chapter_text,
-                        target_language=most_common_language or "de",
+                        target_language=target_language,
                         max_words=400,
                         logger=logger
                     )
@@ -650,7 +682,7 @@ class WhisperTranscriber:
                     
                     summary_result = self.summarize_text(
                         text=complete_text,
-                        target_language=most_common_language or "de",
+                        target_language=target_language,
                         max_words=400,
                         logger=logger
                     )
@@ -661,17 +693,24 @@ class WhisperTranscriber:
             # Füge Whisper LLMs hinzu
             for result in results:
                 if hasattr(result, 'llms') and result.llms:
-                    combined_requests.extend(result.llms)
+                    # Konvertiere LLModel zu LLMRequest
+                    llm_requests = [LLMRequest(
+                        model=llm.model,
+                        purpose="transcription",
+                        tokens=llm.tokens,
+                        duration=int(llm.duration)
+                    ) for llm in result.llms]
+                    combined_requests.extend(llm_requests)
             
             # Übersetze den gesamten Text wenn nötig
             complete_text = " ".join(combined_text_parts).strip()
-            if most_common_language and target_language and most_common_language != target_language:
+            if target_language and source_language and source_language != target_language:
                 if logger:
-                    logger.info(f"Übersetze kompletten Text von {most_common_language} nach {target_language}")
+                    logger.info(f"Übersetze kompletten Text von {source_language} nach {target_language}")
                 
                 translation_result = self.translate_text(
                     text=complete_text,
-                    source_language=most_common_language,
+                    source_language=source_language,
                     target_language=target_language,
                     logger=logger
                 )
@@ -682,22 +721,29 @@ class WhisperTranscriber:
             # Erstelle finales Ergebnis
             result = TranscriptionResult(
                 text=complete_text,
-                detected_language=most_common_language or "de",
+                source_language=source_language,
                 segments=combined_segments,
                 requests=combined_requests
             )
             
             # Speichere Transkription
             if all_segments:
-                process_dir: Path = all_segments[0].file_path.parent
+                # Bestimme process_dir basierend auf dem Typ von file_path
+                if isinstance(all_segments[0].file_path, io.BytesIO):
+                    # Wenn BytesIO, nutze das temp_dir
+                    process_dir = self.temp_dir / str(uuid.uuid4())
+                else:
+                    # Wenn Path, nutze parent
+                    process_dir = all_segments[0].file_path.parent
+                
+                process_dir.mkdir(parents=True, exist_ok=True)
                 full_transcript_path: Path = process_dir / "segments_transcript.txt"
                 with open(full_transcript_path, 'w', encoding='utf-8') as f:
                     json.dump(result.to_dict(), f, indent=2)
 
-            if logger:
-                logger.info("Parallele Transkription abgeschlossen",
-                    segment_count=len(all_segments),
-                    total_tokens=sum(r.tokens for r in result.requests if isinstance(r, LLMRequest)))
+                if logger:
+                    logger.info("Transkription gespeichert",
+                        file=str(full_transcript_path))
             
             return result
             
@@ -796,18 +842,35 @@ class WhisperTranscriber:
 
     def transcribe_segment(
         self,
-        audio_segment: bytes,
+        audio_segment: Union[bytes, io.BytesIO],
         segment_path: Optional[Path] = None,
         logger: Optional[ProcessingLogger] = None,
         segment_id: Optional[int] = None,
-        segment_title: Optional[str] = None
+        segment_title: Optional[str] = None,
+        source_language: str = "de",
+        target_language: str = "de"
     ) -> TranscriptionResult:
-        """Transkribiert ein einzelnes Audio-Segment."""
+        """Transkribiert ein einzelnes Audio-Segment.
+        
+        Args:
+            audio_segment: Die Audio-Daten als Bytes oder BytesIO
+            segment_path: Optional, Pfad zur Audio-Datei für Debug-Zwecke
+            logger: Optional, Logger für Debug-Ausgaben
+            segment_id: Optional, ID des Segments für die Sortierung
+            segment_title: Optional, Titel des Segments (z.B. Kapitel-Titel)
+            source_language: Quellsprache der Audio-Datei (ISO 639-1)
+            target_language: Zielsprache für die Transkription (ISO 639-1)
+            
+        Returns:
+            TranscriptionResult: Das Transkriptionsergebnis
+            
+        Raises:
+            ProcessingError: Bei Fehlern während der Transkription
+        """
         if not audio_segment:
             raise ValueError("Audio-Daten dürfen nicht leer sein")
             
         try:
-            # Zeitmessung starten
             start_time: float = time.time()
             
             if logger:
@@ -815,31 +878,38 @@ class WhisperTranscriber:
                     "Starte Transkription von Segment",
                     segment_id=segment_id,
                     segment_title=segment_title,
-                    audio_size_bytes=len(audio_segment)
+                    audio_size_bytes=len(audio_segment.getvalue()) if isinstance(audio_segment, io.BytesIO) else len(audio_segment)
                 )
-            
+
+            # Konvertiere zu BytesIO wenn nötig
+            audio_file: io.BytesIO
+            if isinstance(audio_segment, bytes):
+                audio_file = io.BytesIO(audio_segment)
+            else:
+                audio_file = audio_segment
+                audio_file.seek(0)
+
+            # Lade mit PyDub
             try:
-                # Erstelle temporäre Datei für die Whisper API
-                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
-                    temp_file.write(audio_segment)
-                    temp_file_path = temp_file.name
-                    
-                    if logger:
-                        logger.debug(
-                            "Temporäre Datei erstellt",
-                            temp_file=temp_file_path,
-                            size_bytes=len(audio_segment)
-                        )
-                    
-                    # Transkribiere mit Whisper
-                    with open(temp_file_path, 'rb') as audio_file:
-                        response: TranscriptionVerbose = self.client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            response_format="verbose_json"
-                        )
-                        
-            except openai.BadRequestError as api_error:
+                audio: AudioSegmentProtocol = cast(AudioSegmentProtocol, cast(Any, AudioSegment.from_file(audio_file)))
+                
+                # Konvertiere zu MP3 mit optimalen Whisper-Parametern
+                mp3_data: io.BytesIO = io.BytesIO()
+                audio.export(
+                    mp3_data,
+                    format="mp3",
+                    parameters=["-ac", "1", "-ar", "16000"]
+                )
+                mp3_data.seek(0)
+                
+                # Sende an Whisper API
+                response: TranscriptionVerbose = self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=("audio.mp3", mp3_data, "audio/mpeg"),
+                    response_format="verbose_json"
+                )
+                
+            except Exception as api_error:
                 # Behandle spezifische API-Fehler
                 error_msg = str(api_error)
                 if "unrecognized file format" in error_msg.lower():
@@ -859,21 +929,6 @@ class WhisperTranscriber:
                         "Fehler bei der Transkription durch die Whisper API.",
                         details={'error_type': 'API_ERROR', 'original_error': error_msg}
                     )
-            except Exception as e:
-                raise ProcessingError(
-                    "Unerwarteter Fehler bei der Transkription.",
-                    details={'error_type': 'UNKNOWN_ERROR', 'original_error': str(e)}
-                )
-            finally:
-                # Lösche temporäre Datei
-                try:
-                    if 'temp_file_path' in locals():
-                        os.unlink(temp_file_path)
-                        if logger:
-                            logger.debug("Temporäre Datei gelöscht", temp_file=temp_file_path)
-                except Exception as e:
-                    if logger:
-                        logger.warning("Konnte temporäre Datei nicht löschen", error=str(e))
             
             if not hasattr(response, 'text'):
                 raise ValueError("Ungültige API-Antwort: Kein Text gefunden")
@@ -917,14 +972,14 @@ class WhisperTranscriber:
                             if logger:
                                 logger.error(
                                     "Fehler bei der Verarbeitung eines Segments",
-                                    error=str(seg_error),
+                                    error=seg_error,
                                     segment_index=i,
                                     segment_data=segment_data
                                 )
                             continue
             except Exception as seg_error:
                 if logger:
-                    logger.error("Fehler bei der Segmentverarbeitung", error=str(seg_error))
+                    logger.error("Fehler bei der Segmentverarbeitung", error=seg_error)
                 # Fallback auf ein einzelnes Segment
                 segments = [TranscriptionSegment(
                     text=response.text,
@@ -956,7 +1011,7 @@ class WhisperTranscriber:
             
             return TranscriptionResult(
                 text=response.text,
-                detected_language=getattr(response, 'language', 'de'),  # Fallback auf Deutsch
+                source_language=source_language,
                 segments=segments,
                 requests=[whisper_model]
             )
@@ -965,7 +1020,7 @@ class WhisperTranscriber:
             if logger:
                 logger.error(
                     "Fehler bei der Transkription von Segment",
-                    error=str(e),
+                    error=e,
                     error_type=type(e).__name__,
                     segment_id=segment_id,
                     segment_title=segment_title

@@ -224,17 +224,23 @@ file_upload.add_argument('file',
                         location='files', 
                         required=True,
                         help='Die zu verarbeitende Datei')
+file_upload.add_argument('source_language',
+                        type=str,
+                        location='form',
+                        default='de',
+                        help='Quellsprache der Audio-Datei (ISO 639-1)',
+                        trim=True)
 file_upload.add_argument('target_language',
                         type=str,
                         location='form',
-                        default='en',
-                        help='Sprache der Audio-Datei',
+                        default='de',
+                        help='Zielsprache für die Transkription (ISO 639-1)',
                         trim=True)
 file_upload.add_argument('template',
                         type=str,
                         location='form',
                         default='',
-                        help='Vorlage für die Verarbeitung',
+                        help='Template für die Transformation',
                         trim=True)
 
 # Model für Youtube-URLs und Parameter
@@ -296,16 +302,21 @@ upload_parser.add_argument('file',
                           location='files',
                           required=True,
                           help='Audio file (MP3, WAV, or M4A)')
+upload_parser.add_argument('source_language',
+                          type=str,
+                          location='form',
+                          default='de',
+                          help='Quellsprache der Audio-Datei (ISO 639-1)')
 upload_parser.add_argument('target_language',
                           type=str,
                           location='form',
-                          default='en',
-                          help='Target language (e.g., "en", "de")')
+                          default='de',
+                          help='Zielsprache für die Transkription (ISO 639-1)')
 upload_parser.add_argument('template',
                           type=str,
                           location='form',
                           default='',
-                          help='Vorlage für die Verarbeitung')
+                          help='Template für die Transformation')
 
 @api.errorhandler(ProcessingError)  # type: ignore
 @api.errorhandler(FileSizeLimitExceeded)  # type: ignore
@@ -495,11 +506,14 @@ class AudioEndpoint(Resource):
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine Audio-Datei')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        source_language: str = 'de'  # Default-Wert
         target_language: str = 'de'  # Default-Wert
         try:
             # Parse request
             args = upload_parser.parse_args()
             audio_file = args.get('file')
+            source_language = args.get('source_language', 'de')
+            target_language = args.get('target_language', 'de')
             template = args.get('template', '')
 
             if not audio_file:
@@ -517,7 +531,7 @@ class AudioEndpoint(Resource):
                 )
 
             # Verarbeite die Datei
-            result = asyncio.run(process_file(audio_file, target_language, template))
+            result = asyncio.run(process_file(audio_file, source_language, target_language, template))
             
             return result
 
@@ -1236,12 +1250,13 @@ metadata_upload_parser.add_argument(
     help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
 )
 
-async def process_file(uploaded_file: FileStorage, target_language: str = 'de', template: str = '') -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_language: str = 'de', target_language: str = 'de', template: str = '') -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
     Args:
         uploaded_file: Die hochgeladene Datei
+        source_language: Die Quellsprache der Audio-Datei
         target_language: Die Zielsprache für die Verarbeitung
         template: Optional Template für die Verarbeitung
         
@@ -1266,6 +1281,7 @@ async def process_file(uploaded_file: FileStorage, target_language: str = 'de', 
         processor: AudioProcessor = get_audio_processor(process_id)
         result: AudioProcessingResult = await processor.process(
             audio_source=temp_file.name,
+            source_language=source_language,
             target_language=target_language,
             template=template
         )

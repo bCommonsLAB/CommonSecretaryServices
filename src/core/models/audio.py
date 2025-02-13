@@ -2,12 +2,13 @@
 Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLMRequest, LLModel, LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
 from pathlib import Path
+import io
 
 class AudioProcessingError(ProcessingError):
     """Audio-spezifische Fehler."""
@@ -62,7 +63,7 @@ class TranscriptionSegment:
 class TranscriptionResult:
     """Ergebnis einer Transkription"""
     text: str
-    detected_language: str
+    source_language: str  # Früher detected_language
     segments: List[TranscriptionSegment]
     requests: List[LLMRequest] = field(default_factory=list)
     llms: List[LLModel] = field(default_factory=list)
@@ -71,8 +72,8 @@ class TranscriptionResult:
         """Validiert das Transkriptionsergebnis."""
         if not self.text.strip():
             raise ValueError("Text darf nicht leer sein")
-        if not self.detected_language.strip():
-            raise ValueError("Detected language darf nicht leer sein")
+        if not self.source_language.strip():
+            raise ValueError("Source language darf nicht leer sein")
         if not self.segments:
             raise ValueError("Segments darf nicht leer sein")
 
@@ -80,7 +81,7 @@ class TranscriptionResult:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
             'text': self.text,
-            'detected_language': self.detected_language,
+            'source_language': self.source_language,
             'segments': [
                 {
                     'text': s.text,
@@ -106,7 +107,7 @@ class TranscriptionResult:
 @dataclass
 class AudioSegmentInfo:
     """Informationen über ein Audio-Segment"""
-    file_path: Path  # Pfad zur Audio-Datei
+    file_path: Union[Path, io.BytesIO]  # Pfad zur Audio-Datei oder BytesIO Objekt
     start: float  # Start in Sekunden
     end: float    # Ende in Sekunden
     duration: float
@@ -114,8 +115,11 @@ class AudioSegmentInfo:
 
     def __post_init__(self) -> None:
         """Validiert die Segment-Informationen."""
-        if not isinstance(self.file_path, Path):
+        if isinstance(self.file_path, (str, Path)):
             self.file_path = Path(self.file_path)
+        elif not isinstance(self.file_path, io.BytesIO):
+            raise ValueError("file_path muss ein Path oder BytesIO Objekt sein")
+            
         if self.start < 0:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:
@@ -124,6 +128,13 @@ class AudioSegmentInfo:
             raise ValueError("Duration muss positiv sein")
         if self.title is not None and not self.title.strip():
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
+            
+    def get_audio_data(self) -> Union[Path, bytes]:
+        """Gibt die Audio-Daten zurück."""
+        if isinstance(self.file_path, io.BytesIO):
+            self.file_path.seek(0)
+            return self.file_path.getvalue()
+        return self.file_path
 
 @dataclass
 class Chapter:
