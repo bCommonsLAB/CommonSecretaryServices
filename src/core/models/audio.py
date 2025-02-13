@@ -2,9 +2,9 @@
 Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Sequence
+from typing import List, Optional, Dict, Any
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
-from .llm import LLModel, LLMInfo
+from .llm import LLMRequest, LLModel, LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
 from pathlib import Path
@@ -64,6 +64,7 @@ class TranscriptionResult:
     text: str
     detected_language: str
     segments: List[TranscriptionSegment]
+    requests: List[LLMRequest] = field(default_factory=list)
     llms: List[LLModel] = field(default_factory=list)
 
     def __post_init__(self) -> None:

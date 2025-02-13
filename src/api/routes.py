@@ -11,6 +11,7 @@ import werkzeug.datastructures
 from flask import Blueprint, request
 from flask_restx import (Api, Namespace, Resource, fields,  # type: ignore
                          reqparse)
+import asyncio
 
 from core.models.transformer import TransformerResponse
 from src.api.models.responses import ProcessInfo
@@ -478,75 +479,78 @@ class YoutubeEndpoint(Resource):
 
 @api.route('/process-audio')
 class AudioEndpoint(Resource):
+    """Audio-Verarbeitungs-Endpunkt."""
+    
     def _safe_delete(self, file_path: Union[str, Path]) -> None:
-        """Löscht eine Datei sicher und ignoriert Fehler wenn die Datei nicht gelöscht werden kann."""
+        """Löscht eine Datei sicher."""
         try:
-            if file_path and os.path.exists(str(file_path)):
-                os.unlink(str(file_path))
+            path = Path(file_path)
+            if path.exists():
+                path.unlink()
         except Exception as e:
-            logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+            logger.warning("Konnte temporäre Datei nicht löschen", error=e)
 
     @api.expect(upload_parser)
     @api.response(200, 'Erfolg', audio_response)
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine Audio-Datei')
-    def post(self) -> Dict[str, Any]:
-        """
-        Verarbeitet eine Audio-Datei.
-        """
-        args = upload_parser.parse_args()
-        uploaded_file = args.get('file')
-        target_language = args.get('target_language', 'de')
-        template = args.get('template', '')
-        
-        # Erstelle einen neuen Tracker wenn keiner existiert
-        process_id = str(uuid.uuid4())
-        tracker = get_performance_tracker() or get_performance_tracker(process_id)
-            
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        target_language: str = 'de'  # Default-Wert
         try:
-            # Führe die asynchrone Verarbeitung aus
-            import asyncio
-            result = asyncio.run(process_file(uploaded_file, target_language, template))
+            # Parse request
+            args = upload_parser.parse_args()
+            audio_file = args.get('file')
+            template = args.get('template', '')
+
+            if not audio_file:
+                raise ValueError("Keine Audio-Datei gefunden")
+
+            # Validiere Dateiformat
+            filename = audio_file.filename.lower()
+            supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'}
+            file_ext = Path(filename).suffix.lstrip('.')
             
-            # Tracke LLM-Nutzung wenn vorhanden
-            if 'transcription' in result and 'llms' in result['transcription']:
-                for llm in result['transcription']['llms']:
-                    _track_llm_usage(
-                        model=llm['model'],
-                        tokens=llm['tokens'],
-                        duration=llm['duration'],
-                        purpose='audio_transcription'
-                    )
+            if file_ext not in supported_formats:
+                raise ProcessingError(
+                    f"Das Format '{file_ext}' wird nicht unterstützt. Unterstützte Formate: {', '.join(supported_formats)}",
+                    details={'error_type': 'INVALID_FORMAT', 'supported_formats': list(supported_formats)}
+                )
+
+            # Verarbeite die Datei
+            result = asyncio.run(process_file(audio_file, target_language, template))
             
-            # Berechne Gesamtkosten
-            total_cost = 0.0
-            if 'transcription' in result and 'llms' in result['transcription']:
-                for llm in result['transcription']['llms']:
-                    total_cost += _calculate_llm_cost(
-                        model=llm['model'],
-                        tokens=llm['tokens']
-                    )
-            
-            # Füge Kosten zum Ergebnis hinzu
-            if 'metadata' in result and 'args' in result['metadata']:
-                result['metadata']['args']['total_cost'] = total_cost
-            
-            if tracker and hasattr(tracker, 'process_id'):
-                result['process_id'] = tracker.process_id
             return result
-            
-        except Exception as e:
-            logger.error("Fehler bei der Audio-Verarbeitung",
+
+        except ProcessingError as e:
+            logger.error("Audio-Verarbeitungsfehler",
                         error=e,
                         error_type=type(e).__name__,
                         target_language=target_language)
             return {
                 'status': 'error',
                 'error': {
-                    'code': 'ProcessingError',
-                    'message': f"Fehler bei der Audio-Verarbeitung: {str(e)}"
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': getattr(e, 'details', None)
                 }
             }, 400
+            
+        except Exception as e:
+            logger.error("Unerwarteter Fehler bei der Audio-Verarbeitung",
+                        error=e,
+                        error_type=type(e).__name__,
+                        target_language=target_language)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'INTERNAL_ERROR',
+                    'message': 'Ein unerwarteter Fehler ist aufgetreten',
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                }
+            }, 500
 
 def _truncate_text(text: str, max_length: int = 50) -> str:
     """Kürzt einen Text auf die angegebene Länge und fügt '...' hinzu wenn gekürzt wurde."""
@@ -1363,5 +1367,4 @@ class MetadataEndpoint(Resource):
                 return error_response, 400
 
         # Führe die asynchrone Verarbeitung aus und warte auf das Ergebnis
-        import asyncio
         return asyncio.run(process_request())

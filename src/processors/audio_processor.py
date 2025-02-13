@@ -13,6 +13,7 @@ import gc
 import uuid
 import requests
 from datetime import datetime
+import asyncio
 
 from core.models.transformer import TransformationResult
 from src.processors.base_processor import BaseProcessor
@@ -312,7 +313,7 @@ class AudioProcessor(BaseProcessor):
                 )
             
             # Prüfe die Dateigröße
-            file_size = os.path.getsize(file_path)
+            file_size: int = os.path.getsize(file_path)
             if file_size > self.max_file_size:
                 raise AudioProcessingError(
                     f"Audio-Datei zu groß: {file_size} Bytes (max: {self.max_file_size} Bytes)",
@@ -320,7 +321,7 @@ class AudioProcessor(BaseProcessor):
                 )
             
             # Lade die Audio-Datei
-            audio = AudioSegment.from_file(file_path)
+            audio: AudioSegmentType = AudioSegment.from_file(file_path)
             
             if not audio:
                 raise AudioProcessingError(
@@ -487,7 +488,7 @@ class AudioProcessor(BaseProcessor):
 
                 # Transkription durchführen
                 self.logger.info(f"Verarbeite {len(segment_infos)} Segmente")
-                transcription_result = await self.transcriber.transcribe_segments(
+                transcription_result: TranscriptionResult = await self.transcriber.transcribe_segments(
                     segments=segment_infos,
                     target_language=target_language or "de",  # Fallback auf Deutsch wenn keine Sprache angegeben
                     logger=self.logger
@@ -598,45 +599,34 @@ class AudioProcessor(BaseProcessor):
 
     def _handle_error(self, error: Exception, stage: str) -> None:
         """Standardisierte Fehlerbehandlung."""
-        error_code = 'AUDIO_PROCESSING_ERROR'
-        if isinstance(error, AudioProcessingError):
-            error_code = error.error_code
-            
-        # Spezifische Error-Codes basierend auf der Stage
-        stage_error_mapping = {
-            'file_processing': 'FILE_ERROR',
-            'transcription': 'TRANSCRIPTION_ERROR',
-            'transformation': 'TRANSFORMATION_ERROR',
-            'segmentation': 'SEGMENT_ERROR',
-            'cache_management': 'CACHE_ERROR'
+        error_details = {
+            'error_type': type(error).__name__,
+            'stage': stage,
+            'traceback': traceback.format_exc(),
+            'process_id': self.process_id
         }
         
-        if stage in stage_error_mapping:
-            error_code = stage_error_mapping[stage]
+        # Wenn es ein ProcessingError ist, füge die vorhandenen Details hinzu
+        if isinstance(error, ProcessingError) and hasattr(error, 'details'):
+            error_details.update(error.details)
             
         error_info = ErrorInfo(
-            code=error_code,
+            code=error_details.get('error_type', 'AUDIO_PROCESSING_ERROR'),
             message=str(error),
-            details={
-                'error_type': type(error).__name__,
-                'stage': stage,
-                'traceback': traceback.format_exc(),
-                'process_id': self.process_id
-            }
+            details=error_details
         )
         
         if self.logger:
             self.logger.error(
                 "Fehler bei der Audio-Verarbeitung",
                 error=error,
-                error_code=error_code,
+                error_code=error_details.get('error_type', 'AUDIO_PROCESSING_ERROR'),
                 stage=stage,
                 process_id=self.process_id
             )
         
-        raise AudioProcessingError(
+        raise ProcessingError(
             message=str(error),
-            error_code=error_code,
             details=error_info.details
         )
 
@@ -736,24 +726,111 @@ class AudioProcessor(BaseProcessor):
         """Erstellt ein einzelnes Segment aus dem kompletten Audio.
         
         Args:
-            audio: Das Audio-Segment
+            audio: Das Audio-Segment das gespeichert werden soll
             
         Returns:
-            List[AudioSegmentInfo]: Liste mit einem Segment
+            List[AudioSegmentInfo]: Liste mit einem einzelnen Segment
+            
+        Raises:
+            AudioProcessingError: Wenn die Konvertierung fehlschlägt
         """
-        segment_path = self.temp_dir / f"segment_0{self.temp_file_suffix}"
-        audio.export(str(segment_path), format=self.export_format)
-        
-        # Länge des Audios in Millisekunden
-        duration_ms = len(audio)  # pydub gibt die Länge in Millisekunden zurück
-        duration_seconds = duration_ms / 1000.0
-        
-        return [AudioSegmentInfo(
-            file_path=segment_path,
-            start=0.0,
-            end=duration_seconds,
-            duration=duration_seconds
-        )]
+        try:
+            # Stelle sicher dass der temp_dir existiert
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Erstelle den Segment-Pfad
+            segment_path = self.temp_dir / "segment_0.mp3"  # Immer .mp3 Extension verwenden
+            
+            # Logge Audio-Informationen vor der Konvertierung
+            self.logger.info(
+                "Audio-Informationen vor Konvertierung",
+                frame_rate=audio.frame_rate,
+                channels=audio.channels,
+                sample_width=audio.sample_width,
+                duration_ms=len(audio)
+            )
+            
+            # Exportiere als MP3 mit optimalen Parametern für Whisper
+            try:
+                self.logger.info(
+                    "Starte Audio-Konvertierung",
+                    target_path=str(segment_path),
+                    format="mp3",
+                    parameters={
+                        "sample_rate": "16000",
+                        "channels": "1",
+                        "bitrate": "128k"
+                    }
+                )
+                
+                audio.export(
+                    str(segment_path),
+                    format="mp3",
+                    parameters=[
+                        "-ar", "16000",  # Sample Rate: 16kHz
+                        "-ac", "1",      # Mono Audio
+                        "-b:a", "128k"   # Bitrate: 128k
+                    ]
+                )
+                
+                # Verifiziere die exportierte Datei
+                if not segment_path.exists():
+                    raise AudioProcessingError(
+                        message="Exportierte Audio-Datei wurde nicht erstellt",
+                        error_code="SEGMENT_ERROR"
+                    )
+                    
+                file_size = segment_path.stat().st_size
+                self.logger.info(
+                    "Audio-Konvertierung abgeschlossen",
+                    file_size_bytes=file_size,
+                    file_path=str(segment_path)
+                )
+                
+            except Exception as e:
+                # Spezifische Fehlerbehandlung für Audio-Konvertierung
+                error_msg = str(e)
+                if "format not supported" in error_msg.lower():
+                    raise AudioProcessingError(
+                        message="Das Audio-Format wird nicht unterstützt. Bitte verwenden Sie ein gängiges Format wie MP3, WAV oder FLAC.",
+                        error_code="FORMAT_ERROR"
+                    )
+                elif "codec not supported" in error_msg.lower():
+                    raise AudioProcessingError(
+                        message="Der Audio-Codec wird nicht unterstützt. Bitte verwenden Sie einen Standard-Codec.",
+                        error_code="CODEC_ERROR"
+                    )
+                else:
+                    raise AudioProcessingError(
+                        message=f"Audio-Konvertierung fehlgeschlagen: {error_msg}",
+                        error_code="SEGMENT_ERROR"
+                    )
+
+            # Berechne die Dauer in Sekunden
+            duration = len(audio) / 1000.0  # Konvertiere von Millisekunden zu Sekunden
+            
+            # Erstelle das AudioSegmentInfo
+            segment = AudioSegmentInfo(
+                file_path=segment_path,
+                start=0.0,
+                end=duration,
+                duration=duration
+            )
+            
+            return [segment]
+            
+        except Exception as e:
+            if not isinstance(e, AudioProcessingError):
+                self.logger.error(
+                    "Unerwarteter Fehler bei der Segment-Erstellung",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise AudioProcessingError(
+                    message=f"Segment-Erstellung fehlgeschlagen: {str(e)}",
+                    error_code="SEGMENT_ERROR"
+                )
+            raise
 
     def _create_chapter(self, title: str, start: float, end: float, segments: List[AudioSegmentInfo]) -> Chapter:
         """Erstellt ein Kapitel mit den gegebenen Informationen.
@@ -880,8 +957,12 @@ class AudioProcessor(BaseProcessor):
             end_ms = chapter.get('end_ms', len(audio))
             title = chapter.get('title', 'Unbenanntes Kapitel')
             
+            # Erstelle ein Verzeichnis für das Kapitel
+            chapter_dir = self.temp_dir / f"chapter_{len(chapter_segments)}"
+            chapter_dir.mkdir(parents=True, exist_ok=True)
+            
             chapter_audio = audio[start_ms:end_ms]
-            segments = self._split_by_duration(chapter_audio, max_duration_minutes)
+            segments = self._split_by_duration(chapter_audio, max_duration_minutes, base_path=chapter_dir)
             
             chapter_segments.append(Chapter(
                 title=title,
@@ -916,8 +997,8 @@ class AudioProcessor(BaseProcessor):
             segment = audio[start_ms:end_ms]
             
             # Erstelle temporäre Datei für das Segment
-            segment_path = (base_path or self.temp_dir) / f"segment_{i}{self.temp_file_suffix}"
-            segment.export(str(segment_path), format=self.export_format)
+            segment_path = (base_path or self.temp_dir) / f"segment_{i}.mp3"  # Immer als MP3 speichern
+            segment.export(str(segment_path), format='mp3')  # Konvertiere zu MP3
             
             # Erstelle Segment-Info
             segments.append(AudioSegmentInfo(
