@@ -523,7 +523,13 @@ class AudioEndpoint(Resource):
             filename = audio_file.filename.lower()
             supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'}
             file_ext = Path(filename).suffix.lstrip('.')
-            
+            source_info = {
+                'original_filename': audio_file.filename,
+                'file_size': audio_file.content_length,
+                'file_type': audio_file.content_type,
+                'file_ext': file_ext
+            }
+
             if file_ext not in supported_formats:
                 raise ProcessingError(
                     f"Das Format '{file_ext}' wird nicht unterstützt. Unterstützte Formate: {', '.join(supported_formats)}",
@@ -531,8 +537,8 @@ class AudioEndpoint(Resource):
                 )
 
             # Verarbeite die Datei
-            result = asyncio.run(process_file(audio_file, source_language, target_language, template))
-            
+            result = asyncio.run(process_file(audio_file, source_info, source_language, target_language, template)) 
+
             return result
 
         except ProcessingError as e:
@@ -1250,7 +1256,7 @@ metadata_upload_parser.add_argument(
     help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
 )
 
-async def process_file(uploaded_file: FileStorage, source_language: str = 'de', target_language: str = 'de', template: str = '') -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '') -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
@@ -1281,6 +1287,7 @@ async def process_file(uploaded_file: FileStorage, source_language: str = 'de', 
         processor: AudioProcessor = get_audio_processor(process_id)
         result: AudioProcessingResult = await processor.process(
             audio_source=temp_file.name,
+            source_info=source_info,
             source_language=source_language,
             target_language=target_language,
             template=template

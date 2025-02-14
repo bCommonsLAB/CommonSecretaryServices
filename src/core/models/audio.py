@@ -111,6 +111,7 @@ class AudioSegmentInfo:
     start: float  # Start in Sekunden
     end: float    # Ende in Sekunden
     duration: float
+    size_bytes: Optional[int] = None  # Größe des Segments in Bytes
     title: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -126,6 +127,8 @@ class AudioSegmentInfo:
             raise ValueError("End muss größer als Start sein")
         if self.duration <= 0:
             raise ValueError("Duration muss positiv sein")
+        if self.size_bytes is not None and self.size_bytes <= 0:
+            raise ValueError("size_bytes muss positiv sein wenn gesetzt")
         if self.title is not None and not self.title.strip():
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
             
@@ -158,7 +161,6 @@ class AudioMetadata:
     """Metadaten einer Audio-Datei"""
     duration: float
     process_dir: str
-    args: Dict[str, Any]
     title: str = "Unbekannt"
     format: str = "mp3"
     channels: int = 2
@@ -191,7 +193,6 @@ class AudioMetadata:
             'sample_rate': self.sample_rate,
             'bit_rate': self.bit_rate,
             'process_dir': self.process_dir,
-            'args': self.args,
             'chapters': [
                 {
                     'title': c.title,

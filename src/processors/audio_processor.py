@@ -12,6 +12,7 @@ import uuid
 import requests
 from datetime import datetime
 import io
+import math
 
 from core.models.transformer import TransformationResult
 from src.processors.base_processor import BaseProcessor
@@ -21,7 +22,6 @@ from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.types.pydub_types import AudioSegmentProtocol
 from src.core.config import Config, ApplicationConfig
 from src.processors.transformer_processor import TransformerProcessor
-from src.processors.metadata_processor import MetadataProcessor
 from src.core.models.base import (
     ProcessingStatus,
     RequestInfo,
@@ -48,6 +48,16 @@ except ImportError:
 # Typ-Alias für AudioSegment
 AudioSegmentType = AudioSegmentProtocol
 
+class AudioSegmentProtocol(Protocol):
+    """Protocol für AudioSegment."""
+    frame_rate: int
+    sample_width: int
+    channels: int
+    duration_seconds: float
+    format: str
+    def __len__(self) -> int: ...
+    def export(self, out_f: Any, format: Optional[str] = None, codec: Optional[str] = None, parameters: Optional[List[str]] = None) -> Any: ...
+
 class WhisperTranscriberProtocol(Protocol):
     """Protocol für WhisperTranscriber."""
     async def transcribe_segments(
@@ -58,15 +68,6 @@ class WhisperTranscriberProtocol(Protocol):
         target_language: str,
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult: ...
-
-class MetadataProcessorProtocol(Protocol):
-    """Protocol für MetadataProcessor."""
-    async def extract_metadata(
-        self,
-        binary_data: Union[str, Path, bytes],
-        content: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> MetadataResponse: ...
 
 class TransformerProcessorProtocol(Protocol):
     """Protocol für TransformerProcessor."""
@@ -377,12 +378,101 @@ class AudioProcessor(BaseProcessor):
             # Erstelle Verzeichnis wenn nötig
             process_dir.mkdir(parents=True, exist_ok=True)
             
-            # Wenn Kapitel vorhanden sind, nutze diese für die Segmentierung
-            if chapters:
-                return self._create_chapter_segments(audio, chapters, 30)  # 30 Minuten max pro Segment
+            # Wenn keine Kapitel vorhanden sind, erstelle ein Kapitel über die gesamte Länge
+            if not chapters:
+                duration_ms: int = len(audio)    
+                chapters = [{
+                    'title': 'Vollständige Aufnahme',
+                    'start_ms': 0,
+                    'end_ms': duration_ms
+                }]
             
-            # Ansonsten erstelle ein einzelnes Segment
-            return self._create_single_segment(audio)
+            # Erstelle Kapitel-Segmente (5 Minuten max pro Segment)
+            chapter_segments: List[Chapter] = []
+            max_duration_minutes = 5
+            
+            for i, chapter in enumerate(chapters):
+                if i in (skip_segments or []):
+                    self.logger.info(f"Überspringe bereits verarbeitetes Kapitel {i}")
+                    continue
+
+                start_ms = chapter.get('start_ms', 0)
+                end_ms = chapter.get('end_ms', len(audio))
+                title = chapter.get('title', 'Unbenanntes Kapitel')
+                
+                # Erstelle ein Verzeichnis für das Kapitel
+                chapter_dir = process_dir / f"chapter_{i}"
+                chapter_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Extrahiere das Kapitel-Audio
+                chapter_audio = audio[start_ms:end_ms]
+                chapter_duration_minutes = len(chapter_audio) / (60 * 1000)
+                
+                # Teile Kapitel wenn es länger als max_duration_minutes ist
+                if chapter_duration_minutes > max_duration_minutes:
+                    self.logger.info(f"Kapitel {i+1} zu lang, teile es auf",
+                                   duration_minutes=chapter_duration_minutes,
+                                   max_duration_minutes=max_duration_minutes)
+                    
+                    # Berechne die Anzahl der benötigten Segmente
+                    num_segments = math.ceil(chapter_duration_minutes / max_duration_minutes)
+                    segment_duration_ms = len(chapter_audio) // num_segments
+                    
+                    # Erstelle die Segmente
+                    segments: List[AudioSegmentInfo] = []
+                    for j in range(num_segments):
+                        start = j * segment_duration_ms
+                        end = min((j + 1) * segment_duration_ms, len(chapter_audio))
+                        
+                        segment = chapter_audio[start:end]
+                        segment_path = chapter_dir / f"segment_{j}.{self.export_format}"
+                        
+                        # Exportiere mit optimalen Whisper-Parametern
+                        segment.export(
+                            str(segment_path),
+                            format=self.export_format,
+                            parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
+                        )
+                        
+                        segments.append(AudioSegmentInfo(
+                            file_path=segment_path,
+                            start=start/1000.0,  # Konvertiere zu Sekunden
+                            end=end/1000.0,      # Konvertiere zu Sekunden
+                            duration=(end-start)/1000.0  # Konvertiere zu Sekunden
+                        ))
+                        
+                        self.logger.debug(f"Kapitel {i+1} Teil {j+1}/{num_segments} erstellt",
+                                        duration_sec=len(segment)/1000.0,
+                                        segment_path=str(segment_path))
+                else:
+                    # Wenn Kapitel kurz genug ist, behalte es als ein Segment
+                    segment_path = chapter_dir / f"full.{self.export_format}"
+                    chapter_audio.export(
+                        str(segment_path),
+                        format=self.export_format,
+                        parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
+                    )
+                    
+                    segments = [AudioSegmentInfo(
+                        file_path=segment_path,
+                        start=0,
+                        end=len(chapter_audio)/1000.0,  # Konvertiere zu Sekunden
+                        duration=len(chapter_audio)/1000.0  # Konvertiere zu Sekunden
+                    )]
+                    
+                    self.logger.debug(f"Kapitel {i+1} als einzelnes Segment erstellt",
+                                    duration_sec=len(chapter_audio)/1000.0,
+                                    segment_path=str(segment_path))
+                
+                # Erstelle Chapter mit seinen Segmenten
+                chapter_segments.append(Chapter(
+                    title=title,
+                    start=start_ms/1000.0,  # Konvertiere zu Sekunden
+                    end=end_ms/1000.0,      # Konvertiere zu Sekunden
+                    segments=segments
+                ))
+            
+            return chapter_segments
 
         except Exception as e:
             self.logger.error("Fehler bei der Segmentierung", error=e)
@@ -484,16 +574,16 @@ class AudioProcessor(BaseProcessor):
 
             try:
                 # Verarbeite die Audio-Datei
-                audio = self._process_audio_file(str(temp_file_path))
+                audio: AudioSegmentProtocol | None = self._process_audio_file(str(temp_file_path))
                 
                 if not audio:
                     raise ProcessingError("Audio konnte nicht verarbeitet werden")
 
                 # Erstelle Audio-Segmente
-                segment_infos = self.get_audio_segments(audio, process_dir, chapters, skip_segments)
+                segment_infos: Union[List[AudioSegmentInfo], List[Chapter]] = self.get_audio_segments(audio, process_dir, chapters, skip_segments)
 
                 # Transkription durchführen
-                self.logger.info(f"Verarbeite {len(segment_infos)} Segmente")
+                self.logger.info(f"Verarbeite {len(segment_infos)} Kapitel")
                 transcription_result: TranscriptionResult = await self.transcriber.transcribe_segments(
                     segments=segment_infos,
                     source_language=source_language,
@@ -505,19 +595,10 @@ class AudioProcessor(BaseProcessor):
                     raise ProcessingError("Keine Transkription erstellt")
 
                 original_text: str = transcription_result.text
-                duration = source_info.get('duration', 0)
-
-                # Metadaten extrahieren
-                metadata_processor = MetadataProcessor(self.resource_calculator, self.process_id)
-                metadata_result: MetadataResponse = await metadata_processor.extract_metadata(
-                    binary_data=temp_file_path,
-                    content=original_text,
-                    context=source_info
-                )
-
+               
                 if template:
                     # Transformiere den Text mit dem Template
-                    transformation_result = self.transformer.transformByTemplate(
+                    transformation_result: TransformationResult = self.transformer.transformByTemplate(
                         source_text=original_text,
                         source_language=source_language,
                         target_language=target_language,
@@ -528,18 +609,14 @@ class AudioProcessor(BaseProcessor):
                         original_text = transformation_result.text
 
                 # Erstelle das finale Ergebnis
-                metadata = AudioMetadata(
-                    duration=max(duration, 0.001),  # Mindestens 1ms
+                metadata: AudioMetadata = AudioMetadata(
+                    duration=float(len(audio)) / 1000.0,  # Konvertiere ms zu Sekunden
+                    format=getattr(audio, 'format', 'mp3'),
+                    channels=getattr(audio, 'channels', 2),  # Default zu Stereo
                     process_dir=str(process_dir),
-                    args={
-                        "target_language": target_language,
-                        "template": template,
-                        "original_text": original_text,  # Speichere Original-Text für spätere Verwendung
-                        "metadata": metadata_result.to_dict()  # Füge extrahierte Metadaten hinzu
-                    }
                 )
                 
-                result = AudioProcessingResult(
+                result: AudioProcessingResult = AudioProcessingResult(
                     transcription=transcription_result,
                     metadata=metadata,
                     process_id=self.process_id  # Füge process_id hinzu
@@ -548,16 +625,14 @@ class AudioProcessor(BaseProcessor):
                 # Speichere das Ergebnis
                 #self._save_result(result, process_dir)
                 
-                request_data = {
-                    'source_url': str(temp_file_path) if temp_file_path else None,
+                request_data: Dict[str, Any] = {
                     'original_filename': source_info.get('original_filename'),
-                    'video_id': source_info.get('video_id'),
-                    'duration': duration,
+                    'source_language': source_language,
                     'target_language': target_language,
                     'template': template
                 }
                 
-                response = self._create_response(result, request_data)
+                response: AudioResponse = self._create_response(result, request_data)
                 return response
 
             except Exception as e:
@@ -725,252 +800,4 @@ class AudioProcessor(BaseProcessor):
             raise AudioProcessingError(
                 message=f"Response-Erstellung fehlgeschlagen: {str(e)}",
                 error_code='VALIDATION_ERROR'
-            )
-
-    def _create_single_segment(self, audio: AudioSegmentType) -> List[AudioSegmentInfo]:
-        """Erstellt ein einzelnes Segment aus dem kompletten Audio.
-        
-        Args:
-            audio: Das Audio-Segment das verarbeitet werden soll
-            
-        Returns:
-            List[AudioSegmentInfo]: Liste mit einem einzelnen Segment
-            
-        Raises:
-            AudioProcessingError: Wenn die Konvertierung fehlschlägt
-        """
-        try:
-            # Erstelle BytesIO Objekt für die Audio-Daten
-            audio_bytes = io.BytesIO()
-            
-            self.logger.info(
-                "Starte Audio-Konvertierung",
-                format="mp3",
-                parameters={
-                    "sample_rate": "16000",
-                    "channels": "1"
-                }
-            )
-            
-            # Exportiere ins BytesIO Objekt mit optimalen Whisper-Parametern
-            audio.export(
-                audio_bytes,
-                format="mp3",
-                parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
-            )
-            
-            # Berechne die Dauer in Sekunden
-            duration = len(audio) / 1000.0  # Konvertiere von Millisekunden zu Sekunden
-            
-            # Erstelle das AudioSegmentInfo
-            segment = AudioSegmentInfo(
-                file_path=audio_bytes,  # Speichere BytesIO statt Pfad
-                start=0.0,
-                end=duration,
-                duration=duration
-            )
-            
-            self.logger.info(
-                "Audio-Konvertierung abgeschlossen",
-                duration_seconds=duration,
-                audio_size_bytes=len(audio_bytes.getvalue())
-            )
-            
-            return [segment]
-            
-        except Exception as e:
-            # Spezifische Fehlerbehandlung für Audio-Konvertierung
-            error_msg = str(e)
-            if "format not supported" in error_msg.lower():
-                raise AudioProcessingError(
-                    message="Das Audio-Format wird nicht unterstützt. Bitte verwenden Sie ein gängiges Format wie MP3, WAV oder FLAC.",
-                    error_code="FORMAT_ERROR"
-                )
-            elif "codec not supported" in error_msg.lower():
-                raise AudioProcessingError(
-                    message="Der Audio-Codec wird nicht unterstützt. Bitte verwenden Sie einen Standard-Codec.",
-                    error_code="CODEC_ERROR"
-                )
-            else:
-                raise AudioProcessingError(
-                    message=f"Audio-Konvertierung fehlgeschlagen: {error_msg}",
-                    error_code="SEGMENT_ERROR"
-                )
-
-    def _create_chapter(self, title: str, start: float, end: float, segments: List[AudioSegmentInfo]) -> Chapter:
-        """Erstellt ein Kapitel mit den gegebenen Informationen.
-        
-        Args:
-            title: Titel des Kapitels
-            start: Startzeit in Sekunden
-            end: Endzeit in Sekunden
-            segments: Liste der Audio-Segmente
-            
-        Returns:
-            Chapter: Das erstellte Kapitel
-        """
-        return Chapter(
-            title=title,
-            start=start,
-            end=end,
-            segments=segments
-        )
-
-    def _process_existing_segments(
-        self,
-        segments_or_chapters: Union[List[AudioSegmentInfo], List[Chapter]],
-        process_dir: Path,
-        skip_segments: Optional[List[int]] = None
-    ) -> Union[List[AudioSegmentInfo], List[Chapter]]:
-        """Verarbeitet existierende Segmente und kopiert sie ins Prozessverzeichnis.
-        
-        Args:
-            segments_or_chapters: Liste der existierenden Segmente oder Kapitel
-            process_dir: Zielverzeichnis für die Segmente
-            skip_segments: Liste von Segment-IDs die übersprungen werden sollen
-            
-        Returns:
-            Union[List[AudioSegmentInfo], List[Chapter]]: Aktualisierte Liste der Segmente oder Kapitel
-        """
-        try:
-            if not segments_or_chapters:
-                return []
-            
-            # Erstelle Cache-Verzeichnis wenn nötig
-            process_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Verarbeite Segmente basierend auf Typ
-            if isinstance(segments_or_chapters[0], Chapter):
-                # Für Kapitel-basierte Segmentierung
-                chapter_segments = cast(List[Chapter], segments_or_chapters)
-                processed_chapters: List[Chapter] = []
-                
-                for chapter in chapter_segments:
-                    processed_segments: List[AudioSegmentInfo] = []
-                    
-                    for i, segment in enumerate(chapter.segments):
-                        if skip_segments and i in skip_segments:
-                            continue
-                        
-                        # Kopiere Segment-Datei ins Prozessverzeichnis
-                        new_path = process_dir / segment.file_path.name
-                        shutil.copy2(str(segment.file_path), str(new_path))
-                        
-                        # Aktualisiere Segment mit neuem Pfad
-                        processed_segments.append(AudioSegmentInfo(
-                            file_path=new_path,
-                            start=segment.start,
-                            end=segment.end,
-                            duration=segment.duration
-                        ))
-                    
-                    # Erstelle aktualisiertes Kapitel
-                    processed_chapters.append(Chapter(
-                        title=chapter.title,
-                        start=chapter.start,
-                        end=chapter.end,
-                        segments=processed_segments
-                    ))
-                
-                return processed_chapters
-                
-            else:
-                # Für einfache Segmentierung
-                segments = cast(List[AudioSegmentInfo], segments_or_chapters)
-                processed_segments: List[AudioSegmentInfo] = []
-                
-                for i, segment in enumerate(segments):
-                    if skip_segments and i in skip_segments:
-                        continue
-                    
-                    # Kopiere Segment-Datei ins Prozessverzeichnis
-                    new_path = process_dir / segment.file_path.name
-                    shutil.copy2(str(segment.file_path), str(new_path))
-                    
-                    # Aktualisiere Segment mit neuem Pfad
-                    processed_segments.append(AudioSegmentInfo(
-                        file_path=new_path,
-                        start=segment.start,
-                        end=segment.end,
-                        duration=segment.duration
-                    ))
-                
-                return processed_segments
-                
-        except Exception as e:
-            self.logger.error("Fehler beim Verarbeiten existierender Segmente", error=e)
-            raise AudioProcessingError(
-                f"Fehler beim Verarbeiten existierender Segmente: {str(e)}",
-                error_code='SEGMENT_ERROR'
-            )
-
-    def _create_chapter_segments(self, audio: AudioSegmentType, chapters: List[Dict[str, Any]], max_duration_minutes: int) -> List[Chapter]:
-        """Erstellt Audio-Segmente basierend auf Kapitelinformationen.
-        
-        Args:
-            audio: Das zu teilende AudioSegment
-            chapters: Liste der Kapitelinformationen
-            max_duration_minutes: Maximale Dauer eines Segments in Minuten
-            
-        Returns:
-            List[Chapter]: Liste der erstellten Kapitel mit ihren Segmenten
-        """
-        chapter_segments: List[Chapter] = []
-        
-        for chapter in chapters:
-            start_ms = chapter.get('start_ms', 0)
-            end_ms = chapter.get('end_ms', len(audio))
-            title = chapter.get('title', 'Unbenanntes Kapitel')
-            
-            # Erstelle ein Verzeichnis für das Kapitel
-            chapter_dir = self.temp_dir / f"chapter_{len(chapter_segments)}"
-            chapter_dir.mkdir(parents=True, exist_ok=True)
-            
-            chapter_audio = audio[start_ms:end_ms]
-            segments = self._split_by_duration(chapter_audio, max_duration_minutes, base_path=chapter_dir)
-            
-            chapter_segments.append(Chapter(
-                title=title,
-                start=start_ms/1000.0,  # Konvertiere zu Sekunden
-                end=end_ms/1000.0,      # Konvertiere zu Sekunden
-                segments=segments
-            ))
-            
-        return chapter_segments
-
-    def _split_by_duration(
-        self,
-        audio: AudioSegmentType,
-        max_duration_minutes: int,
-        base_path: Optional[Path] = None
-    ) -> List[AudioSegmentInfo]:
-        """Teilt Audio in Segmente basierend auf maximaler Dauer.
-        
-        Args:
-            audio: Das zu teilende AudioSegment
-            max_duration_minutes: Maximale Dauer eines Segments in Minuten
-            base_path: Optionaler Basis-Pfad für die Segmente
-            
-        Returns:
-            List[AudioSegmentInfo]: Liste der erstellten Segmente
-        """
-        segments: List[AudioSegmentInfo] = []
-        max_duration_ms = max_duration_minutes * 60 * 1000
-        
-        for i, start_ms in enumerate(range(0, len(audio), max_duration_ms)):
-            end_ms = min(start_ms + max_duration_ms, len(audio))
-            segment = audio[start_ms:end_ms]
-            
-            # Erstelle temporäre Datei für das Segment
-            segment_path = (base_path or self.temp_dir) / f"segment_{i}.mp3"  # Immer als MP3 speichern
-            segment.export(str(segment_path), format='mp3')  # Konvertiere zu MP3
-            
-            # Erstelle Segment-Info
-            segments.append(AudioSegmentInfo(
-                file_path=segment_path,
-                start=start_ms/1000.0,  # Konvertiere zu Sekunden
-                end=end_ms/1000.0,      # Konvertiere zu Sekunden
-                duration=(end_ms-start_ms)/1000.0  # Konvertiere zu Sekunden
-            ))
-        
-        return segments 
+            ) 
