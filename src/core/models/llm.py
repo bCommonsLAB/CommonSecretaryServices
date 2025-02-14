@@ -4,7 +4,7 @@ Modelle für Language Model (LLM) Interaktionen.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from ..validation import (
     is_non_empty_str, is_non_negative,
@@ -40,6 +40,15 @@ class LLModel:
         if not is_valid_iso_date(self.timestamp):
             raise ValueError("timestamp muss ein gültiges ISO 8601 Datum sein")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Model in ein Dictionary."""
+        return {
+            "model": self.model,
+            "duration": self.duration,
+            "tokens": self.tokens,
+            "timestamp": self.timestamp
+        }
+
 @dataclass(frozen=True)
 class LLMRequest:
     """
@@ -72,6 +81,16 @@ class LLMRequest:
             raise ValueError("duration muss nicht-negativ sein")
         if not is_valid_iso_date(self.timestamp):
             raise ValueError("timestamp muss ein gültiges ISO 8601 Datum sein")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert den Request in ein Dictionary."""
+        return {
+            "model": self.model,
+            "purpose": self.purpose,
+            "tokens": self.tokens,
+            "duration": self.duration,
+            "timestamp": self.timestamp
+        }
 
 @dataclass(frozen=True)
 class LLMInfo:
@@ -121,12 +140,24 @@ class LLMInfo:
         Args:
             requests: Liste von LLM-Requests
         """
-        for request in requests:
-            # Da die Klasse frozen ist, müssen wir object.__setattr__ verwenden
-            object.__setattr__(self, 'requests', [*self.requests, *requests])
-            object.__setattr__(self, 'requests_count', self.requests_count + 1)
-            object.__setattr__(self, 'total_tokens', self.total_tokens + request.tokens)
-            object.__setattr__(self, 'total_duration', self.total_duration + request.duration)
+        # Da die Klasse frozen ist, müssen wir object.__setattr__ verwenden
+        object.__setattr__(self, 'requests', [*self.requests, *requests])
+        object.__setattr__(self, 'requests_count', len(self.requests))
+        object.__setattr__(self, 'total_tokens', sum(r.tokens for r in self.requests))
+        object.__setattr__(self, 'total_duration', sum(r.duration for r in self.requests))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die LLM-Info in ein Dictionary."""
+        return {
+            'model': self.model,
+            'purpose': self.purpose,
+            'tokens': self.tokens,
+            'duration': self.duration,
+            'requests': [req.to_dict() for req in self.requests],
+            'requests_count': self.requests_count,
+            'total_tokens': self.total_tokens,
+            'total_duration': self.total_duration
+        }
 
 @dataclass(frozen=True)
 class TranscriptionSegment:

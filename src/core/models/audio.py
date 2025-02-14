@@ -9,6 +9,7 @@ from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
 from pathlib import Path
 import io
+from .transformer import TransformationResult
 
 class AudioProcessingError(ProcessingError):
     """Audio-spezifische Fehler."""
@@ -59,14 +60,26 @@ class TranscriptionSegment:
         if self.title is not None and not self.title.strip():
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Segment in ein Dictionary."""
+        return {
+            "text": self.text,
+            "segment_id": self.segment_id,
+            "start": self.start,
+            "end": self.end,
+            "speaker": self.speaker,
+            "confidence": self.confidence,
+            "title": self.title
+        }
+
 @dataclass
 class TranscriptionResult:
-    """Ergebnis einer Transkription"""
+    """Ein Transkriptionsergebnis mit Text, Sprache und Segmenten."""
     text: str
-    source_language: str  # Früher detected_language
-    segments: List[TranscriptionSegment]
-    requests: List[LLMRequest] = field(default_factory=list)
-    llms: List[LLModel] = field(default_factory=list)
+    source_language: str
+    segments: List[TranscriptionSegment] = field(default_factory=list)
+    requests: List[LLMRequest] = field(default_factory=list)  # Liste der LLM-Requests
+    llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
 
     def __post_init__(self) -> None:
         """Validiert das Transkriptionsergebnis."""
@@ -74,34 +87,16 @@ class TranscriptionResult:
             raise ValueError("Text darf nicht leer sein")
         if not self.source_language.strip():
             raise ValueError("Source language darf nicht leer sein")
-        if not self.segments:
-            raise ValueError("Segments darf nicht leer sein")
+        # Segmente sind jetzt optional, keine Validierung mehr nötig
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
-            'text': self.text,
-            'source_language': self.source_language,
-            'segments': [
-                {
-                    'text': s.text,
-                    'segment_id': s.segment_id,
-                    'start': s.start,
-                    'end': s.end,
-                    'speaker': s.speaker,
-                    'confidence': s.confidence,
-                    'title': s.title
-                }
-                for s in self.segments
-            ],
-            'llms': [
-                {
-                    'model': llm.model,
-                    'duration': llm.duration,
-                    'tokens': llm.tokens
-                }
-                for llm in self.llms
-            ]
+            "text": self.text,
+            "source_language": self.source_language,
+            "segments": [s.to_dict() for s in self.segments] if self.segments else [],
+            "requests": [r.to_dict() for r in self.requests] if self.requests else [],
+            "llms": [m.to_dict() for m in self.llms] if self.llms else []
         }
 
 @dataclass
@@ -214,24 +209,33 @@ class AudioMetadata:
 
 @dataclass
 class AudioProcessingResult:
-    """Ergebnis der Audio-Verarbeitung."""
+    """
+    Ergebnis der Audio-Verarbeitung.
+    
+    Enthält:
+    1. Transkriptionsergebnis mit Whisper-Requests
+    2. Audio-Metadaten
+    3. Prozess-ID für Nachverfolgbarkeit
+    4. Optional: Transformationsergebnis (Template/Übersetzung)
+    """
     transcription: TranscriptionResult
     metadata: AudioMetadata
     process_id: str
+    transformation_result: Optional[TransformationResult] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
             "transcription": self.transcription.to_dict() if self.transcription else None,
             "metadata": self.metadata.to_dict() if self.metadata else None,
-            "process_id": self.process_id
+            "process_id": self.process_id,
+            "transformation_result": self.transformation_result.to_dict() if self.transformation_result else None
         }
 
 @dataclass(frozen=True, init=False)
 class AudioResponse(BaseResponse):
     """Standardisierte Response für Audio-Verarbeitung."""
     data: AudioProcessingResult
-    llm_info: Optional[LLMInfo] = None
     status: ProcessingStatus = ProcessingStatus.PENDING
     error: Optional[ErrorInfo] = None
 
@@ -240,14 +244,12 @@ class AudioResponse(BaseResponse):
         request: RequestInfo,
         process: ProcessInfo,
         data: AudioProcessingResult,
-        llm_info: Optional[LLMInfo] = None,
         status: ProcessingStatus = ProcessingStatus.PENDING,
         error: Optional[ErrorInfo] = None
     ) -> None:
         """Initialisiert die AudioResponse."""
         super().__init__(request=request, process=process, status=status, error=error)
         object.__setattr__(self, 'data', data)
-        object.__setattr__(self, 'llm_info', llm_info)
 
     @classmethod
     def create(cls, request: RequestInfo, process: ProcessInfo, data: AudioProcessingResult,
@@ -257,21 +259,38 @@ class AudioResponse(BaseResponse):
             request=request,
             process=process,
             data=data,
-            llm_info=llm_info,
             status=ProcessingStatus.SUCCESS
         )
 
     @classmethod
     def create_error(cls, request: RequestInfo, process: ProcessInfo, error: ErrorInfo) -> 'AudioResponse':
         """Erstellt eine Fehler-Response."""
+        # Erstelle Dummy-Objekte für den Error-Fall
+        dummy_transcription = TranscriptionResult(
+            text="",
+            source_language="",
+            segments=[],
+            requests=[],
+            llms=[]
+        )
+        
+        dummy_metadata = AudioMetadata(
+            duration=0.0,
+            process_dir="",
+            format="",
+            channels=0
+        )
+        
+        dummy_result = AudioProcessingResult(
+            transcription=dummy_transcription,
+            metadata=dummy_metadata,
+            process_id=""
+        )
+        
         return cls(
             request=request,
             process=process,
-            data=AudioProcessingResult(
-                transcription=None,
-                metadata=None,
-                process_id=""
-            ),
+            data=dummy_result,
             error=error,
             status=ProcessingStatus.ERROR
         )

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, Union, cast
 
 import werkzeug.datastructures
-from flask import Blueprint, request
+from flask import Blueprint, request, jsonify
 from flask_restx import (Api, Namespace, Resource, fields,  # type: ignore
                          reqparse)
 import asyncio
@@ -591,157 +591,74 @@ def _convert_llms_to_requests(requests: List[LLMRequest]) -> List[Dict[str, Any]
     } for req in requests]
 
 @api.route('/transform-text')
-class TextTransformEndpoint(Resource):
-    @api.expect(api.model('TransformTextInput', {
-        'text': fields.String(required=True, description='Der zu transformierende Text'),
-        'source_language': fields.String(default='en', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'target_language': fields.String(default='en', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'summarize': fields.Boolean(default=False, description='Text zusammenfassen'),
-        'target_format': fields.String(default='text', enum=['text', 'html', 'markdown'], description='Ausgabeformat des transformierten Texts')
-    }))
-    @api.response(200, 'Erfolg', api.model('TransformerResponse', {
-        'status': fields.String(description='Status der Verarbeitung (success/error)'),
-        'request': fields.Nested(api.model('RequestInfo', {
-            'processor': fields.String(description='Name des Prozessors'),
-            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
-            'parameters': fields.Raw(description='Anfrageparameter')
-        })),
-        'process': fields.Nested(api.model('ProcessInfo', {
-            'id': fields.String(description='Eindeutige Prozess-ID'),
-            'main_processor': fields.String(description='Hauptprozessor'),
-            'sub_processors': fields.List(fields.String, description='Unterprozessoren'),
-            'started': fields.String(description='Startzeitpunkt'),
-            'completed': fields.String(description='Endzeitpunkt'),
-            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
-            'llm_info': fields.Nested(api.model('LLMInfo', {
-                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
-                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
-                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
-                'total_cost': fields.Float(description='Gesamtkosten'),
-                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
-                    'model': fields.String(description='Name des verwendeten Modells'),
-                    'purpose': fields.String(description='Zweck der Anfrage'),
-                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
-                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
-                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
-                })))
-            }))
-        })),
-        'data': fields.Raw(description='Transformationsergebnis'),
-        'error': fields.Nested(api.model('ErrorInfo', {
-            'code': fields.String(description='Fehlercode'),
-            'message': fields.String(description='Fehlermeldung'),
-            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
-        }))
-    }))
+class TransformTextResource(Resource):
+    @api.doc('transform_text')
     def post(self):
-        """Text transformieren"""
-        data: Any = request.get_json()
-        tracker: PerformanceTracker | None = get_performance_tracker()
-        
+        """Transformiert Text mit optionalem Template."""
         try:
-            # Zeitmessung für Gesamtprozess starten
-            process_start: float = time.time()
-            
-            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
-            result: TransformerResponse = transformer_processor.transform(
-                source_text=data['text'],
-                source_language=data.get('source_language', 'en'),
-                target_language=data.get('target_language', 'en'),
-                summarize=data.get('summarize', False),
-                target_format=data.get('target_format', 'text')
+            data: Any = request.get_json()
+            if not data:
+                raise ValueError("Keine Daten erhalten")
+
+            # Extrahiere Parameter
+            source_text = data.get('text')
+            source_language = data.get('source_language', 'de')
+            target_language = data.get('target_language', 'de')
+            template = data.get('template')
+            context = data.get('context', {})
+
+            # Validiere Eingaben
+            if not source_text:
+                raise ValueError("text ist erforderlich")
+
+            # Erstelle Transformer Processor
+            processor = TransformerProcessor(
+                resource_calculator=resource_calculator,
+                process_id=str(uuid.uuid4())
             )
 
-            # Tracke LLM-Nutzung wenn vorhanden
-            if hasattr(result, 'llm_info') and result.llm_info:
-                for request in result.llm_info.requests:
-                    _track_llm_usage(
-                        model=request.model,
-                        tokens=request.tokens,
-                        duration=request.duration,
-                        purpose='text_transformation'
-                    )
+            # Transformiere Text
+            if template:
+                result: TransformerResponse = processor.transformByTemplate(
+                    source_text=source_text,
+                    source_language=source_language,
+                    target_language=target_language,
+                    template=template,
+                    context=context
+                )
+            else:
+                result: TransformerResponse = processor.transform(
+                    source_text=source_text,
+                    source_language=source_language,
+                    target_language=target_language,
+                    context=context
+                )
 
-            # Berechne Gesamtkosten
-            total_cost = 0.0
-            if hasattr(result, 'llm_info') and result.llm_info:
-                for request in result.llm_info.requests:
-                    total_cost += _calculate_llm_cost(
-                        model=request.model,
-                        tokens=request.tokens
-                    )
-
-            # Gesamtprozessdauer in Millisekunden berechnen
-            process_duration = int((time.time() - process_start) * 1000)
-
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            if tracker:
-                tracker.eval_result(result)
-            
-            # Erstelle TransformerResponse
+            # Erstelle standardisierte Response
             response = {
                 'status': 'success',
                 'request': {
                     'processor': 'transformer',
                     'timestamp': datetime.now().isoformat(),
                     'parameters': {
-                        'source_text': _truncate_text(data['text']),
-                        'source_language': data.get('source_language', 'en'),
-                        'target_language': data.get('target_language', 'en'),
-                        'summarize': data.get('summarize', False),
-                        'target_format': data.get('target_format', 'text')
+                        'source_text': _truncate_text(source_text),
+                        'source_language': source_language,
+                        'target_language': target_language,
+                        'template': template,
+                        'context': context
                     }
                 },
-                'process': {
-                    'id': tracker.process_id if tracker else None,
-                    'main_processor': 'transformer',
-                    'sub_processors': ['openai'] if hasattr(result, 'llm_info') and result.llm_info else [],
-                    'started': datetime.fromtimestamp(process_start).isoformat(),
-                    'completed': datetime.now().isoformat(),
-                    'duration': process_duration,
-                    'llm_info': {
-                        'requests_count': len(result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_tokens': sum(req.tokens for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_duration': sum(req.duration for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_cost': total_cost,
-                        'requests': _convert_llms_to_requests(result.llm_info.requests if hasattr(result, 'llm_info') and result.llm_info else [])
-                    }
-                },
+                'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
                 'data': {
-                    'input': {
-                        'text': result.data.input.text,
-                        'language': result.data.input.language
-                    },
-                    'output': {
-                        'text': result.data.output.text,
-                        'language': result.data.output.language
-                    }
+                    'input': result.data.input.to_dict() if result.data and result.data.input else {},
+                    'output': result.data.output.to_dict() if result.data and result.data.output else {}
                 }
             }
-            
+
             return response
 
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
-            return {
-                "status": "error",
-                "error": {
-                    "code": error.__class__.__name__,
-                    "message": str(error)
-                }
-            }, 400
-        except Exception as error:
-            logger.error(
-                "Fehler bei der Text-Transformation",
-                error=error,
-                traceback=traceback.format_exc()
-            )
-            return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError", 
-                    "message": f"Fehler bei der Text-Transformation: {error}"
-                }
-            }, 400
+        except Exception as e:
+            api.abort(400, str(e))
 
 @api.route('/transform-template')
 class TemplateTransformEndpoint(Resource):
@@ -766,18 +683,7 @@ class TemplateTransformEndpoint(Resource):
             'started': fields.String(description='Startzeitpunkt'),
             'completed': fields.String(description='Endzeitpunkt'),
             'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
-            'llm_info': fields.Nested(api.model('LLMInfo', {
-                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
-                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
-                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
-                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
-                    'model': fields.String(description='Name des verwendeten Modells'),
-                    'purpose': fields.String(description='Zweck der Anfrage'),
-                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
-                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
-                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
-                })))
-            }))
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
         })),
         'data': fields.Raw(description='Transformationsergebnis'),
         'error': fields.Nested(api.model('ErrorInfo', {
@@ -788,6 +694,7 @@ class TemplateTransformEndpoint(Resource):
     }))
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
+        from flask import request  # Import im Methodenkontext
         data: Any = request.get_json()
         tracker: PerformanceTracker | None = get_performance_tracker()
         
@@ -805,7 +712,7 @@ class TemplateTransformEndpoint(Resource):
             )
 
             # Tracke LLM-Nutzung wenn vorhanden
-            if hasattr(result, 'llm_info') and result.llm_info:
+            if result.llm_info:
                 for request in result.llm_info.requests:
                     _track_llm_usage(
                         model=request.model,
@@ -816,7 +723,7 @@ class TemplateTransformEndpoint(Resource):
 
             # Berechne Gesamtkosten
             total_cost = 0.0
-            if hasattr(result, 'llm_info') and result.llm_info:
+            if result.llm_info:
                 for request in result.llm_info.requests:
                     total_cost += _calculate_llm_cost(
                         model=request.model,
@@ -838,27 +745,13 @@ class TemplateTransformEndpoint(Resource):
                     'timestamp': datetime.now().isoformat(),
                     'parameters': {
                         'source_text': _truncate_text(data['text']),
-                        'source_language': data.get('source_language', ''),
+                        'source_language': data.get('source_language', 'de'),
                         'target_language': data.get('target_language', 'de'),
                         'template': data['template'],
                         'context': data.get('context', {})
                     }
                 },
-                'process': {
-                    'id': tracker.process_id if tracker else None,
-                    'main_processor': 'transformer',
-                    'sub_processors': ['openai'] if hasattr(result, 'llm_info') and result.llm_info else [],
-                    'started': datetime.fromtimestamp(process_start).isoformat(),
-                    'completed': datetime.now().isoformat(),
-                    'duration': process_duration,
-                    'llm_info': {
-                        'requests_count': len(result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_tokens': sum(req.tokens for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_duration': sum(req.duration for req in result.llm_info.requests) if hasattr(result, 'llm_info') and result.llm_info else 0,
-                        'total_cost': total_cost,
-                        'requests': _convert_llms_to_requests(result.llm_info.requests if hasattr(result, 'llm_info') and result.llm_info else [])
-                    }
-                },
+                'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
                 'data': {
                     'input': {
                         'text': data['text'],
@@ -1340,18 +1233,10 @@ class MetadataEndpoint(Resource):
                             'context': context
                         }
                     },
-                    'process': {
-                        'id': tracker.process_id if tracker else None,
-                        'main_processor': 'metadata',
-                        'sub_processors': ['transformer'] if result.data.content else [],
-                        'started': datetime.fromtimestamp(process_start).isoformat(),
-                        'completed': datetime.now().isoformat(),
-                        'duration': int((time.time() - process_start) * 1000),
-                        'llm_info': asdict(result.llm_info) if result.llm_info else None
-                    },
+                    'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
                     'data': {
-                        'technical': asdict(result.data.technical) if result.data.technical else None,
-                        'content': asdict(result.data.content) if result.data.content else None
+                        'technical': result.data.technical.to_dict() if result.data.technical else None,
+                        'content': result.data.content.to_dict() if result.data.content else None
                     },
                     'error': None
                 }

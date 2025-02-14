@@ -1,7 +1,7 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Union, List, cast, Sequence, Tuple, Protocol
+from typing import Dict, Any, Optional, Union, List, cast, Protocol
 from pathlib import Path
 import time
 from datetime import datetime
@@ -9,10 +9,7 @@ import json
 import re
 import os
 from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
-import gc
 import io
-import uuid
 
 from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
@@ -531,7 +528,7 @@ class WhisperTranscriber:
 
     def transcribe_segment(
         self,
-        file_path: Path,
+        file_path: Union[Path, bytes],
         logger: Optional[ProcessingLogger] = None,
         segment_id: Optional[int] = None,
         segment_title: Optional[str] = None,
@@ -541,7 +538,7 @@ class WhisperTranscriber:
         """Transkribiert ein einzelnes Audio-Segment.
         
         Args:
-            file_path: Pfad zur Audio-Datei
+            file_path: Pfad zur Audio-Datei oder Bytes-Objekt
             logger: Optional, Logger für Debug-Ausgaben
             segment_id: Optional, ID des Segments für die Sortierung
             segment_title: Optional, Titel des Segments (z.B. Kapitel-Titel)
@@ -559,40 +556,35 @@ class WhisperTranscriber:
                     "Starte Transkription von Segment",
                     segment_id=segment_id,
                     segment_title=segment_title,
-                    file_path=str(file_path)
+                    file_path=str(file_path) if isinstance(file_path, Path) else "bytes"
                 )
 
+            # Initialisiere response
+            response: Optional[TranscriptionVerbose] = None
+
             # Sende an Whisper API
-            with open(file_path, 'rb') as audio_file:
+            if isinstance(file_path, Path):
+                with open(file_path, 'rb') as audio_file:
+                    try:
+                        response = self.client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=("audio.mp3", audio_file, "audio/mpeg"),
+                            response_format="verbose_json"
+                        )
+                    except Exception as api_error:
+                        self._handle_api_error(api_error)
+            else:
+                # Wenn file_path bereits bytes ist
                 try:
-                    response: TranscriptionVerbose = self.client.audio.transcriptions.create(
+                    response = self.client.audio.transcriptions.create(
                         model="whisper-1",
-                        file=("audio.mp3", audio_file, "audio/mpeg"),
+                        file=("audio.mp3", io.BytesIO(file_path), "audio/mpeg"),
                         response_format="verbose_json"
                     )
-                    
                 except Exception as api_error:
-                    # Behandle spezifische API-Fehler
-                    error_msg = str(api_error)
-                    if "unrecognized file format" in error_msg.lower():
-                        raise ProcessingError(
-                            "Das Audio-Format wird von der Whisper API nicht unterstützt. "
-                            "Unterstützte Formate sind: FLAC, M4A, MP3, MP4, MPEG, MPGA, OGA, OGG, WAV, WEBM. "
-                            "Bitte konvertieren Sie die Datei in eines dieser Formate.",
-                            details={'error_type': 'FORMAT_ERROR', 'original_error': error_msg}
-                        )
-                    elif "api_key" in error_msg.lower():
-                        raise ProcessingError(
-                            "Fehler bei der API-Authentifizierung. Bitte überprüfen Sie den API-Schlüssel.",
-                            details={'error_type': 'AUTH_ERROR', 'original_error': error_msg}
-                        )
-                    else:
-                        raise ProcessingError(
-                            "Fehler bei der Transkription durch die Whisper API.",
-                            details={'error_type': 'API_ERROR', 'original_error': error_msg}
-                        )
+                    self._handle_api_error(api_error)
             
-            if not hasattr(response, 'text'):
+            if not response or not hasattr(response, 'text'):
                 raise ValueError("Ungültige API-Antwort: Kein Text gefunden")
             
             # Zeitmessung beenden und Dauer in Millisekunden berechnen
@@ -648,128 +640,108 @@ class WhisperTranscriber:
                 raise
             raise ProcessingError(f"Transkription fehlgeschlagen: {str(e)}")
 
+    def _handle_api_error(self, api_error: Exception) -> None:
+        """Behandelt spezifische API-Fehler."""
+        error_msg = str(api_error)
+        if "unrecognized file format" in error_msg.lower():
+            raise ProcessingError(
+                "Das Audio-Format wird von der Whisper API nicht unterstützt. "
+                "Unterstützte Formate sind: FLAC, M4A, MP3, MP4, MPEG, MPGA, OGA, OGG, WAV, WEBM. "
+                "Bitte konvertieren Sie die Datei in eines dieser Formate.",
+                details={'error_type': 'FORMAT_ERROR', 'original_error': error_msg}
+            )
+        elif "api_key" in error_msg.lower():
+            raise ProcessingError(
+                "Fehler bei der API-Authentifizierung. Bitte überprüfen Sie den API-Schlüssel.",
+                details={'error_type': 'AUTH_ERROR', 'original_error': error_msg}
+            )
+        else:
+            raise ProcessingError(
+                "Fehler bei der Transkription durch die Whisper API.",
+                details={'error_type': 'API_ERROR', 'original_error': error_msg}
+            )
+
     async def transcribe_segments(
         self,
         *,  # Erzwinge Keyword-Argumente
-        segments: Union[Sequence[AudioSegmentInfo], Sequence[Chapter]],
-        source_language: str,
-        target_language: str,
+        segments: Union[List[AudioSegmentInfo], List[Chapter]],
+        source_language: str = "de",
+        target_language: str = "de",
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult:
-        """Transkribiert mehrere Audio-Segmente parallel."""
-        try:
-            # 1. Extrahiere alle Segmente und erstelle Mapping
-            all_segments: List[AudioSegmentInfo] = []
-            segment_to_chapter: Dict[int, str] = {}
+        """Transkribiert mehrere Audio-Segmente.
+        
+        Args:
+            segments: Liste von AudioSegmentInfo oder Chapter Objekten
+            source_language: Quellsprache (ISO 639-1)
+            target_language: Zielsprache (ISO 639-1)
+            logger: Optional, Logger für Debug-Ausgaben
             
-            # Verarbeite Kapitel wenn vorhanden
-            if isinstance(next(iter(segments)), Chapter):
-                chapters = cast(Sequence[Chapter], segments)
-                current_idx = 0
-                for chapter in chapters:
-                    # Nur Kapitel mit nicht-leerem Titel verwenden
-                    chapter_title = chapter.title.strip() if chapter.title else ""
-                    for segment in chapter.segments:
-                        all_segments.append(segment)
-                        segment_to_chapter[current_idx] = chapter_title
-                        current_idx += 1
-                        
-                if logger:
-                    logger.info(f"Verarbeite {len(all_segments)} Segmente aus {len(chapters)} Kapiteln")
-            else:
-                all_segments = list(cast(Sequence[AudioSegmentInfo], segments))
-                if logger:
-                    logger.info(f"Verarbeite {len(all_segments)} Segmente")
+        Returns:
+            TranscriptionResult: Das Transkriptionsergebnis
+        """
+        combined_text_parts: List[str] = []
+        combined_requests: List[LLMRequest] = []
+        total_duration: int = 0
+        total_tokens: int = 0
 
-            # 2. Verarbeite Segmente parallel
-            results: List[TranscriptionResult] = []
-            with ThreadPoolExecutor(max_workers=self.batch_size) as executor:
-                futures: List[Future[TranscriptionResult]] = []
+        # Extrahiere alle Segmente aus der Kapitelstruktur
+        all_segments: List[AudioSegmentInfo] = []
+        if segments and isinstance(next(iter(segments)), Chapter):
+            chapters = cast(List[Chapter], segments)
+            for chapter in chapters:
+                if chapter.title and chapter.title.strip():
+                    combined_text_parts.append(f"\n## {chapter.title}\n")
+                all_segments.extend(chapter.segments)
+        else:
+            all_segments = cast(List[AudioSegmentInfo], segments)
+
+        # Verarbeite jedes Segment
+        for segment in all_segments:
+            try:
+                # Transkribiere das Segment
+                result = self.transcribe_segment(
+                    file_path=segment.get_audio_data(),  # Verwende get_audio_data() statt direktem Zugriff
+                    segment_id=len(combined_requests),  # Verwende Request-Count als ID
+                    segment_title=segment.title,
+                    source_language=source_language,
+                    target_language=target_language,
+                    logger=logger
+                )
                 
-                for i, segment in enumerate(all_segments):
-                    if logger:
-                        logger.debug(f"Erstelle Future für Segment {i}: {segment.file_path}")
-                    
-                    future = executor.submit(
-                        self.transcribe_segment,
-                        segment.file_path,
-                        logger,
-                        i,
-                        segment_to_chapter.get(i),
-                        source_language,
-                        target_language
+                if result.text.strip():
+                    combined_text_parts.append(result.text)
+                
+                # Sammle LLM Informationen
+                if result.requests:
+                    combined_requests.extend(result.requests)
+                    for req in result.requests:
+                        if req.duration:
+                            total_duration += int(req.duration)  # Konvertiere zu int
+                        if req.tokens:
+                            total_tokens += req.tokens
+
+            except Exception as e:
+                if logger:
+                    logger.error(
+                        "Fehler bei der Transkription von Segment",
+                        error=e,
+                        segment_title=segment.title
                     )
-                    futures.append(future)
+                continue
 
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        if logger:
-                            logger.debug(f"Segment {len(results)} fertig verarbeitet")
-                        results.append(result)
-                    except Exception as e:
-                        if logger:
-                            logger.error("Fehler bei der Transkription eines Segments", error=e)
-                        raise
+        # Erstelle ein zusammenfassendes LLMRequest
+        summary_request = LLMRequest(
+            model="whisper-1",
+            purpose="transcription",
+            duration=total_duration,
+            tokens=total_tokens
+        )
 
-            # Sortiere Ergebnisse nach Segment-ID
-            results.sort(key=lambda x: x.segments[0].segment_id if x.segments else 0)
-
-            # 3. Kombiniere die Ergebnisse
-            combined_text_parts: List[str] = []
-            combined_segments: List[TranscriptionSegment] = []
-            combined_requests: List[LLMRequest] = []
-
-            # Unterscheide zwischen Kapitel- und Nicht-Kapitel-Verarbeitung
-            if segment_to_chapter:  # Wenn Kapitel vorhanden
-                # Organisiere Ergebnisse nach Kapiteln
-                chapter_texts: Dict[str, List[str]] = {}
-                current_chapter_id = None
-                
-                for result in results:
-                    for segment in result.segments:
-                        chapter_id = segment_to_chapter.get(segment.segment_id, "")
-                        if chapter_id != current_chapter_id:
-                            current_chapter_id = chapter_id
-                            if chapter_id and chapter_id not in chapter_texts:  # Nur wenn chapter_id nicht leer
-                                chapter_texts[chapter_id] = []
-                                combined_text_parts.append(f"\n\n## {chapter_id}\n\n")
-                        
-                        # Füge den Text zum aktuellen Kapitel hinzu wenn ein Kapitel existiert
-                        if chapter_id:
-                            chapter_texts[chapter_id].append(segment.text)
-                        # Füge den Text immer zu combined_text_parts hinzu
-                        combined_text_parts.append(segment.text)
-                        combined_segments.append(segment)
-                        
-                    # Füge LLM-Requests hinzu
-                    if result.requests:
-                        combined_requests.extend(result.requests)
-            else:
-                # Verarbeite alle Segmente als einen durchgehenden Text
-                for result in results:
-                    if result.text:
-                        combined_text_parts.append(result.text)
-                    if result.segments:
-                        combined_segments.extend(result.segments)
-                    if result.requests:
-                        combined_requests.extend(result.requests)
-
-            # Erstelle finales Ergebnis
-            complete_text = " ".join(combined_text_parts).strip()
-            
-            result = TranscriptionResult(
-                text=complete_text,
-                source_language=source_language,
-                segments=combined_segments,
-                requests=combined_requests
-            )
-            
-            return result
-            
-        except Exception as e:
-            if logger:
-                logger.error("Fehler bei der Transkription", error=e)
-            raise
-        finally:
-            gc.collect()
+        # Erstelle das finale Ergebnis
+        return TranscriptionResult(
+            text="\n".join(combined_text_parts).strip(),
+            source_language=source_language,
+            segments=[],  # Keine Segmente im Output
+            requests=[summary_request]  # Nur das Summary Request
+        )

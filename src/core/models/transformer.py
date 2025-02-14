@@ -29,6 +29,15 @@ class TransformerInput:
     format: OutputFormat
     summarize: bool = False
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Eingabedaten in ein Dictionary."""
+        return {
+            "text": self.text,
+            "language": self.language,
+            "format": self.format.value,
+            "summarize": self.summarize
+        }
+
 @dataclass(frozen=True)
 class TransformerOutput:
     """Ausgabedaten des Transformers"""
@@ -38,11 +47,28 @@ class TransformerOutput:
     summarized: bool = False
     structured_data: Optional[Any] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Ausgabedaten in ein Dictionary."""
+        return {
+            "text": self.text,
+            "language": self.language,
+            "format": self.format.value,
+            "summarized": self.summarized,
+            "structured_data": self.structured_data
+        }
+
 @dataclass(frozen=True)
 class TransformerData:
     """Daten für die Transformer-Verarbeitung"""
     input: TransformerInput
     output: TransformerOutput
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Daten in ein Dictionary."""
+        return {
+            "input": self.input.to_dict() if self.input else None,
+            "output": self.output.to_dict() if self.output else None
+        }
 
 @dataclass(frozen=True)
 class TranslationResult:
@@ -50,7 +76,16 @@ class TranslationResult:
     text: str
     source_language: str
     target_language: str
-    requests: List[LLMRequest] 
+    requests: List[LLMRequest]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Ergebnis in ein Dictionary."""
+        return {
+            "text": self.text,
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "requests": [req.to_dict() for req in self.requests] if self.requests else []
+        }
 
 @dataclass(frozen=True)
 class TransformationResult:
@@ -60,6 +95,18 @@ class TransformationResult:
     structured_data: Optional[Any] = None
     requests: Optional[List[LLMRequest]] = None
     llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
+    llm_info: Optional[LLMInfo] = None  # LLM-Informationen für die Transformation
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Ergebnis in ein Dictionary."""
+        return {
+            "text": self.text,
+            "target_language": self.target_language,
+            "structured_data": self.structured_data,
+            "requests": [req.to_dict() for req in self.requests] if self.requests else None,
+            "llms": [llm.to_dict() for llm in self.llms] if self.llms else [],
+            "llm_info": self.llm_info.to_dict() if self.llm_info else None
+        }
 
 @dataclass(frozen=True, init=False)
 class TransformerResponse(BaseResponse):
@@ -83,11 +130,27 @@ class TransformerResponse(BaseResponse):
         object.__setattr__(self, 'data', data)
         object.__setattr__(self, 'translation', translation)
         object.__setattr__(self, 'llm_info', llm_info)
+        if self.llm_info:
+            object.__setattr__(self.process, 'llm_info', self.llm_info.to_dict())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Response in ein Dictionary."""
+        base_dict = super().to_dict()
+        base_dict.update({
+            'translation': self.translation.to_dict() if self.translation else None,
+            'llm_info': self.llm_info.to_dict() if self.llm_info else None
+        })
+        return base_dict
 
     @classmethod
-    def create(cls, request: RequestInfo, process: ProcessInfo, data: TransformerData,
-               translation: Optional[TranslationResult] = None,
-               llm_info: Optional[LLMInfo] = None) -> 'TransformerResponse':
+    def create(
+        cls,
+        request: RequestInfo,
+        process: ProcessInfo,
+        data: TransformerData,
+        translation: Optional[TranslationResult] = None,
+        llm_info: Optional[LLMInfo] = None
+    ) -> 'TransformerResponse':
         """Erstellt eine erfolgreiche Response."""
         return cls(
             request=request,
@@ -99,7 +162,12 @@ class TransformerResponse(BaseResponse):
         )
 
     @classmethod
-    def create_error(cls, request: RequestInfo, process: ProcessInfo, error: ErrorInfo) -> 'TransformerResponse':
+    def create_error(
+        cls,
+        request: RequestInfo,
+        process: ProcessInfo,
+        error: ErrorInfo
+    ) -> 'TransformerResponse':
         """Erstellt eine Error-Response."""
         return cls(
             request=request,

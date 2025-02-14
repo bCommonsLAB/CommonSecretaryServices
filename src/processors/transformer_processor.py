@@ -1,6 +1,53 @@
 """
 Transformer processor module.
 Handles text transformation using LLM models.
+
+LLM-Tracking Logik:
+-----------------
+Der Prozessor trackt die LLM-Nutzung auf zwei Ebenen:
+
+1. Aggregierte Informationen (LLMInfo):
+   - Gesamtanzahl der Tokens
+   - Gesamtdauer der Verarbeitung
+   - Anzahl der Requests
+   - Gesamtkosten
+
+2. Einzelne Requests (LLMRequest):
+   - Pro Operation (Übersetzung, Zusammenfassung, etc.)
+   - Mit Details wie Model, Zweck, Tokens, Dauer
+   - Zeitstempel für Nachverfolgbarkeit
+
+Ablauf:
+1. LLMInfo wird für den Gesamtprozess initialisiert
+2. Jede LLM-Operation (translate, summarize, etc.) erstellt LLMRequests
+3. Diese werden zum LLMInfo hinzugefügt und aggregiert
+4. Die Response enthält beide Informationsebenen
+
+Beispiel Response:
+{
+  "llm_info": {
+    "requests_count": 3,
+    "total_tokens": 1500,
+    "total_duration": 2500,
+    "total_cost": 0.15,
+    "requests": [
+      {
+        "model": "gpt-4",
+        "purpose": "translation",
+        "tokens": 500,
+        "duration": 800,
+        "timestamp": "2024-01-20T10:15:30Z"
+      },
+      {
+        "model": "gpt-4", 
+        "purpose": "summarization",
+        "tokens": 400,
+        "duration": 700,
+        "timestamp": "2024-01-20T10:15:31Z"
+      }
+    ]
+  }
+}
 """
 from pathlib import Path
 from typing import Dict, Any, Optional, List
