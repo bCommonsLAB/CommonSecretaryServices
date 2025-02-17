@@ -95,8 +95,6 @@ from src.utils.transcription_utils import WhisperTranscriber
 from src.core.config import Config, ApplicationConfig
 from src.processors.transformer_processor import TransformerProcessor
 from src.core.models.base import (
-    ProcessingStatus,
-    RequestInfo,
     ProcessInfo,
     ErrorInfo,
     ProcessingLogger
@@ -106,7 +104,8 @@ from src.core.models.audio import (
     AudioMetadata, AudioSegmentInfo, Chapter, TranscriptionResult,
     TranscriptionSegment
 )
-from src.core.models.llm import LLModel
+from src.core.models.llm import LLModel, LLMRequest
+from src.core.models.response_factory import ResponseFactory
 
 try:
     from pydub import AudioSegment  # type: ignore
@@ -628,8 +627,27 @@ class AudioProcessor(BaseProcessor):
         template: Optional[str] = None,
         skip_segments: Optional[List[int]] = None
     ) -> AudioResponse:
+        """Verarbeitet eine Audio-Datei.
+        
+        Args:
+            audio_source: Die Audio-Quelle (Pfad, URL oder Bytes)
+            source_info: Optionale Zusatzinformationen zur Quelle
+            chapters: Optionale Kapitelinformationen
+            source_language: Quellsprache (ISO 639-1)
+            target_language: Zielsprache (ISO 639-1)
+            template: Optionales Template für die Transformation
+            skip_segments: Optionale Liste von zu überspringenden Segmenten
+            
+        Returns:
+            AudioResponse: Das Verarbeitungsergebnis
+        """
         # Initialisiere LLMInfo für den gesamten Prozess
-        llm_info = LLMInfo(model="audio-processing", purpose="audio-processing")
+        llm_info = LLMInfo(
+            model=self.transformer.model,
+            purpose="audio-processing",
+            requests=[]  # Explizit leere Liste
+        )
+        start_time = datetime.now()
         
         try:
             # Initialisiere source_info wenn nicht vorhanden
@@ -681,9 +699,24 @@ class AudioProcessor(BaseProcessor):
                 if transcription_result.requests:
                     self.logger.info(f"Füge {len(transcription_result.requests)} Whisper-Requests hinzu")
                     llm_info.add_request(transcription_result.requests)
+                elif transcription_result.llms:  # Fallback auf llms wenn requests leer
+                    self.logger.info(f"Füge {len(transcription_result.llms)} Whisper-LLMs als Requests hinzu")
+                    # Konvertiere LLModels zu LLMRequests
+                    llm_requests = [
+                        LLMRequest(
+                            model=llm.model,
+                            purpose="transcription",
+                            tokens=llm.tokens,
+                            duration=int(llm.duration),  # Konvertiere zu int für Millisekunden
+                            timestamp=llm.timestamp
+                        )
+                        for llm in transcription_result.llms
+                    ]
+                    llm_info.add_request(llm_requests)
 
                 original_text: str = transcription_result.text
-               
+
+                # Template-Transformation oder Übersetzung durchführen
                 if template:
                     # Transformiere den Text mit dem Template
                     self.logger.info(f"Text transformation mit Template {template}")
@@ -696,9 +729,9 @@ class AudioProcessor(BaseProcessor):
                     )
                     
                     # Füge Template-Transformation Requests hinzu
-                    if transformer_response.llm_info and transformer_response.llm_info.requests:
-                        self.logger.info(f"Füge {len(transformer_response.llm_info.requests)} Template-Transformation-Requests hinzu")
-                        llm_info.add_request(transformer_response.llm_info.requests)
+                    if transformer_response.process and transformer_response.process.llm_info:
+                        self.logger.info(f"Füge {len(transformer_response.process.llm_info.requests)} Template-Transformation-Requests hinzu")
+                        llm_info.add_request(transformer_response.process.llm_info.requests)
                     
                     if transformer_response and transformer_response.data and transformer_response.data.output:
                         transcription_result = TranscriptionResult(
@@ -719,9 +752,9 @@ class AudioProcessor(BaseProcessor):
                     )
                     
                     # Füge Übersetzungs-Requests hinzu
-                    if transformer_response.llm_info and transformer_response.llm_info.requests:
-                        self.logger.info(f"Füge {len(transformer_response.llm_info.requests)} Übersetzungs-Requests hinzu")
-                        llm_info.add_request(transformer_response.llm_info.requests)
+                    if transformer_response.process and transformer_response.process.llm_info:
+                        self.logger.info(f"Füge {len(transformer_response.process.llm_info.requests)} Übersetzungs-Requests hinzu")
+                        llm_info.add_request(transformer_response.process.llm_info.requests)
                     
                     if transformer_response and transformer_response.data and transformer_response.data.output:
                         transcription_result = TranscriptionResult(
@@ -741,7 +774,7 @@ class AudioProcessor(BaseProcessor):
                 )
                 
                 # Erstelle bereinigte Version des Results ohne Requests
-                clean_result = AudioProcessingResult(
+                result = AudioProcessingResult(
                     transcription=TranscriptionResult(
                         text=transcription_result.text if transcription_result else "",
                         source_language=transcription_result.source_language if transcription_result else "unknown",
@@ -754,26 +787,141 @@ class AudioProcessor(BaseProcessor):
                     transformation_result=None  # Kein separates Transformationsergebnis mehr
                 )
 
-                # Erstelle die Response mit allen LLM-Informationen
-                request_data = {
-                    'original_filename': source_info.get('original_filename'),
-                    'source_language': source_language,
-                    'target_language': target_language,
-                    'template': template
-                }
+                # Erstelle die Response mit ResponseFactory
+                end_time = datetime.now()
+                duration_ms = int((end_time - start_time).total_seconds() * 1000)
                 
                 self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}, Duration: {llm_info.total_duration}")
                 
-                response: AudioResponse = self._create_response(clean_result, request_data, llm_info)
-                return response
+                return ResponseFactory.create_response(
+                    processor_name="audio",
+                    result=result,
+                    request_info={
+                        'original_filename': source_info.get('original_filename'),
+                        'source_language': source_language,
+                        'target_language': target_language,
+                        'template': template,
+                        'started': start_time.isoformat(),
+                        'completed': end_time.isoformat(),
+                        'duration_ms': duration_ms
+                    },
+                    response_class=AudioResponse,
+                    llm_info=llm_info
+                )
 
             except Exception as e:
-                self._handle_error(e, "audio_processing")
-                raise
+                # Log den Fehler und erstelle Error-Response
+                self.logger.error(
+                    "Fehler bei der Audio-Verarbeitung",
+                    error=e,
+                    error_type=type(e).__name__,
+                    stage="audio_processing",
+                    process_id=self.process_id
+                )
+                
+                error_info = ErrorInfo(
+                    code=type(e).__name__,
+                    message=str(e),
+                    details={
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc(),
+                        "stage": "audio_processing",
+                        "process_id": self.process_id
+                    }
+                )
+                
+                # Error-Response mit ResponseFactory
+                end_time = datetime.now()
+                duration_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                return ResponseFactory.create_response(
+                    processor_name="audio",
+                    result=AudioProcessingResult(
+                        transcription=TranscriptionResult(
+                            text="",
+                            source_language="unknown",
+                            segments=[],
+                            requests=[],
+                            llms=[]
+                        ),
+                        metadata=AudioMetadata(
+                            duration=0.0,
+                            process_dir="",
+                            format="unknown",
+                            channels=0
+                        ),
+                        process_id=self.process_id,
+                        transformation_result=None
+                    ),
+                    request_info={
+                        'original_filename': source_info.get('original_filename') if source_info else None,
+                        'source_language': source_language,
+                        'target_language': target_language,
+                        'template': template,
+                        'started': start_time.isoformat(),
+                        'completed': end_time.isoformat(),
+                        'duration_ms': duration_ms
+                    },
+                    response_class=AudioResponse,
+                    error=error_info
+                )
 
         except Exception as e:
-            self._handle_error(e, "audio_processing")
-            raise
+            # Log den Fehler und erstelle Error-Response
+            self.logger.error(
+                "Fehler bei der Audio-Verarbeitung",
+                error=e,
+                error_type=type(e).__name__,
+                stage="audio_processing",
+                process_id=self.process_id
+            )
+            
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc(),
+                    "stage": "audio_processing",
+                    "process_id": self.process_id
+                }
+            )
+            
+            # Error-Response mit ResponseFactory
+            end_time = datetime.now()
+            duration_ms = int((end_time - start_time).total_seconds() * 1000)
+            
+            return ResponseFactory.create_response(
+                processor_name="audio",
+                result=AudioProcessingResult(
+                    transcription=TranscriptionResult(
+                        text="",
+                        source_language="unknown",
+                        segments=[],
+                        requests=[],
+                        llms=[]
+                    ),
+                    metadata=AudioMetadata(
+                        duration=0.0,
+                        process_dir="",
+                        format="unknown",
+                        channels=0
+                    ),
+                    process_id=self.process_id,
+                    transformation_result=None
+                ),
+                request_info={
+                    'original_filename': source_info.get('original_filename') if source_info else None,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'started': start_time.isoformat(),
+                    'completed': end_time.isoformat(),
+                    'duration_ms': duration_ms
+                },
+                response_class=AudioResponse,
+                error=error_info
+            )
 
     def _create_temp_file(self, audio_data: bytes) -> Path:
         """Erstellt eine temporäre Datei aus Audio-Bytes.
@@ -840,81 +988,4 @@ class AudioProcessor(BaseProcessor):
         raise ProcessingError(
             message=str(error),
             details=error_info.details
-        )
-
-    def _track_llm_usage(
-        self,
-        model: str,
-        tokens: int,
-        duration: float,
-        purpose: str = "audio_processing"
-    ) -> None:
-        """Standardisiertes LLM-Tracking."""
-        try:
-            if not model:
-                raise ValueError("model darf nicht leer sein")
-            if tokens <= 0:
-                raise ValueError("tokens muss positiv sein")
-            if duration < 0:
-                raise ValueError("duration muss nicht-negativ sein")
-                
-            if hasattr(self.resource_calculator, 'track_usage'):
-                self.resource_calculator.track_usage(
-                    tokens=tokens,
-                    model=model,
-                    duration=duration
-                )
-            
-            if self.logger:
-                self.logger.info(
-                    "LLM-Nutzung getrackt",
-                    model=model,
-                    tokens=tokens,
-                    duration=duration,
-                    purpose=purpose,
-                    process_id=self.process_id
-                )
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(
-                    "LLM-Tracking fehlgeschlagen",
-                    error=e,
-                    model=model,
-                    tokens=tokens,
-                    duration=duration,
-                    process_id=self.process_id
-                )
-
-    def _create_response(
-        self,
-        result: AudioProcessingResult,
-        request_info: Dict[str, Any],
-        llm_info: LLMInfo
-    ) -> AudioResponse:
-        """
-        Erstellt die standardisierte Response.
-        
-        Args:
-            result: Das Audio-Verarbeitungsergebnis
-            request_info: Die Request-Parameter
-            llm_info: Die gesammelten LLM-Informationen
-            
-        Returns:
-            AudioResponse: Die standardisierte Response
-        """
-        return AudioResponse(
-            request=RequestInfo(
-                processor="audio",
-                timestamp=datetime.now().isoformat(),
-                parameters=request_info
-            ),
-            process=ProcessInfo(
-                id=self.process_id,
-                main_processor="audio",
-                started=self.start_time.isoformat() if self.start_time else datetime.now().isoformat(),
-                completed=datetime.now().isoformat(),
-                llm_info=llm_info.to_dict()
-            ),
-            data=result,
-            status=ProcessingStatus.SUCCESS
         ) 

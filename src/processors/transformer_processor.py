@@ -49,7 +49,7 @@ Beispiel Response:
   }
 }
 """
-from pathlib import Path
+
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import traceback
@@ -71,7 +71,7 @@ from src.core.models.transformer import (
 )
 from src.core.models.enums import ProcessorType, OutputFormat, ProcessingStatus
 from src.core.config_keys import ConfigKeys
-from utils.transcription_utils import TransformationResult
+from src.core.models.response_factory import ResponseFactory
 from .base_processor import BaseProcessor
 
 # Type-Alias für bessere Lesbarkeit
@@ -146,54 +146,17 @@ class TransformerProcessor(BaseProcessor):
             TransformerResponse: Das Transformationsergebnis
         """
         
-        # Response initialisieren
-        response = TransformerResponse(
-            request=RequestInfo(
-                processor=str(ProcessorType.TRANSFORMER.value),
-                timestamp=datetime.now().isoformat(),
-                parameters={
-                    "source_language": source_language,
-                    "target_language": target_language,
-                    "summarize": summarize,
-                    "target_format": target_format or self.target_format
-                }
-            ),
-            process=ProcessInfo(
-                id=self.process_id or str(uuid.uuid4()),
-                main_processor=str(ProcessorType.TRANSFORMER.value),
-                started=datetime.now().isoformat()
-            ),
-            data=TransformerData(
-                input=TransformerInput(
-                    text=source_text,
-                    language=source_language,
-                    format=target_format or self.target_format,
-                    summarize=summarize
-                ),
-                output=TransformerOutput(
-                    text="",  # Wird später gefüllt
-                    language=target_language,
-                    format=target_format or self.target_format,
-                    summarized=summarize
-                )
-            )
-        )
+        # Initialisiere format_to_use am Anfang
+        format_to_use: OutputFormat = target_format or self.target_format
         
         try:
             # Validiere Eingaben
             source_text = self.validate_text(source_text, "source_text")
             source_language = self.validate_language_code(source_language, "source_language")
             target_language = self.validate_language_code(target_language, "target_language")
-            format_to_use: OutputFormat = target_format or self.target_format
             context = self.validate_context(context)
 
             llm_info = LLMInfo(model=self.model, purpose="transform-text")
-
-            # Debug-Verzeichnis
-            debug_dir = Path('./temp-processing/transform')
-            if context and 'uploader' in context:
-                debug_dir = Path(f'{debug_dir}/{context["uploader"]}')
-            debug_dir.mkdir(parents=True, exist_ok=True)
 
             self.logger.info(f"Starte Transformation: {source_language} -> {target_language}")
 
@@ -207,23 +170,8 @@ class TransformerProcessor(BaseProcessor):
                     logger=self.logger
                 )
                 result_text = translation_result.text
-                if translation_result.requests and len(translation_result.requests) > 0:
+                if translation_result.requests:
                     llm_info.add_request(translation_result.requests)
-                response = TransformerResponse(
-                    request=response.request,
-                    process=response.process,
-                    data=TransformerData(
-                        input=response.data.input,
-                        output=TransformerOutput(
-                            text=result_text,
-                            language=target_language,
-                            format=format_to_use,
-                            summarized=summarize
-                        )
-                    ),
-                    status=response.status,
-                    error=response.error
-                )
 
             # Führe Zusammenfassung durch
             if summarize:
@@ -232,24 +180,9 @@ class TransformerProcessor(BaseProcessor):
                     target_language=target_language,
                     logger=self.logger
                 )
-                result_text: str = summary_result.text
-                if summary_result.requests and len(summary_result.requests) > 0:
+                result_text = summary_result.text
+                if summary_result.requests:
                     llm_info.add_request(summary_result.requests)
-                response = TransformerResponse(
-                    request=response.request,
-                    process=response.process,
-                    data=TransformerData(
-                        input=response.data.input,
-                        output=TransformerOutput(
-                            text=result_text,
-                            language=target_language,
-                            format=format_to_use,
-                            summarized=True
-                        )
-                    ),
-                    status=response.status,
-                    error=response.error
-                )
 
             # Formatierung anwenden
             if format_to_use != OutputFormat.TEXT:
@@ -259,24 +192,9 @@ class TransformerProcessor(BaseProcessor):
                     target_language=target_language,
                     logger=self.logger
                 )
-                result_text: str = format_result.text
-                if format_result.requests and len(format_result.requests) > 0:
+                result_text = format_result.text
+                if format_result.requests:
                     llm_info.add_request(format_result.requests)
-                response = TransformerResponse(
-                    request=response.request,
-                    process=response.process,
-                    data=TransformerData(
-                        input=response.data.input,
-                        output=TransformerOutput(
-                            text=result_text,
-                            language=target_language,
-                            format=format_to_use,
-                            summarized=response.data.output.summarized
-                        )
-                    ),
-                    status=response.status,
-                    error=response.error
-                )
 
             # Debug Output
             self.transcriber.saveDebugOutput(
@@ -285,21 +203,32 @@ class TransformerProcessor(BaseProcessor):
                 logger=self.logger
             )
 
-            # Response vervollständigen
-            response = TransformerResponse(
-                request=response.request,
-                process=ProcessInfo(
-                    id=response.process.id,
-                    main_processor=response.process.main_processor,
-                    started=response.process.started,
-                    completed=datetime.now().isoformat()
+            # Response erstellen mit ResponseFactory
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.TRANSFORMER.value,
+                result=TransformerData(
+                    input=TransformerInput(
+                        text=source_text,
+                        language=source_language,
+                        format=format_to_use,
+                        summarize=summarize
+                    ),
+                    output=TransformerOutput(
+                        text=result_text,
+                        language=target_language,
+                        format=format_to_use,
+                        summarized=summarize
+                    )
                 ),
-                data=response.data,
-                llm_info=llm_info,
-                status=ProcessingStatus.SUCCESS,
-                error=None
+                request_info={
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': format_to_use.value
+                },
+                response_class=TransformerResponse,
+                llm_info=llm_info
             )
-            return response
 
         except Exception as e:
             error_info = ErrorInfo(
@@ -312,16 +241,30 @@ class TransformerProcessor(BaseProcessor):
             )
             self.logger.error(f"Fehler bei der Transformation: {str(e)}")
             
-            return TransformerResponse(
-                request=response.request,
-                process=ProcessInfo(
-                    id=response.process.id,
-                    main_processor=response.process.main_processor,
-                    started=response.process.started,
-                    completed=datetime.now().isoformat()
+            # Error-Response mit ResponseFactory
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.TRANSFORMER.value,
+                result=TransformerData(
+                    input=TransformerInput(
+                        text=source_text,
+                        language=source_language,
+                        format=format_to_use,
+                        summarize=summarize
+                    ),
+                    output=TransformerOutput(
+                        text="",
+                        language=target_language,
+                        format=format_to_use,
+                        summarized=False
+                    )
                 ),
-                data=response.data,
-                status=ProcessingStatus.ERROR,
+                request_info={
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': format_to_use.value
+                },
+                response_class=TransformerResponse,
                 error=error_info
             )
 
@@ -476,10 +419,10 @@ class TransformerProcessor(BaseProcessor):
                     id=response.process.id,
                     main_processor=response.process.main_processor,
                     started=response.process.started,
-                    completed=datetime.now().isoformat()
+                    completed=datetime.now().isoformat(),
+                    llm_info=llm_info  # Hier direkt das LLMInfo-Objekt verwenden
                 ),
                 data=response.data,
-                llm_info=llm_info,
                 status=ProcessingStatus.SUCCESS,
                 error=None
             )

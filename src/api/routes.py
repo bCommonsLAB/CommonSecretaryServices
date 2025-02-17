@@ -604,8 +604,47 @@ def _truncate_text(text: str, max_length: int = 50) -> str:
 @api.route('/transform-text')
 class TransformTextResource(Resource):
     @api.doc('transform_text')
+    @api.expect(api.model('TransformTextInput', {
+        'text': fields.String(required=True, description='Der zu transformierende Text'),
+        'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
+        'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
+        'summarize': fields.Boolean(default=False, description='Optional: Text zusammenfassen')
+    }))
+    @api.response(200, 'Erfolg', api.model('TransformTextResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('RequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('ProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('TransformData', {
+            'input': fields.Nested(api.model('InputData', {
+                'text': fields.String(description='Ursprünglicher Text'),
+                'language': fields.String(description='Quellsprache'),
+                'format': fields.String(description='Eingabeformat')
+            })),
+            'output': fields.Nested(api.model('OutputData', {
+                'text': fields.String(description='Transformierter Text'),
+                'language': fields.String(description='Zielsprache'),
+                'format': fields.String(description='Ausgabeformat')
+            }))
+        })),
+        'error': fields.Nested(api.model('ErrorInfo', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
     def post(self):
-        """Transformiert Text mit optionalem Template."""
+        """Transformiert Text mit optionaler Zusammenfassung."""
         try:
             data: Any = request.get_json()
             if not data:
@@ -615,58 +654,25 @@ class TransformTextResource(Resource):
             source_text = data.get('text')
             source_language = data.get('source_language', 'de')
             target_language = data.get('target_language', 'de')
-            template = data.get('template')
-            context = data.get('context', {})
+            summarize = data.get('summarize', False)
 
             # Validiere Eingaben
             if not source_text:
                 raise ValueError("text ist erforderlich")
 
             # Erstelle Transformer Processor
-            processor = TransformerProcessor(
-                resource_calculator=resource_calculator,
-                process_id=str(uuid.uuid4())
-            )
+            processor = get_transformer_processor(str(uuid.uuid4()))
 
             # Transformiere Text
-            if template:
-                result: TransformerResponse = processor.transformByTemplate(
-                    source_text=source_text,
-                    source_language=source_language,
-                    target_language=target_language,
-                    template=template,
-                    context=context
-                )
-            else:
-                result: TransformerResponse = processor.transform(
-                    source_text=source_text,
-                    source_language=source_language,
-                    target_language=target_language,
-                    context=context
-                )
+            result = processor.transform(
+                source_text=source_text,
+                source_language=source_language,
+                target_language=target_language,
+                summarize=summarize
+            )
 
-            # Erstelle standardisierte Response
-            response = {
-                'status': 'success',
-                'request': {
-                    'processor': 'transformer',
-                    'timestamp': datetime.now().isoformat(),
-                    'parameters': {
-                        'source_text': _truncate_text(source_text),
-                        'source_language': source_language,
-                        'target_language': target_language,
-                        'template': template,
-                        'context': context
-                    }
-                },
-                'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
-                'data': {
-                    'input': result.data.input.to_dict() if result.data and result.data.input else {},
-                    'output': result.data.output.to_dict() if result.data and result.data.output else {}
-                }
-            }
-
-            return response
+            # Die Response ist bereits standardisiert durch ResponseFactory
+            return result.to_dict()
 
         except Exception as e:
             api.abort(400, str(e))

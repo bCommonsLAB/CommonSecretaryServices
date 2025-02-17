@@ -11,7 +11,6 @@ import yaml
 
 from src.core.exceptions import ValidationError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
-from src.core.models.llm import LLMInfo
 from src.utils.logger import ProcessingLogger, get_logger
 from src.utils.performance_tracker import get_performance_tracker
 from src.core.resource_tracking import ResourceCalculator
@@ -42,34 +41,6 @@ class BaseProcessorResponse:
         
         self.error: Optional[ErrorInfo] = None
         
-    def add_parameter(self, key: str, value: Any) -> None:
-        """Fügt einen Parameter zur Request-Info hinzu."""
-        self.request.parameters[key] = value
-        
-    def add_sub_processor(self, name: str) -> None:
-        """Fügt einen Sub-Processor zur Process-Info hinzu."""
-        if name not in self.process.sub_processors:
-            self.process.sub_processors.append(name)
-            
-    def add_llm_info(self, model: str, purpose: str, tokens: int, duration: float) -> None:
-        """Fügt LLM-Informationen zur Process-Info hinzu."""
-        llm_info = LLMInfo(
-            model=model,
-            purpose=purpose,
-            tokens=tokens,
-            duration=duration
-        )
-        if not hasattr(self.process, 'llm_info'):
-            setattr(self.process, 'llm_info', [])
-        getattr(self.process, 'llm_info').append(llm_info)
-        
-    def set_error(self, error: ErrorInfo) -> None:
-        """Setzt die Fehlerinformation."""
-        self.error = error
-        
-    def set_completed(self) -> None:
-        """Markiert den Prozess als abgeschlossen."""
-        self.process.completed = datetime.now().isoformat()
 
 class BaseProcessor:
     """

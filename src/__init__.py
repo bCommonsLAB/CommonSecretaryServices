@@ -11,7 +11,7 @@ from src.core.models import (  # LLM Models; Base Models; Metadata Models; Trans
     TransformerOutput, TransformerResponse, YoutubeMetadata,
     YoutubeProcessingResult)
 from src.processors import (  # Base Classes; Processors; Response Types
-    BaseProcessor, BaseProcessorResponse, MetadataProcessor, MetadataResponse,
+    BaseProcessor, MetadataProcessor, MetadataResponse,
     TransformerProcessor, YoutubeProcessor)
 
 __all__ = [

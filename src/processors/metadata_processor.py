@@ -6,7 +6,6 @@ import fnmatch
 import mimetypes
 import os
 import traceback
-import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,8 +17,6 @@ from werkzeug.datastructures import FileStorage
 
 from src.core.exceptions import (ContentExtractionError, FileSizeLimitExceeded,
                                  ProcessingError, UnsupportedMimeTypeError)
-from src.core.models.base import ProcessInfo, RequestInfo
-from src.core.models.enums import ProcessingStatus
 from src.core.models.metadata import (ContentMetadata, ErrorInfo, MetadataData,
                                       MetadataResponse, TechnicalMetadata)
 from src.core.models.transformer import TransformerResponse
@@ -27,6 +24,7 @@ from src.processors.base_processor import BaseProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from src.core.resource_tracking import ResourceCalculator
 from src.core.models.llm import LLMInfo
+from src.core.models.response_factory import ResponseFactory
 
 T = TypeVar('T', bound=AudioSegment)
 from_file = AudioSegment.from_file  # type: ignore
@@ -66,7 +64,7 @@ class MetadataProcessor(BaseProcessor):
         
         try:
             # Konfiguration laden
-            self.load_processor_config('metadata')
+            metadata_config = self.load_processor_config('metadata')
             
             # Basis-Konfiguration
             self.max_file_size = max_file_size
@@ -129,34 +127,7 @@ class MetadataProcessor(BaseProcessor):
     ) -> MetadataResponse:
         """Verarbeitet die Eingabedaten und extrahiert Metadaten."""
         start_time: datetime = datetime.now(timezone.utc)
-        
-        # Response initialisieren
-        response = MetadataResponse(
-            request=RequestInfo(
-                processor="metadata",
-                timestamp=start_time.isoformat(),
-                parameters={
-                    "has_binary": binary_data is not None,
-                    "has_content": content is not None,
-                    "context": context
-                }
-            ),
-            process=ProcessInfo(
-                id=self.process_id or str(uuid.uuid4()),
-                main_processor="metadata",
-                started=datetime.now().isoformat()
-            ),
-            data=MetadataData(
-                technical=TechnicalMetadata(
-                    file_name="unknown.tmp",
-                    file_mime="application/octet-stream",
-                    file_size=1,
-                    created=start_time.isoformat(),
-                    modified=start_time.isoformat()
-                )
-            ),
-            status=ProcessingStatus.PENDING
-        )
+        llm_info = LLMInfo(model=self.transformer.model, purpose="metadata-extraction")
         
         try:
             # Validiere Eingaben
@@ -174,33 +145,34 @@ class MetadataProcessor(BaseProcessor):
 
             # Content Metadaten extrahieren
             content_metadata = None
-            llm_info = None
             if content is not None and self.features.content_enabled:
                 try:
-                    llm_info, content_metadata = await self.extract_content_metadata(content, context)
+                    content_llm_info, content_metadata = await self.extract_content_metadata(content, context)
+                    if content_llm_info and content_llm_info.requests:
+                        llm_info.add_request(content_llm_info.requests)
                 except Exception as e:
                     if self.logger:
                         self.logger.error("Fehler bei der Content-Metadaten-Extraktion", error=e)
                     raise
 
-            # Erfolgreiche Response erstellen
+            # Erfolgreiche Response erstellen mit ResponseFactory
             end_time: datetime = datetime.now(timezone.utc)
-            return MetadataResponse(
-                request=response.request,
-                process=ProcessInfo(
-                    id=response.process.id,
-                    main_processor=response.process.main_processor,
-                    started=response.process.started,
-                    completed=end_time.isoformat(),
-                    duration=float((end_time - start_time).total_seconds() * 1000),
-                    sub_processors=['transformer'] if content_metadata else []
-                ),
-                data=MetadataData(
+            return ResponseFactory.create_response(
+                processor_name="metadata",
+                result=MetadataData(
                     technical=technical_metadata,
                     content=content_metadata
                 ),
-                llm_info=llm_info,
-                status=ProcessingStatus.SUCCESS
+                request_info={
+                    "has_binary": binary_data is not None,
+                    "has_content": content is not None,
+                    "context": context,
+                    "started": start_time.isoformat(),
+                    "completed": end_time.isoformat(),
+                    "duration": float((end_time - start_time).total_seconds() * 1000)
+                },
+                response_class=MetadataResponse,
+                llm_info=llm_info
             )
 
         except Exception as e:
@@ -220,17 +192,11 @@ class MetadataProcessor(BaseProcessor):
                 }
             )
             
+            # Error-Response mit ResponseFactory
             end_time = datetime.now(timezone.utc)
-            return MetadataResponse(
-                request=response.request,
-                process=ProcessInfo(
-                    id=response.process.id,
-                    main_processor="metadata",
-                    started=start_time.isoformat(),
-                    completed=end_time.isoformat(),
-                    duration=float((end_time - start_time).total_seconds() * 1000)
-                ),
-                data=MetadataData(
+            return ResponseFactory.create_response(
+                processor_name="metadata",
+                result=MetadataData(
                     technical=TechnicalMetadata(
                         file_name="error.tmp",
                         file_mime="application/octet-stream",
@@ -240,8 +206,16 @@ class MetadataProcessor(BaseProcessor):
                     ),
                     content=None
                 ),
-                error=error_info,
-                status=ProcessingStatus.ERROR
+                request_info={
+                    "has_binary": binary_data is not None,
+                    "has_content": content is not None,
+                    "context": context,
+                    "started": start_time.isoformat(),
+                    "completed": end_time.isoformat(),
+                    "duration": float((end_time - start_time).total_seconds() * 1000)
+                },
+                response_class=MetadataResponse,
+                error=error_info
             )
 
     async def extract_technical_metadata(self, file_path: Union[str, Path, FileStorage, BinaryIO]) -> TechnicalMetadata:
@@ -446,7 +420,7 @@ class MetadataProcessor(BaseProcessor):
     ) -> Tuple[LLMInfo, ContentMetadata]:
         """Extrahiert inhaltliche Metadaten aus einem Text."""
         if not content:
-            return LLMInfo(model="", purpose=""), ContentMetadata()
+            return LLMInfo(model=self.transformer.model, purpose="content-metadata-extraction"), ContentMetadata()
             
         try:
             self.logger.info("Starte inhaltliche Metadaten-Extraktion",
@@ -476,8 +450,8 @@ class MetadataProcessor(BaseProcessor):
                 )
 
             # LLM-Info aus der Transformation übernehmen
-            if transform_result.llm_info:
-                llm_info.add_request(transform_result.llm_info.requests)
+            if transform_result.process and transform_result.process.llm_info:
+                llm_info.add_request(transform_result.process.llm_info.requests)
 
             # Strukturierte Daten aus der Template-Transformation verwenden
             structured_data: Any | None = transform_result.data.output.structured_data if transform_result.data and transform_result.data.output else None
@@ -496,6 +470,11 @@ class MetadataProcessor(BaseProcessor):
                 created=datetime.now(timezone.utc).isoformat(),
                 modified=datetime.now(timezone.utc).isoformat()
             )
+            
+            self.logger.info("Content-Metadaten erfolgreich extrahiert",
+                           llm_requests=len(llm_info.requests),
+                           total_tokens=llm_info.total_tokens,
+                           total_duration=llm_info.total_duration)
             
             return llm_info, content_metadata
             

@@ -43,7 +43,7 @@ from src.core.models.base import (
     ProcessInfo, RequestInfo, ErrorInfo
 )
 from src.core.models.enums import ProcessingStatus, ProcessorType
-from src.core.models.llm import LLMInfo, LLMRequest
+from src.core.models.llm import LLMInfo
 from src.core.models.video import (
     VideoSource,
     VideoMetadata,
@@ -52,6 +52,7 @@ from src.core.models.video import (
 )
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
+from src.core.models.response_factory import ResponseFactory
 
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
@@ -99,7 +100,17 @@ class VideoProcessor(BaseProcessor):
             'retries': 10,
             'sleep_interval': 3,
             'max_sleep_interval': 10,
-            'nocheckcertificate': True
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'no_playlist': True,
+            'extract_flat': False,
+            'youtube_include_dash_manifest': False,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate'
+            }
         }
     
     def create_process_dir(self, identifier: str) -> Path:
@@ -145,7 +156,7 @@ class VideoProcessor(BaseProcessor):
                 main_processor=ProcessorType.VIDEO.value,
                 started=datetime.now().isoformat(),
                 completed=datetime.now().isoformat(),
-                llm_info=llm_info.to_dict()
+                llm_info=llm_info if llm_info.requests else None
             ),
             data=result,
             status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
@@ -192,9 +203,16 @@ class VideoProcessor(BaseProcessor):
         Returns:
             VideoResponse: Die standardisierte Response mit Transkription und Metadaten
         """
-        llm_info = LLMInfo(model="video-processing", purpose="video-processing")
-        working_dir = None
-        audio_path = None
+        # Initialisiere Variablen
+        working_dir: Path = Path(self.temp_dir) / "video" / str(uuid.uuid4())
+        working_dir.mkdir(parents=True, exist_ok=True)
+        audio_path: Optional[Path] = None
+        
+        # Initialisiere LLM-Info
+        llm_info = LLMInfo(
+            model="video-processing",
+            purpose="video-processing"
+        )
         
         try:
             # 1. Quelle validieren und Video-ID generieren
@@ -220,7 +238,6 @@ class VideoProcessor(BaseProcessor):
                 )
             
             # 3. Arbeitsverzeichnis erstellen
-            working_dir = self.create_process_dir(video_id)
             self.logger.info(f"Verarbeite Video: {title}", 
                            video_id=video_id,
                            duration=duration,
@@ -254,7 +271,7 @@ class VideoProcessor(BaseProcessor):
             mp3_files = list(working_dir.glob("*.mp3"))
             if not mp3_files:
                 raise ValueError("Keine MP3-Datei nach Verarbeitung gefunden")
-            audio_path: Path = mp3_files[0]
+            audio_path = mp3_files[0]
             
             # 6. Audio verarbeiten
             self.logger.info("Starte Audio-Verarbeitung")
@@ -271,30 +288,8 @@ class VideoProcessor(BaseProcessor):
             
             # LLM-Requests aus Audio-Verarbeitung übernehmen
             if audio_response.process.llm_info:
-                # Konvertiere Dictionary-Requests in LLMRequest-Objekte
-                requests: list[LLMRequest] = []
-                for req in audio_response.process.llm_info.get('requests', []):
-                    if isinstance(req, dict):
-                        # Extrahiere und konvertiere Werte
-                        model = str(req.get('model', ''))
-                        purpose = str(req.get('purpose', ''))
-                        tokens = int(req.get('tokens', 0))
-                        # Konvertiere duration zu int (Millisekunden)
-                        duration = int(float(req.get('duration', 0.0)) * 1000)
-                        
-                        requests.append(LLMRequest(
-                            model=model,
-                            purpose=purpose,
-                            tokens=tokens,
-                            duration=duration
-                        ))
-                    else:
-                        requests.append(req)
-                llm_info.requests.extend(requests)
-                # Aktualisiere Gesamtwerte
-                llm_info.total_tokens = sum(r.tokens for r in llm_info.requests)
-                llm_info.total_duration = sum(r.duration for r in llm_info.requests)
-                llm_info.requests_count = len(llm_info.requests)
+                # Übernehme die LLM-Requests direkt
+                llm_info.add_request(audio_response.process.llm_info.requests)
             
             # Erkannte Quellsprache aktualisieren
             if audio_response.data and audio_response.data.transcription:
@@ -322,7 +317,9 @@ class VideoProcessor(BaseProcessor):
             # 9. Response erstellen
             self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}")
             
-            return self._create_response(
+            # Erstelle die Response mit ResponseFactory
+            response = ResponseFactory.create_response(
+                processor_name=ProcessorType.VIDEO.value,
                 result=result,
                 request_info={
                     'source': str(source),
@@ -330,43 +327,50 @@ class VideoProcessor(BaseProcessor):
                     'source_language': source_language,
                     'template': template
                 },
-                llm_info=llm_info
+                response_class=VideoResponse,
+                llm_info=llm_info if llm_info.requests else None
             )
-            
+            return response
+
         except Exception as e:
-            error_context = {
-                'error_type': type(e).__name__,
-                'error_message': str(e),
-                'stack_trace': traceback.format_exc(),
-                'source': str(source),
-                'process_dir': str(working_dir) if working_dir else None,
-                'audio_path': str(audio_path) if audio_path else None
-            }
-            
-            self.logger.error("Video-Verarbeitungsfehler", error=e, **error_context)
-            
             error_info = ErrorInfo(
-                code="VIDEO_PROCESSING_ERROR",
+                code=type(e).__name__,
                 message=str(e),
-                details=error_context
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            self.logger.error(f"Fehler bei der Verarbeitung: {str(e)}")
+            
+            # Erstelle ein gültiges VideoSource Objekt
+            video_source = VideoSource(url=str(source)) if isinstance(source, str) else source
+            
+            # Erstelle ein Dummy-Result für den Fehlerfall
+            dummy_result = VideoProcessingResult(
+                metadata=VideoMetadata(
+                    title="",
+                    source=video_source,
+                    duration=0,
+                    duration_formatted="00:00:00",
+                    process_dir=str(working_dir) if working_dir else ""
+                ),
+                transcription=None,
+                process_id=self.process_id
             )
             
-            return VideoResponse.create_error(
-                request=RequestInfo(
-                    processor=ProcessorType.VIDEO.value,
-                    timestamp=datetime.now().isoformat(),
-                    parameters={
-                        'source': str(source),
-                        'target_language': target_language,
-                        'source_language': source_language,
-                        'template': template
-                    }
-                ),
-                process=ProcessInfo(
-                    id=self.process_id,
-                    main_processor=ProcessorType.VIDEO.value,
-                    started=datetime.now().isoformat(),
-                    llm_info=llm_info.to_dict()
-                ),
-                error=error_info
-            ) 
+            # Error-Response mit ResponseFactory
+            response = ResponseFactory.create_response(
+                processor_name=ProcessorType.VIDEO.value,
+                result=dummy_result,
+                request_info={
+                    'source': str(source),
+                    'target_language': target_language,
+                    'source_language': source_language,
+                    'template': template
+                },
+                response_class=VideoResponse,
+                error=error_info,
+                llm_info=None  # Keine LLM-Info im Fehlerfall
+            )
+            return response 

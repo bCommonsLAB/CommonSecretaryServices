@@ -41,16 +41,16 @@ from core.models.audio import (
 from src.core.config import Config
 from src.core.exceptions import ProcessingError
 from src.core.models.base import (
-    ProcessInfo, RequestInfo, ErrorInfo
+    ErrorInfo
 )
 from src.core.models.enums import ProcessingStatus
 from src.core.models.llm import (
-    LLMInfo,
-    LLMRequest
+    LLMInfo
 )
 from src.core.models.youtube import YoutubeMetadata, YoutubeProcessingResult, YoutubeResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
+from src.core.models.response_factory import ResponseFactory
 
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
@@ -101,6 +101,22 @@ class YoutubeDLOpts(TypedDict, total=False):
     playlist_items: str
     youtube_include_dash_manifest: bool
     cachedir: str
+
+class ExtractOpts(TypedDict, total=False):
+    """Type helper für minimale Extraktions-Optionen."""
+    quiet: bool
+    no_warnings: bool
+    extract_flat: bool
+    no_playlist: bool
+    playlist_items: str
+    http_headers: dict[str, str]
+    socket_timeout: int
+    retries: int
+    sleep_interval: int
+    nocheckcertificate: bool
+    no_color: bool
+    cachedir: str
+    youtube_include_dash_manifest: bool
 
 class YoutubeProcessor(BaseProcessor):
     """
@@ -168,15 +184,89 @@ class YoutubeProcessor(BaseProcessor):
         cache_dir.mkdir(parents=True, exist_ok=True)
         
     def _extract_video_id(self, url: str) -> str:
-        """Extrahiert die Video-ID aus einer YouTube-URL."""
+        """
+        Extrahiert die Video-ID aus einer YouTube-URL.
+        
+        Args:
+            url: Die YouTube-URL
+            
+        Returns:
+            str: Die extrahierte Video-ID
+            
+        Raises:
+            ProcessingError: Wenn die Video-ID nicht extrahiert werden kann
+        """
+        # Minimale Optionen für ID-Extraktion
+        extract_opts: ExtractOpts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'no_playlist': True,
+            'playlist_items': '1',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate'
+            },
+            'socket_timeout': 60,
+            'retries': 5,
+            'sleep_interval': 5,
+            'nocheckcertificate': True,
+            'no_color': True
+        }
+        
         try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:  # type: ignore
+            with yt_dlp.YoutubeDL(extract_opts) as ydl:  # type: ignore
                 info: YoutubeDLDict = ydl.extract_info(url, download=False)  # type: ignore
-                if not info or 'id' not in info:
-                    raise ProcessingError("Keine Video-ID gefunden")
-                return cast(str, info['id'])
+                
+                if not info:
+                    raise ProcessingError(
+                        "Keine Video-Informationen gefunden. "
+                        "Bitte überprüfen Sie die URL und versuchen Sie es später erneut."
+                    )
+                    
+                if 'id' not in info:
+                    raise ProcessingError(
+                        "Video-ID nicht gefunden. "
+                        "Bitte stellen Sie sicher, dass die URL korrekt ist und das Video existiert."
+                    )
+                    
+                video_id = cast(str, info['id'])
+                self.logger.debug(f"Video-ID extrahiert: {video_id}")
+                return video_id
+                
+        except yt_dlp.utils.DownloadError as e:
+            error_msg = str(e)
+            if "Private video" in error_msg:
+                raise ProcessingError("Dieses Video ist privat und kann nicht verarbeitet werden.")
+            elif "This video is unavailable" in error_msg:
+                raise ProcessingError("Dieses Video ist nicht verfügbar.")
+            elif "Video unavailable" in error_msg:
+                raise ProcessingError("Das Video wurde möglicherweise gelöscht oder ist in Ihrem Land nicht verfügbar.")
+            else:
+                self.logger.error(
+                    "YouTube Download Fehler",
+                    error=e,
+                    url=url,
+                    error_details=error_msg
+                )
+                raise ProcessingError(
+                    f"Fehler beim Zugriff auf das Video: {error_msg}. "
+                    "Bitte versuchen Sie es später erneut."
+                )
         except Exception as e:
-            raise ProcessingError(f"Ungültige YouTube-URL: {str(e)}")
+            error_details = str(e)
+            self.logger.error(
+                "Unerwarteter Fehler bei der Video-ID Extraktion",
+                error=e,
+                url=url,
+                error_type=type(e).__name__
+            )
+            raise ProcessingError(
+                f"Unerwarteter Fehler bei der Verarbeitung der YouTube-URL: {error_details}. "
+                "Bitte überprüfen Sie die URL und versuchen Sie es erneut."
+            )
             
     def create_process_dir(self, video_id: str) -> Path:
         """Erstellt und gibt das Verarbeitungsverzeichnis für ein Video zurück."""
@@ -190,43 +280,6 @@ class YoutubeProcessor(BaseProcessor):
         minutes = (seconds % 3600) // 60
         seconds = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-    def _create_response(
-        self,
-        result: YoutubeProcessingResult,
-        request_info: Dict[str, Any],
-        llm_info: LLMInfo,
-        error: Optional[ErrorInfo] = None
-    ) -> YoutubeResponse:
-        """
-        Erstellt die standardisierte Response.
-        
-        Args:
-            result: Das Youtube-Verarbeitungsergebnis
-            request_info: Die Request-Parameter
-            llm_info: Die gesammelten LLM-Informationen
-            error: Optionale Fehlerinformationen
-            
-        Returns:
-            YoutubeResponse: Die standardisierte Response
-        """
-        return YoutubeResponse(
-            request=RequestInfo(
-                processor="youtube",
-                timestamp=datetime.now().isoformat(),
-                parameters=request_info
-            ),
-            process=ProcessInfo(
-                id=self.process_id,
-                main_processor="youtube",
-                started=self.start_time.isoformat() if self.start_time else datetime.now().isoformat(),
-                completed=datetime.now().isoformat(),
-                llm_info=llm_info.to_dict()
-            ),
-            data=result,
-            status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
-            error=error
-        )
 
     async def process(
         self, 
@@ -395,7 +448,8 @@ class YoutubeProcessor(BaseProcessor):
                             message="Fehler bei der Audio-Verarbeitung",
                             details={}
                         )
-                        response = self._create_response(
+                        response = ResponseFactory.create_response(
+                            processor_name="youtube",
                             result=YoutubeProcessingResult(
                                 metadata=metadata,
                                 transcription=None,
@@ -407,6 +461,7 @@ class YoutubeProcessor(BaseProcessor):
                                 'target_language': target_language,
                                 'template': 'youtube'
                             },
+                            response_class=YoutubeResponse,
                             llm_info=llm_info,
                             error=error_info
                         )
@@ -414,17 +469,8 @@ class YoutubeProcessor(BaseProcessor):
                     
                     # Extrahiere LLM-Requests aus der Audio-Response
                     if audio_response.process.llm_info:
-                        llm_requests: List[LLMRequest] = [
-                            LLMRequest(
-                                model=req.get('model', 'unknown'),
-                                purpose=req.get('purpose', 'unknown'),
-                                tokens=req.get('tokens', 0),
-                                duration=req.get('duration', 0),
-                                timestamp=req.get('timestamp', datetime.now().isoformat())
-                            )
-                            for req in audio_response.process.llm_info.get('requests', [])
-                        ]
-                        llm_info.add_request(llm_requests)
+                        # Übernehme die LLM-Requests direkt
+                        llm_info.add_request(audio_response.process.llm_info.requests)
                     
                     # Konvertiere AudioResponse zu TranscriptionResult
                     if audio_response.data and audio_response.data.transcription:
@@ -444,17 +490,18 @@ class YoutubeProcessor(BaseProcessor):
                 )
 
                 # Erstelle die Response
-                request_info: Dict[str, str] = {
-                    'url': url,
-                    'source_language': source_language,
-                    'target_language': target_language,
-                    'template': 'youtube'  # Verwende YouTube-Template
-                }
-                
-                self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}, Duration: {llm_info.total_duration}")
-                
-                response: YoutubeResponse = self._create_response(result, request_info, llm_info)
-                return response
+                return ResponseFactory.create_response(
+                    processor_name="youtube",
+                    result=result,
+                    request_info={
+                        'url': url,
+                        'source_language': source_language,
+                        'target_language': target_language,
+                        'template': 'youtube'
+                    },
+                    response_class=YoutubeResponse,
+                    llm_info=llm_info
+                )
 
         except Exception as e:
             error_context = {
@@ -486,6 +533,33 @@ class YoutubeProcessor(BaseProcessor):
             
             self.logger.error("Youtube-Verarbeitungsfehler", error=e, **error_context)
             
-            raise ProcessingError(
-                f"Youtube Verarbeitungsfehler in Phase '{error_context['stage']}': {str(e)}"
+            # Erstelle Error-Response mit ResponseFactory
+            error_info = ErrorInfo(
+                code="YOUTUBE_PROCESSING_ERROR",
+                message=str(e),
+                details=error_context
+            )
+            
+            return ResponseFactory.create_response(
+                processor_name="youtube",
+                result=YoutubeProcessingResult(
+                    metadata=YoutubeMetadata(
+                        title="Error",
+                        url=url,
+                        video_id="error",
+                        duration=0,
+                        duration_formatted="00:00:00"
+                    ),
+                    transcription=None,
+                    process_id=self.process_id
+                ),
+                request_info={
+                    'url': url,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': 'youtube'
+                },
+                response_class=YoutubeResponse,
+                llm_info=llm_info,
+                error=error_info
             ) 

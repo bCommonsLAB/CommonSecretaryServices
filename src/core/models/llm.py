@@ -4,7 +4,7 @@ Modelle für Language Model (LLM) Interaktionen.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from ..validation import (
     is_non_empty_str, is_non_negative,
@@ -100,59 +100,64 @@ class LLMInfo:
     Attributes:
         model: Name des hauptsächlich verwendeten Modells
         purpose: Hauptzweck der LLM-Nutzung
-        tokens: Gesamtanzahl der verwendeten Tokens
-        duration: Gesamtdauer der Verarbeitung in Millisekunden
         requests: Liste aller LLM-Requests
-        requests_count: Anzahl der Requests
-        total_tokens: Summe aller Tokens
-        total_duration: Summe aller Verarbeitungszeiten
     """
     model: str
     purpose: str
-    tokens: int = 0
-    duration: float = 0.0
     requests: List[LLMRequest] = field(default_factory=list)
-    requests_count: int = 0
-    total_tokens: int = 0
-    total_duration: float = 0.0
-
+    
     def __post_init__(self) -> None:
         """Validiert die Felder nach der Initialisierung."""
         if not is_non_empty_str(self.model):
             raise ValueError("model darf nicht leer sein")
         if not is_non_empty_str(self.purpose):
             raise ValueError("purpose darf nicht leer sein")
-        if not is_non_negative(self.tokens):
-            raise ValueError("tokens muss nicht-negativ sein")
-        if not is_non_negative(self.duration):
-            raise ValueError("duration muss nicht-negativ sein")
-        if not is_non_negative(self.requests_count):
-            raise ValueError("requests_count muss nicht-negativ sein")
-        if not is_non_negative(self.total_tokens):
-            raise ValueError("total_tokens muss nicht-negativ sein")
-        if not is_non_negative(self.total_duration):
-            raise ValueError("total_duration muss nicht-negativ sein")
+
+    @property
+    def requests_count(self) -> int:
+        """Anzahl der Requests."""
+        return len(self.requests)
+        
+    @property
+    def total_tokens(self) -> int:
+        """Gesamtanzahl der Tokens."""
+        return sum(r.tokens for r in self.requests)
+        
+    @property
+    def total_duration(self) -> float:
+        """Gesamtdauer in Millisekunden."""
+        return sum(r.duration for r in self.requests)
 
     def add_request(self, requests: List[LLMRequest]) -> None:
         """
-        Fügt eine Liste von Requests hinzu und aktualisiert die Gesamtwerte.
+        Fügt eine Liste von Requests hinzu.
         
         Args:
             requests: Liste von LLM-Requests
         """
-        # Da die Klasse frozen ist, müssen wir object.__setattr__ verwenden
         object.__setattr__(self, 'requests', [*self.requests, *requests])
-        object.__setattr__(self, 'requests_count', len(self.requests))
-        object.__setattr__(self, 'total_tokens', sum(r.tokens for r in self.requests))
-        object.__setattr__(self, 'total_duration', sum(r.duration for r in self.requests))
+
+    def merge(self, other: 'LLMInfo') -> 'LLMInfo':
+        """
+        Kombiniert zwei LLMInfo Objekte.
+        
+        Args:
+            other: Anderes LLMInfo Objekt
+            
+        Returns:
+            Neues LLMInfo Objekt mit kombinierten Requests
+        """
+        return LLMInfo(
+            model=f"{self.model}+{other.model}",
+            purpose=f"{self.purpose}+{other.purpose}",
+            requests=[*self.requests, *other.requests]
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die LLM-Info in ein Dictionary."""
         return {
             'model': self.model,
             'purpose': self.purpose,
-            'tokens': self.tokens,
-            'duration': self.duration,
             'requests': [req.to_dict() for req in self.requests],
             'requests_count': self.requests_count,
             'total_tokens': self.total_tokens,

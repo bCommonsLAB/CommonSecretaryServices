@@ -62,52 +62,100 @@ class ContentMetadata:
         if self.spatial_longitude is not None and not -180 <= self.spatial_longitude <= 180:
             raise ValueError("Longitude must be between -180 and 180")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die inhaltlichen Metadaten in ein Dictionary."""
+        return {
+            'type': self.type,
+            'created': self.created,
+            'modified': self.modified,
+            'title': self.title,
+            'subtitle': self.subtitle,
+            'authors': self.authors,
+            'publisher': self.publisher,
+            'publication_date': self.publication_date,
+            'isbn': self.isbn,
+            'doi': self.doi,
+            'edition': self.edition,
+            'language': self.language,
+            'subject_areas': self.subject_areas,
+            'keywords': self.keywords,
+            'abstract': self.abstract,
+            'temporal_start': self.temporal_start,
+            'temporal_end': self.temporal_end,
+            'temporal_period': self.temporal_period,
+            'spatial_location': self.spatial_location,
+            'spatial_latitude': self.spatial_latitude,
+            'spatial_longitude': self.spatial_longitude,
+            'spatial_habitat': self.spatial_habitat,
+            'spatial_region': self.spatial_region,
+            'rights_holder': self.rights_holder,
+            'rights_license': self.rights_license,
+            'rights_access': self.rights_access,
+            'rights_usage': self.rights_usage,
+            'rights_attribution': self.rights_attribution,
+            'rights_commercial': self.rights_commercial,
+            'rights_modifications': self.rights_modifications
+        }
+
 @dataclass(frozen=True, slots=True)
 class TechnicalMetadata:
-    """Technische Metadaten einer Datei."""
+    """Technische Metadaten für verschiedene Medientypen."""
+    
+    # Basis-Metadaten
     file_name: str
     file_mime: str
     file_size: int
-    created: str = field(default_factory=lambda: datetime.now().isoformat())
-    modified: str = field(default_factory=lambda: datetime.now().isoformat())
+    created: str
+    modified: str
     
-    # Optionale Felder für verschiedene Dateitypen
+    # PDF-spezifische Metadaten
     doc_pages: Optional[int] = None
+    doc_encrypted: Optional[bool] = None
+    
+    # Audio/Video-spezifische Metadaten
     media_duration: Optional[float] = None
     media_bitrate: Optional[int] = None
     media_codec: Optional[str] = None
     media_channels: Optional[int] = None
     media_sample_rate: Optional[int] = None
     
-    def __post_init__(self) -> None:
-        if not self.file_name.strip():
-            raise ValueError("File name must not be empty")
-        if not self.file_mime.strip():
-            raise ValueError("MIME type must not be empty")
-        if self.file_size < 0:
-            raise ValueError("File size must be positive")
-        if self.doc_pages is not None and self.doc_pages <= 0:
-            raise ValueError("Document pages must be positive")
-        if self.media_duration is not None and self.media_duration <= 0:
-            raise ValueError("Media duration must be positive")
-        if self.media_bitrate is not None and self.media_bitrate <= 0:
-            raise ValueError("Media bitrate must be positive")
-        if self.media_channels is not None and self.media_channels <= 0:
-            raise ValueError("Media channels must be positive")
-        if self.media_sample_rate is not None and self.media_sample_rate <= 0:
-            raise ValueError("Media sample rate must be positive") 
+    # Bild-spezifische Metadaten
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+    image_colorspace: Optional[str] = None
 
-@dataclass(frozen=True, slots=True)
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die technischen Metadaten in ein Dictionary."""
+        return {
+            'file_name': self.file_name,
+            'file_mime': self.file_mime,
+            'file_size': self.file_size,
+            'created': self.created,
+            'modified': self.modified,
+            'doc_pages': self.doc_pages,
+            'doc_encrypted': self.doc_encrypted,
+            'media_duration': self.media_duration,
+            'media_bitrate': self.media_bitrate,
+            'media_codec': self.media_codec,
+            'media_channels': self.media_channels,
+            'media_sample_rate': self.media_sample_rate,
+            'image_width': self.image_width,
+            'image_height': self.image_height,
+            'image_colorspace': self.image_colorspace
+        }
+
+@dataclass(frozen=True)
 class MetadataData:
     """Container für alle Metadaten-Informationen."""
     technical: Optional[TechnicalMetadata] = None
     content: Optional[ContentMetadata] = None
-    source_info: Optional[Dict[str, Any]] = None
 
-    def __post_init__(self) -> None:
-        """Validiert die Felder nach der Initialisierung."""
-        if not self.technical and not self.content:
-            raise ValueError("At least one of technical or content metadata must be provided")
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Metadaten in ein Dictionary."""
+        return {
+            'technical': self.technical.to_dict() if self.technical else None,
+            'content': self.content.to_dict() if self.content else None
+        }
 
 @dataclass(frozen=True, init=False)
 class MetadataResponse(BaseResponse):

@@ -26,7 +26,6 @@ from src.core.models.enums import OutputFormat
 from src.core.models.audio import (
     AudioSegmentInfo, Chapter, TranscriptionResult, TranscriptionSegment
 )
-from src.utils.openai_utils import get_structured_gpt
 from src.core.exceptions import ProcessingError
 
 # Type-Definitionen
@@ -80,6 +79,32 @@ class WhisperTranscriber:
         self.debug_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
+    def create_llm_request(
+        self,
+        purpose: str,
+        tokens: int,
+        duration: float,
+        model: Optional[str] = None
+    ) -> LLMRequest:
+        """
+        Zentrale Methode für LLMRequest-Erstellung.
+        
+        Args:
+            purpose: Zweck des Requests (z.B. 'transcription', 'translation')
+            tokens: Anzahl der verwendeten Tokens
+            duration: Dauer in Millisekunden
+            model: Optional, zu verwendendes Modell (default: self.model)
+            
+        Returns:
+            LLMRequest: Der erstellte Request
+        """
+        return LLMRequest(
+            model=model or self.model,
+            purpose=purpose,
+            tokens=tokens,
+            duration=int(duration)  # Konvertiere zu int für Millisekunden
+        )
+
     def translate_text(
         self,
         text: str,
@@ -103,8 +128,7 @@ class WhisperTranscriber:
             if logger:
                 logger.info(f"Starte Übersetzung von {source_language} nach {target_language}")
 
-            # LLM-Modell und System-Prompt definieren
-            llm_model: str = self.model
+            # System-Prompt definieren
             system_prompt: str = "You are a precise translator."
             instruction: str = f"Please translate this text to {target_language}:"
             user_prompt: str = f"{instruction}\n\n{text}"
@@ -114,7 +138,7 @@ class WhisperTranscriber:
 
             # OpenAI Client-Aufruf
             response: ChatCompletion = self.client.chat.completions.create(
-                model=llm_model,
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -122,7 +146,7 @@ class WhisperTranscriber:
             )
 
             # Zeitmessung beenden und Dauer in Millisekunden berechnen
-            duration = int((time.time() - start_time) * 1000)
+            duration = (time.time() - start_time) * 1000
             
             if not response.choices or not response.choices[0].message:
                 raise ValueError("Keine gültige Antwort vom LLM erhalten")
@@ -135,13 +159,11 @@ class WhisperTranscriber:
                 system_prompt=system_prompt, 
                 user_prompt=user_prompt, 
                 response=response, 
-                logger=logger,
-            ) 
+                logger=logger
+            )
 
-
-            # LLM-Nutzung tracken
-            llm_usage = LLMRequest(
-                model=llm_model,
+            # LLM-Nutzung tracken mit zentraler Methode
+            llm_request = self.create_llm_request(
                 purpose="translation",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration
@@ -151,12 +173,12 @@ class WhisperTranscriber:
                 text=translated_text,
                 source_language=source_language,
                 target_language=target_language,
-                requests=[llm_usage]
+                requests=[llm_request]
             )
 
             if logger:
                 logger.info("Übersetzung abgeschlossen",
-                    tokens=llm_usage.tokens,
+                    tokens=llm_request.tokens,
                     duration_ms=duration)
             
             return result
@@ -189,8 +211,7 @@ class WhisperTranscriber:
             if logger:
                 logger.info(f"Starte Zusammenfassung in {target_language}" + (f" (max {max_words} Wörter)" if max_words else ""))
 
-            # LLM-Modell und System-Prompt definieren
-            llm_model = self.model
+            # System-Prompt definieren
             system_prompt = "You are a precise Writer."
             
             # Instruction basierend auf Modus erstellen
@@ -207,7 +228,7 @@ class WhisperTranscriber:
 
             # OpenAI Client-Aufruf
             response: ChatCompletion = self.client.chat.completions.create(
-                model=llm_model,
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -215,7 +236,7 @@ class WhisperTranscriber:
             )
 
             # Zeitmessung beenden und Dauer in Millisekunden berechnen
-            duration = int((time.time() - start_time) * 1000)
+            duration = (time.time() - start_time) * 1000
             
             if not response.choices or not response.choices[0].message:
                 raise ValueError("Keine gültige Antwort vom LLM erhalten")
@@ -228,12 +249,11 @@ class WhisperTranscriber:
                 system_prompt=system_prompt, 
                 user_prompt=user_prompt, 
                 response=response, 
-                logger=logger,
-            ) 
+                logger=logger
+            )
 
-            # LLM-Nutzung tracken
-            llm_usage = LLMRequest(
-                model=llm_model,
+            # LLM-Nutzung tracken mit zentraler Methode
+            llm_request = self.create_llm_request(
                 purpose="summarization",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration
@@ -242,12 +262,12 @@ class WhisperTranscriber:
             result = TransformationResult(
                 text=summary,
                 target_language=target_language,
-                requests=[llm_usage]
+                requests=[llm_request]
             )
 
             if logger:
                 logger.info("Zusammenfassung abgeschlossen",
-                    tokens=llm_usage.tokens,
+                    tokens=llm_request.tokens,
                     duration_ms=duration)
             
             return result
@@ -356,47 +376,89 @@ class WhisperTranscriber:
             system_prompt: str = (
                 f"You are a precise assistant for text analysis and data extraction. "
                 f"Analyze the text and extract the requested information. "
-                f"Provide all answers in the target language ISO 639-1 code:{target_language}."
+                f"Provide all answers in the target language ISO 639-1 code:{target_language}. "
+                f"IMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
             )
             
+            # Extrahiere die Feldnamen und Beschreibungen
+            field_descriptions = {
+                name: field.description 
+                for name, field in field_definitions.fields.items()
+            }
+            
             user_prompt: str = (
-                f"Analyze the following text and extract the information:\n\n"
+                f"Analyze the following text and extract the information as a JSON object:\n\n"
                 f"TEXT:\n{text}\n\n"
-                f"CONTEXT:\n{ context_str}\n\n"
-                f"Extract the information precisely and in the target language ISO 639-1 code: {target_language}."
+                f"CONTEXT:\n{context_str}\n\n"
+                f"REQUIRED FIELDS:\n"
+                f"{json.dumps(field_descriptions, indent=2, ensure_ascii=False)}\n\n"
+                f"INSTRUCTIONS:\n"
+                f"1. Extract all required information from the text\n"
+                f"2. Return a single JSON object where each key matches a field name\n"
+                f"3. Provide all values in language: {target_language}\n"
+                f"4. Ensure the response is valid JSON\n"
+                f"5. Do not include any text outside the JSON object"
             )
 
             # 5. GPT-4 Anfrage senden
             if logger:
                 logger.info("Sende Anfrage an GPT-4")
 
-            # GPT-4 Anfrage durchführen und Ergebnis validieren
-            template_model_result, result_json, llm_usage = get_structured_gpt(
-                client=self.client,
-                template=template,
-                field_definitions=field_definitions,
+            # Zeitmessung starten
+            start_time: float = time.time()
+
+            # OpenAI Client-Aufruf
+            response: ChatCompletion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+            )
+
+            # Zeitmessung beenden
+            duration = (time.time() - start_time) * 1000
+
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+            # LLM-Nutzung tracken mit zentraler Methode
+            llm_request = self.create_llm_request(
+                purpose="template_transform",
+                tokens=response.usage.total_tokens if response.usage else 0,
+                duration=duration
+            )
+
+            # Debug-Informationen speichern
+            self._save_llm_interaction(
+                purpose="template_transform",
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                model=self.model,
-                logger=logger
+                response=response,
+                logger=logger,
+                template=template,
+                field_definitions=field_definitions
             )
-            
-            # 9. Strukturierte Variablen ersetzen
-            for field_name, field_value in template_model_result.model_dump().items():
+
+            # Strukturierte Daten extrahieren
+            result_json = json.loads(response.choices[0].message.content or "{}")
+
+            # Template mit extrahierten Daten füllen
+            for field_name, field_value in result_json.items():
                 pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
                 template_content = re.sub(pattern, value, template_content)
 
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
-                    tokens=llm_usage.tokens,
-                    duration_ms=llm_usage.duration)
+                    tokens=llm_request.tokens,
+                    duration_ms=duration)
 
-            # 11. Response erstellen
+            # Response erstellen
             return TransformationResult(
                 text=template_content,
                 target_language=target_language,
-                requests=[llm_usage],
+                requests=[llm_request],
                 structured_data=result_json
             )
 
@@ -586,19 +648,19 @@ class WhisperTranscriber:
             if not response or not hasattr(response, 'text'):
                 raise ValueError("Ungültige API-Antwort: Kein Text gefunden")
             
-            # Zeitmessung beenden und Dauer in Millisekunden berechnen
-            duration = int((time.time() - start_time) * 1000)
+            # Zeitmessung beenden
+            duration = (time.time() - start_time) * 1000
             
-            # Erstelle ein LLModel für die Whisper-Nutzung
-            # Schätze die Token basierend auf der Textlänge wenn usage nicht verfügbar
+            # Schätze die Token basierend auf der Textlänge
             estimated_tokens: float = len(response.text.split()) * 1.5 if hasattr(response, 'text') else 0
             tokens = getattr(response, 'usage', {}).get('total_tokens', int(estimated_tokens))
             
-            whisper_model = LLMRequest(
-                model="whisper-1",
+            # LLM-Nutzung tracken mit zentraler Methode
+            whisper_request = self.create_llm_request(
                 purpose="transcription",
+                tokens=tokens,
                 duration=duration,
-                tokens=tokens
+                model="whisper-1"  # Explizit Whisper-Modell angeben
             )
             
             if source_language == "auto":
@@ -627,7 +689,7 @@ class WhisperTranscriber:
                 text=response.text,
                 source_language=source_language,
                 segments=[segment],  # Nur ein Segment pro Audio-Datei
-                requests=[whisper_model]
+                requests=[whisper_request]
             )
             
         except Exception as e:
