@@ -28,6 +28,7 @@ class ProcessorType(str, Enum):
     AUDIO = "audio"
     METADATA = "metadata"
     YOUTUBE = "youtube"
+    VIDEO = "video"
 
 class ProcessingStatus(str, Enum):
     """Status eines Verarbeitungsprozesses"""

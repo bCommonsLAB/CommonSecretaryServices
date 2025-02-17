@@ -9,6 +9,8 @@ from datetime import datetime
 import asyncio
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Response
+from flask import send_file
+import mimetypes
 
 from flask import request, Blueprint
 from flask_restx import Namespace, Resource, Api, fields, reqparse
@@ -36,6 +38,9 @@ from src.utils.performance_tracker import (
     clear_performance_tracker,
     PerformanceTracker
 )
+
+from src.core.models.video import VideoSource, VideoResponse
+from src.processors.video_processor import VideoProcessor
 
 # Type Aliases
 MetadataEndpointResponse = Dict[str, Any]
@@ -1282,3 +1287,187 @@ class MetadataEndpoint(Resource):
 
         # Führe die asynchrone Verarbeitung aus und warte auf das Ergebnis
         return asyncio.run(process_request())
+
+@api.route('/process-video')
+class VideoEndpoint(Resource):
+    @api.expect(api.model('VideoRequest', {
+        'url': fields.String(required=False, description='URL des Videos'),
+        'file': fields.Raw(required=False, description='Hochgeladene Video-Datei'),
+        'target_language': fields.String(required=False, default='de', description='Zielsprache für die Transkription'),
+        'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
+        'template': fields.String(required=False, description='Optional Template für die Verarbeitung')
+    }))
+    @api.response(200, 'Erfolg', youtube_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Video und extrahiert den Audio-Inhalt')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Verarbeitet ein Video und extrahiert den Audio-Inhalt.
+        Unterstützt sowohl URLs als auch Datei-Uploads.
+        """
+        try:
+            # Prüfe ob Datei oder URL
+            if request.files and 'file' in request.files:
+                uploaded_file: FileStorage = request.files['file']
+                file_content = uploaded_file.read()
+                source = VideoSource(
+                    file=file_content,
+                    file_name=uploaded_file.filename
+                )
+            else:
+                # Hole JSON-Daten
+                data = request.get_json()
+                if not data or 'url' not in data:
+                    raise ProcessingError("Entweder URL oder Datei muss angegeben werden")
+                source = VideoSource(url=data['url'])
+
+            # Hole weitere Parameter
+            target_language: str = request.form.get('target_language', 'de')
+            source_language: str = request.form.get('source_language', 'auto')
+            template: str | None = request.form.get('template')
+
+            # Initialisiere Prozessor
+            process_id = str(uuid.uuid4())
+            processor = VideoProcessor(resource_calculator, process_id)
+
+            # Verarbeite Video
+            result: VideoResponse = asyncio.run(processor.process(
+                source=source,
+                target_language=target_language,
+                source_language=source_language,
+                template=template
+            ))
+
+            return result.to_dict()
+
+        except ProcessingError as e:
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'PROCESSING_ERROR',
+                    'message': str(e),
+                    'details': getattr(e, 'details', {})
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Video-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 500
+
+@api.route('/samples')
+class SamplesEndpoint(Resource):
+    @api.doc(description='Listet alle verfügbaren Beispieldateien auf')
+    def get(self) -> Dict[str, Any]:
+        """Gibt eine Liste aller verfügbaren Beispieldateien zurück."""
+        try:
+            # Samples-Verzeichnis
+            samples_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / 'tests' / 'samples'
+            
+            # Dateien auflisten
+            files = []
+            for file_path in samples_dir.glob('*'):
+                if file_path.is_file():
+                    files.append({
+                        'name': file_path.name,
+                        'size': file_path.stat().st_size,
+                        'type': file_path.suffix.lstrip('.'),
+                        'url': f'/api/samples/{file_path.name}'
+                    })
+            
+            return {
+                'status': 'success',
+                'data': {
+                    'files': files
+                }
+            }
+        except Exception as e:
+            logger.error("Fehler beim Auflisten der Beispieldateien",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'SAMPLE_LIST_ERROR',
+                    'message': str(e)
+                }
+            }, 500
+
+@api.route('/samples/<string:filename>')
+class SampleFileEndpoint(Resource):
+    @api.doc(description='Lädt eine bestimmte Beispieldatei herunter')
+    @api.response(200, 'Erfolg')
+    @api.response(404, 'Datei nicht gefunden')
+    def get(self, filename: str) -> Any:
+        """Lädt eine bestimmte Beispieldatei herunter."""
+        try:
+            # Samples-Verzeichnis
+            samples_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / 'tests' / 'samples'
+            file_path = samples_dir / filename
+            
+            # Prüfe ob Datei existiert und im samples Verzeichnis liegt
+            if not file_path.is_file() or samples_dir not in file_path.parents:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'FILE_NOT_FOUND',
+                        'message': f'Datei {filename} nicht gefunden'
+                    }
+                }, 404
+            
+            # Bestimme den MIME-Type
+            mime_type, _ = mimetypes.guess_type(filename)
+            if not mime_type:
+                # Fallback für Videos
+                if filename.lower().endswith(('.mp4', '.avi', '.mov', '.wmv')):
+                    mime_type = 'video/mp4'
+                else:
+                    mime_type = 'application/octet-stream'
+            
+            # Sende Datei mit angepassten Headern
+            response = send_file(
+                file_path,
+                mimetype=mime_type,
+                as_attachment=False,  # Wichtig für Streaming
+                download_name=filename
+            )
+            
+            # Cache-Control Header setzen
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            
+            # Content-Disposition für Streaming anpassen
+            response.headers['Content-Disposition'] = 'inline'
+            
+            # Zusätzliche Header für Video-Streaming
+            if mime_type and mime_type.startswith('video/'):
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+            
+            return response
+            
+        except Exception as e:
+            logger.error("Fehler beim Herunterladen der Beispieldatei",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'SAMPLE_DOWNLOAD_ERROR',
+                    'message': str(e)
+                }
+            }, 500
