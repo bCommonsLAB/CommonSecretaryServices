@@ -473,7 +473,7 @@ class AudioProcessor(BaseProcessor):
             if not chapters:
                 duration_ms: int = len(audio)    
                 chapters = [{
-                    'title': 'Vollständige Aufnahme',
+                    'title': '',
                     'start_ms': 0,
                     'end_ms': duration_ms
                 }]
@@ -492,12 +492,12 @@ class AudioProcessor(BaseProcessor):
                 title = chapter.get('title', 'Unbenanntes Kapitel')
                 
                 # Erstelle ein Verzeichnis für das Kapitel
-                chapter_dir = process_dir / f"chapter_{i}"
+                chapter_dir: Path = process_dir / f"chapter_{i}"
                 chapter_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Extrahiere das Kapitel-Audio
-                chapter_audio = audio[start_ms:end_ms]
-                chapter_duration_minutes = len(chapter_audio) / (60 * 1000)
+                chapter_audio: AudioSegmentProtocol = audio[start_ms:end_ms]
+                chapter_duration_minutes: float = len(chapter_audio) / (60 * 1000)
                 
                 # Teile Kapitel wenn es länger als max_duration_minutes ist
                 if chapter_duration_minutes > max_duration_minutes:
@@ -515,8 +515,8 @@ class AudioProcessor(BaseProcessor):
                         start = j * segment_duration_ms
                         end = min((j + 1) * segment_duration_ms, len(chapter_audio))
                         
-                        segment = chapter_audio[start:end]
-                        segment_path = chapter_dir / f"segment_{j}.{self.export_format}"
+                        segment: AudioSegmentProtocol = chapter_audio[start:end]
+                        segment_path: Path = chapter_dir / f"segment_{j}.{self.export_format}"
                         
                         # Exportiere mit optimalen Whisper-Parametern
                         segment.export(
@@ -578,7 +578,7 @@ class AudioProcessor(BaseProcessor):
         Returns:
             Optional[TranscriptionResult]: Das validierte TranscriptionResult oder None wenn keine Datei existiert
         """
-        transcript_file = process_dir / "segments_transcript.txt"
+        transcript_file: Path = process_dir / "segments_transcript.txt"
         if not transcript_file.exists():
             self.logger.info("Keine existierende Transkription gefunden ", process_dir=str(process_dir))
             return None
@@ -639,7 +639,7 @@ class AudioProcessor(BaseProcessor):
             
             # Erstelle temporäre Datei aus der Quelle
             if isinstance(audio_source, bytes):
-                temp_file_path = self._create_temp_file(audio_source)
+                temp_file_path: Path = self._create_temp_file(audio_source)
             elif isinstance(audio_source, str) and audio_source.startswith(('http://', 'https://')):
                 temp_file_path = self._download_audio(audio_source)
             else:
@@ -670,6 +670,9 @@ class AudioProcessor(BaseProcessor):
                     target_language=target_language,
                     logger=self.logger
                 )
+
+                if transcription_result.source_language != source_language:
+                    source_language = transcription_result.source_language
 
                 if not transcription_result:
                     raise ProcessingError("Keine Transkription erstellt")

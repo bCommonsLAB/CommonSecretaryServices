@@ -113,7 +113,8 @@ class AudioSegmentInfo:
         """Validiert die Segment-Informationen."""
         if isinstance(self.file_path, (str, Path)):
             self.file_path = Path(self.file_path)
-        elif not isinstance(self.file_path, io.BytesIO):
+            return
+        if not hasattr(self.file_path, 'seek'):
             raise ValueError("file_path muss ein Path oder BytesIO Objekt sein")
             
         if self.start < 0:
@@ -124,8 +125,6 @@ class AudioSegmentInfo:
             raise ValueError("Duration muss positiv sein")
         if self.size_bytes is not None and self.size_bytes <= 0:
             raise ValueError("size_bytes muss positiv sein wenn gesetzt")
-        if self.title is not None and not self.title.strip():
-            raise ValueError("Title darf nicht leer sein wenn gesetzt")
             
     def get_audio_data(self) -> Union[Path, bytes]:
         """Gibt die Audio-Daten zurück."""
@@ -144,8 +143,6 @@ class Chapter:
 
     def __post_init__(self) -> None:
         """Validiert die Kapitel-Informationen."""
-        if not self.title.strip():
-            raise ValueError("Title darf nicht leer sein")
         if self.start < 0:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:

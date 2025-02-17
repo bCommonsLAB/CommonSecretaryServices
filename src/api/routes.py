@@ -1,69 +1,56 @@
+from typing import Dict, Any, Optional, Union, cast
+from pathlib import Path
 import os
 import tempfile
-import time
 import traceback
 import uuid
+import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict, Union, cast
-
-import werkzeug.datastructures
-from flask import Blueprint, request, jsonify
-from flask_restx import (Api, Namespace, Resource, fields,  # type: ignore
-                         reqparse)
 import asyncio
+from werkzeug.datastructures import FileStorage
+from werkzeug.wrappers import Response
 
-from core.models.transformer import TransformerResponse
-from src.api.models.responses import ProcessInfo
-from src.core.exceptions import (FileSizeLimitExceeded, ProcessingError,
-                                 RateLimitExceeded)
-from src.core.models.llm import LLMInfo, LLMRequest
+from flask import request, Blueprint
+from flask_restx import Namespace, Resource, Api, fields, reqparse
+
+from core.models.youtube import YoutubeResponse
+from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
 from src.core.models.transformer import TransformerResponse
 from src.core.rate_limiting import RateLimiter
-from src.processors.audio_processor import (AudioProcessingResult,
-                                            AudioProcessor)
-from src.processors.image_processor import ImageProcessor
-from src.processors.metadata_processor import (ContentMetadata,
-                                               MetadataProcessor,
-                                               MetadataResponse,
-                                               TechnicalMetadata)
-from src.processors.pdf_processor import PDFProcessor
-from src.processors.transformer_processor import TransformerProcessor
-from src.processors.youtube_processor import YoutubeProcessor
-from src.utils.logger import ProcessingLogger, get_logger
-from src.utils.performance_tracker import (clear_performance_tracker,
-                                           get_performance_tracker)
 from src.core.resource_tracking import ResourceCalculator
-from utils.performance_tracker import PerformanceTracker
-from dataclasses import asdict
+from src.core.models.audio import AudioResponse
 
-# Typ-Alias für bessere Lesbarkeit
-FileStorage = werkzeug.datastructures.FileStorage
+from src.processors.audio_processor import AudioProcessor
+from src.processors.image_processor import ImageProcessor
+from src.processors.youtube_processor import YoutubeProcessor
+from src.processors.transformer_processor import TransformerProcessor
+from src.processors.metadata_processor import (
+    MetadataProcessor,
+    MetadataResponse
+)
+from src.processors.pdf_processor import PDFProcessor
 
+from src.utils.logger import get_logger, ProcessingLogger
+from src.utils.performance_tracker import (
+    get_performance_tracker,
+    clear_performance_tracker,
+    PerformanceTracker
+)
 
-class ProcessResponse(TypedDict):
-    status: str
-    request: Dict[str, Any]
-    process: ProcessInfo
-    data: Dict[str, Any]
-    error: Optional[Dict[str, Any]]
+# Type Aliases
+MetadataEndpointResponse = Dict[str, Any]
 
-class MetadataEndpointResponse(TypedDict):
-    status: str
-    request: Dict[str, Any]
-    process: Dict[str, Any]
-    data: Dict[str, Any]
-    error: Optional[Dict[str, Any]]
+# Initialisiere Resource Calculator und Logger
+resource_calculator = ResourceCalculator()
+logger: ProcessingLogger = get_logger(process_id="api")
 
-# Blueprint erstellen
+# Blueprint und API Setup
 blueprint = Blueprint('api', __name__)
-
-api = Api(blueprint,
-    title='Processing Service API',
+api = Api(
+    blueprint,
+    title='Common Secretary Services API',
     version='1.0',
-    description='API für verschiedene Verarbeitungsdienste',
-    doc='/',
-    prefix=''
+    description='API für die Verarbeitung von verschiedenen Medientypen'
 )
 
 # API Namespaces definieren
@@ -71,7 +58,8 @@ audio_ns: Namespace = api.namespace('audio', description='Audio-Verarbeitungs-Op
 youtube_ns: Namespace = api.namespace('youtube', description='YouTube-Verarbeitungs-Operationen')
 metadata_ns: Namespace = api.namespace('metadata', description='Metadaten-Verarbeitungs-Operationen')
 
-logger: ProcessingLogger = get_logger(process_id="api")
+# Initialisiere Rate Limiter
+rate_limiter = RateLimiter(requests_per_hour=100, max_file_size=50 * 1024 * 1024)  # 50MB
 
 # Initialisierung der gemeinsam genutzten Komponenten
 resource_calculator = ResourceCalculator()
@@ -148,7 +136,7 @@ def setup_request() -> None:
         tracker.set_endpoint_info(endpoint, ip, user_agent)
 
 @blueprint.after_request
-def cleanup_request(response: werkzeug.wrappers.Response) -> werkzeug.wrappers.Response:
+def cleanup_request(response: Response) -> Response:
     """
     Räumt nach der Request-Verarbeitung auf.
     Schließt den Performance-Tracker ab und entfernt ihn.
@@ -182,9 +170,9 @@ def handle_error(error: Exception) -> tuple[Dict[str, str], int]:
     Returns:
         Tuple aus Fehlermeldung und HTTP Status Code
     """
-    tracker = get_performance_tracker()
+    tracker: PerformanceTracker | None = get_performance_tracker()
     if tracker:
-        tracker.set_error(error)
+        tracker.set_error(str(error), error_type=error.__class__.__name__)
     
     logger.error("API Fehler",
                 error=error,
@@ -219,24 +207,24 @@ def get_metadata_processor(process_id: Optional[str] = None) -> MetadataProcesso
 
 # Parser für File-Uploads
 file_upload: reqparse.RequestParser = reqparse.RequestParser()
-file_upload.add_argument('file', 
+file_upload.add_argument('file',  # type: ignore
                         type=FileStorage, 
                         location='files', 
                         required=True,
                         help='Die zu verarbeitende Datei')
-file_upload.add_argument('source_language',
+file_upload.add_argument('source_language',  # type: ignore
                         type=str,
                         location='form',
                         default='de',
                         help='Quellsprache der Audio-Datei (ISO 639-1)',
                         trim=True)
-file_upload.add_argument('target_language',
+file_upload.add_argument('target_language',  # type: ignore
                         type=str,
                         location='form',
                         default='de',
                         help='Zielsprache für die Transkription (ISO 639-1)',
                         trim=True)
-file_upload.add_argument('template',
+file_upload.add_argument('template',  # type: ignore
                         type=str,
                         location='form',
                         default='',
@@ -246,9 +234,9 @@ file_upload.add_argument('template',
 # Model für Youtube-URLs und Parameter
 youtube_input = api.model('YoutubeInput', {
     'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
-    'extract_audio': fields.Boolean(required=False, default=True, description='Audio extrahieren'),
-    'target_language': fields.String(required=False, default='de', description='Sprache des Videos (ISO 639-1 code)'),
-    'template': fields.String(required=False, default='Youtube', description='Vorlage für die Verarbeitung')
+    'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
+    'target_language': fields.String(required=False, default='de', description='Zielsprache (ISO 639-1 code)'),
+    'template': fields.String(required=False, default=None, description='Template für die Verarbeitung')
 })
 
 # Response Models
@@ -271,13 +259,29 @@ image_response = api.model('ImageResponse', {
 })
 
 youtube_response = api.model('YoutubeResponse', {
-    'title': fields.String(description='Video Titel'),
-    'duration': fields.Integer(description='Video Länge in Sekunden'),
-    'audio_extracted': fields.Boolean(description='Audio wurde extrahiert'),
-    'transcript': fields.String(description='Transkribierter Text (wenn verfügbar)'),
-    'summary': fields.String(description='Zusammenfassung (wenn angefordert)'),
-    'metadata': fields.Raw(description='Video Metadaten'),
-    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(api.model('YoutubeRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(api.model('YoutubeProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(api.model('YoutubeData', {
+        'metadata': fields.Raw(description='Video Metadaten'),
+        'transcription': fields.Raw(description='Transkriptionsergebnis (wenn verfügbar)')
+    })),
+    'error': fields.Nested(api.model('YoutubeError', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    }))
 })
 
 audio_response = api.model('AudioResponse', {
@@ -336,7 +340,7 @@ class PDFEndpoint(Resource):
     @api.response(200, 'Erfolg', pdf_response)  # type: ignore
     @api.response(400, 'Validierungsfehler', error_model)  # type: ignore
     @api.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen')  # type: ignore
-    async def post(self) -> ProcessResponse:
+    async def post(self) -> Dict[str, Any]:
         """Verarbeitet eine PDF-Datei und extrahiert Informationen"""
         tracker = get_performance_tracker()
         process_id = str(uuid.uuid4())
@@ -384,18 +388,18 @@ class ImageEndpoint(Resource):
     @api.response(200, 'Erfolg', image_response)  # type: ignore
     @api.response(400, 'Validierungsfehler', error_model)  # type: ignore
     @api.doc(description='Verarbeitet ein Bild und extrahiert Informationen')  # type: ignore
-    async def post(self) -> Union[ProcessResponse, tuple[Dict[str, str], int]]:
+    async def post(self) -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
         """Bild verarbeiten"""
-        args = file_upload.parse_args()  # type: ignore
-        uploaded_file = cast(FileStorage, args['file'])
+        args: reqparse.ParseResult = file_upload.parse_args()  # type: ignore
+        uploaded_file: FileStorage = cast(FileStorage, args['file'])
             
         if not uploaded_file.filename:
             raise ProcessingError("Kein Dateiname angegeben")
             
         image_processor = None
-        tracker = get_performance_tracker()
+        tracker: PerformanceTracker | None = get_performance_tracker()
         process_id = str(uuid.uuid4())
-        temp_file = None
+        temp_file: tempfile._TemporaryFileWrapper[bytes] | None = None
         
         if not any(uploaded_file.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
             return {'error': 'Nur PNG/JPG Dateien erlaubt'}, 400
@@ -403,7 +407,7 @@ class ImageEndpoint(Resource):
         try:
             # Speichere Datei temporär
             suffix = Path(uploaded_file.filename).suffix
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            temp_file: tempfile._TemporaryFileWrapper[bytes] = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             uploaded_file.save(temp_file.name)
             temp_file.close()
             
@@ -431,14 +435,11 @@ class ImageEndpoint(Resource):
 
 @api.route('/process-youtube')
 class YoutubeEndpoint(Resource):
-    youtube_request = api.model('YoutubeRequest', {  # type: ignore
-        'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
-        'target_language': fields.String(required=True, default='de', description='Zielsprache (ISO 639-1 code)'),
-        'template': fields.String(required=False, default='Youtube', description='Template-Name (ohne .md Endung)')
-    })
-
-    @api.expect(youtube_request)  # type: ignore
-    async def post(self) -> Dict[str, Any]:
+    @api.expect(youtube_input)
+    @api.response(200, 'Erfolg', youtube_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Youtube-Video')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet ein Youtube-Video"""
         youtube_processor = None
         process_id = str(uuid.uuid4())
@@ -450,24 +451,24 @@ class YoutubeEndpoint(Resource):
                 raise ProcessingError("Keine Daten erhalten")
                 
             url = data.get('url')
+            source_language = data.get('source_language', 'auto')
             target_language = data.get('target_language', 'de')
             template = data.get('template')
 
             if not url:
                 raise ProcessingError("Youtube-URL ist erforderlich")
 
-            youtube_processor = get_youtube_processor(process_id)
-            result = await youtube_processor.process(
+            youtube_processor: YoutubeProcessor = get_youtube_processor(process_id)
+            result: YoutubeResponse = asyncio.run(youtube_processor.process(
                 file_path=url,
+                source_language=source_language,
                 target_language=target_language,
                 template=template
-            )
+            ))
             
             # Füge Ressourcenverbrauch zum Tracker hinzu
             if tracker and hasattr(tracker, 'eval_result'):
-                result_dict = result.to_dict()
-                result_dict['eval_result'] = tracker.eval_result
-                return result_dict
+                tracker.eval_result(result)
             
             return result.to_dict()
             
@@ -476,14 +477,31 @@ class YoutubeEndpoint(Resource):
                         error=ve,
                         error_type="ValidationError",
                         process_id=process_id)
-            return {'error': str(ve)}, 400
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }
         except Exception as e:
             logger.error("Youtube-Verarbeitungsfehler",
                         error=e,
                         error_type=type(e).__name__,
                         stack_trace=traceback.format_exc(),
                         process_id=process_id)
-            return {'error': str(e)}, 400
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
         finally:
             if youtube_processor and youtube_processor.logger:
                 youtube_processor.logger.info("Youtube-Verarbeitung beendet")
@@ -577,18 +595,6 @@ def _truncate_text(text: str, max_length: int = 50) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length].rstrip() + "..."
-
-def _convert_llms_to_requests(requests: List[LLMRequest]) -> List[Dict[str, Any]]:
-    """Konvertiert LLM-Requests in das API-Response-Format."""
-    if not requests:
-        return []
-    return [{
-        'model': req.model,
-        'purpose': req.purpose,
-        'tokens': req.tokens,
-        'duration': req.duration,
-        'timestamp': datetime.now().isoformat()
-    } for req in requests]
 
 @api.route('/transform-text')
 class TransformTextResource(Resource):
@@ -1178,7 +1184,7 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
         # Verarbeite die Datei
         process_id = str(uuid.uuid4())
         processor: AudioProcessor = get_audio_processor(process_id)
-        result: AudioProcessingResult = await processor.process(
+        result: AudioResponse = await processor.process(
             audio_source=temp_file.name,
             source_info=source_info,
             source_language=source_language,

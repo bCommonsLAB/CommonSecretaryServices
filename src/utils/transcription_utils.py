@@ -16,7 +16,6 @@ from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from pydantic import Field
-from pydub import AudioSegment
 
 from src.utils.logger import ProcessingLogger
 from src.core.models.transformer import (
@@ -602,6 +601,10 @@ class WhisperTranscriber:
                 tokens=tokens
             )
             
+            if source_language == "auto":
+                # Konvertiere Whisper Sprachcode in ISO 639-1
+                source_language = self._convert_to_iso_code(response.language)
+
             # Erstelle ein einzelnes Segment für das gesamte Audio-Segment
             segment = TranscriptionSegment(
                 text=response.text,
@@ -639,6 +642,47 @@ class WhisperTranscriber:
             if isinstance(e, ProcessingError):
                 raise
             raise ProcessingError(f"Transkription fehlgeschlagen: {str(e)}")
+
+    def _convert_to_iso_code(self, language: str) -> str:
+        """Konvertiert Whisper Sprachbezeichnung in ISO 639-1 Code.
+        
+        Args:
+            language: Sprachbezeichnung von Whisper (z.B. 'english')
+            
+        Returns:
+            str: ISO 639-1 Sprachcode (z.B. 'en')
+        """
+        # Mapping der häufigsten Sprachen
+        language_map: Dict[str, str] = {
+            'english': 'en',
+            'german': 'de',
+            'french': 'fr',
+            'spanish': 'es',
+            'italian': 'it',
+            'portuguese': 'pt',
+            'arabic': 'ar',
+            'chinese': 'zh',
+            'japanese': 'ja',
+            'korean': 'ko',
+            'russian': 'ru',
+            'turkish': 'tr',
+            'hindi': 'hi',
+            'bengali': 'bn',
+            'polish': 'pl',
+            'czech': 'cs',
+            'dutch': 'nl'
+            # Weitere Sprachen können hier hinzugefügt werden
+        }
+        
+        # Konvertiere zu Kleinbuchstaben und entferne Leerzeichen
+        normalized = language.lower().strip()
+        
+        # Wenn der Code bereits im ISO-Format ist (2 Buchstaben), gib ihn direkt zurück
+        if len(normalized) == 2:
+            return normalized
+            
+        # Versuche die Sprache im Mapping zu finden
+        return language_map.get(normalized, 'en')  # Fallback auf 'en' wenn unbekannt
 
     def _handle_api_error(self, api_error: Exception) -> None:
         """Behandelt spezifische API-Fehler."""
@@ -688,7 +732,7 @@ class WhisperTranscriber:
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
         if segments and isinstance(next(iter(segments)), Chapter):
-            chapters = cast(List[Chapter], segments)
+            chapters: List[Chapter] = cast(List[Chapter], segments)
             for chapter in chapters:
                 if chapter.title and chapter.title.strip():
                     combined_text_parts.append(f"\n## {chapter.title}\n")
@@ -700,7 +744,7 @@ class WhisperTranscriber:
         for segment in all_segments:
             try:
                 # Transkribiere das Segment
-                result = self.transcribe_segment(
+                result: TranscriptionResult = self.transcribe_segment(
                     file_path=segment.get_audio_data(),  # Verwende get_audio_data() statt direktem Zugriff
                     segment_id=len(combined_requests),  # Verwende Request-Count als ID
                     segment_title=segment.title,
@@ -709,6 +753,9 @@ class WhisperTranscriber:
                     logger=logger
                 )
                 
+                if result.source_language != source_language:
+                    source_language = result.source_language
+
                 if result.text.strip():
                     combined_text_parts.append(result.text)
                 
@@ -730,18 +777,10 @@ class WhisperTranscriber:
                     )
                 continue
 
-        # Erstelle ein zusammenfassendes LLMRequest
-        summary_request = LLMRequest(
-            model="whisper-1",
-            purpose="transcription",
-            duration=total_duration,
-            tokens=total_tokens
-        )
-
-        # Erstelle das finale Ergebnis
+        # Erstelle das finale Ergebnis mit allen einzelnen Requests
         return TranscriptionResult(
             text="\n".join(combined_text_parts).strip(),
             source_language=source_language,
             segments=[],  # Keine Segmente im Output
-            requests=[summary_request]  # Nur das Summary Request
+            requests=combined_requests  # Alle einzelnen Requests
         )

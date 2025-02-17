@@ -234,7 +234,7 @@ class YoutubeProcessor(BaseProcessor):
 class YoutubeProcessor(BaseProcessor):
     async def _apply_template(
         self,
-        info: YoutubeDLInfo,
+        info: any,
         transcription: str,
         template: str,
         target_language: str

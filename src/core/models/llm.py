@@ -4,7 +4,7 @@ Modelle für Language Model (LLM) Interaktionen.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 
 from ..validation import (
     is_non_empty_str, is_non_negative,
@@ -157,41 +157,4 @@ class LLMInfo:
             'requests_count': self.requests_count,
             'total_tokens': self.total_tokens,
             'total_duration': self.total_duration
-        }
-
-@dataclass(frozen=True)
-class TranscriptionSegment:
-    """Ein Segment einer Transkription mit Zeitstempeln."""
-    text: str
-    segment_id: int
-    title: Optional[str] = None
-
-    def __post_init__(self):
-        if not self.text.strip():
-            raise ValueError("Text must not be empty")
-        if self.segment_id <= 0:
-            raise ValueError("Segment ID must be positive")
-        if self.title is not None and not self.title.strip():
-            raise ValueError("Title must not be empty if provided")
-
-@dataclass(frozen=True)
-class TranscriptionResult:
-    """Ergebnis einer Transkription."""
-    text: str
-    detected_language: Optional[str]
-    segments: List[TranscriptionSegment] = field(default_factory=list)
-    llms: List[LLModel] = field(default_factory=list)
-
-    def __post_init__(self):
-        if not self.text.strip():
-            raise ValueError("Text must not be empty")
-        if self.detected_language is not None and len(self.detected_language) != 2:
-            raise ValueError("Language code must be ISO 639-1 (2 characters)")
-        
-        # Validiere Segment IDs
-        if self.segments:
-            segment_ids = [s.segment_id for s in self.segments]
-            if len(set(segment_ids)) != len(segment_ids):
-                raise ValueError("Segment IDs must be unique")
-            if sorted(segment_ids) != list(range(min(segment_ids), max(segment_ids) + 1)):
-                raise ValueError("Segment IDs must be consecutive") 
+        } 
