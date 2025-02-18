@@ -4,7 +4,7 @@ Modelle für Language Model (LLM) Interaktionen.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from ..validation import (
     is_non_empty_str, is_non_negative,

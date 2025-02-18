@@ -133,7 +133,7 @@ class VideoResponse(BaseResponse):
                llm_info: Optional[LLMInfo] = None) -> 'VideoResponse':
         """Erstellt eine erfolgreiche Response."""
         if llm_info:
-            process.llm_info = llm_info.to_dict()
+            process.llm_info = llm_info
         return cls(
             data=data,
             request=request,

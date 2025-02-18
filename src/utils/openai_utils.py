@@ -1,8 +1,7 @@
 """
 OpenAI-spezifische Hilfsfunktionen.
 """
-from typing import Any, Dict, Optional, Type, TypeVar
-from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, TypeVar
 import json
 
 from openai import OpenAI
@@ -48,7 +47,7 @@ def get_structured_gpt(
     start_time: float = time.time()
 
     # Pydantic Model erstellen
-    field_types: Dict[str, tuple[Type[str], Any]] = {
+    field_types: Dict[str, Any] = {
         name: (str, Field(
             description=field.description,
             max_length=field.max_length,
@@ -59,7 +58,7 @@ def get_structured_gpt(
     }
 
     # Model erstellen mit expliziter Typisierung
-    DynamicTemplateModel = create_model(
+    DynamicTemplateModel: BaseModel = create_model(  # type: ignore
         model_name,
         __base__=BaseModel,
         **field_types

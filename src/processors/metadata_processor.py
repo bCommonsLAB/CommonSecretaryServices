@@ -63,9 +63,6 @@ class MetadataProcessor(BaseProcessor):
         super().__init__(resource_calculator=resource_calculator, process_id=process_id)
         
         try:
-            # Konfiguration laden
-            metadata_config = self.load_processor_config('metadata')
-            
             # Basis-Konfiguration
             self.max_file_size = max_file_size
             

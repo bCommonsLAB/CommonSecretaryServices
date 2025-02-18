@@ -26,7 +26,7 @@ __all__ = [
     'YoutubeMetadata', 'YoutubeProcessingResult',
     
     # Processors
-    'BaseProcessor', 'BaseProcessorResponse',
+    'BaseProcessor', 
     'TransformerProcessor',
     'MetadataProcessor', 'MetadataResponse',
     'YoutubeProcessor'

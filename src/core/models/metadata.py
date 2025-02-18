@@ -1,9 +1,8 @@
 """
 Metadaten-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
-from datetime import datetime
 
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus
