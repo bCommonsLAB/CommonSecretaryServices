@@ -1,10 +1,8 @@
 """
 Video-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Union
-from pathlib import Path
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .audio import TranscriptionResult
@@ -34,82 +32,103 @@ class VideoProcessingError(ProcessingError):
         self.error_code = error_code
         self.details = details or {}
 
-@dataclass(frozen=True)
+@dataclass
 class VideoSource:
-    """Quelle des zu verarbeitenden Videos."""
+    """Quelle eines Videos (URL oder Datei)"""
     url: Optional[str] = None
-    file: Optional[Union[Path, bytes]] = None
+    file: Optional[bytes] = None
     file_name: Optional[str] = None
 
-    def __post_init__(self) -> None:
-        """Validiert die Quelle."""
-        if not self.url and not self.file:
-            raise ValueError("Entweder URL oder File muss angegeben werden")
-        if self.file and not self.file_name:
-            raise ValueError("Bei File-Upload muss ein Dateiname angegeben werden")
-
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert die Quelle in ein Dictionary."""
+        """Konvertiert zu Dict"""
         return {
-            "url": self.url,
-            "file": str(self.file) if isinstance(self.file, Path) else bool(self.file),
-            "file_name": self.file_name
+            'url': self.url,
+            'file_name': self.file_name
+            # file wird nicht serialisiert
         }
 
-@dataclass(frozen=True)
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'VideoSource':
+        """Erstellt aus Dict"""
+        return cls(
+            url=data.get('url'),
+            file_name=data.get('file_name')
+        )
+
+@dataclass
 class VideoMetadata:
-    """Metadaten des verarbeiteten Videos."""
+    """Metadaten eines Videos"""
     title: str
     source: VideoSource
     duration: int
     duration_formatted: str
-    process_dir: str
     file_size: Optional[int] = None
+    process_dir: Optional[str] = None
     audio_file: Optional[str] = None
-    created: str = field(default_factory=lambda: datetime.now().isoformat())
-    modified: str = field(default_factory=lambda: datetime.now().isoformat())
-
-    def __post_init__(self) -> None:
-        """Validiert die Metadaten."""
-        if not self.title.strip():
-            raise ValueError("title darf nicht leer sein")
-        if self.duration < 0:
-            raise ValueError("duration muss positiv sein")
-        if not self.duration_formatted.strip():
-            raise ValueError("duration_formatted darf nicht leer sein")
-        if not self.process_dir.strip():
-            raise ValueError("process_dir darf nicht leer sein")
-        if self.file_size is not None and self.file_size <= 0:
-            raise ValueError("file_size muss positiv sein wenn gesetzt")
+    video_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert die Metadaten in ein Dictionary."""
+        """Konvertiert zu Dict"""
         return {
-            "title": self.title,
-            "source": self.source.to_dict(),
-            "duration": self.duration,
-            "duration_formatted": self.duration_formatted,
-            "file_size": self.file_size,
-            "process_dir": self.process_dir,
-            "audio_file": self.audio_file,
-            "created": self.created,
-            "modified": self.modified
+            'title': self.title,
+            'source': self.source.to_dict(),
+            'duration': self.duration,
+            'duration_formatted': self.duration_formatted,
+            'file_size': self.file_size,
+            'process_dir': self.process_dir,
+            'audio_file': self.audio_file,
+            'video_id': self.video_id
         }
 
-@dataclass(frozen=True)
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'VideoMetadata':
+        """Erstellt aus Dict"""
+        return cls(
+            title=data['title'],
+            source=VideoSource.from_dict(data['source']),
+            duration=data['duration'],
+            duration_formatted=data['duration_formatted'],
+            file_size=data.get('file_size'),
+            process_dir=data.get('process_dir'),
+            audio_file=data.get('audio_file'),
+            video_id=data.get('video_id')
+        )
+
+@dataclass
 class VideoProcessingResult:
-    """Ergebnis der Video-Verarbeitung."""
+    """Ergebnis der Video-Verarbeitung"""
     metadata: VideoMetadata
-    transcription: Optional[TranscriptionResult]
-    process_id: Optional[str]
+    transcription: Optional[TranscriptionResult] = None
+    process_id: Optional[str] = None
+    is_from_cache: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert das Ergebnis in ein Dictionary."""
+        """Konvertiert zu Dict"""
         return {
-            "metadata": self.metadata.to_dict(),
-            "transcription": self.transcription.to_dict() if self.transcription else None,
-            "process_id": self.process_id
+            'metadata': self.metadata.to_dict(),
+            'transcription': self.transcription.to_dict() if self.transcription else None,
+            'process_id': self.process_id,
+            'is_from_cache': self.is_from_cache
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'VideoProcessingResult':
+        """Erstellt aus Dict"""
+        transcription = None
+        if data.get('transcription'):
+            # Einfache Konstruktion des TranscriptionResult
+            trans_data = data['transcription']
+            transcription = TranscriptionResult(
+                text=trans_data['text'],
+                source_language=trans_data['source_language']
+            )
+            
+        return cls(
+            metadata=VideoMetadata.from_dict(data['metadata']),
+            transcription=transcription,
+            process_id=data.get('process_id'),
+            is_from_cache=data.get('is_from_cache', False)
+        )
 
 @dataclass(frozen=True, init=False)
 class VideoResponse(BaseResponse):

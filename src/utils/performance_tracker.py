@@ -100,8 +100,8 @@ class PerformanceTracker:
         Args:
             process_id (str): Eindeutige ID des API-Aufrufs
         """
-        self.process_id = process_id
-        self.start_time = time.time()
+        self.process_id: str = process_id
+        self.start_time: float = time.time()
         self.logger: Logger = logging.getLogger(f"performance_tracker.{process_id}")
         
         self.measurements: Measurements = {
@@ -147,7 +147,7 @@ class PerformanceTracker:
             cost: Kosten des Aufrufs
             model: Name des verwendeten Modells
         """
-        resources = self.measurements['resources']
+        resources: ResourceInfo = self.measurements['resources']
         resources['total_tokens'] += tokens
         resources['total_cost'] += cost
         resources['models_used'].append(model)
@@ -235,7 +235,7 @@ class PerformanceTracker:
         Yields:
             None
         """
-        start_time = time.time()
+        start_time: float = time.time()
         operation: OperationInfo = {
             'name': operation_name,
             'start_time': datetime.now().isoformat(),
@@ -267,7 +267,7 @@ class PerformanceTracker:
                         'success_count': 0,
                         'error_count': 0
                     }
-                proc_stats = self.measurements['processors'][processor_name]
+                proc_stats: ProcessorStats = self.measurements['processors'][processor_name]
                 proc_stats['total_duration'] += duration
                 proc_stats['operation_count'] += 1
                 if operation['status'] == 'success':
@@ -287,7 +287,7 @@ class PerformanceTracker:
             self.measurements['status'] = 'success'
         
         # Konvertiere set zu list für JSON-Serialisierung
-        resources = self.measurements['resources']
+        resources: ResourceInfo = self.measurements['resources']
         resources['models_used'] = resources['models_used']
         
         # Speichere die Messung in der Performance-Log-Datei
@@ -302,7 +302,7 @@ class PerformanceTracker:
                     logs = json.load(f)
                     
             # Entferne alte Logs (älter als 30 Tage)
-            thirty_days_ago = datetime.now() - timedelta(days=30)
+            thirty_days_ago: datetime = datetime.now() - timedelta(days=30)
             logs = [
                 log for log in logs 
                 if datetime.fromisoformat(log['timestamp']) > thirty_days_ago

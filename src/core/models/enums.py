@@ -24,21 +24,27 @@ class PublicationStatus(str, Enum):
 
 class ProcessorType(str, Enum):
     """Verfügbare Processor-Typen"""
-    TRANSFORMER = "transformer"
-    AUDIO = "audio"
-    METADATA = "metadata"
-    YOUTUBE = "youtube"
+    PDF = "pdf"
     VIDEO = "video"
+    AUDIO = "audio"
+    IMAGEOCR = "imageocr"
+    METADATA = "metadata"
+    TRANSFORMER = "transformer"
+    EVENT = "event"
+    YOUTUBE = "youtube"
 
 class ProcessingStatus(str, Enum):
     """Status eines Verarbeitungsprozesses"""
+    PENDING = "pending"
+    RUNNING = "running"
     SUCCESS = "success"
     ERROR = "error"
-    PENDING = "pending"
+    CANCELLED = "cancelled"
 
 class OutputFormat(str, Enum):
     """Verfügbare Ausgabeformate"""
     TEXT = "text"
     HTML = "html"
     MARKDOWN = "markdown"
-    JSON = "json" 
+    JSON = "json"
+    XML = "xml" 

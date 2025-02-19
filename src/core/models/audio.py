@@ -99,6 +99,21 @@ class TranscriptionResult:
             "llms": [m.to_dict() for m in self.llms] if self.llms else []
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionResult':
+        """Erstellt ein TranscriptionResult aus einem Dictionary."""
+        segments: List[TranscriptionSegment] = [TranscriptionSegment(**s) for s in data.get('segments', [])]
+        requests: List[LLMRequest] = [LLMRequest(**r) for r in data.get('requests', [])]
+        llms: List[LLModel] = [LLModel(**m) for m in data.get('llms', [])]
+        
+        return cls(
+            text=data['text'],
+            source_language=data['source_language'],
+            segments=segments,
+            requests=requests,
+            llms=llms
+        )
+
 @dataclass
 class AudioSegmentInfo:
     """Informationen über ein Audio-Segment"""

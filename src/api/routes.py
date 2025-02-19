@@ -16,6 +16,7 @@ import json
 from flask import request, Blueprint
 from flask_restx import Namespace, Resource, Api, fields  # type: ignore
 
+from core.models.event import EventResponse
 from core.models.youtube import YoutubeResponse
 from processors.imageocr_processor import ImageOCRResponse
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
@@ -43,6 +44,8 @@ from src.utils.performance_tracker import (
 
 from src.core.models.video import VideoSource, VideoResponse
 from src.processors.video_processor import VideoProcessor
+
+from src.processors.event_processor import EventProcessor
 
 # Type Aliases
 MetadataEndpointResponse = Dict[str, Any]
@@ -1382,25 +1385,35 @@ class VideoEndpoint(Resource):
         Unterstützt sowohl URLs als auch Datei-Uploads.
         """
         try:
+            # Initialisiere Variablen
+            source: VideoSource
+            target_language: str = 'de'
+            source_language: str = 'auto'
+            template: Optional[str] = None
+
             # Prüfe ob Datei oder URL
             if request.files and 'file' in request.files:
+                # File Upload
                 uploaded_file: FileStorage = request.files['file']
                 file_content = uploaded_file.read()
                 source = VideoSource(
                     file=file_content,
                     file_name=uploaded_file.filename
                 )
+                # Parameter aus form-data
+                target_language = request.form.get('target_language', 'de')
+                source_language = request.form.get('source_language', 'auto')
+                template = request.form.get('template')
             else:
-                # Hole JSON-Daten
+                # JSON Request
                 data = request.get_json()
                 if not data or 'url' not in data:
                     raise ProcessingError("Entweder URL oder Datei muss angegeben werden")
                 source = VideoSource(url=data['url'])
-
-            # Hole weitere Parameter
-            target_language: str = request.form.get('target_language', 'de')
-            source_language: str = request.form.get('source_language', 'auto')
-            template: str | None = request.form.get('template')
+                # Parameter aus JSON
+                target_language = data.get('target_language', 'de')
+                source_language = data.get('source_language', 'auto')
+                template = data.get('template')
 
             # Initialisiere Prozessor
             process_id = str(uuid.uuid4())
@@ -1547,3 +1560,119 @@ class SampleFileEndpoint(Resource):
                     'message': str(e)
                 }
             }, 500
+
+@api.route('/scrape-event-infos')
+class EventEndpoint(Resource):
+    @api.expect(api.model('EventRequest', {
+        'event': fields.String(required=True, description='Name der Veranstaltung (z.B. "FOSDEM 2025")'),
+        'session': fields.String(required=True, description='Name der Session (z.B. "Welcome to FOSDEM 2025")'),
+        'url': fields.String(required=True, description='URL zur Event-Seite'),
+        'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
+        'track': fields.String(required=True, description='Track/Kategorie der Session'),
+        'day': fields.String(required=True, description='Veranstaltungstag im Format YYYY-MM-DD'),
+        'starttime': fields.String(required=True, description='Startzeit im Format HH:MM'),
+        'endtime': fields.String(required=True, description='Endzeit im Format HH:MM'),
+        'speakers': fields.List(fields.String, required=True, description='Liste der Vortragenden'),
+        'video_url': fields.String(required=False, description='Optional, URL zum Video'),
+        'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen')
+    }))
+    @api.response(200, 'Erfolg', api.model('EventResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('EventRequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('EventProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('EventData', {
+            'input': fields.Raw(description='Eingabedaten'),
+            'output': fields.Raw(description='Ausgabedaten')
+        })),
+        'error': fields.Nested(api.model('EventError', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet Event-Informationen und zugehörige Medien')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet Event-Informationen und zugehörige Medien."""
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                data = request.get_json()
+                if not data:
+                    raise ProcessingError("Keine Daten erhalten")
+
+                # Validiere erforderliche Felder
+                required_fields = ['event', 'session', 'url', 'filename', 'track', 'day', 'starttime', 'endtime', 'speakers']
+                missing_fields = [field for field in required_fields if field not in data]
+                if missing_fields:
+                    raise ProcessingError(f"Fehlende Pflichtfelder: {', '.join(missing_fields)}")
+
+                # Prozess-Tracking initialisieren
+                process_id = str(uuid.uuid4())
+                tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+
+                # Initialisiere Event-Processor
+                processor: EventProcessor = get_event_processor(process_id)
+
+                # Verarbeite Event
+                result: EventResponse = await processor.process_event(
+                    event=data['event'],
+                    session=data['session'],
+                    url=data['url'],
+                    filename=data['filename'],
+                    track=data['track'],
+                    day=data['day'],
+                    starttime=data['starttime'],
+                    endtime=data['endtime'],
+                    speakers=data['speakers'],
+                    video_url=data.get('video_url'),
+                    attachments_url=data.get('attachments_url')
+                )
+
+                # Füge Ressourcenverbrauch zum Tracker hinzu
+                if tracker:
+                    tracker.eval_result(result)
+                return result.to_dict()
+
+            except ProcessingError as e:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'PROCESSING_ERROR',
+                        'message': str(e),
+                        'details': getattr(e, 'details', {})
+                    }
+                }, 400
+            except Exception as e:
+                logger.error("Event-Verarbeitungsfehler",
+                            error=e,
+                            error_type=type(e).__name__,
+                            stack_trace=traceback.format_exc())
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': type(e).__name__,
+                        'message': str(e),
+                        'details': {
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()
+                        }
+                    }
+                }, 500
+
+        # Führe die asynchrone Verarbeitung aus
+        return asyncio.run(process_request())
+
+def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
+    """Get or create event processor instance with process ID"""
+    return EventProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))

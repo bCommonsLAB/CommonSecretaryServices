@@ -550,8 +550,11 @@ class TransformerProcessor(BaseProcessor):
             if start_row is not None and start_row < 0:
                 raise ValueError("start_row muss größer oder gleich 0 sein")
 
-            if row_count is not None and row_count < 0:
-                raise ValueError("row_count muss größer oder gleich 0 sein")
+            if row_count is not None:
+                if row_count < 0:
+                    raise ValueError("row_count muss größer oder gleich 0 sein")
+                if row_count == 0:
+                    row_count = None
 
             llm_info = LLMInfo(model=self.model, purpose="transform-html-table")
             
@@ -642,10 +645,12 @@ class TransformerProcessor(BaseProcessor):
                 # Paging anwenden
                 total_rows: int = len(rows)
                 start_idx: int = start_row if start_row is not None else 0
-                end_idx: int = min(
-                    start_idx + (row_count if row_count is not None else total_rows),
-                    total_rows
-                )
+                
+                if row_count is None:
+                    end_idx = total_rows
+                else:
+                    end_idx = min(start_idx + row_count, total_rows)
+                
                 rows = rows[start_idx:end_idx]
 
                 # Tabellendaten sammeln

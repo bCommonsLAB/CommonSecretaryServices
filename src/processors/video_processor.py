@@ -37,6 +37,7 @@ from typing import Any, Dict, Optional, Union, Tuple
 
 import yt_dlp  # type: ignore
 
+from core.cache.video_cache import CacheMetadata
 from core.models.audio import AudioResponse
 from src.core.config import Config
 from src.core.models.base import (
@@ -53,6 +54,7 @@ from src.core.models.video import (
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.models.response_factory import ResponseFactory
+from src.core.cache.video_cache import VideoCache
 
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
@@ -85,6 +87,7 @@ class VideoProcessor(BaseProcessor):
         self.transformer = TransformerProcessor(resource_calculator, process_id)
         self.transcriber = WhisperTranscriber({"process_id": process_id})
         self.audio_processor = AudioProcessor(resource_calculator, process_id)
+        self.cache = VideoCache()
         
         # Download-Optionen
         self.ydl_opts = {
@@ -219,9 +222,30 @@ class VideoProcessor(BaseProcessor):
             if isinstance(source, str):
                 video_source = VideoSource(url=source)
             else:
-                video_source = source
+                video_source: VideoSource = source
                 
-            # 2. Video-Informationen extrahieren
+            # 2. Cache prüfen
+            cache_result: Optional[Tuple[VideoProcessingResult, Path, CacheMetadata]] = self.cache.load(video_source, target_language, template)
+            if cache_result:
+                result, _, metadata = cache_result
+                self.logger.info(f"Cache-Hit für Video: {result.metadata.title}")
+                
+                # Response aus Cache erstellen
+                response = ResponseFactory.create_response(
+                    processor_name=ProcessorType.VIDEO.value,
+                    result=result,
+                    request_info={
+                        'source': str(source),
+                        'target_language': target_language,
+                        'source_language': source_language,
+                        'template': template
+                    },
+                    response_class=VideoResponse,
+                    llm_info=None  # Keine LLM-Info bei Cache-Hit
+                )
+                return response
+                
+            # 3. Video-Informationen extrahieren
             if video_source.url:
                 title, duration, video_id = self._extract_video_info(video_source.url)
             else:
@@ -237,13 +261,13 @@ class VideoProcessor(BaseProcessor):
                     f"(Maximum: {self.max_duration} Sekunden)"
                 )
             
-            # 3. Arbeitsverzeichnis erstellen
+            # 4. Arbeitsverzeichnis erstellen
             self.logger.info(f"Verarbeite Video: {title}", 
                            video_id=video_id,
                            duration=duration,
                            working_dir=str(working_dir))
             
-            # 4. Video herunterladen oder Datei verarbeiten
+            # 5. Video herunterladen oder Datei verarbeiten
             if video_source.url:
                 # Download-Optionen aktualisieren
                 download_opts = self.ydl_opts.copy()
@@ -267,13 +291,13 @@ class VideoProcessor(BaseProcessor):
                 else:
                     raise ValueError("Ungültiger Dateityp")
             
-            # 5. MP3-Datei finden
+            # 6. MP3-Datei finden
             mp3_files = list(working_dir.glob("*.mp3"))
             if not mp3_files:
                 raise ValueError("Keine MP3-Datei nach Verarbeitung gefunden")
             audio_path = mp3_files[0]
             
-            # 6. Audio verarbeiten
+            # 7. Audio verarbeiten
             self.logger.info("Starte Audio-Verarbeitung")
             audio_response: AudioResponse = await self.audio_processor.process(
                 audio_source=str(audio_path),
@@ -296,7 +320,7 @@ class VideoProcessor(BaseProcessor):
                 if source_language == 'auto':
                     source_language = audio_response.data.transcription.source_language
             
-            # 7. Metadaten erstellen
+            # 8. Metadaten erstellen
             metadata = VideoMetadata(
                 title=title,
                 source=video_source,
@@ -307,18 +331,20 @@ class VideoProcessor(BaseProcessor):
                 audio_file=str(audio_path) if audio_path else None
             )
             
-            # 8. Ergebnis erstellen
+            # 9. Ergebnis erstellen
             result = VideoProcessingResult(
                 metadata=metadata,
                 transcription=audio_response.data.transcription if audio_response.data else None,
                 process_id=self.process_id
             )
             
-            # 9. Response erstellen
+            # Nach erfolgreicher Verarbeitung im Cache speichern
+            self.cache.save(result, video_source, target_language, template, audio_path)
+            
+            # Response erstellen
             self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}")
             
-            # Erstelle die Response mit ResponseFactory
-            response = ResponseFactory.create_response(
+            response: VideoResponse = ResponseFactory.create_response(
                 processor_name=ProcessorType.VIDEO.value,
                 result=result,
                 request_info={

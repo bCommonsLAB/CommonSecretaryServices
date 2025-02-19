@@ -15,6 +15,9 @@ from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
+from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 from pydantic import Field
 
 from src.utils.logger import ProcessingLogger
@@ -71,7 +74,7 @@ class WhisperTranscriber:
         self.config: Dict[str, Any] = config
         self.debug_dir: Path = Path(config.get('debug_dir', './temp-processing/transform'))
         self.temp_dir: Path = Path(config.get('temp_dir', './temp-processing/audio'))
-        self.model: str = config.get('model', 'gpt-4')
+        self.model: str = config.get('model', 'gpt-4o')
         self.client: OpenAI = OpenAI(api_key=config.get('openai_api_key'))
         self.batch_size: int = config.get('batch_size', 10)
         
@@ -400,20 +403,28 @@ class WhisperTranscriber:
                 f"5. Do not include any text outside the JSON object"
             )
 
-            # 5. GPT-4 Anfrage senden
+            # 5. OpenAI Anfrage senden
             if logger:
-                logger.info("Sende Anfrage an GPT-4")
+                logger.info("Sende Anfrage an OpenAI")
 
             # Zeitmessung starten
             start_time: float = time.time()
 
-            # OpenAI Client-Aufruf
+            # OpenAI Client-Aufruf mit korrekten Message-Typen
+            messages: list[ChatCompletionMessageParam] = [
+                ChatCompletionSystemMessageParam(
+                    role="system",
+                    content=system_prompt
+                ),
+                ChatCompletionUserMessageParam(
+                    role="user",
+                    content=user_prompt
+                )
+            ]
+
             response: ChatCompletion = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
+                messages=messages
             )
 
             # Zeitmessung beenden
@@ -422,11 +433,40 @@ class WhisperTranscriber:
             if not response.choices or not response.choices[0].message:
                 raise ValueError("Keine gültige Antwort vom LLM erhalten")
 
+            # Validiere und bereinige die LLM-Antwort
+            raw_content = response.choices[0].message.content
+            if not raw_content or not raw_content.strip():
+                raise ValueError("Leere Antwort vom LLM erhalten")
+
+            # Versuche JSON zu extrahieren (entferne ggf. Markdown-Codeblöcke)
+            content = raw_content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+            try:
+                result_json = json.loads(content)
+            except json.JSONDecodeError as e:
+                if logger:
+                    logger.error("Ungültiges JSON vom LLM erhalten",
+                        error=e,
+                        content=content)
+                # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
+                result_json = {
+                    name: f"Fehler bei der Extraktion: {str(e)}"
+                    for name in field_definitions.fields.keys()
+                }
+
             # LLM-Nutzung tracken mit zentraler Methode
-            llm_request = self.create_llm_request(
+            llm_request: LLMRequest = self.create_llm_request(
                 purpose="template_transform",
                 tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration
+                duration=duration,
+                model=self.model
             )
 
             # Debug-Informationen speichern
@@ -440,9 +480,6 @@ class WhisperTranscriber:
                 field_definitions=field_definitions
             )
 
-            # Strukturierte Daten extrahieren
-            result_json = json.loads(response.choices[0].message.content or "{}")
-
             # Template mit extrahierten Daten füllen
             for field_name, field_value in result_json.items():
                 pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
@@ -452,7 +489,8 @@ class WhisperTranscriber:
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
                     tokens=llm_request.tokens,
-                    duration_ms=duration)
+                    duration_ms=duration,
+                    model=self.model)
 
             # Response erstellen
             return TransformationResult(
@@ -465,7 +503,14 @@ class WhisperTranscriber:
         except Exception as e:
             if logger:
                 logger.error("Fehler bei der Template-Transformation", error=e)
-            raise
+            # Erstelle eine Fehler-Response statt Exception zu werfen
+            error_result = TransformationResult(
+                text=f"Fehler bei der Template-Transformation: {str(e)}",
+                target_language=target_language,
+                requests=[],
+                structured_data={"error": str(e)}
+            )
+            return error_result
 
     def _read_template_file(self, template: str, logger: Optional[ProcessingLogger]) -> str:
         """Liest den Inhalt einer Template-Datei."""
