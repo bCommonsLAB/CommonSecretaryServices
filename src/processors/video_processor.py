@@ -37,7 +37,7 @@ from typing import Any, Dict, Optional, Union, Tuple
 
 import yt_dlp  # type: ignore
 
-from core.cache.video_cache import CacheMetadata
+from utils.video_cache import CacheMetadata
 from core.models.audio import AudioResponse
 from src.core.config import Config
 from src.core.models.base import (
@@ -54,7 +54,7 @@ from src.core.models.video import (
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.models.response_factory import ResponseFactory
-from src.core.cache.video_cache import VideoCache
+from utils.video_cache import VideoCache
 
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
