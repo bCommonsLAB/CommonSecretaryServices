@@ -3,7 +3,9 @@ Verwaltung von sensitiven Konfigurationswerten wie API-Keys.
 Diese werden ausschließlich aus Umgebungsvariablen geladen.
 """
 import os
-from dotenv import load_dotenv
+
+from dotenv import load_dotenv  # type: ignore
+
 
 class ConfigKeys:
     """

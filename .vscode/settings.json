@@ -1,0 +1,55 @@
+{
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.include": ["src/**/*.py"],
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.importFormat": "absolute",
+    "python.analysis.indexing": true,
+    "python.analysis.inlayHints.variableTypes": true,
+    "python.analysis.inlayHints.functionReturnTypes": true,
+    "python.analysis.packageIndexDepths": [
+        ["src", 4]
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "python.languageServer": "Pylance",
+    "python.analysis.extraPaths": ["./src"],
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.useLibraryCodeForTypes": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportGeneralTypeIssues": "error",
+        "reportOptionalMemberAccess": "error",
+        "reportOptionalSubscript": "error",
+        "reportPrivateImportUsage": "error",
+        "reportMissingTypeStubs": "error",
+        "reportUnknownMemberType": "error",
+        "reportUnknownVariableType": "error",
+        "reportUnknownArgumentType": "error",
+        "reportUnknownParameterType": "error",
+        "reportMissingParameterType": "error",
+        "reportMissingTypeArgument": "error",
+        "reportInvalidTypeVarUse": "error",
+        "reportUnknownLambdaType": "error",
+        "reportInvalidStringEscapeSequence": "error",
+        "reportUntypedFunctionDecorator": "error",
+        "reportUnknownVariableType": "error",
+        "reportUntypedBaseClass": "error",
+        "reportUntypedNamedTuple": "error"
+    },
+    "python.linting.mypyEnabled": true,
+    "python.linting.enabled": true,
+    "python.linting.lintOnSave": true,
+    "python.linting.mypyArgs": [
+        "--config-file=mypy.ini",
+        "--follow-imports=silent",
+        "--show-column-numbers",
+        "--show-error-codes",
+        "--python-version=3.11",
+        "--strict"
+    ]
+} 

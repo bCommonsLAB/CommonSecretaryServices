@@ -1,195 +1,244 @@
-# Web-Interface
+# Datenmodelle
 
-## Überblick
+## Übersicht
 
-Das Web-Interface bietet eine benutzerfreundliche Oberfläche zur Verwaltung, Überwachung und Konfiguration des Systems. Es ist über verschiedene spezialisierte Routen erreichbar.
-
-## Dashboard (/)
-
-Das Dashboard ist die Hauptansicht des Systems und bietet einen schnellen Überblick über alle wichtigen Funktionen und Metriken.
-
-### Funktionen
-- Echtzeit-Übersicht der Systemaktivitäten
-- Aktuelle Verarbeitungsjobs und deren Status
-- Performance-Metriken und Ressourcenauslastung
-- Schnellzugriff auf häufig genutzte Funktionen
-
-### Metriken
-- CPU- und Speicherauslastung
-- Aktive Jobs und Warteschlange
-- Erfolgs- und Fehlerrate
-- Durchschnittliche Verarbeitungszeiten
-
-![Dashboard Übersicht](screens/dashboard.jpg)
+Das System verwendet eine hierarchische Struktur von Datenmodellen, die auf der `BaseModel`-Klasse aufbauen. Alle Modelle sind als unveränderliche (frozen) Dataclasses implementiert.
 
 ```mermaid
 graph TD
-    A[Dashboard] --> B[System Metriken]
-    A --> C[Aktive Jobs]
-    A --> D[Ressourcen]
-    B --> E[Performance]
-    B --> F[Auslastung]
-    C --> G[Status]
-    C --> H[Warteschlange]
-    D --> I[CPU/RAM]
-    D --> J[Speicher]
+    Base[BaseModel] --> Response[BaseResponse]
+    Base --> Meta[ContentMetadata/TechnicalMetadata]
+    Base --> Audio[AudioProcessingResult]
+    Base --> YT[YoutubeMetadata]
+    Base --> Trans[TransformerResponse]
+    Base --> LLMReq[LLMRequest]
+    Base --> LLMInfo[LLMInfo]
+    
+    Response --> Trans
+    Response -.-> |llm_info| LLMInfo
+    LLMInfo -.-> |requests| LLMReq
+    
+    Audio --> TR[TranscriptionResult]
+    Audio --> AM[AudioMetadata]
+    
+    TR --> LLM[LLModel]
+    TR --> TS[TranscriptionSegment]
+    
+    YT --> Audio
+    
+    subgraph "Basis-Modelle"
+        Base
+        LLM
+        LLMReq
+        LLMInfo
+    end
+    
+    subgraph "Response-Modelle"
+        Response
+        Trans
+    end
+    
+    subgraph "Prozessor-Modelle"
+        Audio
+        YT
+        Meta
+    end
 ```
 
-## Logs (/logs)
+## Basis-Modelle
 
-Die Logs-Ansicht ermöglicht die detaillierte Analyse von Systemereignissen und Fehlern.
+### BaseModel
+Basis-Klasse für alle Datenmodelle.
 
-### Funktionen
-- Echtzeit-Log-Streaming
-- Filterung nach Log-Level und Zeitraum
-- Suchfunktion mit regulären Ausdrücken
-- Export von Log-Dateien
+**Methoden:**
+- `to_dict() -> Dict[str, Any]`: Konvertiert das Modell in ein Dictionary
 
-### Filter-Optionen
-- Log-Level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-- Zeitraum-Auswahl
-- Komponenten-Filter
-- Volltext-Suche
+### LLModel
+Informationen über die Nutzung eines Language Models.
 
-![Logs Ansicht](screens/logs.jpg)
+**Felder:**
+- `model: str` - Name des verwendeten Modells (z.B. 'gpt-4')
+- `duration: float` - Verarbeitungsdauer in Millisekunden
+- `tokens: int` - Anzahl der verarbeiteten Tokens
+- `timestamp: str` - Zeitstempel der LLM-Nutzung (ISO 8601)
 
-```mermaid
-graph TD
-    A[Logs] --> B[Filter]
-    A --> C[Anzeige]
-    A --> D[Export]
-    B --> E[Level]
-    B --> F[Zeit]
-    B --> G[Komponente]
-    C --> H[Echtzeit]
-    C --> I[Historie]
-    D --> J[Download]
-```
+### LLMRequest
+Informationen über einen einzelnen LLM-Request.
 
-## Konfiguration (/config)
+**Felder:**
+- `model: str` - Name des verwendeten Modells
+- `purpose: str` - Zweck der Anfrage (z.B. 'transcription', 'translation')
+- `tokens: int` - Anzahl der verwendeten Tokens
+- `duration: int` - Verarbeitungsdauer in Millisekunden
+- `timestamp: str` - Zeitstempel der Anfrage (ISO 8601)
 
-Die Konfigurations-Ansicht ermöglicht die Verwaltung aller Systemeinstellungen.
+### LLMInfo
+Aggregierte Informationen über LLM-Nutzung.
 
-### Funktionen
-- Übersicht aller Konfigurationsparameter
-- Live-Bearbeitung der Einstellungen
-- Validierung der Eingaben
-- Konfigurationshistorie
+**Felder:**
+- `model: str` - Name des hauptsächlich verwendeten Modells
+- `purpose: str` - Hauptzweck der LLM-Nutzung
+- `tokens: int` - Gesamtanzahl der verwendeten Tokens
+- `duration: float` - Gesamtdauer der Verarbeitung in Millisekunden
+- `requests: List[LLMRequest]` - Liste aller LLM-Requests
+- `requests_count: int` - Anzahl der Requests
+- `total_tokens: int` - Summe aller Tokens
+- `total_duration: float` - Summe aller Verarbeitungszeiten
 
-### Bereiche
-- Server-Einstellungen
-- Prozessor-Konfigurationen
-- API-Einstellungen
-- Logging-Konfiguration
+**Methoden:**
+- `add_request(request: LLMRequest) -> None` - Fügt einen neuen Request hinzu und aktualisiert die Gesamtwerte
 
-![Konfigurations Ansicht](screens/config.jpg)
+### ErrorInfo
+Fehlerinformationen für API-Responses.
 
-```mermaid
-graph TD
-    A[Konfiguration] --> B[Editor]
-    A --> C[Validierung]
-    A --> D[Historie]
-    B --> E[Parameter]
-    B --> F[Templates]
-    C --> G[Syntax]
-    C --> H[Werte]
-    D --> I[Versionen]
-```
+**Felder:**
+- `code: int | str` - Fehlercode
+- `message: str` - Fehlermeldung
+- `details: Optional[Dict[str, Any]]` - Zusätzliche Fehlerdetails
 
-## Tests (/test)
+### RequestInfo
+Informationen über einen API-Request.
 
-Die Test-Ansicht ermöglicht die Ausführung und Überwachung von Systemtests.
+**Felder:**
+- `processor: str` - Name des verwendeten Prozessors
+- `timestamp: datetime` - Zeitpunkt des Requests
+- `parameters: Optional[Dict[str, Any]]` - Request-Parameter
 
-### Funktionen
-- Ausführung von Testsuiten
-- Einzeltest-Ausführung
-- Coverage-Berichte
-- Fehleranalyse
+### ProcessInfo
+Informationen über einen Verarbeitungsprozess.
 
-### Test-Kategorien
-- Unit Tests
-- Integrationstests
-- API Tests
-- Performance Tests
+**Felder:**
+- `id: str` - Eindeutige Prozess-ID
+- `processors: List[str]` - Liste der beteiligten Prozessoren
+- `duration: float` - Gesamtdauer der Verarbeitung
+- `started: datetime` - Startzeitpunkt
+- `completed: Optional[datetime]` - Endzeitpunkt
 
-![Test Ansicht](screens/test.jpg)
+## Response-Modelle
 
-```mermaid
-graph TD
-    A[Tests] --> B[Ausführung]
-    A --> C[Ergebnisse]
-    A --> D[Coverage]
-    B --> E[Suite]
-    B --> F[Einzeln]
-    C --> G[Report]
-    C --> H[Fehler]
-    D --> I[Statistik]
-```
+### BaseResponse
+Basis-Response für alle API-Antworten.
 
-## Swagger API (/api)
+**Felder:**
+- `status: str` - Status der Antwort ('success' oder 'error')
+- `request: RequestInfo` - Request-Informationen
+- `process: ProcessInfo` - Prozess-Informationen
+- `data: Optional[Dict[str, Any]]` - Response-Daten
+- `error: Optional[ErrorInfo]` - Fehlerinformationen
+- `llm_info: LLMInfo` - LLM-Nutzungsinformationen
 
-Die Swagger UI bietet eine interaktive Dokumentation und Testumgebung für die API.
+### TransformerResponse
+Response für Transformer-Operationen.
 
-### Funktionen
-- Vollständige API-Dokumentation
-- Interaktive API-Tests
-- Request/Response Beispiele
-- Authentifizierung
+**Felder:**
+- `input: Optional[TransformerInput]` - Eingabedaten
+- `output: Optional[TransformerOutput]` - Ausgabedaten
+- `transform: Optional[TransformerInfo]` - Transformations-Informationen
 
-### Endpunkte
-- Audio-Verarbeitung
-- YouTube-Integration
-- Job-Management
-- System-Status
+## Audio-Modelle
 
-![Swagger UI](screens/api.jpg)
+### AudioSegmentInfo
+Information über ein Audio-Segment.
 
-```mermaid
-graph TD
-    A[Swagger UI] --> B[Dokumentation]
-    A --> C[Tests]
-    A --> D[Auth]
-    B --> E[Endpunkte]
-    B --> F[Schemas]
-    C --> G[Requests]
-    C --> H[Responses]
-    D --> I[API Keys]
-```
+**Felder:**
+- `file_path: Path` - Pfad zur Segment-Datei
+- `title: Optional[str]` - Titel des Segments
+- `binary_data: Optional[bytes]` - Binärdaten des Segments
 
-## Navigation und Interaktion
+### Chapter
+Ein Kapitel mit Start- und Endzeit.
 
-### Hauptmenü
-- Dashboard: Systemübersicht
-- Logs: Ereignisprotokollierung
-- Config: Systemkonfiguration
-- Tests: Testausführung
-- API: Swagger-Dokumentation
+**Felder:**
+- `title: str` - Titel des Kapitels
+- `start_time: float` - Startzeit in Sekunden
+- `end_time: float` - Endzeit in Sekunden
 
-### Benutzerinteraktion
-```mermaid
-graph LR
-    A[Benutzer] --> B[Dashboard]
-    A --> C[Logs]
-    A --> D[Config]
-    A --> E[Tests]
-    A --> F[API]
-    B --> G[System Status]
-    C --> H[Log Analyse]
-    D --> I[Konfiguration]
-    E --> J[Test Ausführung]
-    F --> K[API Tests]
-```
+### AudioMetadata
+Audio-spezifische Metadaten.
 
-## Sicherheit
+**Felder:**
+- `duration: float` - Dauer in Sekunden
+- `process_dir: str` - Verarbeitungsverzeichnis
+- `args: Dict[str, Any]` - Zusätzliche Argumente
 
-### Zugriffskontrollen
-- Rollenbasierte Berechtigungen
-- Session-Management
-- CSRF-Schutz
-- Rate-Limiting
+### AudioProcessingResult
+Ergebnis der Audio-Verarbeitung.
 
-### Audit-Trail
-- Benutzeraktionen
-- Konfigurationsänderungen
-- Systemzugriffe
-- Sicherheitsereignisse 
+**Felder:**
+- `transcription: TranscriptionResult` - Transkriptionsergebnis
+- `metadata: AudioMetadata` - Audio-Metadaten
+- `process_id: str` - Prozess-ID
+
+## Metadaten-Modelle
+
+### ContentMetadata
+Inhaltliche Metadaten für verschiedene Medientypen.
+
+**Felder:**
+- `type: Optional[str]` - Medientyp
+- `created: Optional[str]` - Erstellungsdatum
+- `modified: Optional[str]` - Änderungsdatum
+- `title: Optional[str]` - Titel
+- `subtitle: Optional[str]` - Untertitel
+- `authors: Optional[str]` - Autoren
+- `publisher: Optional[str]` - Herausgeber
+- `publication_date: Optional[str]` - Veröffentlichungsdatum
+- `isbn: Optional[str]` - ISBN
+- `doi: Optional[str]` - DOI
+- `edition: Optional[str]` - Edition
+- `language: Optional[str]` - Sprache (ISO 639-1)
+- `subject_areas: Optional[str]` - Fachgebiete
+- `keywords: Optional[str]` - Schlüsselwörter
+- `abstract: Optional[str]` - Zusammenfassung
+- `temporal_start: Optional[str]` - Zeitlicher Beginn
+- `temporal_end: Optional[str]` - Zeitliches Ende
+- `temporal_period: Optional[str]` - Zeitperiode
+- `spatial_location: Optional[str]` - Ort
+- `spatial_latitude: Optional[float]` - Breitengrad
+- `spatial_longitude: Optional[float]` - Längengrad
+- `spatial_habitat: Optional[str]` - Habitat
+- `spatial_region: Optional[str]` - Region
+- `rights_holder: Optional[str]` - Rechteinhaber
+- `rights_license: Optional[str]` - Lizenz
+- `rights_access: Optional[str]` - Zugriffsrechte
+- `rights_usage: Optional[str]` - Nutzungsrechte
+- `rights_attribution: Optional[str]` - Attribution
+- `rights_commercial: Optional[bool]` - Kommerzielle Nutzung erlaubt
+- `rights_modifications: Optional[bool]` - Modifikationen erlaubt
+
+### TechnicalMetadata
+Technische Metadaten einer Datei.
+
+**Felder:**
+- `file_name: str` - Dateiname
+- `file_mime: str` - MIME-Typ
+- `file_size: int` - Dateigröße in Bytes
+- `created: str` - Erstellungsdatum (ISO 8601)
+- `modified: str` - Änderungsdatum (ISO 8601)
+- `doc_pages: Optional[int]` - Seitenanzahl (Dokumente)
+- `media_duration: Optional[float]` - Mediendauer
+- `media_bitrate: Optional[int]` - Bitrate
+- `media_codec: Optional[str]` - Codec
+- `media_channels: Optional[int]` - Audiokanäle
+- `media_sample_rate: Optional[int]` - Sample Rate
+
+## YouTube-Modelle
+
+### YoutubeMetadata
+Metadaten eines YouTube-Videos.
+
+**Felder:**
+- `title: str` - Video-Titel
+- `url: str` - YouTube-URL
+- `video_id: str` - Video-ID
+- `duration: int` - Dauer in Sekunden
+- `duration_formatted: str` - Formatierte Dauer
+- `process_dir: str` - Verarbeitungsverzeichnis
+
+### YoutubeProcessingResult
+Ergebnis der YouTube-Verarbeitung.
+
+**Felder:**
+- `metadata: YoutubeMetadata` - Video-Metadaten
+- `audio_result: Optional[AudioProcessingResult]` - Audio-Verarbeitungsergebnis
+- `process_id: str` - Prozess-ID 

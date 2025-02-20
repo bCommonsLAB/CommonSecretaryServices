@@ -1,15 +1,20 @@
 """
 Main Flask application module.
 """
-from flask import Flask
+import os
 import signal
 import sys
-import os
+from types import FrameType
+from typing import NoReturn, Optional, Union
+
+from flask import Flask
+
+from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
-from .routes.main_routes import main
+
 from .routes.config_routes import config
 from .routes.log_routes import logs
-from src.api.routes import blueprint as api_blueprint
+from .routes.main_routes import main
 
 # Reset Logger beim Start
 logger_service.reset()
@@ -31,14 +36,19 @@ app.register_blueprint(api_blueprint, url_prefix='/api')
 # Flag für den ersten Request
 _first_request = True
 
-def signal_handler(sig, frame):
-    """Handler für System-Signale (SIGINT, SIGTERM)"""
+def signal_handler(sig: int, frame: Optional[FrameType]) -> NoReturn:
+    """Handler für System-Signale (SIGINT, SIGTERM)
+    
+    Args:
+        sig: Signal-Nummer
+        frame: Stack-Frame (wird nicht verwendet)
+    """
     if not os.environ.get('WERKZEUG_RUN_MAIN'):
         logger.info(f"Anwendung wird beendet durch Signal {sig}")
     sys.exit(0)
 
 @app.before_request
-def before_request():
+def before_request() -> None:
     """Wird vor jedem Request ausgeführt"""
     global _first_request
     if _first_request and not os.environ.get('WERKZEUG_RUN_MAIN'):
@@ -46,8 +56,12 @@ def before_request():
         _first_request = False
 
 @app.teardown_appcontext
-def teardown_app(exception=None):
-    """Wird beim Beenden der Anwendung ausgeführt"""
+def teardown_app(exception: Optional[Union[Exception, BaseException]] = None) -> None:
+    """Wird beim Beenden der Anwendung ausgeführt
+    
+    Args:
+        exception: Optional auftretende Exception
+    """
     if not os.environ.get('WERKZEUG_RUN_MAIN'):
         if exception:
             logger.error(f"Anwendung wird mit Fehler beendet: {str(exception)}")

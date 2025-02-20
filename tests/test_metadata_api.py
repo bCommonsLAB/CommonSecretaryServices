@@ -1,23 +1,26 @@
+"""Tests für die Metadata API."""
 import pytest
 from io import BytesIO
 from pathlib import Path
 import json
 from src.api.routes import blueprint as api_blueprint
 from flask import Flask
+from flask.testing import FlaskClient
+from typing import Any, Dict
 
 @pytest.fixture
-def app():
+def app() -> Flask:
     """Erstellt eine Flask Test-App."""
     app = Flask(__name__)
     app.register_blueprint(api_blueprint)
     return app
 
 @pytest.fixture
-def client(app):
+def client(app: Flask) -> FlaskClient:
     """Erstellt einen Test-Client."""
     return app.test_client()
 
-def test_extract_metadata_success(client):
+def test_extract_metadata_success(client: FlaskClient) -> None:
     """Test für erfolgreiche Metadaten-Extraktion."""
     # Test-Datei erstellen (minimales PDF)
     test_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
@@ -26,7 +29,7 @@ def test_extract_metadata_success(client):
     
     # Zusätzliche Parameter
     content = "Zusätzlicher Inhalt für die Analyse"
-    context = {"key": "value"}
+    context: Dict[str, Any] = {"key": "value"}
     
     # Multipart-Request senden
     response = client.post(
@@ -41,7 +44,7 @@ def test_extract_metadata_success(client):
     
     # Response überprüfen
     assert response.status_code == 200
-    data = json.loads(response.data)
+    data = json.loads(response.get_data(as_text=True))
     
     # Struktur überprüfen
     assert "status" in data
@@ -67,7 +70,7 @@ def test_extract_metadata_success(client):
     assert "technical" in data["data"]
     assert data["data"]["technical"]["file_mime"] == "application/pdf"
 
-def test_extract_metadata_error(client):
+def test_extract_metadata_error(client: FlaskClient) -> None:
     """Test für Fehlerfall bei der Metadaten-Extraktion."""
     # Ungültige Datei (leeres BytesIO)
     test_file = BytesIO()
@@ -84,7 +87,7 @@ def test_extract_metadata_error(client):
     
     # Response überprüfen
     assert response.status_code == 400
-    data = json.loads(response.data)
+    data = json.loads(response.get_data(as_text=True))
     
     # Struktur überprüfen
     assert "status" in data
@@ -97,7 +100,7 @@ def test_extract_metadata_error(client):
     assert data["error"]["code"] == "UnsupportedMimeTypeError"
     assert "MIME-Type nicht unterstützt" in data["error"]["message"]
 
-def test_extract_metadata_with_pdf(client, tmp_path):
+def test_extract_metadata_with_pdf(client: FlaskClient, tmp_path: Path) -> None:
     """Test für Metadaten-Extraktion aus einer PDF-Datei."""
     # PDF-Testdatei laden
     pdf_path = Path("tests/sample.pdf")
@@ -116,7 +119,7 @@ def test_extract_metadata_with_pdf(client, tmp_path):
     
     # Response überprüfen
     assert response.status_code == 200
-    data = json.loads(response.data)
+    data = json.loads(response.get_data(as_text=True))
     
     # Struktur überprüfen
     assert data["status"] == "success"

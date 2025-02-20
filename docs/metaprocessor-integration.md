@@ -224,4 +224,173 @@ class MetadataExtractionResource(Resource):
 3. **Nächste Woche**
    - Integration in bestehende Prozessoren
    - Performance-Optimierung
-   - Dokumentation aktualisieren 
+   - Dokumentation aktualisieren
+
+# MetadataProcessor Refactoring Analyse
+
+## 1. Hauptänderungen
+
+### 1.1 Transformer-Integration
+- MetadataProcessor soll TransformerProcessor für LLM-Operationen nutzen
+- Keine eigene OpenAI-Implementierung
+- Nutzung der bestehenden Template-Logik
+
+### 1.2 Schlüsselkomponenten
+
+| Komponente | Ist-Zustand | Soll-Zustand |
+|------------|-------------|--------------|
+| LLM-Verarbeitung | Eigene OpenAI-Integration | Nutzung des TransformerProcessors |
+| Template-System | Fehlt | Integration des Transformer-Templates |
+| Validierung | Basis-Validierung | Erweiterte Validierung wie im Transformer |
+| Error Handling | Einfach | Detailliert wie im Transformer |
+
+## 2. Konkrete Code-Änderungen
+
+### 2.1 Konstruktor Anpassung
+```python
+def __init__(self, resource_calculator: Any, process_id: Optional[str] = None) -> None:
+    super().__init__(resource_calculator, process_id)
+    
+    # Konfiguration laden
+    metadata_config = self.load_processor_config('metadata')
+    
+    # Logger initialisieren
+    self.logger = self.init_logger("MetadataProcessor")
+    
+    # Transformer für Content-Analyse
+    self.transformer = TransformerProcessor(resource_calculator, process_id)
+    
+    # Rest der Initialisierung...
+```
+
+### 2.2 Content-Extraktion via Transformer
+```python
+async def extract_content_metadata(
+    self, 
+    content: str,
+    context: Dict[str, Any]
+) -> ContentMetadata:
+    """Extrahiert Content-Metadaten mittels Transformer."""
+    try:
+        # Transformer für Template-Transformation nutzen
+        result = await self.transformer.transformByTemplate(
+            source_text=content,
+            source_language="auto",  # oder aus context
+            target_language="de",    # oder aus config
+            template="Metadata",     # Template aus templates/Metadata.md
+            context=context
+        )
+        
+        # Konvertiere Transformer-Ergebnis in ContentMetadata
+        return ContentMetadata(**result.data.output.structured_data)
+        
+    except Exception as e:
+        if self.logger:
+            self.logger.error(f"Fehler bei Content-Extraktion: {str(e)}")
+        raise
+```
+
+## 3. Vorteile der Integration
+
+1. **Code-Wiederverwendung**
+   - Nutzung der bewährten Transformer-Logik
+   - Einheitliche Template-Verarbeitung
+   - Konsistentes Error-Handling
+
+2. **Wartbarkeit**
+   - Weniger doppelter Code
+   - Zentrale LLM-Logik
+   - Einfachere Updates
+
+3. **Funktionalität**
+   - Bessere Typ-Validierung
+   - Strukturierte Ausgaben
+   - Konsistentes Logging
+
+## 4. Implementierungsschritte
+
+1. **Phase 1: Basis-Integration**
+   - TransformerProcessor als Dependency einbinden
+   - Template-System integrieren
+   - Basis-Funktionalität testen
+
+2. **Phase 2: Datenmodell-Anpassung**
+   - Response-Struktur vereinheitlichen
+   - Typ-Validierung erweitern
+   - Error-Handling verbessern
+
+3. **Phase 3: Optimierung**
+   - Performance-Monitoring
+   - Caching implementieren
+   - Tests erweitern
+
+## 5. Code-Beispiele
+
+### 5.1 Template-Integration
+```python
+# In metadata_processor.py
+async def process_with_template(
+    self,
+    content: str,
+    template_name: str = "Metadata",
+    context: Optional[Dict[str, Any]] = None
+) -> MetadataResponse:
+    """Verarbeitet Content mit einem Template."""
+    try:
+        transformer_result = await self.transformer.transformByTemplate(
+            source_text=content,
+            source_language="auto",
+            target_language="de",
+            template=template_name,
+            context=context
+        )
+        
+        return MetadataResponse(
+            request=self.create_request_info(),
+            process=self.create_process_info(),
+            data=MetadataData(
+                content=ContentMetadata(**transformer_result.data.output.structured_data),
+                technical=None
+            ),
+            llm_info=transformer_result.llm_info
+        )
+    except Exception as e:
+        return self.create_error_response(str(e))
+```
+
+### 5.2 Error-Handling
+```python
+def create_error_response(self, error_message: str) -> MetadataResponse:
+    """Erstellt eine Error-Response im Transformer-Stil."""
+    return MetadataResponse(
+        request=self.create_request_info(),
+        process=self.create_process_info(),
+        data=MetadataData(technical=None, content=None),
+        status=ProcessingStatus.ERROR,
+        error=ErrorInfo(
+            code="PROCESSING_ERROR",
+            message=error_message,
+            details={
+                "processor": "metadata",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    )
+```
+
+## 6. Nächste Schritte
+
+1. **Sofort**
+   - TransformerProcessor in MetadataProcessor integrieren
+   - Template-System einbinden
+   - Error-Handling anpassen
+
+2. **Kurzfristig**
+   - Tests für neue Integration schreiben
+   - Dokumentation aktualisieren
+   - Performance-Monitoring implementieren
+
+3. **Mittelfristig**
+   - Caching-Strategie entwickeln
+   - Batch-Verarbeitung implementieren
+   - Monitoring erweitern 

@@ -14,7 +14,7 @@ processors:
     temp_dir: temp-processing/audio
     temp_file_suffix: .mp3
   transformer:
-    model: gpt-4
+    model: gpt-4o
   youtube:
     max_duration: 15000
     max_file_size: 104857600

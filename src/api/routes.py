@@ -1,46 +1,75 @@
-from flask import Blueprint, request, jsonify, current_app, send_from_directory, redirect, url_for
-from flask_restx import Api, Resource, fields, reqparse
-import tempfile
-import os
+from typing import Dict, Any, Optional, Union, cast, IO
 from pathlib import Path
+import os
+import tempfile
 import traceback
-import asyncio
-import werkzeug.datastructures
-from typing import Union
 import uuid
-import json
-from datetime import datetime
 import time
+from datetime import datetime
+import asyncio
+from werkzeug.datastructures import FileStorage
+from werkzeug.wrappers import Response
+from flask import send_file
+import mimetypes
+import json
 
+from flask import request, Blueprint
+from flask_restx import Namespace, Resource, Api, fields  # type: ignore
+
+from core.models.event import EventResponse
+from core.models.youtube import YoutubeResponse
+from processors.imageocr_processor import ImageOCRResponse
+from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
+from src.core.models.transformer import TransformerResponse
 from src.core.rate_limiting import RateLimiter
 from src.core.resource_tracking import ResourceCalculator
-from src.processors.pdf_processor import PDFProcessor
-from src.processors.image_processor import ImageProcessor
-from src.processors.youtube_processor import YoutubeProcessor
+from src.core.models.audio import AudioResponse
+
 from src.processors.audio_processor import AudioProcessor
-from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
-from src.utils.logger import get_logger
+from src.processors.imageocr_processor import ImageOCRProcessor
+from src.processors.youtube_processor import YoutubeProcessor
 from src.processors.transformer_processor import TransformerProcessor
-from src.utils.performance_tracker import get_performance_tracker, clear_performance_tracker
-from src.processors.metadata_processor import MetadataProcessor
+from src.processors.metadata_processor import (
+    MetadataProcessor,
+    MetadataResponse
+)
+from src.processors.pdf_processor import PDFProcessor
 
-# Blueprint erstellen
+from src.utils.logger import get_logger, ProcessingLogger
+from src.utils.performance_tracker import (
+    get_performance_tracker,
+    clear_performance_tracker,
+    PerformanceTracker
+)
+
+from src.core.models.video import VideoSource, VideoResponse
+from src.processors.video_processor import VideoProcessor
+
+from src.processors.event_processor import EventProcessor
+
+# Type Aliases
+MetadataEndpointResponse = Dict[str, Any]
+
+# Initialisiere Resource Calculator und Logger
+resource_calculator = ResourceCalculator()
+logger: ProcessingLogger = get_logger(process_id="api")
+
+# Blueprint und API Setup
 blueprint = Blueprint('api', __name__)
-
-api = Api(blueprint,
-    title='Processing Service API',
+api = Api(
+    blueprint,
+    title='Common Secretary Services API',
     version='1.0',
-    description='API für verschiedene Verarbeitungsdienste',
-    doc='/',
-    prefix=''
+    description='API für die Verarbeitung von verschiedenen Medientypen'
 )
 
 # API Namespaces definieren
-audio_ns = api.namespace('audio', description='Audio-Verarbeitungs-Operationen')
-youtube_ns = api.namespace('youtube', description='YouTube-Verarbeitungs-Operationen')
-metadata_ns = api.namespace('metadata', description='Metadaten-Verarbeitungs-Operationen')
+audio_ns: Namespace = api.namespace('audio', description='Audio-Verarbeitungs-Operationen')  # type: ignore
+youtube_ns: Namespace = api.namespace('youtube', description='YouTube-Verarbeitungs-Operationen')  # type: ignore
+metadata_ns: Namespace = api.namespace('metadata', description='Metadaten-Verarbeitungs-Operationen')  # type: ignore
 
-logger = get_logger(process_id="api")
+# Initialisiere Rate Limiter
+rate_limiter = RateLimiter(requests_per_hour=100, max_file_size=50 * 1024 * 1024)  # 50MB
 
 # Initialisierung der gemeinsam genutzten Komponenten
 resource_calculator = ResourceCalculator()
@@ -49,26 +78,84 @@ rate_limiter = RateLimiter(
     max_file_size=50 * 1024 * 1024  # 50MB
 )
 
+def _track_llm_usage(model: str, tokens: int, duration: float, purpose: str = "api") -> None:
+    """Standardisiertes LLM-Tracking für die API."""
+    try:
+        if not model:
+            raise ValueError("model darf nicht leer sein")
+        if tokens <= 0:
+            raise ValueError("tokens muss positiv sein")
+        if duration < 0:
+            raise ValueError("duration muss nicht-negativ sein")
+                
+        resource_calculator.track_usage(
+            tokens=tokens,
+            model=model,
+            duration=duration
+        )
+        
+        logger.info(
+            "LLM-Nutzung getrackt",
+            model=model,
+            tokens=tokens,
+            duration=duration,
+            purpose=purpose
+        )
+    except Exception as e:
+        logger.warning(
+            "LLM-Tracking fehlgeschlagen",
+            error=e,
+            model=model,
+            tokens=tokens,
+            duration=duration
+        )
+
+def _calculate_llm_cost(model: str, tokens: int) -> float:
+    """Berechnet die Kosten für LLM-Nutzung."""
+    try:
+        return resource_calculator.calculate_cost(tokens=tokens, model=model)
+    except Exception as e:
+        logger.warning(
+            "LLM-Kostenberechnung fehlgeschlagen",
+            error=e,
+            model=model,
+            tokens=tokens
+        )
+        return 0.0
+
 @blueprint.before_request
-def setup_request():
+def setup_request() -> None:
     """
-    Bereitet die Request-Verarbeitung vor.
+    Bereitet die Request-Verarbeitung vor und prüft das Rate Limit.
     Initialisiert den Performance-Tracker für den Request.
     """
+    # Rate Limit prüfen
+    ip = request.remote_addr or 'unknown'
+    endpoint = request.endpoint or 'unknown'
+    
+    if not rate_limiter.is_allowed(ip):
+        raise RateLimitExceeded(f"Rate limit exceeded for IP {ip}")
+    
+    # Performance Tracking initialisieren
     process_id = str(uuid.uuid4())
     tracker = get_performance_tracker(process_id)
     
     # Setze Endpoint-Informationen
-    endpoint = request.endpoint or 'unknown'
-    ip = request.remote_addr
     user_agent = request.headers.get('User-Agent', 'unknown')
-    tracker.set_endpoint_info(endpoint, ip, user_agent)
+    if tracker:
+        tracker.set_endpoint_info(endpoint, ip, user_agent)
 
 @blueprint.after_request
-def cleanup_request(response):
+def cleanup_request(response: Response) -> Response:
     """
     Räumt nach der Request-Verarbeitung auf.
     Schließt den Performance-Tracker ab und entfernt ihn.
+    
+    Args:
+        response: Die Flask Response
+        
+    Returns:
+        Die unveränderte Response
     """
     tracker = get_performance_tracker()
     if tracker:
@@ -83,69 +170,91 @@ def cleanup_request(response):
     return response
 
 @blueprint.errorhandler(Exception)
-def handle_error(error):
-    """Globaler Fehlerhandler für alle Exceptions"""
-    tracker = get_performance_tracker()
+def handle_error(error: Exception) -> tuple[Dict[str, str], int]:
+    """
+    Globaler Fehlerhandler für alle Exceptions.
+    
+    Args:
+        error: Die aufgetretene Exception
+        
+    Returns:
+        Tuple aus Fehlermeldung und HTTP Status Code
+    """
+    tracker: PerformanceTracker | None = get_performance_tracker()
     if tracker:
-        tracker.set_error(str(error))
+        tracker.set_error(str(error), error_type=error.__class__.__name__)
     
     logger.error("API Fehler",
-                error=str(error),
+                error=error,
                 error_type=error.__class__.__name__,
                 endpoint=request.endpoint,
                 ip=request.remote_addr)
     return {'error': str(error)}, 500
 
-def get_pdf_processor(process_id: str = None):
+def get_pdf_processor(process_id: Optional[str] = None) -> PDFProcessor:
     """Get or create PDF processor instance with process ID"""
-    return PDFProcessor(resource_calculator, process_id=process_id)
+    return PDFProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-def get_image_processor(process_id: str = None):
-    """Get or create image processor instance with process ID"""
-    return ImageProcessor(resource_calculator, process_id=process_id)
+def get_imageocr_processor(process_id: Optional[str] = None) -> ImageOCRProcessor:
+    """Get or create ImageOCR processor instance with process ID"""
+    return ImageOCRProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-def get_youtube_processor(process_id: str = None):
+def get_youtube_processor(process_id: Optional[str] = None) -> YoutubeProcessor:
     """Get or create Youtube processor instance with process ID"""
-    return YoutubeProcessor(resource_calculator, process_id=process_id)
+    return YoutubeProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-def get_audio_processor(process_id: str = None):
+def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     """Get or create audio processor instance with process ID"""
-    return AudioProcessor(resource_calculator, process_id=process_id)
+    return AudioProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-def get_transformer_processor(process_id: str = None):
+def get_transformer_processor(process_id: Optional[str] = None) -> TransformerProcessor:
     """Get or create transformer processor instance with process ID"""
-    return TransformerProcessor(resource_calculator, process_id=process_id)
+    return TransformerProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-def get_metadata_processor(process_id: str = None):
+def get_metadata_processor(process_id: Optional[str] = None) -> MetadataProcessor:
     """Get or create metadata processor instance with process ID"""
-    return MetadataProcessor(resource_calculator, process_id=process_id)
+    return MetadataProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
-# Parser für File-Uploads
-file_upload = reqparse.RequestParser()
-file_upload.add_argument('file', 
-                        type='FileStorage', 
-                        location='files', 
-                        required=True,
-                        help='Die zu verarbeitende Datei')
-file_upload.add_argument('target_language',
-                        type=str,
-                        location='form',
-                        default='en',
-                        help='Sprache der Audio-Datei',
-                        trim=True)
-file_upload.add_argument('template',
-                        type=str,
-                        location='form',
-                        default='',
-                        help='Vorlage für die Verarbeitung',
-                        trim=True)
+# Initialisiere Parser
+file_upload = api.parser()
+file_upload.add_argument('file', type=FileStorage, location='files', required=True, help='Die zu verarbeitende Datei')
+
+# ImageOCR Upload Parser
+imageocr_upload_parser = api.parser()
+imageocr_upload_parser.add_argument('file', type=FileStorage, location='files', required=True, help='Bilddatei')
+imageocr_upload_parser.add_argument('template', type=str, location='form', required=False, help='Template für die Transformation')
+imageocr_upload_parser.add_argument('context', type=str, location='form', required=False, help='JSON-Kontext für die Verarbeitung')
+
+# PDF Upload Parser
+pdf_upload_parser = api.parser()
+pdf_upload_parser.add_argument('file',
+                          type=FileStorage,
+                          location='files',
+                          required=True,
+                          help='PDF-Datei')
+pdf_upload_parser.add_argument('extraction_method',
+                          type=str,
+                          location='form',
+                          default='native',
+                          choices=['native', 'ocr', 'both'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides)')
+pdf_upload_parser.add_argument('template',
+                          type=str,
+                          location='form',
+                          required=False,
+                          help='Template für die Transformation')
+pdf_upload_parser.add_argument('context',
+                          type=str,
+                          location='form',
+                          required=False,
+                          help='JSON-Kontext für die Verarbeitung')
 
 # Model für Youtube-URLs und Parameter
 youtube_input = api.model('YoutubeInput', {
     'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
-    'extract_audio': fields.Boolean(required=False, default=True, description='Audio extrahieren'),
-    'target_language': fields.String(required=False, default='de', description='Sprache des Videos (ISO 639-1 code)'),
-    'template': fields.String(required=False, default='Youtube', description='Vorlage für die Verarbeitung')
+    'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
+    'target_language': fields.String(required=False, default='de', description='Zielsprache (ISO 639-1 code)'),
+    'template': fields.String(required=False, default=None, description='Template für die Verarbeitung')
 })
 
 # Response Models
@@ -154,27 +263,96 @@ error_model = api.model('Error', {
 })
 
 pdf_response = api.model('PDFResponse', {
-    'page_count': fields.Integer(description='Anzahl der Seiten'),
-    'text_content': fields.String(description='Extrahierter Text'),
-    'metadata': fields.Raw(description='PDF Metadaten'),
-    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(api.model('PDFRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(api.model('PDFProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(api.model('PDFData', {
+        'metadata': fields.Nested(api.model('PDFMetadata', {
+            'file_name': fields.String(description='Dateiname'),
+            'file_size': fields.Integer(description='Dateigröße in Bytes'),
+            'page_count': fields.Integer(description='Anzahl der Seiten'),
+            'format': fields.String(description='Dateiformat'),
+            'process_dir': fields.String(description='Verarbeitungsverzeichnis'),
+            'image_paths': fields.List(fields.String, description='Pfade zu generierten Bildern (bei OCR)'),
+            'text_paths': fields.List(fields.String, description='Pfade zu extrahierten Texten'),
+            'extraction_method': fields.String(description='Verwendete Extraktionsmethode (native/ocr/both)')
+        })),
+        'extracted_text': fields.String(description='Extrahierter Text (bei native/both)'),
+        'ocr_text': fields.String(description='Via OCR erkannter Text (bei ocr/both)'),
+        'process_id': fields.String(description='Prozess-ID')
+    })),
+    'error': fields.Nested(api.model('PDFError', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    }))
 })
 
-image_response = api.model('ImageResponse', {
-    'dimensions': fields.Raw(description='Bildabmessungen (Breite x Höhe)'),
-    'format': fields.String(description='Bildformat'),
-    'metadata': fields.Raw(description='Bild Metadaten'),
-    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+imageocr_response = api.model('ImageOCRResponse', {
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(api.model('ImageOCRRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(api.model('ImageOCRProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(api.model('ImageOCRData', {
+        'metadata': fields.Nested(api.model('ImageOCRMetadata', {
+            'file_name': fields.String(description='Dateiname'),
+            'file_size': fields.Integer(description='Dateigröße in Bytes'),
+            'dimensions': fields.String(description='Bildabmessungen'),
+            'format': fields.String(description='Bildformat'),
+            'color_mode': fields.String(description='Farbmodus'),
+            'dpi': fields.Raw(description='DPI-Informationen'),
+            'process_dir': fields.String(description='Verarbeitungsverzeichnis')
+        })),
+        'extracted_text': fields.String(description='Extrahierter Text'),
+        'process_id': fields.String(description='Prozess-ID')
+    }))
 })
 
 youtube_response = api.model('YoutubeResponse', {
-    'title': fields.String(description='Video Titel'),
-    'duration': fields.Integer(description='Video Länge in Sekunden'),
-    'audio_extracted': fields.Boolean(description='Audio wurde extrahiert'),
-    'transcript': fields.String(description='Transkribierter Text (wenn verfügbar)'),
-    'summary': fields.String(description='Zusammenfassung (wenn angefordert)'),
-    'metadata': fields.Raw(description='Video Metadaten'),
-    'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking')
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(api.model('YoutubeRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(api.model('YoutubeProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(api.model('YoutubeData', {
+        'metadata': fields.Raw(description='Video Metadaten'),
+        'transcription': fields.Raw(description='Transkriptionsergebnis (wenn verfügbar)')
+    })),
+    'error': fields.Nested(api.model('YoutubeError', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    }))
 })
 
 audio_response = api.model('AudioResponse', {
@@ -195,38 +373,33 @@ audio_response = api.model('AudioResponse', {
 # Model für Audio-Upload Parameter
 upload_parser = api.parser()
 upload_parser.add_argument('file',
-                          type=werkzeug.datastructures.FileStorage,
+                          type=FileStorage,
                           location='files',
                           required=True,
                           help='Audio file (MP3, WAV, or M4A)')
+upload_parser.add_argument('source_language',
+                          type=str,
+                          location='form',
+                          default='de',
+                          help='Quellsprache der Audio-Datei (ISO 639-1)')
 upload_parser.add_argument('target_language',
                           type=str,
                           location='form',
-                          default='en',
-                          help='Target language (e.g., "en", "de")')
+                          default='de',
+                          help='Zielsprache für die Transkription (ISO 639-1)')
 upload_parser.add_argument('template',
                           type=str,
                           location='form',
                           default='',
-                          help='Vorlage für die Verarbeitung')
+                          help='Template für die Transformation')
 
-@blueprint.before_request
-def check_rate_limit():
-    """Prüft das Rate Limit vor jeder Anfrage"""
-    ip = request.remote_addr
-    endpoint = request.endpoint
-    
-    if not rate_limiter.is_allowed(ip):
-        logger.warning("Rate Limit überschritten", ip=ip, endpoint=endpoint)
-        raise RateLimitExceeded("Rate Limit überschritten")
-
-@api.errorhandler(ProcessingError)
-@api.errorhandler(FileSizeLimitExceeded)
-@api.errorhandler(RateLimitExceeded)
-def handle_processing_error(error):
+@api.errorhandler(ProcessingError)  # type: ignore
+@api.errorhandler(FileSizeLimitExceeded)  # type: ignore
+@api.errorhandler(RateLimitExceeded)  # type: ignore
+def handle_processing_error(error: Exception) -> tuple[Dict[str, str], int]:
     """Globaler Fehlerhandler für Verarbeitungsfehler"""
     logger.error("API Fehler",
-                error=str(error),
+                error=error,
                 error_type=error.__class__.__name__,
                 endpoint=request.endpoint,
                 ip=request.remote_addr)
@@ -234,180 +407,303 @@ def handle_processing_error(error):
 
 @api.route('/process-pdf')
 class PDFEndpoint(Resource):
-    @api.expect(file_upload)
+    @api.expect(pdf_upload_parser)
     @api.response(200, 'Erfolg', pdf_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen')
-    async def post(self):
-        tracker = get_performance_tracker()
-        try:
-            with tracker.measure_operation('pdf_processing', 'PDFProcessor'):
-                args = file_upload.parse_args()
-                uploaded_file = args['file']
+    @api.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR) oder both (beides).')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet eine PDF-Datei"""
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            tracker = get_performance_tracker()
+            process_id = str(uuid.uuid4())
+            temp_file: IO[bytes] | None = None
+            
+            try:
+                args = pdf_upload_parser.parse_args()
+                uploaded_file = cast(FileStorage, args['file'])
+                extraction_method = args.get('extraction_method', 'native')
+                template = args.get('template')
+                context_str = args.get('context')
+                context = json.loads(context_str) if context_str else None
+                
+                if not uploaded_file.filename:
+                    raise ProcessingError("Kein Dateiname angegeben")
+                
+                # Speichere Datei temporär
+                suffix = Path(uploaded_file.filename).suffix
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                uploaded_file.save(temp_file.name)
+                temp_file.close()
                 
                 # Verarbeitung der PDF-Datei
-                processor = get_pdf_processor(tracker.process_id)
-                result = await processor.process(uploaded_file)
+                processor = get_pdf_processor(process_id)
                 
-                # Füge Ressourcenverbrauch zum Tracker hinzu
-                tracker.eval_result(result)
-                
-                return result.to_dict()
-                
-        except Exception as e:
-            logger.error("Fehler bei der PDF-Verarbeitung", error=str(e))
-            logger.error(traceback.format_exc())
-            raise
-
-@api.route('/process-image')
-class ImageEndpoint(Resource):
-    @api.expect(file_upload)
-    @api.response(200, 'Erfolg', image_response)
-    @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet ein Bild und extrahiert Informationen')
-    async def post(self):
-        """Bild verarbeiten"""
-        args = file_upload.parse_args()
-        file = args['file']
-        image_processor = None
-        tracker = get_performance_tracker()
-        
-        if not any(file.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
-            return {'error': 'Nur PNG/JPG Dateien erlaubt'}, 400
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as temp_file:
-            file.save(temp_file.name)
-            try:
-                image_processor = get_image_processor(tracker.process_id)
-                result = await image_processor.process(temp_file.name)
-                
-                # Füge Ressourcenverbrauch zum Tracker hinzu
-                tracker.eval_result(result)
+                if tracker:
+                    with tracker.measure_operation('pdf_processing', 'PDFProcessor'):
+                        result = await processor.process(
+                            temp_file.name,
+                            template=template,
+                            context=context,
+                            extraction_method=extraction_method
+                        )
+                        tracker.eval_result(result)
+                else:
+                    result = await processor.process(
+                        temp_file.name,
+                        template=template,
+                        context=context,
+                        extraction_method=extraction_method
+                    )
                 
                 return result.to_dict()
+                
             except Exception as e:
-                logger.error("Bild-Verarbeitungsfehler", error=str(e))
-                raise
+                logger.error("Fehler bei der PDF-Verarbeitung", error=e)
+                logger.error(traceback.format_exc())
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': type(e).__name__,
+                        'message': str(e),
+                        'details': {
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()
+                        }
+                    }
+                }, 400
             finally:
-                os.unlink(temp_file.name)
-                if image_processor:
-                    image_processor.logger.info("Bild-Verarbeitung beendet")
+                if temp_file and os.path.exists(temp_file.name):
+                    try:
+                        os.unlink(temp_file.name)
+                    except Exception as e:
+                        logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+        
+        # Führe die asynchrone Verarbeitung aus
+        return asyncio.run(process_request())
+
+@api.route('/process-imageocr')
+class ImageOCREndpoint(Resource):
+    @api.expect(imageocr_upload_parser)
+    @api.response(200, 'Erfolg', imageocr_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Bild und extrahiert Text mittels OCR')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Bild mit OCR verarbeiten"""
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            from werkzeug.datastructures import ImmutableMultiDict, FileStorage
+            
+            args: ImmutableMultiDict[str, Any] = imageocr_upload_parser.parse_args()
+            uploaded_file: FileStorage = cast(FileStorage, args.get('file'))
+            template: Optional[str] = cast(Optional[str], args.get('template'))
+            context_str: Optional[str] = cast(Optional[str], args.get('context'))
+            context: Optional[Dict[str, Any]] = json.loads(context_str) if context_str else None
+                
+            if not uploaded_file.filename:
+                raise ProcessingError("Kein Dateiname angegeben")
+                
+            tracker: PerformanceTracker | None = get_performance_tracker()
+            process_id = str(uuid.uuid4())
+            imageocr_processor: ImageOCRProcessor = get_imageocr_processor(process_id)
+            temp_file: IO[bytes] | None = None
+            
+            if not any(uploaded_file.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg']):
+                return {'error': 'Nur PNG/JPG Dateien erlaubt'}, 400
+            
+            try:
+                # Speichere Datei temporär
+                suffix = Path(uploaded_file.filename).suffix
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                uploaded_file.save(temp_file.name)
+                temp_file.close()
+                
+                result: ImageOCRResponse = await imageocr_processor.process(
+                    file_path=temp_file.name,
+                    template=template,
+                    context=context
+                )
+                
+                if tracker:
+                    tracker.eval_result(result)
+                
+                return result.to_dict()
+                
+            except Exception as e:
+                error_response: Dict[str, Any] = {
+                    'status': 'error',
+                    'error': {
+                        'code': 'ProcessingError',
+                        'message': f'Fehler bei der OCR-Verarbeitung: {e}'
+                    }
+                }
+                logger.error("OCR-Verarbeitungsfehler", error=e)
+                return error_response, 400
+                
+            finally:
+                if temp_file and os.path.exists(temp_file.name):
+                    try:
+                        os.unlink(temp_file.name)
+                    except Exception as e:
+                        logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+                if imageocr_processor and imageocr_processor.logger:
+                    imageocr_processor.logger.info("OCR-Verarbeitung beendet")
+                    
+        return asyncio.run(process_request())
 
 @api.route('/process-youtube')
 class YoutubeEndpoint(Resource):
-    # Definiere das Request-Model für Swagger
-    youtube_request = api.model('YoutubeRequest', {
-        'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
-        'target_language': fields.String(required=True, default='de', description='Zielsprache (ISO 639-1 code)'),
-        'template': fields.String(required=False, default='Youtube', description='Template-Name (ohne .md Endung)')
-    })
-
-    @api.expect(youtube_request)
-    def post(self):
+    @api.expect(youtube_input)
+    @api.response(200, 'Erfolg', youtube_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Youtube-Video')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet ein Youtube-Video"""
-        youtube_processor = None
-        tracker = get_performance_tracker()
+        process_id = str(uuid.uuid4())
+        tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+        youtube_processor: YoutubeProcessor = get_youtube_processor(process_id)
         
         try:
             data = request.get_json()
+            if not data:
+                raise ProcessingError("Keine Daten erhalten")
+                
             url = data.get('url')
+            source_language = data.get('source_language', 'auto')
             target_language = data.get('target_language', 'de')
             template = data.get('template')
 
             if not url:
-                raise ValueError("Youtube-URL ist erforderlich")
+                raise ProcessingError("Youtube-URL ist erforderlich")
 
-            youtube_processor = get_youtube_processor(tracker.process_id)
-            result = asyncio.run(youtube_processor.process(
+            result: YoutubeResponse = asyncio.run(youtube_processor.process(
                 file_path=url,
+                source_language=source_language,
                 target_language=target_language,
                 template=template
             ))
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
             
-            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker and hasattr(tracker, 'eval_result'):
+                tracker.eval_result(result)
+            
             return result.to_dict()
             
         except ValueError as ve:
             logger.error("Validierungsfehler",
-                        error=str(ve),
+                        error=ve,
                         error_type="ValidationError",
-                        process_id=tracker.process_id if tracker else None)
-            raise
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }
         except Exception as e:
             logger.error("Youtube-Verarbeitungsfehler",
-                        error=str(e),
+                        error=e,
                         error_type=type(e).__name__,
                         stack_trace=traceback.format_exc(),
-                        process_id=tracker.process_id if tracker else None)
-            raise
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
         finally:
-            if youtube_processor:
+            if youtube_processor and youtube_processor.logger:
                 youtube_processor.logger.info("Youtube-Verarbeitung beendet")
 
 @api.route('/process-audio')
 class AudioEndpoint(Resource):
+    """Audio-Verarbeitungs-Endpunkt."""
+    
     def _safe_delete(self, file_path: Union[str, Path]) -> None:
-        """Löscht eine Datei sicher und ignoriert Fehler wenn die Datei nicht gelöscht werden kann."""
+        """Löscht eine Datei sicher."""
         try:
-            if file_path and os.path.exists(str(file_path)):
-                os.unlink(str(file_path))
+            path = Path(file_path)
+            if path.exists():
+                path.unlink()
         except Exception as e:
-            logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+            logger.warning("Konnte temporäre Datei nicht löschen", error=e)
 
     @api.expect(upload_parser)
     @api.response(200, 'Erfolg', audio_response)
     @api.response(400, 'Validierungsfehler', error_model)
     @api.doc(description='Verarbeitet eine Audio-Datei')
-    def post(self):
-        """Audio-Datei verarbeiten"""
-        temp_file = None
-        audio_processor = None
-        tracker = get_performance_tracker()
-        
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        source_language: str = 'de'  # Default-Wert
+        target_language: str = 'de'  # Default-Wert
         try:
+            # Parse request
             args = upload_parser.parse_args()
-            file = args['file']
-            target_language = args['target_language']
-            template = args['template']
-            
-            if not any(file.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.m4a']):
-                return {'error': 'Nur MP3/WAV/M4A Dateien erlaubt'}, 400
-            
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix)
-            file.save(temp_file.name)
-            temp_file.close()
-            
+            audio_file = args.get('file')
+            source_language = args.get('source_language', 'de')
+            target_language = args.get('target_language', 'de')
+            template = args.get('template', '')
+
+            if not audio_file:
+                raise ValueError("Keine Audio-Datei gefunden")
+
+            # Validiere Dateiformat
+            filename = audio_file.filename.lower()
+            supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'}
+            file_ext = Path(filename).suffix.lstrip('.')
             source_info = {
-                'original_filename': file.filename
+                'original_filename': audio_file.filename,
+                'file_size': audio_file.content_length,
+                'file_type': audio_file.content_type,
+                'file_ext': file_ext
             }
-            audio_processor = get_audio_processor(tracker.process_id)
-            result = asyncio.run(audio_processor.process(
-                temp_file.name,
-                source_info=source_info,
-                target_language=target_language,
-                template=template
-            ))
-            
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
-            
-            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
-            return result.to_dict()
+
+            if file_ext not in supported_formats:
+                raise ProcessingError(
+                    f"Das Format '{file_ext}' wird nicht unterstützt. Unterstützte Formate: {', '.join(supported_formats)}",
+                    details={'error_type': 'INVALID_FORMAT', 'supported_formats': list(supported_formats)}
+                )
+
+            # Verarbeite die Datei
+            result = asyncio.run(process_file(audio_file, source_info, source_language, target_language, template)) 
+
+            return result
+
+        except ProcessingError as e:
+            logger.error("Audio-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        target_language=target_language)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': getattr(e, 'details', None)
+                }
+            }, 400
             
         except Exception as e:
-            logger.error("Audio-Verarbeitungsfehler",
-                        error=str(e),
+            logger.error("Unerwarteter Fehler bei der Audio-Verarbeitung",
+                        error=e,
                         error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc(),
-                        process_id=tracker.process_id if tracker else None)
-            raise
-        finally:
-            if temp_file:
-                self._safe_delete(temp_file.name)
-            if audio_processor:
-                audio_processor.logger.info("Audio-Verarbeitung beendet")
+                        target_language=target_language)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'INTERNAL_ERROR',
+                    'message': 'Ein unerwarteter Fehler ist aufgetreten',
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                }
+            }, 500
 
 def _truncate_text(text: str, max_length: int = 50) -> str:
     """Kürzt einen Text auf die angegebene Länge und fügt '...' hinzu wenn gekürzt wurde."""
@@ -415,28 +711,16 @@ def _truncate_text(text: str, max_length: int = 50) -> str:
         return text
     return text[:max_length].rstrip() + "..."
 
-def _convert_llms_to_requests(llms: list) -> list:
-    """Konvertiert LLM-Modelle in das API-Response-Format."""
-    if not llms:
-        return []
-    return [{
-        'model': llm.model,
-        'purpose': 'transformation',
-        'tokens': llm.tokens,
-        'duration': llm.duration,
-        'timestamp': datetime.now().isoformat()
-    } for llm in llms]
-
 @api.route('/transform-text')
-class TextTransformEndpoint(Resource):
+class TransformTextResource(Resource):
+    @api.doc('transform_text')
     @api.expect(api.model('TransformTextInput', {
         'text': fields.String(required=True, description='Der zu transformierende Text'),
-        'source_language': fields.String(default='en', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'target_language': fields.String(default='en', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'summarize': fields.Boolean(default=False, description='Text zusammenfassen'),
-        'target_format': fields.String(default='text', enum=['text', 'html', 'markdown'], description='Ausgabeformat des transformierten Texts')
+        'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
+        'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
+        'summarize': fields.Boolean(default=False, description='Optional: Text zusammenfassen')
     }))
-    @api.response(200, 'Erfolg', api.model('TransformerResponse', {
+    @api.response(200, 'Erfolg', api.model('TransformTextResponse', {
         'status': fields.String(description='Status der Verarbeitung (success/error)'),
         'request': fields.Nested(api.model('RequestInfo', {
             'processor': fields.String(description='Name des Prozessors'),
@@ -446,24 +730,23 @@ class TextTransformEndpoint(Resource):
         'process': fields.Nested(api.model('ProcessInfo', {
             'id': fields.String(description='Eindeutige Prozess-ID'),
             'main_processor': fields.String(description='Hauptprozessor'),
-            'sub_processors': fields.List(fields.String, description='Unterprozessoren'),
             'started': fields.String(description='Startzeitpunkt'),
             'completed': fields.String(description='Endzeitpunkt'),
             'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
-            'llm_info': fields.Nested(api.model('LLMInfo', {
-                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
-                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
-                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
-                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
-                    'model': fields.String(description='Name des verwendeten Modells'),
-                    'purpose': fields.String(description='Zweck der Anfrage'),
-                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
-                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
-                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
-                })))
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('TransformData', {
+            'input': fields.Nested(api.model('InputData', {
+                'text': fields.String(description='Ursprünglicher Text'),
+                'language': fields.String(description='Quellsprache'),
+                'format': fields.String(description='Eingabeformat')
+            })),
+            'output': fields.Nested(api.model('OutputData', {
+                'text': fields.String(description='Transformierter Text'),
+                'language': fields.String(description='Zielsprache'),
+                'format': fields.String(description='Ausgabeformat')
             }))
         })),
-        'data': fields.Raw(description='Transformationsergebnis'),
         'error': fields.Nested(api.model('ErrorInfo', {
             'code': fields.String(description='Fehlercode'),
             'message': fields.String(description='Fehlermeldung'),
@@ -471,101 +754,44 @@ class TextTransformEndpoint(Resource):
         }))
     }))
     def post(self):
-        """Text transformieren"""
-        data = request.get_json()
-        tracker = get_performance_tracker()
-        
+        """Transformiert Text mit optionaler Zusammenfassung."""
         try:
-            # Zeitmessung für Gesamtprozess starten
-            process_start = time.time()
-            
-            transformer_processor = get_transformer_processor(tracker.process_id)
-            result = transformer_processor.transform(
-                source_text=data['text'],
-                source_language=data.get('source_language', 'en'),
-                target_language=data.get('target_language', 'en'),
-                summarize=data.get('summarize', False),
-                target_format=data.get('target_format', 'text')
+            data: Any = request.get_json()
+            if not data:
+                raise ValueError("Keine Daten erhalten")
+
+            # Extrahiere Parameter
+            source_text = data.get('text')
+            source_language = data.get('source_language', 'de')
+            target_language = data.get('target_language', 'de')
+            summarize = data.get('summarize', False)
+
+            # Validiere Eingaben
+            if not source_text:
+                raise ValueError("text ist erforderlich")
+
+            # Erstelle Transformer Processor
+            processor = get_transformer_processor(str(uuid.uuid4()))
+
+            # Transformiere Text
+            result = processor.transform(
+                source_text=source_text,
+                source_language=source_language,
+                target_language=target_language,
+                summarize=summarize
             )
 
-            # Gesamtprozessdauer in Millisekunden berechnen
-            process_duration = int((time.time() - process_start) * 1000)
+            # Die Response ist bereits standardisiert durch ResponseFactory
+            return result.to_dict()
 
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
-            
-            # Erstelle TransformerResponse
-            response = {
-                'status': 'success',
-                'request': {
-                    'processor': 'transformer',
-                    'timestamp': datetime.now().isoformat(),
-                    'parameters': {
-                        'source_text': _truncate_text(data['text']),
-                        'source_language': data.get('source_language', 'en'),
-                        'target_language': data.get('target_language', 'en'),
-                        'summarize': data.get('summarize', False),
-                        'target_format': data.get('target_format', 'text')
-                    }
-                },
-                'process': {
-                    'id': tracker.process_id,
-                    'main_processor': 'transformer',
-                    'sub_processors': ['openai'] if hasattr(result, 'llms') and result.llms else [],
-                    'started': datetime.fromtimestamp(process_start).isoformat(),
-                    'completed': datetime.now().isoformat(),
-                    'duration': process_duration,
-                    'llm_info': {
-                        'requests_count': len(result.llms) if hasattr(result, 'llms') else 0,
-                        'total_tokens': sum(llm.tokens for llm in result.llms) if hasattr(result, 'llms') else 0,
-                        'total_duration': sum(llm.duration for llm in result.llms) if hasattr(result, 'llms') else 0,
-                        'requests': [{
-                            'model': llm.model,
-                            'purpose': 'transformation',
-                            'tokens': llm.tokens,
-                            'duration': llm.duration,
-                            'timestamp': datetime.now().isoformat()
-                        } for llm in (result.llms if hasattr(result, 'llms') else [])]
-                    }
-                },
-                'data': {
-                    'input': {
-                        'text': data['text'],
-                        'language': data.get('source_language', 'en')
-                    },
-                    'output': {
-                        'text': result.text,
-                        'language': result.target_language
-                    }
-                }
-            }
-            
-            return response
-
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
-            return {
-                "status": "error",
-                "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e)
-                }
-            }, 400
         except Exception as e:
-            logger.error("Fehler bei der Text-Transformation",
-                        error=str(e),
-                        traceback=traceback.format_exc())
-            return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Text-Transformation: {str(e)}"
-                }
-            }, 400
+            api.abort(400, str(e))
 
 @api.route('/transform-template')
 class TemplateTransformEndpoint(Resource):
     @api.expect(api.model('TransformTemplateInput', {
         'text': fields.String(required=True, description='Der zu transformierende Text'),
+        'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
         'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
         'template': fields.String(required=True, description='Name des Templates (ohne .md Endung)'),
         'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung')
@@ -584,18 +810,7 @@ class TemplateTransformEndpoint(Resource):
             'started': fields.String(description='Startzeitpunkt'),
             'completed': fields.String(description='Endzeitpunkt'),
             'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
-            'llm_info': fields.Nested(api.model('LLMInfo', {
-                'requests_count': fields.Integer(description='Anzahl der LLM-Anfragen'),
-                'total_tokens': fields.Integer(description='Gesamtanzahl der Tokens'),
-                'total_duration': fields.Float(description='Gesamtdauer in Millisekunden'),
-                'requests': fields.List(fields.Nested(api.model('LLMRequest', {
-                    'model': fields.String(description='Name des verwendeten Modells'),
-                    'purpose': fields.String(description='Zweck der Anfrage'),
-                    'tokens': fields.Integer(description='Anzahl der verwendeten Tokens'),
-                    'duration': fields.Float(description='Verarbeitungsdauer in Sekunden'),
-                    'timestamp': fields.String(description='Zeitstempel der LLM-Nutzung')
-                })))
-            }))
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
         })),
         'data': fields.Raw(description='Transformationsergebnis'),
         'error': fields.Nested(api.model('ErrorInfo', {
@@ -604,64 +819,67 @@ class TemplateTransformEndpoint(Resource):
             'details': fields.Raw(description='Detaillierte Fehlerinformationen')
         }))
     }))
-    def post(self):
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
-        data = request.get_json()
-        tracker = get_performance_tracker()
+        from flask import request  # Import im Methodenkontext
+        data: Any = request.get_json()
+        tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
             # Zeitmessung für Gesamtprozess starten
             process_start = time.time()
             
-            transformer_processor = get_transformer_processor(tracker.process_id)
-            result = transformer_processor.transformByTemplate(
+            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
+            result: TransformerResponse = transformer_processor.transformByTemplate(
                 source_text=data['text'],
-                source_language=data.get('source_language', ''),
+                source_language=data.get('source_language', 'de'),
                 target_language=data.get('target_language', 'de'),
                 template=data['template'],
                 context=data.get('context', {})
             )
 
+            # Tracke LLM-Nutzung wenn vorhanden
+            if result.llm_info:
+                for request in result.llm_info.requests:
+                    _track_llm_usage(
+                        model=request.model,
+                        tokens=request.tokens,
+                        duration=request.duration,
+                        purpose='template_transformation'
+                    )
+
+            # Berechne Gesamtkosten
+            total_cost = 0.0
+            if result.llm_info:
+                for request in result.llm_info.requests:
+                    total_cost += _calculate_llm_cost(
+                        model=request.model,
+                        tokens=request.tokens
+                    )
+
             # Gesamtprozessdauer in Millisekunden berechnen
             process_duration = int((time.time() - process_start) * 1000)
 
             # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
+            if tracker:
+                tracker.eval_result(result)
             
-            # Erstelle TransformerResponse
-            response = {
-                'status': 'success',
+            # Erstelle Response
+            response: Dict[str, Any] = {
+                'status': 'error' if result.error else 'success',
                 'request': {
                     'processor': 'transformer',
                     'timestamp': datetime.now().isoformat(),
                     'parameters': {
                         'source_text': _truncate_text(data['text']),
-                        'source_language': data.get('source_language', ''),
+                        'source_language': data.get('source_language', 'de'),
                         'target_language': data.get('target_language', 'de'),
                         'template': data['template'],
-                        'context': data.get('context', {})
+                        'context': data.get('context', {}),
+                        'duration_ms': process_duration
                     }
                 },
-                'process': {
-                    'id': tracker.process_id,
-                    'main_processor': 'transformer',
-                    'sub_processors': ['openai'] if hasattr(result, 'llms') and result.llms else [],
-                    'started': datetime.fromtimestamp(process_start).isoformat(),
-                    'completed': datetime.now().isoformat(),
-                    'duration': process_duration,
-                    'llm_info': {
-                        'requests_count': len(result.llms) if hasattr(result, 'llms') else 0,
-                        'total_tokens': sum(llm.tokens for llm in result.llms) if hasattr(result, 'llms') else 0,
-                        'total_duration': sum(llm.duration for llm in result.llms) if hasattr(result, 'llms') else 0,
-                        'requests': [{
-                            'model': llm.model,
-                            'purpose': 'template_transformation',
-                            'tokens': llm.tokens,
-                            'duration': llm.duration,
-                            'timestamp': datetime.now().isoformat()
-                        } for llm in (result.llms if hasattr(result, 'llms') else [])]
-                    }
-                },
+                'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
                 'data': {
                     'input': {
                         'text': data['text'],
@@ -670,82 +888,205 @@ class TemplateTransformEndpoint(Resource):
                         'context': data.get('context', {})
                     },
                     'output': {
-                        'text': result.text,
-                        'language': result.target_language,
-                        'structured_data': result.structured_data if hasattr(result, 'structured_data') else {}
+                        'text': result.data.output.text if not result.error else None,
+                        'language': result.data.output.language if not result.error else None,
+                        'structured_data': result.data.output.structured_data if hasattr(result.data.output, 'structured_data') and not result.error else {}
                     }
                 }
             }
+
+            # Füge error-Informationen hinzu wenn vorhanden
+            if result.error:
+                response['error'] = {
+                    'code': result.error.code,
+                    'message': result.error.message,
+                    'details': result.error.details if hasattr(result.error, 'details') else {}
+                }
+                return response, 400
             
             return response
             
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
             return {
-                "status": "error",
-                "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e)
+                'status': 'error',
+                'error': {
+                    'code': error.__class__.__name__,
+                    'message': str(error),
+                    'details': {}
                 }
             }, 400
-        except Exception as e:
-            logger.error("Fehler bei der Template-Transformation",
-                        error=str(e),
-                        traceback=traceback.format_exc())
+        except Exception as error:
+            logger.error(
+                'Fehler bei der Template-Transformation',
+                error=error,
+                traceback=traceback.format_exc()
+            )
             return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Template-Transformation: {str(e)}"
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError', 
+                    'message': f'Fehler bei der Template-Transformation: {error}',
+                    'details': {}
                 }
             }, 400
 
-@api.route('/manage-audio-cache')
-class AudioCacheEndpoint(Resource):
-    @api.expect(api.model('DeleteCacheInput', {
-        'filename': fields.String(required=False, description='Name der Datei deren Cache gelöscht werden soll'),
-        'max_age_days': fields.Integer(required=False, default=7, description='Maximales Alter in Tagen für den automatischen Cleanup'),
-        'delete_transcripts': fields.Boolean(required=False, default=False, description='Wenn True, werden auch die Transkriptionen gelöscht, sonst nur die Segmente')
+@api.route('/transform-html-table')
+class HtmlTableTransformEndpoint(Resource):
+    @api.expect(api.model('TransformHtmlTableInput', {
+        'source_url': fields.String(required=True, description='Die URL der Webseite mit der HTML-Tabelle'),
+        'output_format': fields.String(default='json', enum=['json'], description='Ausgabeformat (aktuell nur JSON unterstützt)'),
+        'table_index': fields.Integer(required=False, description='Optional - Index der gewünschten Tabelle (0-basiert). Wenn nicht angegeben, werden alle Tabellen zurückgegeben.'),
+        'start_row': fields.Integer(required=False, description='Optional - Startzeile für das Paging (0-basiert)'),
+        'row_count': fields.Integer(required=False, description='Optional - Anzahl der zurückzugebenden Zeilen')
     }))
-    def delete(self):
-        """
-        Löscht Cache-Verzeichnisse für Audio-Verarbeitungen.
-        
-        Wenn filename angegeben ist, wird nur der Cache für diese Datei gelöscht.
-        Wenn max_age_days angegeben ist, werden alle Cache-Verzeichnisse gelöscht die älter sind.
-        Wenn delete_transcripts True ist, werden auch die Transkriptionen gelöscht, sonst nur die Segmente.
-        """
+    @api.response(200, 'Erfolg', api.model('HtmlTableTransformResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('RequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('ProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden')
+        })),
+        'data': fields.Nested(api.model('HtmlTableData', {
+            'input': fields.Nested(api.model('TableInput', {
+                'text': fields.String(description='Original URL'),
+                'language': fields.String(description='Eingabesprache'),
+                'format': fields.String(description='Eingabeformat')
+            })),
+            'output': fields.Nested(api.model('TableOutput', {
+                'text': fields.String(description='Transformierter Text (JSON)'),
+                'language': fields.String(description='Ausgabesprache'),
+                'format': fields.String(description='Ausgabeformat'),
+                'structured_data': fields.Raw(description='Strukturierte Tabellendaten', example={
+                    "url": "https://example.com",
+                    "table_count": 1,
+                    "tables": [{
+                        "table_index": 0,
+                        "headers": ["Name", "Alter"],
+                        "rows": [{"Name": "Max", "Alter": "30"}],
+                        "metadata": {
+                            "total_rows": 1,
+                            "column_count": 2,
+                            "has_group_info": False,
+                            "paging": {
+                                "start_row": 0,
+                                "row_count": 1,
+                                "has_more": False
+                            }
+                        }
+                    }]
+                })
+            }))
+        })),
+        'error': fields.Nested(api.model('ErrorInfo', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """HTML-Tabellen von einer Webseite in JSON transformieren"""
+        data = request.get_json()
         tracker = get_performance_tracker()
+        process_start = time.time()
         
         try:
-            data = request.get_json() or {}
-            filename = data.get('filename')
-            max_age_days = data.get('max_age_days', 7)
-            delete_transcripts = data.get('delete_transcripts', False)
+            # Konvertiere numerische Parameter explizit zu Integer
+            table_index = int(data.get('table_index')) if data.get('table_index') is not None else None
+            start_row = int(data.get('start_row')) if data.get('start_row') is not None else None
+            row_count = int(data.get('row_count')) if data.get('row_count') is not None else None
+
+            transformer_processor = get_transformer_processor(tracker.process_id if tracker else None)
+            result = transformer_processor.transformHtmlTable(
+                source_url=data['source_url'],
+                output_format=data.get('output_format', 'json'),
+                table_index=table_index,
+                start_row=start_row,
+                row_count=row_count
+            )
+
+            # Gesamtprozessdauer in Millisekunden berechnen
+            process_duration = int((time.time() - process_start) * 1000)
+
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker:
+                tracker.eval_result(result)
             
-            # Initialisiere AudioProcessor mit der Tracker process_id
-            audio_processor = get_audio_processor(tracker.process_id)
-            
-            if filename:
-                audio_processor.delete_cache(filename, delete_transcript=delete_transcripts)
-                msg = 'komplett' if delete_transcripts else 'Segmente'
-                logger.info("Cache für spezifische Datei gelöscht", 
-                          filename=filename, 
-                          delete_transcripts=delete_transcripts)
-                return {'message': f'Cache für {filename} wurde {msg} gelöscht'}
-            else:
-                audio_processor.cleanup_cache(max_age_days, delete_transcripts=delete_transcripts)
-                msg = 'komplett' if delete_transcripts else 'Segmente'
-                logger.info("Alte Cache-Verzeichnisse gelöscht", 
-                          max_age_days=max_age_days, 
-                          delete_transcripts=delete_transcripts)
-                return {'message': f'Alte Cache-Verzeichnisse (>{max_age_days} Tage) wurden {msg} gelöscht'}
-                
-        except Exception as e:
-            logger.error("Cache-Management Fehler",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc())
-            return {'error': str(e)}, 500
+            # Erstelle Response
+            response = {
+                'status': 'success',
+                'request': {
+                    'processor': 'transformer',
+                    'timestamp': datetime.now().isoformat(),
+                    'parameters': {
+                        'source_url': data['source_url'],
+                        'output_format': data.get('output_format', 'json'),
+                        'table_index': data.get('table_index'),
+                        'start_row': data.get('start_row'),
+                        'row_count': data.get('row_count'),
+                        'duration_ms': process_duration
+                    }
+                },
+                'process': {
+                    'id': tracker.process_id if tracker else None,
+                    'main_processor': 'transformer',
+                    'started': datetime.fromtimestamp(process_start).isoformat(),
+                    'completed': datetime.now().isoformat(),
+                    'duration': process_duration
+                },
+                'data': {
+                    'input': {
+                        'text': result.data.input.text,
+                        'language': result.data.input.language,
+                        'format': result.data.input.format.value
+                    },
+                    'output': {
+                        'text': result.data.output.text,
+                        'language': result.data.output.language,
+                        'format': result.data.output.format.value,
+                        'structured_data': result.data.output.structured_data
+                    }
+                }
+            }
+
+            if result.error:
+                response['error'] = {
+                    'code': result.error.code,
+                    'message': result.error.message,
+                    'details': result.error.details
+                }
+                return response, 400
+
+            return response
+
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
+            return {
+                'status': 'error',
+                'error': {
+                    'code': error.__class__.__name__,
+                    'message': str(error)
+                }
+            }, 400
+        except Exception as error:
+            logger.error(
+                'Fehler bei der HTML-Tabellen-Transformation',
+                error=error,
+                traceback=traceback.format_exc()
+            )
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError',
+                    'message': f'Fehler bei der HTML-Tabellen-Transformation: {error}'
+                }
+            }, 400
+
 
 @api.route('/')
 class Home(Resource):
@@ -870,7 +1211,7 @@ metadata_response = api.model('MetadataResponse', {
 metadata_upload_parser = api.parser()
 metadata_upload_parser.add_argument(
     'file', 
-    type=werkzeug.datastructures.FileStorage, 
+    type=FileStorage, 
     location='files',
     required=True,
     help='Die zu analysierende Datei'
@@ -890,89 +1231,448 @@ metadata_upload_parser.add_argument(
     help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
 )
 
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '') -> Dict[str, Any]:
+    """
+    Verarbeitet eine hochgeladene Datei.
+    
+    Args:
+        uploaded_file: Die hochgeladene Datei
+        source_language: Die Quellsprache der Audio-Datei
+        target_language: Die Zielsprache für die Verarbeitung
+        template: Optional Template für die Verarbeitung
+        
+    Returns:
+        Dict mit den Verarbeitungsergebnissen
+    
+    Raises:
+        ProcessingError: Wenn die Verarbeitung fehlschlägt
+    """
+    if not uploaded_file:
+        raise ProcessingError("Keine Datei hochgeladen")
+        
+    # Erstelle temporäre Datei
+    temp_file: IO[bytes] | None = None
+    try:
+        # Speichere Upload in temporärer Datei
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        uploaded_file.save(temp_file.name)
+        
+        # Verarbeite die Datei
+        process_id = str(uuid.uuid4())
+        processor: AudioProcessor = get_audio_processor(process_id)
+        result: AudioResponse = await processor.process(
+            audio_source=temp_file.name,
+            source_info=source_info,
+            source_language=source_language,
+            target_language=target_language,
+            template=template
+        )
+        return result.to_dict()
+        
+    finally:
+        # Räume auf
+        if temp_file:
+            temp_file.close()
+            try:
+                os.unlink(temp_file.name)
+            except OSError:
+                pass
+
 @api.route('/extract-metadata')
 class MetadataEndpoint(Resource):
     @api.expect(metadata_upload_parser)
     @api.response(200, 'Erfolg', metadata_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Extrahiert Metadaten aus einer Datei')
-    def post(self):
-        """Extrahiert Metadaten aus einer Datei."""
-        temp_file = None
-        try:
-            # Performance Tracking
-            process_id = str(uuid.uuid4())
-            tracker = get_performance_tracker(process_id)
-            
+    def post(self) -> Union[MetadataEndpointResponse, tuple[Dict[str, Any], int]]:
+        async def process_request() -> Union[MetadataEndpointResponse, tuple[Dict[str, Any], int]]:
             args = metadata_upload_parser.parse_args()
-            file = args['file']
+            uploaded_file = args.get('file')
+            content = args.get('content')
+            context = args.get('context')
             
-            # Rate Limiting und Validierung
-            if not rate_limiter.check_file_size(file.content_length):
-                raise FileSizeLimitExceeded(f"Datei zu groß: {file.content_length} Bytes")
-            
-            # Parse optionalen Kontext
-            context = {}
-            if args.get('context'):
-                try:
-                    context = json.loads(args['context'])
-                except json.JSONDecodeError:
-                    raise ProcessingError("Ungültiger JSON-Kontext")
-            
-            # Speichere Datei temporär
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix)
-            file.save(temp_file.name)
-            temp_file.close()
-            
-            # Verarbeite Datei
-            processor = get_metadata_processor(process_id)
-            result = asyncio.run(processor.extract_metadata(
-                binary_data=Path(temp_file.name),
-                content=args.get('content'),
-                context=context
-            ))
-            
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            tracker.eval_result(result)
-            
-            # Konvertiere das Pydantic Model in ein Dictionary für die API-Antwort
-            response_data = result.to_dict()
-            
-            # Füge Transformer als Sub-Processor hinzu wenn Content-Metadaten vorhanden sind
-            if response_data.get("data", {}).get("content_available"):
-                if "sub_processors" not in response_data["process"]:
-                    response_data["process"]["sub_processors"] = []
-                response_data["process"]["sub_processors"].append("transformer")
-            
-            # Prüfe auf Fehler im Result
-            if response_data.get("status") == "error":
-                return response_data, 400
+            # Prozess-Tracking initialisieren
+            process_id = str(uuid.uuid4())
+            tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+            process_start: float = time.time()
                 
-            return response_data
-            
-        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            try:
+                processor: MetadataProcessor = get_metadata_processor(process_id)
+                result: MetadataResponse = await processor.process(
+                    binary_data=uploaded_file,
+                    content=content,
+                    context=context
+                )
+                
+                # Berechne Prozessdauer
+                process_duration = int((time.time() - process_start) * 1000)
+                
+                # Füge Ressourcenverbrauch zum Tracker hinzu
+                if tracker:
+                    tracker.eval_result(result)
+                
+                # Response erstellen
+                response: MetadataEndpointResponse = {
+                    'status': 'error' if result.error else 'success',
+                    'request': {
+                        'processor': 'metadata',
+                        'timestamp': datetime.now().isoformat(),
+                        'parameters': {
+                            'has_file': uploaded_file is not None,
+                            'has_content': content is not None,
+                            'context': context,
+                            'duration_ms': process_duration
+                        }
+                    },
+                    'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
+                    'data': {
+                        'technical': result.data.technical.to_dict() if result.data.technical else None,
+                        'content': result.data.content.to_dict() if result.data.content else None
+                    },
+                    'error': None
+                }
+
+                # Fehlerbehandlung
+                if result.error:
+                    response['error'] = {
+                        'code': result.error.code,
+                        'message': result.error.message,
+                        'details': result.error.details if hasattr(result.error, 'details') else {}
+                    }
+                    return response, 400
+                
+                return response
+                
+            except Exception as error:
+                error_response: Dict[str, Any] = {
+                    "status": "error",
+                    "request": {},
+                    "process": {},
+                    "data": {},
+                    "error": {
+                        "code": "ProcessingError",
+                        "message": f"Fehler bei der Metadaten-Extraktion: {str(error)}",
+                        "details": {
+                            "error_type": type(error).__name__,
+                            "traceback": traceback.format_exc()
+                        }
+                    }
+                }
+                logger.error(
+                    "Fehler bei der Metadaten-Extraktion",
+                    error=error,
+                    traceback=traceback.format_exc()
+                )
+                return error_response, 400
+
+        # Führe die asynchrone Verarbeitung aus und warte auf das Ergebnis
+        return asyncio.run(process_request())
+
+@api.route('/process-video')
+class VideoEndpoint(Resource):
+    @api.expect(api.model('VideoRequest', {
+        'url': fields.String(required=False, description='URL des Videos'),
+        'file': fields.Raw(required=False, description='Hochgeladene Video-Datei'),
+        'target_language': fields.String(required=False, default='de', description='Zielsprache für die Transkription'),
+        'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
+        'template': fields.String(required=False, description='Optional Template für die Verarbeitung')
+    }))
+    @api.response(200, 'Erfolg', youtube_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Video und extrahiert den Audio-Inhalt')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Verarbeitet ein Video und extrahiert den Audio-Inhalt.
+        Unterstützt sowohl URLs als auch Datei-Uploads.
+        """
+        try:
+            # Initialisiere Variablen
+            source: VideoSource
+            target_language: str = 'de'
+            source_language: str = 'auto'
+            template: Optional[str] = None
+
+            # Prüfe ob Datei oder URL
+            if request.files and 'file' in request.files:
+                # File Upload
+                uploaded_file: FileStorage = request.files['file']
+                file_content = uploaded_file.read()
+                source = VideoSource(
+                    file=file_content,
+                    file_name=uploaded_file.filename
+                )
+                # Parameter aus form-data
+                target_language = request.form.get('target_language', 'de')
+                source_language = request.form.get('source_language', 'auto')
+                template = request.form.get('template')
+            else:
+                # JSON Request
+                data = request.get_json()
+                if not data or 'url' not in data:
+                    raise ProcessingError("Entweder URL oder Datei muss angegeben werden")
+                source = VideoSource(url=data['url'])
+                # Parameter aus JSON
+                target_language = data.get('target_language', 'de')
+                source_language = data.get('source_language', 'auto')
+                template = data.get('template')
+
+            # Initialisiere Prozessor
+            process_id = str(uuid.uuid4())
+            processor = VideoProcessor(resource_calculator, process_id)
+
+            # Verarbeite Video
+            result: VideoResponse = asyncio.run(processor.process(
+                source=source,
+                target_language=target_language,
+                source_language=source_language,
+                template=template
+            ))
+
+            return result.to_dict()
+
+        except ProcessingError as e:
             return {
-                "status": "error",
-                "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e)
+                'status': 'error',
+                'error': {
+                    'code': 'PROCESSING_ERROR',
+                    'message': str(e),
+                    'details': getattr(e, 'details', {})
                 }
             }, 400
         except Exception as e:
-            logger.error("Fehler bei der Metadaten-Extraktion",
-                        error=str(e),
-                        traceback=traceback.format_exc())
+            logger.error("Video-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
             return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Metadaten-Extraktion: {str(e)}"
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
                 }
-            }, 400
-        finally:
-            # Räume temporäre Datei auf
-            if temp_file and os.path.exists(temp_file.name):
-                try:
-                    os.unlink(temp_file.name)
-                except Exception as e:
-                    logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+            }, 500
+
+@api.route('/samples')
+class SamplesEndpoint(Resource):
+    @api.doc(description='Listet alle verfügbaren Beispieldateien auf')
+    def get(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Gibt eine Liste aller verfügbaren Beispieldateien zurück."""
+        try:
+            # Samples-Verzeichnis
+            samples_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / 'tests' / 'samples'
+            
+            # Dateien auflisten
+            files: list[dict[str, Any]] = []
+            for file_path in samples_dir.glob('*'):
+                if file_path.is_file():
+                    files.append({
+                        'name': file_path.name,
+                        'size': file_path.stat().st_size,
+                        'type': file_path.suffix.lstrip('.'),
+                        'url': f'/api/samples/{file_path.name}'
+                    })
+            
+            return {
+                'status': 'success',
+                'data': {
+                    'files': files
+                }
+            }
+        except Exception as e:
+            logger.error("Fehler beim Auflisten der Beispieldateien",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'SAMPLE_LIST_ERROR',
+                    'message': str(e)
+                }
+            }, 500
+
+@api.route('/samples/<string:filename>')
+class SampleFileEndpoint(Resource):
+    @api.doc(description='Lädt eine bestimmte Beispieldatei herunter')
+    @api.response(200, 'Erfolg')
+    @api.response(404, 'Datei nicht gefunden')
+    def get(self, filename: str) -> Any:
+        """Lädt eine bestimmte Beispieldatei herunter."""
+        try:
+            # Samples-Verzeichnis
+            samples_dir: Path = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / 'tests' / 'samples'
+            
+            # Prüfe ob Datei existiert und im samples Verzeichnis liegt
+            file_path: Path = samples_dir / filename
+            if not file_path.is_file() or samples_dir not in file_path.parents:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'FILE_NOT_FOUND',
+                        'message': f'Datei {filename} nicht gefunden'
+                    }
+                }, 404
+            
+            # Bestimme den MIME-Type
+            mime_type, _ = mimetypes.guess_type(filename)
+            if not mime_type:
+                # Fallback für Videos
+                if filename.lower().endswith(('.mp4', '.avi', '.mov', '.wmv')):
+                    mime_type = 'video/mp4'
+                else:
+                    mime_type = 'application/octet-stream'
+            
+            # Sende Datei mit angepassten Headern
+            response = send_file(
+                file_path,
+                mimetype=mime_type,
+                as_attachment=False,  # Wichtig für Streaming
+                download_name=filename
+            )
+            
+            # Cache-Control Header setzen
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            
+            # Content-Disposition für Streaming anpassen
+            response.headers['Content-Disposition'] = 'inline'
+            
+            # Zusätzliche Header für Video-Streaming
+            if mime_type and mime_type.startswith('video/'):
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+            
+            return response
+            
+        except Exception as e:
+            logger.error("Fehler beim Herunterladen der Beispieldatei",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'SAMPLE_DOWNLOAD_ERROR',
+                    'message': str(e)
+                }
+            }, 500
+
+@api.route('/scrape-event-infos')
+class EventEndpoint(Resource):
+    @api.expect(api.model('EventRequest', {
+        'event': fields.String(required=True, description='Name der Veranstaltung (z.B. "FOSDEM 2025")'),
+        'session': fields.String(required=True, description='Name der Session (z.B. "Welcome to FOSDEM 2025")'),
+        'url': fields.String(required=True, description='URL zur Event-Seite'),
+        'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
+        'track': fields.String(required=True, description='Track/Kategorie der Session'),
+        'day': fields.String(required=False, description='Veranstaltungstag im Format YYYY-MM-DD'),
+        'starttime': fields.String(required=False, description='Startzeit im Format HH:MM'),
+        'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
+        'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
+        'video_url': fields.String(required=False, description='Optional, URL zum Video'),
+        'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen')
+    }))
+    @api.response(200, 'Erfolg', api.model('EventResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('EventRequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('EventProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('EventData', {
+            'input': fields.Raw(description='Eingabedaten'),
+            'output': fields.Raw(description='Ausgabedaten')
+        })),
+        'error': fields.Nested(api.model('EventError', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet Event-Informationen und zugehörige Medien')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet Event-Informationen und zugehörige Medien."""
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                data = request.get_json()
+                if not data:
+                    raise ProcessingError("Keine Daten erhalten")
+
+                # Validiere erforderliche Felder
+                required_fields = ['event', 'session', 'url', 'filename', 'track']
+                missing_fields = [field for field in required_fields if field not in data]
+                if missing_fields:
+                    raise ProcessingError(f"Fehlende Pflichtfelder: {', '.join(missing_fields)}")
+
+                # Prozess-Tracking initialisieren
+                process_id = str(uuid.uuid4())
+                tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+
+                # Initialisiere Event-Processor
+                processor: EventProcessor = get_event_processor(process_id)
+
+                # Verarbeite Event
+                result: EventResponse = await processor.process_event(
+                    event=data['event'],
+                    session=data['session'],
+                    url=data['url'],
+                    filename=data['filename'],
+                    track=data['track'],
+                    day=data.get('day'),
+                    starttime=data.get('starttime'),
+                    endtime=data.get('endtime'),
+                    speakers=data.get('speakers', []),
+                    video_url=data.get('video_url'),
+                    attachments_url=data.get('attachments_url')
+                )
+
+                # Füge Ressourcenverbrauch zum Tracker hinzu
+                if tracker:
+                    tracker.eval_result(result)
+                return result.to_dict()
+
+            except ProcessingError as e:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'PROCESSING_ERROR',
+                        'message': str(e),
+                        'details': getattr(e, 'details', {})
+                    }
+                }, 400
+            except Exception as e:
+                logger.error("Event-Verarbeitungsfehler",
+                            error=e,
+                            error_type=type(e).__name__,
+                            stack_trace=traceback.format_exc())
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': type(e).__name__,
+                        'message': str(e),
+                        'details': {
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()
+                        }
+                    }
+                }, 500
+
+        # Führe die asynchrone Verarbeitung aus
+        return asyncio.run(process_request())
+
+def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
+    """Get or create event processor instance with process ID"""
+    return EventProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
