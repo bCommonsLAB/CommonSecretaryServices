@@ -16,33 +16,39 @@ class EventInput:
     """
     Eingabedaten für den Event-Processor.
     
-    Attributes:
+    Pflichtfelder:
         event: Name der Veranstaltung (z.B. "FOSDEM 2025")
         session: Name der Session (z.B. "Welcome to FOSDEM 2025")
         url: URL zur Event-Seite
         filename: Zieldateiname für die Markdown-Datei
         track: Track/Kategorie der Session
+
+    Optionale Felder:
         day: Veranstaltungstag (z.B. "2025-02-01")
         starttime: Startzeit der Session (z.B. "09:00")
         endtime: Endzeit der Session (z.B. "10:00")
         speakers: Liste der Vortragenden
-        video_url: Optional, URL zum Video
-        attachments_url: Optional, URL zu Anhängen
+        video_url: URL zum Video
+        attachments_url: URL zu Anhängen
     """
+    # Pflichtfelder
     event: str
     session: str
     url: str
     filename: str
     track: str
-    day: str
-    starttime: str
-    endtime: str
-    speakers: List[str]
+    
+    # Optionale Felder
+    day: Optional[str] = None
+    starttime: Optional[str] = None
+    endtime: Optional[str] = None
+    speakers: List[str] = field(default_factory=list)
     video_url: Optional[str] = None
     attachments_url: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validiert die Eingabedaten."""
+        # Validierung der Pflichtfelder
         if not self.event.strip():
             raise ValueError("Event-Name darf nicht leer sein")
         if not self.session.strip():
@@ -53,27 +59,20 @@ class EventInput:
             raise ValueError("Dateiname darf nicht leer sein")
         if not self.track.strip():
             raise ValueError("Track darf nicht leer sein")
-        if not self.day.strip():
-            raise ValueError("Tag darf nicht leer sein")
-        if not self.starttime.strip():
-            raise ValueError("Startzeit darf nicht leer sein")
-        if not self.endtime.strip():
-            raise ValueError("Endzeit darf nicht leer sein")
-        if not self.speakers:
-            raise ValueError("Mindestens ein Sprecher muss angegeben sein")
 
-        # Validiere Datumsformat
-        try:
-            datetime.strptime(self.day, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("Tag muss im Format YYYY-MM-DD sein")
-
-        # Validiere Zeitformat
-        for time_str in [self.starttime, self.endtime]:
+        # Validierung der optionalen Felder nur wenn sie gesetzt sind
+        if self.day:
             try:
-                datetime.strptime(time_str, "%H:%M")
+                datetime.strptime(self.day, "%Y-%m-%d")
             except ValueError:
-                raise ValueError("Zeit muss im Format HH:MM sein")
+                raise ValueError("Tag muss im Format YYYY-MM-DD sein")
+
+        if self.starttime and self.endtime:
+            for time_str in [self.starttime, self.endtime]:
+                try:
+                    datetime.strptime(time_str, "%H:%M")
+                except ValueError:
+                    raise ValueError("Zeit muss im Format HH:MM sein")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Eingabedaten in ein Dictionary."""

@@ -1569,10 +1569,10 @@ class EventEndpoint(Resource):
         'url': fields.String(required=True, description='URL zur Event-Seite'),
         'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
         'track': fields.String(required=True, description='Track/Kategorie der Session'),
-        'day': fields.String(required=True, description='Veranstaltungstag im Format YYYY-MM-DD'),
-        'starttime': fields.String(required=True, description='Startzeit im Format HH:MM'),
-        'endtime': fields.String(required=True, description='Endzeit im Format HH:MM'),
-        'speakers': fields.List(fields.String, required=True, description='Liste der Vortragenden'),
+        'day': fields.String(required=False, description='Veranstaltungstag im Format YYYY-MM-DD'),
+        'starttime': fields.String(required=False, description='Startzeit im Format HH:MM'),
+        'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
+        'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
         'video_url': fields.String(required=False, description='Optional, URL zum Video'),
         'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen')
     }))
@@ -1612,7 +1612,7 @@ class EventEndpoint(Resource):
                     raise ProcessingError("Keine Daten erhalten")
 
                 # Validiere erforderliche Felder
-                required_fields = ['event', 'session', 'url', 'filename', 'track', 'day', 'starttime', 'endtime', 'speakers']
+                required_fields = ['event', 'session', 'url', 'filename', 'track']
                 missing_fields = [field for field in required_fields if field not in data]
                 if missing_fields:
                     raise ProcessingError(f"Fehlende Pflichtfelder: {', '.join(missing_fields)}")
@@ -1631,10 +1631,10 @@ class EventEndpoint(Resource):
                     url=data['url'],
                     filename=data['filename'],
                     track=data['track'],
-                    day=data['day'],
-                    starttime=data['starttime'],
-                    endtime=data['endtime'],
-                    speakers=data['speakers'],
+                    day=data.get('day'),
+                    starttime=data.get('starttime'),
+                    endtime=data.get('endtime'),
+                    speakers=data.get('speakers', []),
                     video_url=data.get('video_url'),
                     attachments_url=data.get('attachments_url')
                 )

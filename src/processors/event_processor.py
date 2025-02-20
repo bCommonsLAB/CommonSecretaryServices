@@ -208,10 +208,10 @@ class EventProcessor(BaseProcessor):
         url: str,
         filename: str,
         track: str,
-        day: str,
-        starttime: str,
-        endtime: str,
-        speakers: List[str],
+        day: Optional[str] = None,
+        starttime: Optional[str] = None,
+        endtime: Optional[str] = None,
+        speakers: Optional[List[str]] = None,
         video_url: Optional[str] = None,
         attachments_url: Optional[str] = None
     ) -> EventResponse:
@@ -224,10 +224,10 @@ class EventProcessor(BaseProcessor):
             url: URL zur Event-Seite
             filename: Zieldateiname für die Markdown-Datei
             track: Track/Kategorie der Session
-            day: Veranstaltungstag im Format YYYY-MM-DD
-            starttime: Startzeit im Format HH:MM
-            endtime: Endzeit im Format HH:MM
-            speakers: Liste der Vortragenden
+            day: Optional, Veranstaltungstag im Format YYYY-MM-DD
+            starttime: Optional, Startzeit im Format HH:MM
+            endtime: Optional, Endzeit im Format HH:MM
+            speakers: Optional, Liste der Vortragenden
             video_url: Optional, URL zum Video
             attachments_url: Optional, URL zu Anhängen
             
@@ -245,7 +245,7 @@ class EventProcessor(BaseProcessor):
                 day=day,
                 starttime=starttime,
                 endtime=endtime,
-                speakers=speakers,
+                speakers=speakers or [],
                 video_url=video_url,
                 attachments_url=attachments_url
             )
@@ -296,7 +296,7 @@ class EventProcessor(BaseProcessor):
                     "day": day,
                     "starttime": starttime,
                     "endtime": endtime,
-                    "speakers": speakers,
+                    "speakers": speakers or [],
                     "has_video": bool(video_url),
                     "has_attachments": bool(attachments_url),
                     "markdown_length": len(markdown_content)
@@ -319,7 +319,7 @@ class EventProcessor(BaseProcessor):
                     "day": day,
                     "starttime": starttime,
                     "endtime": endtime,
-                    "speakers": speakers,
+                    "speakers": speakers or [],
                     "video_url": video_url,
                     "attachments_url": attachments_url
                 },
