@@ -1,7 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.12.1-slim
 
 # System-Abhängigkeiten installieren
 RUN apt-get update && apt-get install -y \
+    libmagic1 \
     ffmpeg \
     tesseract-ocr \
     poppler-utils \
