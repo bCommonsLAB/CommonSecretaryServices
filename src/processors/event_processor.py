@@ -25,8 +25,8 @@ import traceback
 import requests
 from bs4 import BeautifulSoup
 
-from core.models.transformer import TransformerResponse
-from core.models.video import VideoResponse
+from src.core.models.transformer import TransformerResponse
+from src.core.models.video import VideoResponse
 from src.core.models.event import (
     EventInput, EventOutput, EventData, EventResponse
 )

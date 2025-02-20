@@ -87,7 +87,7 @@ import requests
 from datetime import datetime
 import math
 
-from core.models.transformer import LLMInfo, TransformerResponse
+from src.core.models.transformer import LLMInfo, TransformerResponse
 from src.processors.base_processor import BaseProcessor
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
