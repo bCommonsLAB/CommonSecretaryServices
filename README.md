@@ -68,8 +68,11 @@ cp config/config.example.yaml config/config.yaml
 ```bash	
 # ein (venv) sollte in console erscheinen
 # Setzen Sie die PYTHONPATH Variable
-# z.B. $env:PYTHONPATH = "<pfad des Projektes>"  
+# z.B. $env:PYTHONPATH = "<pfad des Projektes>" 
+#Windows 
 $env:PYTHONPATH = "."
+#linux / git bash on windows
+export PYTHONPATH="."
 # Starten Sie die Anwendung
 python src/main.py
 
@@ -97,7 +100,7 @@ response = requests.post(
 Diese Anwendung ist unter [commonsecretaryservices.bcommonslab.org](https://commonsecretaryservices.bcommonslab.org/) verfügbar.\
 Nach einem Merge oder Push nach `main` wird per [GitHub Actions](https://github.com/bCommonsLAB/CommonSecretaryServices/actions/workflows/ci-main.yml) der Docker Build gestartet.\
 Der Container wird auf [GitHub hochgeladen](https://github.com/bCommonsLAB/CommonSecretaryServices/pkgs/container/commonsec)\
-Und ein Deployment bei [Dokploy](https://dokploy.bcommonslab.org/dashboard/project/E03_RKYbyB25kios4xjyO/services/compose/XOjp5EPqNiDyeaP8eutSd?tab=deployments) getriggert.
+Die Version muss manuell unter [Deploy Settings](https://dokploy.bcommonslab.org/dashboard/project/E03_RKYbyB25kios4xjyO/services/compose/XOjp5EPqNiDyeaP8eutSd?tab=general) aktualisiert werden.
 
 ## Systemanforderungen
 

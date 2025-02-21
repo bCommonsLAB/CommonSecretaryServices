@@ -76,6 +76,6 @@ jobs:
           prerelease: false
           generate_release_notes: true
           tag_name: v${{ steps.bump.outputs.new_version }}
-
-      - name: Trigger deployment
-        run: curl -X GET https://dokploy.bcommonslab.org/api/deploy/compose/2ZEdY9hQq09Ubur6ne0iS
+      # This currently does not work, because dokploy will not pull the latest image, manually change the tag in dokploy. 
+      # - name: Trigger deployment
+      #   run: curl -X GET https://dokploy.bcommonslab.org/api/deploy/compose/2ZEdY9hQq09Ubur6ne0iS
