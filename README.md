@@ -54,6 +54,11 @@ venv\\Scripts\\activate   # Windows
 # Abhängigkeiten installieren
 pip install -r requirements.txt
 
+## Für Windows
+pip install python-magic-bin
+## Für Linux 
+RUN apt-get update && apt-get install -y libmagic1
+
 # Konfiguration anpassen
 cp config/config.example.yaml config/config.yaml
 # Bearbeiten Sie config.yaml mit Ihren API-Keys und Einstellungen

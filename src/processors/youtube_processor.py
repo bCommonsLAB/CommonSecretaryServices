@@ -35,7 +35,7 @@ from typing import Any, Dict, Optional, cast, TypedDict, List
 
 import yt_dlp  # type: ignore
 
-from core.models.audio import (
+from src.core.models.audio import (
     AudioResponse, TranscriptionResult
 )
 from src.core.config import Config
@@ -341,7 +341,7 @@ class YoutubeProcessor(BaseProcessor):
 
                 # Prüfe ob bereits eine MP3-Datei existiert
                 mp3_files: list[Path] = list(working_dir.glob("*.mp3"))
-                if mp3_files:
+                if (mp3_files):
                     self.logger.debug("Existierende MP3-Datei gefunden",
                                    audio_file=str(mp3_files[0]))
                     audio_path = mp3_files[0]
@@ -562,4 +562,4 @@ class YoutubeProcessor(BaseProcessor):
                 response_class=YoutubeResponse,
                 llm_info=llm_info,
                 error=error_info
-            ) 
+            )
