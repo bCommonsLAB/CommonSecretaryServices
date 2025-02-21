@@ -51,7 +51,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/bCommonsLAB/commonsec:latest,ghcr.io/bCommonsLAB/commonsec:${{ steps.bump.outputs.new_version }}
+          tags: ghcr.io/bcommonslab/commonsec:latest,ghcr.io/bcommonslab/commonsec:${{ steps.bump.outputs.new_version }}
 
       - name: Push version and tag
         run: |
