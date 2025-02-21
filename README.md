@@ -102,6 +102,11 @@ Nach einem Merge oder Push nach `main` wird per [GitHub Actions](https://github.
 Der Container wird auf [GitHub hochgeladen](https://github.com/bCommonsLAB/CommonSecretaryServices/pkgs/container/commonsec)\
 Die Version muss manuell unter [Deploy Settings](https://dokploy.bcommonslab.org/dashboard/project/E03_RKYbyB25kios4xjyO/services/compose/XOjp5EPqNiDyeaP8eutSd?tab=general) aktualisiert werden.
 
+
+## Docker lokal
+docker build -t commonsec .
+docker run -p 8080:5001 commonsec
+
 ## Systemanforderungen
 
 - Python 3.11+
