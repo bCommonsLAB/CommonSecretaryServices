@@ -67,38 +67,3 @@ jobs:
           prerelease: false
           generate_release_notes: true
           tag_name: v${{ steps.bump.outputs.new_version }}
-
-  update-dev-version:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: dev
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Initialize git config
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email github-actions[bot]@users.noreply.github.com
-
-      - name: read version file
-        id: read_version
-        run: |
-          VERSION=$(cat VERSION)
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        
-      - name: bump version
-        id: bump
-        uses: cbrgm/semver-bump-action@main
-        with:
-          current-version: ${{steps.read_version.outputs.VERSION}}
-          bump-level: preminor
-          prerelease-tag: beta
-
-      - name: write version file
-        run: echo "${{ steps.bump.outputs.new_version }}" > VERSION
-
-      - run: |
-          git add VERSION
-          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}"
-          git push
