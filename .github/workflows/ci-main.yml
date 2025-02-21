@@ -41,22 +41,23 @@ jobs:
         run: echo "${{ steps.bump.outputs.new_version }}" > VERSION
 
       - name: replace version in HTML
-        run: sed -i 's/>Secretary Services<\/a>/>Secretary Services v${{ steps.bump.outputs.new_version }}<\/a>/g' src/dashboard/templates/base.html
+        run: sed -i -E 's/(>Secretary Services v)([0-9]+\.[0-9]+\.[0-9]+)(<\/a>)/>Secretary Services v${{ steps.bump.outputs.new_version }}<\/a>/g' src/dashboard/templates/base.html
 
       - name: debug
         run: cat src/dashboard/templates/base.html
-      # - name: Login to GitHub Container Registry
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: ghcr.io
-      #     username: ${{ github.actor }}
-      #     password: ${{ secrets.GITHUB_TOKEN }}
 
-      # - name: Build and push
-      #   uses: docker/build-push-action@v6
-      #   with:
-      #     push: true
-      #     tags: ghcr.io/bcommonslab/commonsec:latest,ghcr.io/bcommonslab/commonsec:${{ steps.bump.outputs.new_version }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ghcr.io/bcommonslab/commonsec:latest,ghcr.io/bcommonslab/commonsec:${{ steps.bump.outputs.new_version }}
 
       - name: Push version and tag
         run: |
