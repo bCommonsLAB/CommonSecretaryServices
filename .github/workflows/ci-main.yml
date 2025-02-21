@@ -40,6 +40,9 @@ jobs:
       - name: write version file
         run: echo "${{ steps.bump.outputs.new_version }}" > VERSION
 
+      - name: replace version in HTML
+        run: sed -i 's/>Secretary Services<\/a>/>Secretary Services v${{ steps.bump.outputs.new_version }}<\/a>/g' src/dashboard/templates/base.html
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -68,3 +71,6 @@ jobs:
           prerelease: false
           generate_release_notes: true
           tag_name: v${{ steps.bump.outputs.new_version }}
+
+      - name: Trigger deployment
+        run: curl -X GET https://dokploy.bcommonslab.org/api/deploy/compose/2ZEdY9hQq09Ubur6ne0iS
