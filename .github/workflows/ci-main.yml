@@ -66,7 +66,7 @@ jobs:
           git config user.email github-actions[bot]@users.noreply.github.com
           git add VERSION
           git add src/dashboard/templates/base.html
-          git commit -m "Bump version to ${{ steps.bump.outputs.newVersion }} [skip ci]"
+          git commit -m "Bump version to ${{ ssteps.bump.outputs.new_version }} [skip ci]"
           git tag -a -m "${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
           git push --follow-tags
           
