@@ -24,6 +24,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup git
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+
       - name: read version file
         id: read_version
         run: |
@@ -46,6 +51,11 @@ jobs:
       - name: debug
         run: cat src/dashboard/templates/base.html
 
+      - name: Commit Version changes
+        run: |
+          git add VERSION
+          git add src/dashboard/templates/base.html
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -59,15 +69,11 @@ jobs:
           push: true
           tags: ghcr.io/bcommonslab/commonsec:latest,ghcr.io/bcommonslab/commonsec:${{ steps.bump.outputs.new_version }}
 
-      - name: Push version and tag
+      - name: Push Version changes
         run: |
-          git config user.name github-actions[bot]
-          git config user.email github-actions[bot]@users.noreply.github.com
-          git add VERSION
-          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
           git tag -a -m "beta ${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
           git push --follow-tags
-
+          
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
