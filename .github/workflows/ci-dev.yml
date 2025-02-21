@@ -1,0 +1,65 @@
+name: ci-dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'dev'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: stage
+    name: CI Stage
+    outputs:
+      version: ${{ steps.read_version.outputs.VERSION }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: read version file
+        id: read_version
+        run: |
+          VERSION=$(cat VERSION)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: bump version
+        id: bump
+        uses: cbrgm/semver-bump-action@main
+        with:
+          current-version: ${{steps.read_version.outputs.VERSION}}
+          bump-level: prerelease
+          prerelease-tag: beta
+
+      - name: write version file
+        run: echo "${{ steps.bump.outputs.new_version }}" > VERSION
+
+      # - name: Login to DockerHub
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKER_USERNAME }}
+      #     password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # - name: Build and push
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     push: true
+      #     tags: bCommonsLAB/commonsec:beta,bCommonsLAB/commonsec:${{ steps.bump.outputs.new_version }}
+
+      - name: Push version and tag
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          git add VERSION
+          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
+          git tag -a -m "beta ${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
+          git push --follow-tags
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          tag_name: v${{ steps.bump.outputs.new_version }}
