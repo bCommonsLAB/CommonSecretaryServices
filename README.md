@@ -99,8 +99,8 @@ response = requests.post(
 ## Deployment
 Diese Anwendung ist unter [commonsecretaryservices.bcommonslab.org](https://commonsecretaryservices.bcommonslab.org/) verfügbar.\
 Nach einem Merge oder Push nach `main` wird per [GitHub Actions](https://github.com/bCommonsLAB/CommonSecretaryServices/actions/workflows/ci-main.yml) der Docker Build gestartet.\
-Der Container wird auf [GitHub hochgeladen](https://github.com/bCommonsLAB/CommonSecretaryServices/pkgs/container/commonsec)\
-Die Version muss manuell unter [Deploy Settings](https://dokploy.bcommonslab.org/dashboard/project/E03_RKYbyB25kios4xjyO/services/compose/XOjp5EPqNiDyeaP8eutSd?tab=general) aktualisiert werden.
+Der Container wird auf [GitHub hochgeladen](https://github.com/bCommonsLAB/CommonSecretaryServices/pkgs/container/commonsec) hochgelden\
+Es wird ein automatisches Deployment bei Dokploy getriggert [Deploy Settings](https://dokploy.bcommonslab.org/dashboard/project/E03_RKYbyB25kios4xjyO/services/compose/XOjp5EPqNiDyeaP8eutSd?tab=general).
 
 
 ## Docker lokal
