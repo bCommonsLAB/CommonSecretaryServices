@@ -3,20 +3,17 @@ tags: {{tags|Was sind die max. 10 wichtigsten Schlüsselwörter aus dem Text? Bi
 Sprecher: {{speakers|Welche Sprecher werden im Text erwähnt? Kommagetrennt ausgeben.}}
 Datum: {{day|Das Datum im Format yyyy-mm-dd ausgeben.}}
 Ort: {{ort|Welcher Ort wird im Text erwähnt oder gezeigt?}}
-Video-ID: {{video_id}}
 track: {{track|Welcher Track wird im Text erwähnt?}}
 Kategorie: {{category|Welcher Kategorie wird im Text erwähnt?}}
 Type: Event-Zusammenfassung
 ---
 # {{title|Der Titel des Session}}
-![video]({{video_url}})
 
-## Zusammenfassung:
-{{summary|Wie könnte man den Inhalt des Texts prägnant in 500 Wörtern zusammenfassen?}}
+<video src="{{video_url}}" controls></video>
 
-## Wichtigste Aussagen:
-{{messages|Was sind die wichtigsten Aussagen und Inhalte des Textes? In nummerierten Absätzen möglichst treffend formulieren, jeweils mit \n\n getrennt.}}
+## Zusammenfassung & Highlights:
+{{summary|Bitte die Texte des Transcripts, des Webtexts und des attachment_text sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter den Abschnitt ausführlich zusammenfassen.Absätze und Titel mit \n trennen.}}
 
-## Transkript:
-{{text}}
+## Links
+{{attachment_links|Liste aller Links aus attachment_text erstellen, formatiert als markdown links mit Beschreibung und Beistrich getrennt.}}
 

@@ -1,0 +1,43 @@
+# Event-Processor Konfiguration
+
+# Basis-Verzeichnis für Event-Dateien
+base_dir: "events"
+
+# Temporäres Verzeichnis für die Verarbeitung
+temp_dir: "temp-processing/event"
+
+# Maximale Größe für Video-Downloads (in MB)
+max_video_size: 1000
+
+# Maximale Größe für Anhänge (in MB)
+max_attachment_size: 100
+
+# Timeout für HTTP-Requests (in Sekunden)
+request_timeout: 30
+
+# Markdown-Template für Event-Dokumentation
+markdown_template: |
+  # {event} - {session}
+  
+  ## Details
+  - **Track**: {track}
+  - **Datum**: {day}
+  - **Zeit**: {starttime} - {endtime}
+  - **Vortragende**: {speakers}
+  
+  ## Links
+  - [Event-Seite]({url})
+  - [Video]({video_url})
+  - [Folien]({attachments_url})
+  
+  ## Zusammenfassung
+  {web_text}
+  
+  ## Video-Transkript
+  {video_transcript}
+
+# LLM-Konfiguration
+llm:
+  model: "gpt-4"
+  temperature: 0.7
+  max_tokens: 4000 

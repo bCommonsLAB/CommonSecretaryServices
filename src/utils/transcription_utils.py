@@ -1,7 +1,7 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Union, List, cast, Protocol
+from typing import Dict, Any, Optional, Union, List, cast, Protocol, Tuple
 from pathlib import Path
 import time
 from datetime import datetime
@@ -10,6 +10,7 @@ import re
 import os
 from dataclasses import dataclass
 import io
+import asyncio
 
 from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
@@ -356,10 +357,7 @@ class WhisperTranscriber:
             # 1. Template-Datei lesen
             template_content: str = self._read_template_file(template, logger)
 
-            # 2. Einfache Kontext-Variablen ersetzen
-            template_content = self._replace_context_variables(template_content, context, text, logger)
-
-            # 3. Strukturierte Variablen extrahieren und Model erstellen
+            # 2. Strukturierte Variablen extrahieren und Model erstellen
             field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
             
             if not field_definitions.fields:
@@ -485,6 +483,9 @@ class WhisperTranscriber:
                 pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
                 template_content = re.sub(pattern, value, template_content)
+
+            # Einfache Kontext-Variablen ersetzen
+            template_content = self._replace_context_variables(template_content, context, text, logger)
 
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
@@ -820,7 +821,7 @@ class WhisperTranscriber:
         target_language: str = "de",
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult:
-        """Transkribiert mehrere Audio-Segmente.
+        """Transkribiert mehrere Audio-Segmente parallel.
         
         Args:
             segments: Liste von AudioSegmentInfo oder Chapter Objekten
@@ -833,8 +834,6 @@ class WhisperTranscriber:
         """
         combined_text_parts: List[str] = []
         combined_requests: List[LLMRequest] = []
-        total_duration: int = 0
-        total_tokens: int = 0
 
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
@@ -847,42 +846,75 @@ class WhisperTranscriber:
         else:
             all_segments = cast(List[AudioSegmentInfo], segments)
 
-        # Verarbeite jedes Segment
-        for segment in all_segments:
+        async def process_segment(segment: AudioSegmentInfo, index: int) -> Tuple[int, str, List[LLMRequest]]:
+            """Verarbeitet ein einzelnes Segment parallel."""
             try:
                 # Transkribiere das Segment
                 result: TranscriptionResult = self.transcribe_segment(
-                    file_path=segment.get_audio_data(),  # Verwende get_audio_data() statt direktem Zugriff
-                    segment_id=len(combined_requests),  # Verwende Request-Count als ID
+                    file_path=segment.get_audio_data(),
+                    segment_id=index,
                     segment_title=segment.title,
                     source_language=source_language,
                     target_language=target_language,
                     logger=logger
                 )
-                
-                if result.source_language != source_language:
-                    source_language = result.source_language
 
-                if result.text.strip():
-                    combined_text_parts.append(result.text)
-                
-                # Sammle LLM Informationen
+                segment_requests: List[LLMRequest] = []
                 if result.requests:
-                    combined_requests.extend(result.requests)
-                    for req in result.requests:
-                        if req.duration:
-                            total_duration += int(req.duration)  # Konvertiere zu int
-                        if req.tokens:
-                            total_tokens += req.tokens
+                    segment_requests.extend(result.requests)
+
+                # Übersetze das Segment wenn nötig
+                if source_language != target_language and result.text.strip():
+                    translation_result: TranslationResult = self.translate_text(
+                        text=result.text,
+                        source_language=source_language,
+                        target_language=target_language,
+                        logger=logger
+                    )
+                    
+                    if translation_result.requests:
+                        segment_requests.extend(translation_result.requests)
+                    
+                    # Verwende übersetzten Text
+                    if translation_result.text.strip():
+                        return index, translation_result.text, segment_requests
+                
+                # Verwende Original-Text wenn keine Übersetzung nötig
+                return index, result.text if result.text.strip() else "", segment_requests
 
             except Exception as e:
                 if logger:
                     logger.error(
-                        "Fehler bei der Transkription von Segment",
+                        "Fehler bei der Verarbeitung von Segment",
                         error=e,
                         segment_title=segment.title
                     )
-                continue
+                return index, "", []
+
+        # Erstelle Tasks für alle Segmente
+        tasks = [
+            process_segment(segment, i) 
+            for i, segment in enumerate(all_segments)
+        ]
+
+        # Verarbeite alle Segmente parallel
+        if logger:
+            logger.info(f"Starte parallele Verarbeitung von {len(tasks)} Segmenten")
+
+        # Führe alle Tasks parallel aus
+        results = await asyncio.gather(*tasks)
+
+        # Sortiere die Ergebnisse nach dem ursprünglichen Index
+        sorted_results = sorted(results, key=lambda x: x[0])
+
+        # Sammle die Ergebnisse
+        for _, text, requests in sorted_results:
+            if text:
+                combined_text_parts.append(text)
+            combined_requests.extend(requests)
+
+        if logger:
+            logger.info(f"Parallele Verarbeitung abgeschlossen - {len(combined_requests)} Requests gesammelt")
 
         # Erstelle das finale Ergebnis mit allen einzelnen Requests
         return TranscriptionResult(

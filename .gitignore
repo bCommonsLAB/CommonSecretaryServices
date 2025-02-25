@@ -5,5 +5,8 @@ logs/
 __pycache__/
 .pytest_cache/
 cache/
+events/
 temp-processing/
+.obsidian/
+.trash/
 

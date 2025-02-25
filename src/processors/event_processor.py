@@ -15,20 +15,24 @@ Ablauf:
 2. Abrufen und Parsen der Event-Seite
 3. Download und Verarbeitung der Medien
 4. Generierung der Markdown-Datei
-5. Rückgabe der Verarbeitungsergebnisse
+5. Finale Übersetzung in Zielsprache
+6. Rückgabe der Verarbeitungsergebnisse mit Performance-Metriken
 """
 
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import traceback
+import time
 import requests
 from bs4 import BeautifulSoup
+import zipfile
 
+from processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
 from src.core.models.event import (
-    EventInput, EventOutput, EventData, EventResponse
+    EventInput, EventOutput, EventData, EventResponse, BatchEventResponse, BatchEventOutput, BatchEventData, BatchEventInput
 )
 from src.core.models.base import (
      ErrorInfo
@@ -40,6 +44,7 @@ from src.core.models.response_factory import ResponseFactory
 from src.processors.video_processor import VideoProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from .base_processor import BaseProcessor
+from src.processors.pdf_processor import PDFProcessor
 
 class EventProcessor(BaseProcessor):
     """
@@ -89,8 +94,9 @@ class EventProcessor(BaseProcessor):
             url: URL der Event-Seite
             
         Returns:
-            Tuple aus HTML-Body und extrahiertem Text
+            Extrahierter Text der Seite
         """
+        start_time = time.time()
         try:
             self.logger.info(f"Rufe Event-Seite ab: {url}")
             
@@ -104,33 +110,39 @@ class EventProcessor(BaseProcessor):
             # Parse HTML
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Extrahiere Body und Text
+            # Extrahiere Text
             text = soup.get_text(separator='\n', strip=True)
             
-            return text  # Return raw HTML und extrahierten Text
+            self.logger.debug("Event-Seite verarbeitet",
+                            processing_time=time.time() - start_time,
+                            text_length=len(text))
+            
+            return text
             
         except Exception as e:
             self.logger.error(f"Fehler beim Abrufen der Event-Seite: {str(e)}")
             raise ProcessingError(f"Fehler beim Abrufen der Event-Seite: {str(e)}")
 
-    async def _process_video(self, video_url: str) -> Tuple[str, Optional[LLMInfo]]:
+    async def _process_video(self, video_url: str, source_language: str, target_language: str) -> Tuple[str, Optional[LLMInfo]]:
         """
         Lädt das Video herunter und extrahiert die Audio-Transkription.
         
         Args:
             video_url: URL zum Video
+            source_language: Quellsprache des Videos
             
         Returns:
             Tuple aus transkribiertem Text und LLM-Info
         """
+        start_time: float = time.time()
         try:
             self.logger.info(f"Verarbeite Video: {video_url}")
             
-            # Video verarbeiten
+            # Video in Quellsprache verarbeiten
             result: VideoResponse = await self.video_processor.process(
                 source=video_url,
-                target_language="de",  # Könnte später konfigurierbar sein
-                source_language="auto"
+                source_language=source_language,
+                target_language=target_language  
             )
             
             if result.error:
@@ -139,7 +151,13 @@ class EventProcessor(BaseProcessor):
             # Extrahiere Transkription und LLM-Info
             transcription = ""
             if result.data and result.data.transcription:
-                transcription = result.data.transcription.text if hasattr(result.data.transcription, 'text') else ''
+                # Extrahiere Text und entferne Zeilenumbrüche
+                raw_text = result.data.transcription.text if hasattr(result.data.transcription, 'text') else ''
+                transcription = ' '.join(raw_text.split())  # Ersetzt alle Whitespaces (inkl. \n) durch einzelne Leerzeichen
+            
+            self.logger.debug("Video verarbeitet",
+                            processing_time=time.time() - start_time,
+                            transcription_length=len(transcription))
             
             return transcription, result.process.llm_info
             
@@ -151,25 +169,29 @@ class EventProcessor(BaseProcessor):
         self,
         web_text: str,
         video_transcript: str,
-        event_data: EventInput
+        event_data: EventInput,
+        target_dir: Path,
+        context: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, Optional[LLMInfo]]:
         """
         Generiert die Markdown-Datei mit allen Informationen.
         
         Args:
-            html_body: HTML der Event-Seite
-            extracted_text: Extrahierter Text der Event-Seite
+            web_text: Extrahierter Text der Event-Seite
             video_transcript: Transkription des Videos
             event_data: Event-Metadaten
+            context: Optionaler zusätzlicher Kontext für das Template
             
         Returns:
             Tuple aus generiertem Markdown-Text und LLM-Info
         """
+        start_time: float = time.time()
         try:
             self.logger.info("Generiere Markdown")
             
             # Kontext für Template vorbereiten
-            context = {
+            template_context = context or {}
+            template_context.update({
                 "event": event_data.event,
                 "session": event_data.session,
                 "track": event_data.track,
@@ -180,26 +202,149 @@ class EventProcessor(BaseProcessor):
                 "url": event_data.url,
                 "video_url": event_data.video_url,
                 "attachments_url": event_data.attachments_url,
-                "web_text": web_text
-            }
+                "web_text": web_text,
+                "video_transcript": video_transcript,
+                # Neue Felder für Video-Formate
+                "video_mp4_url": event_data.video_url.replace('.webm', '.mp4') if event_data.video_url else None
+            })
             
-            # Template-Transformation durchführen
+            # Template-Transformation in Quellsprache durchführen
             result: TransformerResponse = self.transformer_processor.transformByTemplate(
                 source_text=video_transcript,
-                source_language="en",
-                target_language="en",
+                source_language=event_data.target_language, # video_transcript ist schon übersetzt
+                target_language=event_data.target_language,  
                 template="Event",
-                context=context
+                context=template_context
             )
             
             if result.error:
                 raise ProcessingError(f"Fehler bei der Markdown-Generierung: {result.error.message}")
+            
+            # Basis Markdown-Content aus Template
+            markdown_content = result.data.output.text
+            
+            # Anhänge hinzufügen falls vorhanden
+            if event_data.attachments_url:
+                markdown_content += "## Presentation\n"
+                markdown_content += f"[Links]({event_data.attachments_url})\n"
+                # Bildergalerie hinzufügen falls vorhanden
+                if context and "gallery" in context and context["gallery"]:
+                    markdown_content += "```img-gallery\n"
+                    # Vollständiger Pfad: events/[track]/assets
+                    gallery_path = str(target_dir / "assets").replace("\\", "/")
+                    markdown_content += f"path: {gallery_path}\n"
+                    markdown_content += "type: vertical\n"
+                    markdown_content += "gutter: 50\n"
+                    markdown_content += "sortby: name\n"
+                    markdown_content += "sort: asc\n"
+                    markdown_content += "columns: 3\n"
+                    markdown_content += "```\n"
+            
+            # Transkription hinzufügen
+            markdown_content += "## Transkription\n"
+            markdown_content += f"```transcript\n{video_transcript}\n```\n"
+            
+            self.logger.debug("Markdown generiert",
+                            processing_time=time.time() - start_time,
+                            markdown_length=len(markdown_content))
                 
-            return result.data.output.text, result.process.llm_info
+            return markdown_content, result.process.llm_info
             
         except Exception as e:
             self.logger.error(f"Fehler bei der Markdown-Generierung: {str(e)}")
             raise ProcessingError(f"Fehler bei der Markdown-Generierung: {str(e)}")
+
+    async def _process_attachments(
+        self,
+        attachments_url: str,
+        event_data: EventInput,
+        target_dir: Path
+    ) -> Tuple[List[str], str, Optional[LLMInfo]]:
+        """
+        Verarbeitet die Anhänge eines Events.
+        
+        Args:
+            attachments_url: URL zu den Anhängen
+            event_data: Event-Metadaten
+            target_dir: Zielverzeichnis für die verarbeiteten Dateien
+            
+        Returns:
+            Tuple aus (Liste der Bildpfade, extrahierter Text, LLM-Info)
+            
+        Raises:
+            ProcessingError: Bei Fehlern in der Verarbeitung
+        """
+        start_time = time.time()
+        try:
+            self.logger.info(f"Verarbeite Anhänge: {attachments_url}")
+            
+            # Erstelle Verzeichnis für Assets
+            assets_dir = target_dir / "assets"
+            if not assets_dir.exists():
+                assets_dir.mkdir(parents=True)
+                
+            # Initialisiere PDF-Processor
+            pdf_processor = PDFProcessor(self.resource_calculator, self.process_id)
+            
+            # Verarbeite PDF direkt von der URL für Vorschaubilder
+            preview_result: PDFResponse = await pdf_processor.process(
+                file_path=attachments_url,
+                extraction_method='preview'
+            )
+            
+            # Verarbeite PDF nochmal für Textextraktion
+            text_result: PDFResponse = await pdf_processor.process(
+                file_path=attachments_url,
+                extraction_method='native'
+            )
+            
+            if preview_result.error:
+                raise ProcessingError(
+                    f"Fehler bei der PDF-Vorschau: {preview_result.error.message}",
+                    details=preview_result.error.details
+                )
+            
+            if text_result.error:
+                raise ProcessingError(
+                    f"Fehler bei der PDF-Textextraktion: {text_result.error.message}",
+                    details=text_result.error.details
+                )
+            
+            # Extrahiere Vorschaubilder
+            gallery_paths: List[str] = []
+            if preview_result.data and preview_result.data.metadata.preview_zip:
+                with zipfile.ZipFile(preview_result.data.metadata.preview_zip, 'r') as zipf:
+                    zipf.extractall(assets_dir)
+                    for filename in zipf.namelist():
+                        gallery_paths.append(str(Path("assets") / filename))
+            
+            # Extrahiere Text
+            extracted_text = text_result.data.extracted_text if text_result.data else ""
+            
+            # Kombiniere LLM-Info
+            combined_llm_info = LLMInfo(model="pdf-processing", purpose="pdf-processing")
+            if preview_result.process and preview_result.process.llm_info:
+                combined_llm_info.add_request(preview_result.process.llm_info.requests)
+            if text_result.process and text_result.process.llm_info:
+                combined_llm_info.add_request(text_result.process.llm_info.requests)
+            
+            self.logger.debug("Anhänge verarbeitet",
+                            processing_time=time.time() - start_time,
+                            gallery_count=len(gallery_paths),
+                            text_length=len(extracted_text or ""))
+            
+            return gallery_paths, extracted_text or "", combined_llm_info
+            
+        except Exception as e:
+            self.logger.error(f"Fehler bei der Anhang-Verarbeitung: {str(e)}")
+            raise ProcessingError(
+                f"Fehler bei der Anhang-Verarbeitung: {str(e)}",
+                details={
+                    "url": attachments_url,
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
 
     async def process_event(
         self,
@@ -213,7 +358,9 @@ class EventProcessor(BaseProcessor):
         endtime: Optional[str] = None,
         speakers: Optional[List[str]] = None,
         video_url: Optional[str] = None,
-        attachments_url: Optional[str] = None
+        attachments_url: Optional[str] = None,
+        source_language: str = "en",
+        target_language: str = "de"
     ) -> EventResponse:
         """
         Verarbeitet ein Event mit allen zugehörigen Medien.
@@ -230,10 +377,13 @@ class EventProcessor(BaseProcessor):
             speakers: Optional, Liste der Vortragenden
             video_url: Optional, URL zum Video
             attachments_url: Optional, URL zu Anhängen
+            source_language: Optional, Quellsprache (Standard: en)
+            target_language: Optional, Zielsprache (Standard: de)
             
         Returns:
             EventResponse: Das Verarbeitungsergebnis
         """
+        total_start_time = time.time()
         try:
             # Eingabedaten validieren
             input_data = EventInput(
@@ -247,7 +397,9 @@ class EventProcessor(BaseProcessor):
                 endtime=endtime,
                 speakers=speakers or [],
                 video_url=video_url,
-                attachments_url=attachments_url
+                attachments_url=attachments_url,
+                source_language=source_language,
+                target_language=target_language
             )
             
             # LLM-Tracking initialisieren
@@ -255,33 +407,77 @@ class EventProcessor(BaseProcessor):
             
             self.logger.info(f"Starte Verarbeitung von Event: {event} - {session}")
             
+            # Erstelle formatierten Session-Verzeichnisnamen mit Startzeit
+            session_time = starttime.replace(':', '') if starttime else '0000'
+            session_dir_name = f"{day}-{session_time}-{Path(filename).stem}"
+            
+            # Zielverzeichnisstruktur erstellen:
+            # events/[event]/[track]/[time-session_dir]
+            target_dir: Path = self.base_dir / event / track / session_dir_name
+            if not target_dir.exists():
+                target_dir.mkdir(parents=True)
+            
             # 1. Event-Seite abrufen
             web_text = await self._fetch_event_page(url)
             
             # 2. Video verarbeiten falls vorhanden
             video_transcript = ""
             if video_url:
-                video_transcript, video_llm_info = await self._process_video(video_url) 
+                video_transcript, video_llm_info = await self._process_video(
+                    video_url,
+                    source_language,
+                    target_language
+                )
                 if video_llm_info:
                     llm_info.add_request(video_llm_info.requests)
             
-            # 3. Markdown generieren
+            # 3. Anhänge verarbeiten falls vorhanden
+            gallery_paths = []
+            attachment_text = ""
+            if attachments_url:
+                gallery_paths, attachment_text, attachments_llm_info = await self._process_attachments(
+                    attachments_url,
+                    input_data,
+                    target_dir
+                )
+                if attachments_llm_info:
+                    llm_info.add_request(attachments_llm_info.requests)
+            
+            # 4. Markdown generieren
+            template_context = {
+                "event": event,
+                "session": session,
+                "track": track,
+                "day": day,
+                "starttime": starttime,
+                "endtime": endtime,
+                "speakers": speakers or [],
+                "url": url,
+                "video_url": video_url,
+                "video_mp4_url": video_url.replace('.webm', '.mp4') if video_url else None,
+                "attachments_url": attachments_url,
+                "web_text": web_text,
+                "video_transcript": video_transcript,
+                "gallery": gallery_paths,
+                "attachment_text": attachment_text,  # Füge extrahierten Text hinzu
+                "session_dir": session_dir_name
+            }
+            
             markdown_content, markdown_llm_info = await self._generate_markdown(
                 web_text=web_text,
                 video_transcript=video_transcript,
-                event_data=input_data
+                event_data=input_data,
+                target_dir=target_dir,
+                context=template_context
             )
             if markdown_llm_info:
                 llm_info.add_request(markdown_llm_info.requests)
-            
-            # Zielverzeichnis erstellen
-            target_dir: Path = self.base_dir / track
-            if not target_dir.exists():
-                target_dir.mkdir(parents=True)
                 
-            # Markdown-Datei speichern
+            # Markdown-Datei im Session-Verzeichnis speichern
             markdown_file: Path = target_dir / filename
             markdown_file.write_text(markdown_content, encoding='utf-8')
+            
+            total_processing_time = time.time() - total_start_time
             
             # Output erstellen
             output_data = EventOutput(
@@ -299,7 +495,11 @@ class EventProcessor(BaseProcessor):
                     "speakers": speakers or [],
                     "has_video": bool(video_url),
                     "has_attachments": bool(attachments_url),
-                    "markdown_length": len(markdown_content)
+                    "gallery_count": len(gallery_paths),
+                    "markdown_length": len(markdown_content),
+                    "total_processing_time": total_processing_time,
+                    "source_language": source_language,
+                    "target_language": target_language
                 }
             )
             
@@ -321,7 +521,9 @@ class EventProcessor(BaseProcessor):
                     "endtime": endtime,
                     "speakers": speakers or [],
                     "video_url": video_url,
-                    "attachments_url": attachments_url
+                    "attachments_url": attachments_url,
+                    "source_language": source_language,
+                    "target_language": target_language
                 },
                 response_class=EventResponse,
                 llm_info=llm_info
@@ -346,8 +548,128 @@ class EventProcessor(BaseProcessor):
                     "session": session,
                     "url": url,
                     "filename": filename,
-                    "track": track
+                    "track": track,
+                    "source_language": source_language,
+                    "target_language": target_language
                 },
                 response_class=EventResponse,
+                error=error_info
+            )
+
+    async def process_many_events(
+        self,
+        events: List[Dict[str, Any]]
+    ) -> BatchEventResponse:
+        """
+        Verarbeitet mehrere Events sequentiell.
+        
+        Args:
+            events: Liste von Event-Daten mit denselben Parametern wie process_event
+            
+        Returns:
+            BatchEventResponse: Ergebnis der Batch-Verarbeitung
+        """
+        start_time = time.time()
+        
+        try:
+            # Initialisiere Listen für Ergebnisse und Fehler
+            successful_outputs: List[EventOutput] = []
+            errors: List[Dict[str, Any]] = []
+            llm_infos: List[LLMInfo] = []
+            
+            # Verarbeite Events sequentiell
+            for i, event_data in enumerate(events):
+                try:
+                    # Verarbeite einzelnes Event
+                    result = await self.process_event(
+                        event=event_data.get("event", ""),
+                        session=event_data.get("session", ""),
+                        url=event_data.get("url", ""),
+                        filename=event_data.get("filename", ""),
+                        track=event_data.get("track", ""),
+                        day=event_data.get("day"),
+                        starttime=event_data.get("starttime"),
+                        endtime=event_data.get("endtime"),
+                        speakers=event_data.get("speakers", []),
+                        video_url=event_data.get("video_url"),
+                        attachments_url=event_data.get("attachments_url"),
+                        source_language=event_data.get("source_language", "en"),
+                        target_language=event_data.get("target_language", "de")
+                    )
+                    
+                    # Sammle erfolgreiche Ergebnisse
+                    if result.data and result.data.output:
+                        successful_outputs.append(result.data.output)
+                    if result.process.llm_info:
+                        llm_infos.append(result.process.llm_info)
+                        
+                except Exception as e:
+                    # Protokolliere Fehler, aber setze Verarbeitung fort
+                    errors.append({
+                        "index": i,
+                        "event": event_data.get("event", "unknown"),
+                        "error": str(e)
+                    })
+                    self.logger.error(
+                        f"Fehler bei der Verarbeitung von Event {i}",
+                        error=e,
+                        event=event_data.get("event", "unknown")
+                    )
+            
+            # Erstelle BatchEventOutput
+            batch_output = BatchEventOutput(
+                results=successful_outputs,
+                summary={
+                    "total_events": len(events),
+                    "successful": len(successful_outputs),
+                    "failed": len(errors),
+                    "errors": errors,
+                    "processing_time": time.time() - start_time
+                }
+            )
+            
+            # Erstelle BatchEventData
+            batch_data = BatchEventData(
+                input=BatchEventInput(events=events),
+                output=batch_output
+            )
+            
+            # Kombiniere alle LLM-Infos
+            combined_llm_info = None
+            if llm_infos:
+                combined_llm_info = llm_infos[0]
+                for info in llm_infos[1:]:
+                    combined_llm_info = combined_llm_info.merge(info)
+            
+            # Erstelle Response
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=batch_data,
+                request_info={
+                    "event_count": len(events),
+                    "successful": len(successful_outputs),
+                    "failed": len(errors)
+                },
+                response_class=BatchEventResponse,
+                llm_info=combined_llm_info
+            )
+            
+        except Exception as e:
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,
+                request_info={
+                    "event_count": len(events)
+                },
+                response_class=BatchEventResponse,
                 error=error_info
             ) 

@@ -28,14 +28,17 @@ Der PDFProcessor trackt die LLM-Nutzung auf zwei Ebenen:
 import uuid
 import traceback
 import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List, cast
-from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, Union, cast
+from dataclasses import dataclass
 
+from PIL.ImageFile import ImageFile
 import fitz  # type: ignore
 from PIL import Image
 import pytesseract  # type: ignore
+import requests
 
 from .base_processor import BaseProcessor
 from src.core.resource_tracking import ResourceCalculator
@@ -45,6 +48,7 @@ from src.core.models.base import ErrorInfo, BaseResponse
 from src.core.models.llm import LLMInfo, LLMRequest
 from src.core.models.response_factory import ResponseFactory
 from src.core.models.transformer import TransformerResponse
+from src.core.models.pdf import PDFMetadata
 from .transformer_processor import TransformerProcessor
 
 # Konstanten für Processor-Typen
@@ -54,31 +58,7 @@ PROCESSOR_TYPE_PDF = "pdf"
 EXTRACTION_NATIVE = "native"  # Nur native Text-Extraktion
 EXTRACTION_OCR = "ocr"       # Nur OCR
 EXTRACTION_BOTH = "both"     # Beide Methoden kombinieren
-
-@dataclass
-class PDFMetadata:
-    """Metadaten einer verarbeiteten PDF-Datei."""
-    file_name: str
-    file_size: int
-    page_count: int
-    format: str = "pdf"
-    process_dir: Optional[str] = None
-    image_paths: List[str] = field(default_factory=list)
-    text_paths: List[str] = field(default_factory=list)
-    extraction_method: str = EXTRACTION_NATIVE
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert die Metadaten in ein Dictionary."""
-        return {
-            'file_name': self.file_name,
-            'file_size': self.file_size,
-            'page_count': self.page_count,
-            'format': self.format,
-            'process_dir': self.process_dir,
-            'image_paths': self.image_paths,
-            'text_paths': self.text_paths,
-            'extraction_method': self.extraction_method
-        }
+EXTRACTION_PREVIEW = "preview"  # Nur Vorschaubilder
 
 @dataclass
 class PDFProcessingResult:
@@ -111,15 +91,15 @@ class PDFProcessor(BaseProcessor):
         
         # Lade Konfiguration
         config = Config()
-        self.max_file_size = config.get('processors.pdf.max_file_size', 50 * 1024 * 1024)
-        self.max_pages = config.get('processors.pdf.max_pages', 100)
+        self.max_file_size = config.get('processors.pdf.max_file_size', 130 * 1024 * 1024)
+        self.max_pages = config.get('processors.pdf.max_pages', 200)
         
         # Initialisiere Transformer
         self.transformer = TransformerProcessor(resource_calculator, process_id)
         
     def create_process_dir(self, identifier: str) -> Path:
         """Erstellt und gibt das Verarbeitungsverzeichnis für eine PDF zurück."""
-        process_dir = self.temp_dir / "pdf" / identifier
+        process_dir: Path = self.temp_dir / "pdf" / identifier
         process_dir.mkdir(parents=True, exist_ok=True)
         return process_dir
 
@@ -128,6 +108,22 @@ class PDFProcessor(BaseProcessor):
         text_path = process_dir / f"page_{page_num+1}.txt"
         text_path.write_text(text, encoding='utf-8')
         return text_path
+
+    def _generate_preview(self, page: Any, page_num: int, working_dir: Path) -> str:
+        """Generiert ein Vorschaubild für eine PDF-Seite.
+        
+        Args:
+            page: Die PDF-Seite
+            page_num: Die Seitennummer (0-basiert)
+            working_dir: Arbeitsverzeichnis
+            
+        Returns:
+            Pfad zum generierten Vorschaubild
+        """
+        pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))  # 300 DPI
+        preview_path = working_dir / f"preview_{page_num+1:03d}.png"  # Dreistellige Nummerierung
+        pix.save(str(preview_path))
+        return str(preview_path)
 
     async def process(
         self,
@@ -140,16 +136,16 @@ class PDFProcessor(BaseProcessor):
         Verarbeitet eine PDF-Datei.
         
         Args:
-            file_path: Pfad zur PDF-Datei
+            file_path: Pfad oder URL zur PDF-Datei
             template: Optional Template für die Verarbeitung
             context: Optionaler Kontext
-            extraction_method: Extraktionsmethode (native/ocr/both)
+            extraction_method: Extraktionsmethode (native/ocr/both/preview)
             
         Returns:
             PDFResponse: Die standardisierte Response
         """
         # Validiere Extraktionsmethode
-        if extraction_method not in [EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH]:
+        if extraction_method not in [EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW]:
             raise ProcessingError(f"Ungültige Extraktionsmethode: {extraction_method}")
 
         # Initialisiere Variablen
@@ -163,7 +159,21 @@ class PDFProcessor(BaseProcessor):
         )
         
         try:
-            path = Path(file_path)
+            # Prüfe ob es sich um eine URL handelt
+            if str(file_path).startswith(('http://', 'https://')):
+                # Lade PDF von URL herunter
+                temp_file = working_dir / "temp.pdf"
+                response = requests.get(str(file_path), stream=True)
+                response.raise_for_status()
+                
+                with open(temp_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                path = temp_file
+            else:
+                path = Path(file_path)
+            
             self.logger.info(f"Verarbeite PDF: {path.name}",
                            file_size=path.stat().st_size,
                            working_dir=str(working_dir),
@@ -197,16 +207,21 @@ class PDFProcessor(BaseProcessor):
                 )
                 
                 for page_num in range(page_count):
-                    page = pdf[page_num] 
+                    page = pdf[page_num]
                     page_start = time.time()
                     
-                    # Native Text-Extraktion
-                    if extraction_method in [EXTRACTION_NATIVE, EXTRACTION_BOTH]:
+                    if extraction_method == EXTRACTION_PREVIEW:
+                        # Nur Vorschaubilder generieren
+                        preview_path = self._generate_preview(page, page_num, working_dir)
+                        metadata.preview_paths.append(preview_path)
+                        
+                    elif extraction_method == EXTRACTION_NATIVE:
+                        # Native Text-Extraktion
                         page_text = page.get_text()  # type: ignore
                         full_text += f"\n--- Seite {page_num+1} ---\n{page_text}"
-                    
-                    # OCR durchführen
-                    if extraction_method in [EXTRACTION_OCR, EXTRACTION_BOTH]:
+                        
+                    elif extraction_method == EXTRACTION_OCR:
+                        # OCR durchführen
                         pix: fitz.Pixmap = cast(fitz.Pixmap, page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72)))  # type: ignore  # 300 DPI
                         image_path: Path = working_dir / f"page_{page_num+1}.png"
                         pix.save(str(image_path))  # type: ignore
@@ -239,6 +254,45 @@ class PDFProcessor(BaseProcessor):
                         # Ressourcen freigeben
                         img.close()
                         del pix
+                        
+                    else:  # EXTRACTION_BOTH
+                        # Native Text-Extraktion
+                        page_text = page.get_text()  # type: ignore
+                        full_text += f"\n--- Seite {page_num+1} ---\n{page_text}"
+                        
+                        # OCR durchführen
+                        pix: fitz.Pixmap = cast(fitz.Pixmap, page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72)))  # type: ignore  # 300 DPI
+                        image_path: Path = working_dir / f"page_{page_num+1}.png"
+                        pix.save(str(image_path))  # type: ignore
+                        metadata.image_paths.append(str(image_path))
+                        
+                        # OCR mit Tesseract
+                        img: ImageFile = Image.open(image_path)
+                        try:
+                            page_ocr = str(pytesseract.image_to_string(  # type: ignore[attr-defined]
+                                image=img,
+                                lang='deu',  # Deutsche Sprache
+                                config='--psm 3'  # Standard Page Segmentation Mode
+                            ))
+                        except Exception as ocr_error:
+                            self.logger.warning(
+                                "Fehler bei deutscher OCR, versuche Englisch als Fallback",
+                                error=str(ocr_error)
+                            )
+                            page_ocr = str(pytesseract.image_to_string(  # type: ignore[attr-defined]
+                                image=img,
+                                lang='eng',  # Englisch als Fallback
+                                config='--psm 3'
+                            ))
+                        
+                        # OCR-Text speichern
+                        text_path = self.save_page_text(str(page_ocr), page_num, working_dir)
+                        metadata.text_paths.append(str(text_path))
+                        ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
+                        
+                        # Ressourcen freigeben
+                        img.close()
+                        del pix
                     
                     # Logging
                     page_duration = time.time() - page_start
@@ -246,10 +300,42 @@ class PDFProcessor(BaseProcessor):
                                     duration=page_duration,
                                     extraction_method=extraction_method)
                 
-                duration = (datetime.now() - start_time).total_seconds() * 1000
+                # Wenn Vorschaubilder generiert wurden, diese als ZIP verpacken
+                preview_zip_path: Optional[str] = None
+                if metadata.preview_paths:
+                    zip_path: Path = working_dir / "previews.zip"
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for preview_path_str in metadata.preview_paths:
+                            preview_path_obj = Path(str(preview_path_str))  # Explizite Konvertierung
+                            zipf.write(str(preview_path_obj), preview_path_obj.name)
+                    preview_zip_path = str(zip_path)
                 
-                # Text-Extraktion und OCR tracken
-                if extraction_method == EXTRACTION_NATIVE:
+                # Neue Metadata-Instanz mit ZIP-Pfad erstellen
+                metadata = PDFMetadata(
+                    file_name=metadata.file_name,
+                    file_size=metadata.file_size,
+                    page_count=metadata.page_count,
+                    format=metadata.format,
+                    process_dir=metadata.process_dir,
+                    image_paths=metadata.image_paths,
+                    preview_paths=metadata.preview_paths,
+                    preview_zip=preview_zip_path,
+                    text_paths=metadata.text_paths,
+                    extraction_method=metadata.extraction_method
+                )
+                
+                duration: float = (datetime.now() - start_time).total_seconds() * 1000
+                
+                # LLM-Tracking
+                if extraction_method == EXTRACTION_PREVIEW:
+                    llm_info.add_request([LLMRequest(
+                        model="pdf-preview",
+                        purpose="preview_generation",
+                        tokens=page_count,  # Ein Token pro Seite
+                        duration=int(duration),
+                        timestamp=start_time.isoformat()
+                    )])
+                elif extraction_method == EXTRACTION_NATIVE:
                     llm_info.add_request([LLMRequest(
                         model="pdf-extraction",
                         purpose="text_extraction",
@@ -289,7 +375,7 @@ class PDFProcessor(BaseProcessor):
                     processing_text = full_text
                 elif extraction_method == EXTRACTION_OCR:
                     processing_text = ocr_text
-                else:  # EXTRACTION_BOTH - Kombiniere beide Texte
+                elif extraction_method == EXTRACTION_BOTH:
                     processing_text = f"=== Native Extraktion ===\n{full_text}\n\n=== OCR Extraktion ===\n{ocr_text}"
                 
                 # Template-Transformation wenn gewünscht
@@ -346,7 +432,7 @@ class PDFProcessor(BaseProcessor):
             # Dummy-Result für den Fehlerfall
             dummy_result = PDFProcessingResult(
                 metadata=PDFMetadata(
-                    file_name=Path(file_path).name,
+                    file_name=str(file_path).split('/')[-1],
                     file_size=0,
                     page_count=0,
                     process_dir=str(working_dir)
