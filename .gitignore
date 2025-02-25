@@ -7,4 +7,6 @@ __pycache__/
 cache/
 events/
 temp-processing/
+.obsidian/
+.trash/
 

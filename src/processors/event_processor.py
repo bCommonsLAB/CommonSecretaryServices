@@ -32,7 +32,7 @@ from processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
 from src.core.models.event import (
-    EventInput, EventOutput, EventData, EventResponse
+    EventInput, EventOutput, EventData, EventResponse, BatchEventResponse, BatchEventOutput, BatchEventData, BatchEventInput
 )
 from src.core.models.base import (
      ErrorInfo
@@ -123,7 +123,7 @@ class EventProcessor(BaseProcessor):
             self.logger.error(f"Fehler beim Abrufen der Event-Seite: {str(e)}")
             raise ProcessingError(f"Fehler beim Abrufen der Event-Seite: {str(e)}")
 
-    async def _process_video(self, video_url: str, source_language: str) -> Tuple[str, Optional[LLMInfo]]:
+    async def _process_video(self, video_url: str, source_language: str, target_language: str) -> Tuple[str, Optional[LLMInfo]]:
         """
         Lädt das Video herunter und extrahiert die Audio-Transkription.
         
@@ -141,8 +141,8 @@ class EventProcessor(BaseProcessor):
             # Video in Quellsprache verarbeiten
             result: VideoResponse = await self.video_processor.process(
                 source=video_url,
-                target_language=source_language,  # Behalte Quellsprache bei
-                source_language=source_language
+                source_language=source_language,
+                target_language=target_language  
             )
             
             if result.error:
@@ -211,7 +211,7 @@ class EventProcessor(BaseProcessor):
             # Template-Transformation in Quellsprache durchführen
             result: TransformerResponse = self.transformer_processor.transformByTemplate(
                 source_text=video_transcript,
-                source_language=event_data.source_language,
+                source_language=event_data.target_language, # video_transcript ist schon übersetzt
                 target_language=event_data.target_language,  
                 template="Event",
                 context=template_context
@@ -242,10 +242,7 @@ class EventProcessor(BaseProcessor):
             
             # Transkription hinzufügen
             markdown_content += "## Transkription\n"
-            if event_data.source_language != event_data.target_language:
-                markdown_content += f"```transcript\n{result.data.input.translated_text}\n```\n"
-            else:
-                markdown_content += f"```transcript\n{video_transcript}\n```\n"
+            markdown_content += f"```transcript\n{video_transcript}\n```\n"
             
             self.logger.debug("Markdown generiert",
                             processing_time=time.time() - start_time,
@@ -412,7 +409,7 @@ class EventProcessor(BaseProcessor):
             
             # Erstelle formatierten Session-Verzeichnisnamen mit Startzeit
             session_time = starttime.replace(':', '') if starttime else '0000'
-            session_dir_name = f"{session_time}-{Path(filename).stem}"
+            session_dir_name = f"{day}-{session_time}-{Path(filename).stem}"
             
             # Zielverzeichnisstruktur erstellen:
             # events/[event]/[track]/[time-session_dir]
@@ -428,7 +425,8 @@ class EventProcessor(BaseProcessor):
             if video_url:
                 video_transcript, video_llm_info = await self._process_video(
                     video_url,
-                    source_language
+                    source_language,
+                    target_language
                 )
                 if video_llm_info:
                     llm_info.add_request(video_llm_info.requests)
@@ -555,5 +553,123 @@ class EventProcessor(BaseProcessor):
                     "target_language": target_language
                 },
                 response_class=EventResponse,
+                error=error_info
+            )
+
+    async def process_many_events(
+        self,
+        events: List[Dict[str, Any]]
+    ) -> BatchEventResponse:
+        """
+        Verarbeitet mehrere Events sequentiell.
+        
+        Args:
+            events: Liste von Event-Daten mit denselben Parametern wie process_event
+            
+        Returns:
+            BatchEventResponse: Ergebnis der Batch-Verarbeitung
+        """
+        start_time = time.time()
+        
+        try:
+            # Initialisiere Listen für Ergebnisse und Fehler
+            successful_outputs: List[EventOutput] = []
+            errors: List[Dict[str, Any]] = []
+            llm_infos: List[LLMInfo] = []
+            
+            # Verarbeite Events sequentiell
+            for i, event_data in enumerate(events):
+                try:
+                    # Verarbeite einzelnes Event
+                    result = await self.process_event(
+                        event=event_data.get("event", ""),
+                        session=event_data.get("session", ""),
+                        url=event_data.get("url", ""),
+                        filename=event_data.get("filename", ""),
+                        track=event_data.get("track", ""),
+                        day=event_data.get("day"),
+                        starttime=event_data.get("starttime"),
+                        endtime=event_data.get("endtime"),
+                        speakers=event_data.get("speakers", []),
+                        video_url=event_data.get("video_url"),
+                        attachments_url=event_data.get("attachments_url"),
+                        source_language=event_data.get("source_language", "en"),
+                        target_language=event_data.get("target_language", "de")
+                    )
+                    
+                    # Sammle erfolgreiche Ergebnisse
+                    if result.data and result.data.output:
+                        successful_outputs.append(result.data.output)
+                    if result.process.llm_info:
+                        llm_infos.append(result.process.llm_info)
+                        
+                except Exception as e:
+                    # Protokolliere Fehler, aber setze Verarbeitung fort
+                    errors.append({
+                        "index": i,
+                        "event": event_data.get("event", "unknown"),
+                        "error": str(e)
+                    })
+                    self.logger.error(
+                        f"Fehler bei der Verarbeitung von Event {i}",
+                        error=e,
+                        event=event_data.get("event", "unknown")
+                    )
+            
+            # Erstelle BatchEventOutput
+            batch_output = BatchEventOutput(
+                results=successful_outputs,
+                summary={
+                    "total_events": len(events),
+                    "successful": len(successful_outputs),
+                    "failed": len(errors),
+                    "errors": errors,
+                    "processing_time": time.time() - start_time
+                }
+            )
+            
+            # Erstelle BatchEventData
+            batch_data = BatchEventData(
+                input=BatchEventInput(events=events),
+                output=batch_output
+            )
+            
+            # Kombiniere alle LLM-Infos
+            combined_llm_info = None
+            if llm_infos:
+                combined_llm_info = llm_infos[0]
+                for info in llm_infos[1:]:
+                    combined_llm_info = combined_llm_info.merge(info)
+            
+            # Erstelle Response
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=batch_data,
+                request_info={
+                    "event_count": len(events),
+                    "successful": len(successful_outputs),
+                    "failed": len(errors)
+                },
+                response_class=BatchEventResponse,
+                llm_info=combined_llm_info
+            )
+            
+        except Exception as e:
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,
+                request_info={
+                    "event_count": len(events)
+                },
+                response_class=BatchEventResponse,
                 error=error_info
             ) 

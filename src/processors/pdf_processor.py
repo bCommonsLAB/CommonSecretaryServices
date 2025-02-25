@@ -91,15 +91,15 @@ class PDFProcessor(BaseProcessor):
         
         # Lade Konfiguration
         config = Config()
-        self.max_file_size = config.get('processors.pdf.max_file_size', 50 * 1024 * 1024)
-        self.max_pages = config.get('processors.pdf.max_pages', 100)
+        self.max_file_size = config.get('processors.pdf.max_file_size', 130 * 1024 * 1024)
+        self.max_pages = config.get('processors.pdf.max_pages', 200)
         
         # Initialisiere Transformer
         self.transformer = TransformerProcessor(resource_calculator, process_id)
         
     def create_process_dir(self, identifier: str) -> Path:
         """Erstellt und gibt das Verarbeitungsverzeichnis für eine PDF zurück."""
-        process_dir = self.temp_dir / "pdf" / identifier
+        process_dir: Path = self.temp_dir / "pdf" / identifier
         process_dir.mkdir(parents=True, exist_ok=True)
         return process_dir
 

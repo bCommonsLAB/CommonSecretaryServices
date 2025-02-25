@@ -11,6 +11,7 @@ import yaml
 
 from src.core.exceptions import ValidationError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
+from src.core.config import Config
 from src.utils.logger import ProcessingLogger, get_logger
 from src.utils.performance_tracker import get_performance_tracker
 from src.core.resource_tracking import ResourceCalculator
@@ -179,14 +180,46 @@ class BaseProcessor:
         Returns:
             Path: Pfad zum temporären Verzeichnis
         """
+        # Lade die Basis-Konfiguration
+        app_config = Config()
+        cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
+        
         if config and 'temp_dir' in config:
+            # Verwende konfigurierten Pfad
             temp_path = config.get('temp_dir')
         else:
-            temp_path = f"temp-processing/{processor_name.lower()}"
+            # Erstelle Standard-Pfad im Cache-Verzeichnis
+            temp_path = str(cache_base / processor_name.lower() / "temp")
             
         self.temp_dir = Path(str(temp_path))
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         return self.temp_dir
+
+    def get_cache_dir(self, processor_name: str, config: Optional[Dict[str, Any]] = None) -> Path:
+        """
+        Gibt das Cache-Verzeichnis für den Processor zurück.
+        
+        Args:
+            processor_name (str): Name des Processors für den Unterordner
+            config (Dict[str, Any], optional): Processor-Konfiguration, falls vorhanden
+            
+        Returns:
+            Path: Pfad zum Cache-Verzeichnis
+        """
+        # Lade die Basis-Konfiguration
+        app_config = Config()
+        cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
+        
+        if config and 'cache_dir' in config:
+            # Verwende konfigurierten Pfad
+            cache_path = config.get('cache_dir')
+        else:
+            # Erstelle Standard-Pfad im Cache-Verzeichnis
+            cache_path = str(cache_base / processor_name.lower() / "processed")
+            
+        cache_dir = Path(str(cache_path))
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
 
     def init_logger(self, processor_name: Optional[str] = None) -> ProcessingLogger:
         """

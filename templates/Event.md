@@ -12,10 +12,7 @@ Type: Event-Zusammenfassung
 <video src="{{video_url}}" controls></video>
 
 ## Zusammenfassung & Highlights:
-{{summary|Zusammenfassung in 3 Absätzen. Daran anschließend eine kurze Liste mit den 3–5 wichtigsten Punkten, jeweils mit \n getrennt.}}
-
-## Präsentationsinhalt
-{{attachment_text|Zusammenfassung des attachment_text erstellen}}
+{{summary|Bitte die Texte des Transcripts, des Webtexts und des attachment_text sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter den Abschnitt ausführlich zusammenfassen.Absätze und Titel mit \n trennen.}}
 
 ## Links
 {{attachment_links|Liste aller Links aus attachment_text erstellen, formatiert als markdown links mit Beschreibung und Beistrich getrennt.}}

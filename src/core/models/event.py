@@ -65,21 +65,12 @@ class EventInput:
             raise ValueError("Track darf nicht leer sein")
 
         # Validierung der optionalen Felder nur wenn sie gesetzt sind
-        if self.day:
-            try:
-                datetime.strptime(self.day, "%Y-%m-%d")
-            except ValueError:
-                raise ValueError("Tag muss im Format YYYY-MM-DD sein")
-
         if self.starttime and self.endtime:
             for time_str in [self.starttime, self.endtime]:
                 try:
                     datetime.strptime(time_str, "%H:%M")
                 except ValueError:
                     raise ValueError("Zeit muss im Format HH:MM sein")
-
-        if not isinstance(self.speakers, list):
-            object.__setattr__(self, 'speakers', list(self.speakers) if self.speakers else [])
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Eingabedaten in ein Dictionary."""
@@ -155,6 +146,80 @@ class EventResponse(BaseResponse):
         data: Event-spezifische Daten
     """
     data: EventData
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Response in ein Dictionary."""
+        base_dict = super().to_dict()
+        base_dict["data"] = self.data.to_dict() if self.data else None
+        return base_dict
+
+@dataclass(frozen=True)
+class BatchEventInput:
+    """
+    Eingabedaten für die Batch-Verarbeitung von Events.
+    
+    Attributes:
+        events: Liste von Event-Eingabedaten
+    """
+    events: List[Dict[str, Any]]
+
+    def __post_init__(self) -> None:
+        """Validiert die Batch-Eingabedaten."""
+        if not self.events:
+            raise ValueError("Events list must not be empty")
+
+@dataclass(frozen=True)
+class BatchEventOutput:
+    """
+    Ausgabedaten der Batch-Event-Verarbeitung.
+    
+    Attributes:
+        results: Liste der Event-Verarbeitungsergebnisse
+        summary: Zusammenfassung der Verarbeitung
+    """
+    results: List[EventOutput]
+    summary: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Initialisiert die Summary mit Basis-Statistiken."""
+        # Aktualisiere die Summary
+        object.__setattr__(self, 'summary', {
+            **self.summary,
+            'total_events': len(self.results),
+            'processed_at': datetime.now().isoformat()
+        })
+
+@dataclass(frozen=True)
+class BatchEventData:
+    """
+    Container für Ein- und Ausgabedaten der Batch-Event-Verarbeitung.
+    
+    Attributes:
+        input: Batch-Eingabedaten
+        output: Batch-Ausgabedaten
+    """
+    input: BatchEventInput
+    output: BatchEventOutput
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Batch-Daten in ein Dictionary."""
+        return {
+            "input": {"events": self.input.events},
+            "output": {
+                "results": [result.to_dict() for result in self.output.results],
+                "summary": self.output.summary
+            }
+        }
+
+@dataclass(frozen=True)
+class BatchEventResponse(BaseResponse):
+    """
+    API-Response für die Batch-Event-Verarbeitung.
+    
+    Attributes:
+        data: Batch-Event-spezifische Daten
+    """
+    data: Optional[BatchEventData] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""

@@ -4,7 +4,6 @@ Datenmodelle für die PDF-Verarbeitung.
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 
 @dataclass(frozen=True)
 class PDFMetadata:

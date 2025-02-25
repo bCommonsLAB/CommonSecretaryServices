@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, Union, cast, IO
+from typing import Dict, Any, Optional, Union, cast, IO, List
 from pathlib import Path
 import os
 import tempfile
@@ -16,6 +16,7 @@ import json
 from flask import request, Blueprint
 from flask_restx import Namespace, Resource, Api, fields  # type: ignore
 
+from core.models.event import BatchEventResponse
 from src.core.models.event import EventResponse
 from src.core.models.youtube import YoutubeResponse
 from src.processors.imageocr_processor import ImageOCRResponse
@@ -1680,3 +1681,87 @@ class EventEndpoint(Resource):
 def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
     """Get or create event processor instance with process ID"""
     return EventProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
+
+@api.route('/scrape-many-events')
+class BatchEventEndpoint(Resource):
+    """Endpoint für die Batch-Verarbeitung von Events."""
+    
+    @api.expect(api.model('BatchEventRequest', {
+        'events': fields.List(fields.Nested(api.model('EventRequestItem', {
+            'event': fields.String(required=True, description='Name der Veranstaltung (z.B. "FOSDEM 2025")'),
+            'session': fields.String(required=True, description='Name der Session (z.B. "Welcome to FOSDEM 2025")'),
+            'url': fields.String(required=True, description='URL zur Event-Seite'),
+            'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
+            'track': fields.String(required=True, description='Track/Kategorie der Session'),
+            'day': fields.String(required=False, description='Veranstaltungstag im Format YYYY-MM-DD'),
+            'starttime': fields.String(required=False, description='Startzeit im Format HH:MM'),
+            'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
+            'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
+            'video_url': fields.String(required=False, description='Optional, URL zum Video'),
+            'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen'),
+            'source_language': fields.String(required=False, default='en', description='Quellsprache (Standard: en)'),
+            'target_language': fields.String(required=False, default='de', description='Zielsprache (Standard: de)')
+        })), required=True, description='Liste der zu verarbeitenden Events')
+    }))
+    @api.response(200, 'Erfolg', api.model('BatchEventResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('BatchRequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('BatchProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('BatchEventData', {
+            'input': fields.Raw(description='Batch-Eingabedaten'),
+            'output': fields.Raw(description='Batch-Ausgabedaten')
+        })),
+        'error': fields.Nested(api.model('BatchError', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet mehrere Events sequentiell')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet mehrere Events sequentiell."""
+        
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                # Validiere Request-Daten
+                if not request.is_json:
+                    return {"error": "Content-Type must be application/json"}, 400
+                
+                data = request.get_json()
+                if not data or "events" not in data:
+                    return {"error": "Request must contain 'events' list"}, 400
+                
+                events: List[Dict[str, Any]] = data["events"]
+                if not events:
+                    return {"error": "Events list must not be empty"}, 400
+                
+                # Initialisiere Event-Processor
+                processor: EventProcessor = get_event_processor()
+                
+                # Verarbeite Events sequentiell
+                result: BatchEventResponse = await processor.process_many_events(events)
+                
+                return result.to_dict()
+                
+            except Exception as e:
+                return {
+                    "error": str(e),
+                    "details": {
+                        "type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    }
+                }, 500
+        
+        return asyncio.run(process_request())

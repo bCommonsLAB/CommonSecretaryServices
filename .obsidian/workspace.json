@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "file": "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1500-The-Selfish-Contributor-Revisited/The-Selfish-Contributor-Revisited.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Welcome-to-FOSDEM-2025"
+              "title": "The-Selfish-Contributor-Revisited"
             }
           }
         ]
@@ -78,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 636.5
   },
   "right": {
     "id": "33c34cfb9f569c43",
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "file": "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1500-The-Selfish-Contributor-Revisited/The-Selfish-Contributor-Revisited.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Rückverweise für Welcome-to-FOSDEM-2025"
+              "title": "Rückverweise für The-Selfish-Contributor-Revisited"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "file": "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1500-The-Selfish-Contributor-Revisited/The-Selfish-Contributor-Revisited.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Ausgehende Links von Welcome-to-FOSDEM-2025 öffnen"
+              "title": "Ausgehende Links von The-Selfish-Contributor-Revisited öffnen"
             }
           },
           {
@@ -142,13 +142,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "file": "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1500-The-Selfish-Contributor-Revisited/The-Selfish-Contributor-Revisited.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Gliederung von Welcome-to-FOSDEM-2025"
+              "title": "Gliederung von The-Selfish-Contributor-Revisited"
             }
           }
         ]
@@ -168,31 +168,53 @@
       "command-palette:Befehlspalette öffnen": false
     }
   },
-  "active": "afad9594743a7907",
+  "active": "07262fa3c811aa5a",
   "lastOpenFiles": [
-    "temp-processing/llm/20250225_010506_template_transform_Event.json",
-    "temp-processing/llm/20250225_010455_translation_direct.json",
-    "temp-processing/pdfprocessor/pdf/7f257d34-c19a-45de-a12b-85f56564fb54/temp.pdf",
-    "temp-processing/pdfprocessor/pdf/7f257d34-c19a-45de-a12b-85f56564fb54",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/previews.zip",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_036.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_035.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_034.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_033.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_032.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_031.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_030.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_029.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_028.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_027.png",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/temp.pdf",
-    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088",
-    "temp-processing/videoprocessor/video/cbe07a2f-2838-478d-a608-c11fe7ecb378",
-    "temp-processing/llm/20250225_010122_template_transform_Event.json",
-    "temp-processing/llm/20250225_010110_translation_direct.json",
-    "temp-processing/pdfprocessor/pdf/8c05339e-d13f-48e7-9d4a-91140faf15ee/temp.pdf",
-    "docs/01_architecture.md",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_9.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_8.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_7.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_6.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_5.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_4.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_3.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_2.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_1.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0/segment_0.mp3",
+    "cache/audioprocessor/temp/fosdem-2025-5258-forked-communities-project-re-licensing-and-community-impact.av1/chapter_0",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_037.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_036.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_035.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_034.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_033.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_032.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_031.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_030.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_029.png",
+    "cache/pdfprocessor/temp/pdf/16e7db56-4643-4d56-8dcb-e28d9d96a294/preview_028.png",
+    "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1400-Rewriting-the-future-of-the-Linux-essential-packages-in-Rust-/Rewriting-the-future-of-the-Linux-essential-packages-in-Rust-.md",
+    "events/FOSDEM 2025/Keynotes-13/Sunday-1600-How-we-are-defending-Software-Freedom-against-Apple-at-the-EUs-highest-court/How-we-are-defending-Software-Freedom-against-Apple-at-the-EUs-highest-court.md",
+    "events/FOSDEM 2025/Main-Track-Janson-7/Saturday-1500-The-Selfish-Contributor-Revisited/The-Selfish-Contributor-Revisited.md",
+    "events/FOSDEM 2025/Keynotes-13/Sunday-1750-Closing-FOSDEM-2025/Closing-FOSDEM-2025.md",
+    "events/FOSDEM 2025/Keynotes-13/Sunday-1700-Ten-Years-as-a-Free-Open-and-Automated-Certificate-Authority/Ten-Years-as-a-Free-Open-and-Automated-Certificate-Authority.md",
+    "events/FOSDEM 2025/Keynotes-13/Sunday-1500-The-Growing-Body-of-Proprietary-Infrastructure-for-FOSS-Development-Repeating-Bad-History/The-Growing-Body-of-Proprietary-Infrastructure-for-FOSS-Development-Repeating-Bad-History.md",
+    "events/FOSDEM 2025/Keynotes-13/Sunday-0900-What-FLOSS-Means-in-the-AI-World/What-FLOSS-Means-in-the-AI-World.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1800-The-Big-FOSDEM-Quiz-of-the-Year/The-Big-FOSDEM-Quiz-of-the-Year.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1600-14-Years-of-systemd/14-Years-of-systemd.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1300-Rust-for-Linux/Rust-for-Linux.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1200-Scaling-OpenSource-Solutions-to-Achieve-the-Sustainable-Development-Goals-A-Global-Call-to-Action/Scaling-OpenSource-Solutions-to-Achieve-the-Sustainable-Development-Goals-A-Global-Call-to-Action.md",
+    "events/FOSDEM 2025/Keynotes-13/1200-Scaling-OpenSource-Solutions-to-Achieve-the-Sustainable-Development-Goals-A-Global-Call-to-Action/Scaling-OpenSource-Solutions-to-Achieve-the-Sustainable-Development-Goals-A-Global-Call-to-Action.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1100-Where-have-the-women-of-tech-history-gone-20/Where-have-the-women-of-tech-history-gone-20.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-1000-Program-to-Learn-The-Power-of-Creative-Coding/Program-to-Learn-The-Power-of-Creative-Coding.md",
+    "events/FOSDEM 2025/Keynotes-13/Saturday-0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+    "events/FOSDEM 2025/Keynotes-13/1600-How-we-are-defending-Software-Freedom-against-Apple-at-the-EUs-highest-court/How-we-are-defending-Software-Freedom-against-Apple-at-the-EUs-highest-court.md",
+    "events/FOSDEM 2025/Keynotes-13/None-1000-Program-to-Learn-The-Power-of-Creative-Coding/Program-to-Learn-The-Power-of-Creative-Coding.md",
+    "events/FOSDEM 2025/Keynotes-13/None-0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+    "events/FOSDEM 2025/Keynotes-13/1300-Rust-for-Linux/Rust-for-Linux.md",
+    "events/FOSDEM 2025/Keynotes-13/1800-The-Big-FOSDEM-Quiz-of-the-Year/The-Big-FOSDEM-Quiz-of-the-Year.md",
+    "events/FOSDEM 2025/Keynotes-13/1500-The-Growing-Body-of-Proprietary-Infrastructure-for-FOSS-Development-Repeating-Bad-History/The-Growing-Body-of-Proprietary-Infrastructure-for-FOSS-Development-Repeating-Bad-History.md",
+    "events/FOSDEM 2025/Keynotes-13/1600-14-Years-of-systemd/14-Years-of-systemd.md",
     "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
-    "events/Keynotes-13/Welcome-to-FOSDEM-2025.md"
+    "events/FOSDEM 2025/Keynotes-13/0900-What-FLOSS-Means-in-the-AI-World/What-FLOSS-Means-in-the-AI-World.md",
+    "events/FOSDEM 2025/Keynotes-13/1100-Where-have-the-women-of-tech-history-gone-20/Where-have-the-women-of-tech-history-gone-20.md"
   ]
 }

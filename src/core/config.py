@@ -1,7 +1,7 @@
 """
 Konfigurationsmanagement für die Anwendung.
 """
-from typing import Dict, Any, Optional, TypedDict, cast
+from typing import Dict, Any, Optional, TypedDict, cast, Union
 from pathlib import Path
 import os
 import yaml
@@ -20,6 +20,7 @@ class YoutubeConfig(TypedDict):
     max_file_size: int
     max_duration: int
     temp_dir: str
+    cache_dir: str
     ydl_opts: Dict[str, Any]
 
 class AudioConfig(TypedDict):
@@ -27,6 +28,7 @@ class AudioConfig(TypedDict):
     max_file_size: int
     segment_duration: int
     temp_dir: str
+    cache_dir: str
     export_format: str
 
 class ProcessorsConfig(TypedDict):
@@ -46,12 +48,19 @@ class LoggingConfig(TypedDict):
     max_size: int
     backup_count: int
 
+class CacheConfig(TypedDict):
+    """Cache-Konfiguration."""
+    base_dir: str
+    max_age_days: int
+    cleanup_interval: int
+
 class ApplicationConfig(TypedDict):
     """Gesamte Anwendungskonfiguration."""
     server: ServerConfig
-    processors: ProcessorsConfig
+    processors: Dict[str, Union[YoutubeConfig, AudioConfig]]
     rate_limiting: RateLimitingConfig
     logging: LoggingConfig
+    cache: CacheConfig
 
 class Config:
     """
@@ -71,11 +80,17 @@ class Config:
             'debug': False,
             'api_port': 5001
         },
+        'cache': {
+            'base_dir': './cache',  # Basis-Verzeichnis für alle Caches
+            'max_age_days': 7,      # Standard-Aufbewahrungszeit
+            'cleanup_interval': 24   # Cleanup-Intervall in Stunden
+        },
         'processors': {
             'youtube': {
                 'max_file_size': 104857600,  # 100 MB
                 'max_duration': 3600,        # 1 Stunde
-                'temp_dir': 'temp-processing/video',
+                'temp_dir': 'cache/video/temp',  # Neuer Pfad
+                'cache_dir': 'cache/video/processed',  # Neuer Cache-Pfad
                 'ydl_opts': {
                     'format': 'bestaudio/best'
                 }
@@ -83,7 +98,8 @@ class Config:
             'audio': {
                 'max_file_size': 104857600,  # 100 MB
                 'segment_duration': 300,      # 5 Minuten
-                'temp_dir': 'temp-processing/audio',
+                'temp_dir': 'cache/audio/temp',  # Neuer Pfad
+                'cache_dir': 'cache/audio/processed',  # Neuer Cache-Pfad
                 'export_format': 'mp3'
             }
         },

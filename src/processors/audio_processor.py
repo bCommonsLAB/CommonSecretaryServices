@@ -76,7 +76,7 @@ Beispiel Response:
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol, cast, TypeVar
+from typing import Dict, Any, Optional, List, Union, Protocol, cast, TypeVar, Mapping
 from types import TracebackType
 import time
 import hashlib
@@ -177,6 +177,10 @@ class TransformerProcessorProtocol(Protocol):
         template: Optional[str] = None
     ) -> TransformerResponse: ...
 
+# Typ-Aliase für Konfigurationswerte
+AudioConfig = Dict[str, Any]
+ProcessorConfig = Mapping[str, Any]
+
 class AudioProcessor(BaseProcessor):
     """Audio Processor für die Verarbeitung von Audio-Dateien.
     
@@ -201,12 +205,17 @@ class AudioProcessor(BaseProcessor):
         
         # Konfiguration laden
         config = Config()
-        self.config: ApplicationConfig = config.get_all()  # Korrekte Typ-Annotation
-        # temp_dir wird vom BaseProcessor verwaltet
-        self.max_file_size = self.config.get('processors', {}).get('audio', {}).get('max_file_size', 100 * 1024 * 1024)  # 100MB
-        self.segment_duration = self.config.get('processors', {}).get('audio', {}).get('segment_duration', 300)  # 5 Minuten
-        self.export_format = self.config.get('processors', {}).get('audio', {}).get('export_format', 'mp3')
-        self.temp_file_suffix = f".{self.export_format}"
+        self.config: ApplicationConfig = config.get_all()
+        
+        # Audio-Konfiguration aus Config extrahieren
+        processor_config: ProcessorConfig = self.config.get('processors', {})
+        audio_config: AudioConfig = processor_config.get('audio', {})
+        
+        # Konfigurationswerte mit Typ-Annotationen
+        self.max_file_size: int = audio_config.get('max_file_size', 100 * 1024 * 1024)  # 100MB
+        self.segment_duration: int = audio_config.get('segment_duration', 300)  # 5 Minuten
+        self.export_format: str = audio_config.get('export_format', 'mp3')
+        self.temp_file_suffix: str = f".{self.export_format}"
         
         # Prozessoren initialisieren
         self.transformer: TransformerProcessorProtocol = cast(TransformerProcessorProtocol, 
@@ -702,7 +711,7 @@ class AudioProcessor(BaseProcessor):
                 elif transcription_result.llms:  # Fallback auf llms wenn requests leer
                     self.logger.info(f"Füge {len(transcription_result.llms)} Whisper-LLMs als Requests hinzu")
                     # Konvertiere LLModels zu LLMRequests
-                    llm_requests = [
+                    llm_requests: List[LLMRequest] = [
                         LLMRequest(
                             model=llm.model,
                             purpose="transcription",
@@ -742,29 +751,6 @@ class AudioProcessor(BaseProcessor):
                             llms=[]  # Leere Liste statt None
                         )
 
-                elif source_language != target_language:
-                    self.logger.info(f"Übersetze Text von {source_language} nach {target_language}")
-                    transformer_response = self.transformer.transform(
-                        source_text=original_text,
-                        source_language=source_language,
-                        target_language=target_language,
-                        context=source_info
-                    )
-                    
-                    # Füge Übersetzungs-Requests hinzu
-                    if transformer_response.process and transformer_response.process.llm_info:
-                        self.logger.info(f"Füge {len(transformer_response.process.llm_info.requests)} Übersetzungs-Requests hinzu")
-                        llm_info.add_request(transformer_response.process.llm_info.requests)
-                    
-                    if transformer_response and transformer_response.data and transformer_response.data.output:
-                        transcription_result = TranscriptionResult(
-                            text=transformer_response.data.output.text,
-                            source_language=source_language,  # Original Sprache behalten
-                            segments=transcription_result.segments,
-                            requests=[],  # Leere Liste statt None
-                            llms=[]  # Leere Liste statt None
-                        )
-
                 # Erstelle das finale Ergebnis
                 metadata = AudioMetadata(
                     duration=float(len(audio)) / 1000.0,  # Konvertiere ms zu Sekunden
@@ -788,7 +774,7 @@ class AudioProcessor(BaseProcessor):
                 )
 
                 # Erstelle die Response mit ResponseFactory
-                end_time = datetime.now()
+                end_time: datetime = datetime.now()
                 duration_ms = int((end_time - start_time).total_seconds() * 1000)
                 
                 self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}, Duration: {llm_info.total_duration}")

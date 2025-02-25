@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass, asdict
+import time
+import shutil
 
 from src.core.models.video import VideoProcessingResult, VideoSource
 from src.core.config import Config
@@ -38,9 +40,39 @@ class VideoCache:
     
     def __init__(self):
         config = Config()
-        self.cache_dir = Path(config.get('temp_dir', '/tmp')) / "video_cache"
+        # Verwende das neue Cache-Verzeichnis aus der Konfiguration
+        cache_base = Path(config.get('cache', {}).get('base_dir', './cache'))
+        self.cache_dir = cache_base / "video/processed"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
+        # Lade Cache-Konfiguration
+        self.max_age_days = config.get('cache', {}).get('max_age_days', 7)
+        self.cleanup_interval = config.get('cache', {}).get('cleanup_interval', 24)
+        
+    def cleanup_old_cache(self) -> None:
+        """Löscht alte Cache-Einträge basierend auf der Konfiguration."""
+        try:
+            now = time.time()
+            for cache_entry in self.cache_dir.glob("*"):
+                if cache_entry.is_dir():
+                    # Prüfe das Alter des Cache-Eintrags
+                    entry_age = now - cache_entry.stat().st_mtime
+                    max_age = self.max_age_days * 24 * 60 * 60  # Konvertiere Tage in Sekunden
+                    
+                    if entry_age > max_age:
+                        self._safe_delete_dir(cache_entry)
+                        
+        except Exception as e:
+            print(f"Fehler beim Cache-Cleanup: {str(e)}")
+            
+    def _safe_delete_dir(self, dir_path: Path) -> None:
+        """Löscht ein Verzeichnis sicher und rekursiv."""
+        try:
+            if dir_path.exists():
+                shutil.rmtree(str(dir_path))
+        except Exception as e:
+            print(f"Fehler beim Löschen von {dir_path}: {str(e)}")
+
     def _generate_cache_key(self, source: VideoSource, target_language: str, template: Optional[str]) -> str:
         """Generiert einen eindeutigen Cache-Schlüssel"""
         # Hash aus URL oder Datei erstellen
@@ -117,12 +149,12 @@ class VideoCache:
         if not self.has_valid_cache(source, target_language, template):
             return None
             
-        cache_key = self._generate_cache_key(source, target_language, template)
-        cache_dir = self._get_cache_dir(cache_key)
+        cache_key: str = self._generate_cache_key(source, target_language, template)
+        cache_dir: Path = self._get_cache_dir(cache_key)
         
         # 1. Lade Metadaten
         with open(cache_dir / "metadata.json", "r", encoding="utf-8") as f:
-            metadata = CacheMetadata.from_dict(json.load(f))
+            metadata: CacheMetadata = CacheMetadata.from_dict(json.load(f))
             
         # 2. Lade Ergebnis
         with open(cache_dir / "result.json", "r", encoding="utf-8") as f:
@@ -130,14 +162,14 @@ class VideoCache:
             result: VideoProcessingResult = VideoProcessingResult.from_dict(json.load(f))
             
         # 3. Audio-Pfad
-        audio_path = cache_dir / "audio.mp3"
+        audio_path: Path = cache_dir / "audio.mp3"
         
         return result, audio_path, metadata
 
     def invalidate(self, source: VideoSource, target_language: str, template: Optional[str]) -> None:
         """Löscht einen Cache-Eintrag"""
-        cache_key = self._generate_cache_key(source, target_language, template)
-        cache_dir = self._get_cache_dir(cache_key)
+        cache_key: str = self._generate_cache_key(source, target_language, template)
+        cache_dir: Path = self._get_cache_dir(cache_key)
         
         if cache_dir.exists():
             for file in cache_dir.glob("*"):

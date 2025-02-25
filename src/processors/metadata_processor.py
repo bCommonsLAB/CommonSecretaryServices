@@ -64,10 +64,10 @@ class MetadataProcessor(BaseProcessor):
         
         try:
             # Basis-Konfiguration
-            self.max_file_size = max_file_size
+            self.max_file_size: int = max_file_size
             
             # MIME-Type Konfiguration
-            self.supported_mime_types = supported_mime_types or [
+            self.supported_mime_types: List[str] = supported_mime_types or [
                 "audio/*", "video/*", "image/*", "application/pdf",
                 "text/markdown", "text/plain", "text/*"
             ]
