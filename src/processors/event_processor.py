@@ -45,6 +45,7 @@ from src.processors.video_processor import VideoProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from .base_processor import BaseProcessor
 from src.processors.pdf_processor import PDFProcessor
+from src.core.models.notion import NotionBlock, NotionResponse, NotionData, Newsfeed
 
 class EventProcessor(BaseProcessor):
     """
@@ -671,5 +672,154 @@ class EventProcessor(BaseProcessor):
                     "event_count": len(events)
                 },
                 response_class=BatchEventResponse,
+                error=error_info
+            )
+
+    async def process_notion_blocks(
+        self,
+        blocks: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Verarbeitet Notion Blocks und erstellt mehrsprachigen Newsfeed-Inhalt.
+        Die Quellsprache ist fest auf Deutsch eingestellt, die Zielsprache ist Italienisch.
+        
+        Args:
+            blocks: Liste der Notion Blocks
+            
+        Returns:
+            Dict[str, Any]: Response als Dictionary
+        """
+        try:
+            self.logger.info("Starte Verarbeitung von Notion Blocks",
+                           block_count=len(blocks))
+
+            # Validiere und konvertiere Blocks
+            notion_blocks = []
+            for block in blocks:
+                # Entferne nicht benötigte Felder und extrahiere verschachtelte Werte
+                cleaned_block = {
+                    "root_id": block.get("root_id", ""),
+                    "object": block.get("object", ""),
+                    "id": block.get("id", ""),
+                    "parent_id": block.get("parent", {}).get("page_id", ""),
+                    "type": block.get("type", ""),
+                    "has_children": block.get("has_children", False),
+                    "archived": block.get("archived", False),
+                    "in_trash": block.get("in_trash", False),
+                    "content": block.get("content", ""),
+                    "image": block.get("image", None) if block.get("type") == "image" else None,
+                    "caption": block.get("caption", "")
+                }
+                
+                # Debug-Logging für Block-Struktur
+                self.logger.debug("Block-Struktur:",
+                                block_type=block.get("type"),
+                                has_content=bool(cleaned_block["content"]),
+                                raw_block=block)
+                
+                notion_blocks.append(NotionBlock(**cleaned_block))
+            
+            self.logger.debug("Notion Blocks validiert und konvertiert",
+                            block_count=len(notion_blocks))
+            
+            # Extrahiere ID vom ersten Block
+            newsfeed_id = notion_blocks[0].root_id if notion_blocks else ""
+            if not newsfeed_id:
+                self.logger.warning("Keine parent_id im ersten Block gefunden")
+            
+            # Sammle deutschen Content (alles vor "Content_IT:")
+            content_de: List[str] = []
+            content_it: List[str] = []
+            is_italian_content = False
+            
+            for block in notion_blocks:
+                if block.type == "paragraph":
+                    if block.content == "Content_IT:":
+                        is_italian_content = True
+                        continue
+                        
+                    if block.content:
+                        if is_italian_content:
+                            content_it.append(block.content)
+                        else:
+                            content_de.append(block.content)
+            
+            if not content_de:
+                self.logger.warning("Kein deutscher Content gefunden")
+            if not content_it:
+                self.logger.warning("Kein italienischer Content gefunden")
+                
+            # Extrahiere Titel und Intro aus deutschem Content
+            title_de = content_de[0].split('.')[0] if content_de else ""
+            intro_de = content_de[0] if content_de else ""
+            
+            # Extrahiere Titel und Intro aus italienischem Content
+            title_it = content_it[0] if content_it else ""
+            intro_it = content_it[0] if content_it else ""
+            
+            # Extrahiere Bild-URL
+            image_url = None
+            for block in notion_blocks:
+                if block.type == "image" and block.image:
+                    image_url = block.image.get("file", {}).get("url", "")
+                    break
+            
+            # Erstelle Newsfeed
+            newsfeed = Newsfeed(
+                id=newsfeed_id,
+                title_DE=title_de,
+                intro_DE=intro_de,
+                title_IT=title_it,
+                intro_IT=intro_it,
+                image=image_url,
+                content_DE="\n\n".join(content_de),
+                content_IT="\n\n".join(content_it)
+            )
+            self.logger.debug("Newsfeed erstellt",
+                            has_image=bool(image_url),
+                            content_de_length=len(content_de),
+                            content_it_length=len(content_it))
+            
+            # Erstelle NotionData
+            notion_data = NotionData(
+                input=notion_blocks,
+                output=newsfeed
+            )
+            
+            self.logger.info("Notion Block Verarbeitung erfolgreich abgeschlossen")
+            
+            # Erstelle Response
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=notion_data,
+                request_info={
+                    "block_count": len(blocks)
+                },
+                response_class=NotionResponse,
+                llm_info=None  # Keine LLM-Nutzung in diesem Fall
+            )
+            
+        except Exception as e:
+            self.logger.error("Fehler bei der Notion Block Verarbeitung",
+                            error=e,
+                            error_type=type(e).__name__,
+                            traceback=traceback.format_exc())
+            
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,
+                request_info={
+                    "block_count": len(blocks)
+                },
+                response_class=NotionResponse,
                 error=error_info
             ) 

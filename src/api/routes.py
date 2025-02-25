@@ -16,6 +16,7 @@ import json
 from flask import request, Blueprint
 from flask_restx import Namespace, Resource, Api, fields  # type: ignore
 
+from core.models.notion import NotionResponse
 from src.core.models.event import BatchEventResponse
 from src.core.models.event import EventResponse
 from src.core.models.youtube import YoutubeResponse
@@ -1765,3 +1766,108 @@ class BatchEventEndpoint(Resource):
                 }, 500
         
         return asyncio.run(process_request())
+
+@api.route('/scrape-notion-page')
+class NotionEndpoint(Resource):
+    @api.expect(api.model('NotionRequest', {
+        'blocks': fields.List(fields.Raw(description='Notion Block Struktur'))
+    }))
+    @api.response(200, 'Erfolg', api.model('NotionResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Nested(api.model('NotionRequestInfo', {
+            'processor': fields.String(description='Name des Prozessors'),
+            'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+            'parameters': fields.Raw(description='Anfrageparameter')
+        })),
+        'process': fields.Nested(api.model('NotionProcessInfo', {
+            'id': fields.String(description='Eindeutige Prozess-ID'),
+            'main_processor': fields.String(description='Hauptprozessor'),
+            'started': fields.String(description='Startzeitpunkt'),
+            'completed': fields.String(description='Endzeitpunkt'),
+            'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+            'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+        })),
+        'data': fields.Nested(api.model('NotionData', {
+            'input': fields.List(fields.Raw(description='Notion Blocks')),
+            'output': fields.Nested(api.model('Newsfeed', {
+                'id': fields.String(description='Eindeutige Newsfeed-ID'),
+                'title_DE': fields.String(description='Deutscher Titel'),
+                'intro_DE': fields.String(description='Deutsche Einleitung'),
+                'title_IT': fields.String(description='Italienischer Titel'),
+                'intro_IT': fields.String(description='Italienische Einleitung'),
+                'image': fields.String(description='Bild-URL'),
+                'content_DE': fields.String(description='Deutscher Inhalt'),
+                'content_IT': fields.String(description='Italienischer Inhalt')
+            }))
+        })),
+        'error': fields.Nested(api.model('NotionError', {
+            'code': fields.String(description='Fehlercode'),
+            'message': fields.String(description='Fehlermeldung'),
+            'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+        }))
+    }))
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet Notion Blocks und erstellt mehrsprachigen Newsfeed-Inhalt (DE->IT)')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Verarbeitet Notion Blocks und erstellt einen mehrsprachigen Newsfeed-Eintrag.
+        """
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                # Parse Request
+                data = request.get_json()
+                if not data or 'blocks' not in data:
+                    return {'error': 'Keine Blocks gefunden'}, 400
+                
+                blocks_raw = data['blocks']
+                if not isinstance(blocks_raw, list):
+                    return {'error': 'Blocks müssen als Liste übergeben werden'}, 400
+                
+                blocks: List[Dict[str, Any]] = blocks_raw
+                
+                # Verarbeite Blocks
+                processor: EventProcessor = get_event_processor()
+                result: NotionResponse = await processor.process_notion_blocks(blocks)
+                
+                return result.to_dict()
+                
+            except Exception as e:
+                return handle_processing_error(e)
+        
+        return asyncio.run(process_request())
+
+# API Models
+notion_response = api.model('NotionResponse', {
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(api.model('NotionRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(api.model('NotionProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(api.model('NotionData', {
+        'input': fields.List(fields.Raw(description='Notion Blocks')),
+        'output': fields.Nested(api.model('Newsfeed', {
+            'id': fields.String(description='Eindeutige Newsfeed-ID (parent_id des ersten Blocks)'),
+            'title_DE': fields.String(description='Deutscher Titel'),
+            'intro_DE': fields.String(description='Deutsche Einleitung'),
+            'title_IT': fields.String(description='Italienischer Titel'),
+            'intro_IT': fields.String(description='Italienische Einleitung'),
+            'image': fields.String(description='Bild-URL'),
+            'content_DE': fields.String(description='Deutscher Inhalt'),
+            'content_IT': fields.String(description='Italienischer Inhalt')
+        }))
+    })),
+    'error': fields.Nested(api.model('NotionError', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    }))
+})
