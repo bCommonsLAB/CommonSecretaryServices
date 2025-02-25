@@ -16,7 +16,7 @@ import json
 from flask import request, Blueprint
 from flask_restx import Namespace, Resource, Api, fields  # type: ignore
 
-from core.models.event import BatchEventResponse
+from src.core.models.event import BatchEventResponse
 from src.core.models.event import EventResponse
 from src.core.models.youtube import YoutubeResponse
 from src.processors.imageocr_processor import ImageOCRResponse
