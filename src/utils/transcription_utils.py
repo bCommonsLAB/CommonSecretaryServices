@@ -356,10 +356,7 @@ class WhisperTranscriber:
             # 1. Template-Datei lesen
             template_content: str = self._read_template_file(template, logger)
 
-            # 2. Einfache Kontext-Variablen ersetzen
-            template_content = self._replace_context_variables(template_content, context, text, logger)
-
-            # 3. Strukturierte Variablen extrahieren und Model erstellen
+            # 2. Strukturierte Variablen extrahieren und Model erstellen
             field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
             
             if not field_definitions.fields:
@@ -485,6 +482,9 @@ class WhisperTranscriber:
                 pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
                 template_content = re.sub(pattern, value, template_content)
+
+            # Einfache Kontext-Variablen ersetzen
+            template_content = self._replace_context_variables(template_content, context, text, logger)
 
             if logger:
                 logger.info("Template-Transformation abgeschlossen",

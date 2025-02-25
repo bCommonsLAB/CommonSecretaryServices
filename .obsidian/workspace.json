@@ -1,0 +1,198 @@
+{
+  "main": {
+    "id": "3fd401bc127fadca",
+    "type": "split",
+    "children": [
+      {
+        "id": "95db510456c84443",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "afad9594743a7907",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Welcome-to-FOSDEM-2025"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "33ae710e434ae080",
+    "type": "split",
+    "children": [
+      {
+        "id": "cee2b0061dc7d45f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "07262fa3c811aa5a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Dateiexplorer"
+            }
+          },
+          {
+            "id": "9593e75ddd01020f",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Suchen"
+            }
+          },
+          {
+            "id": "49224791511f6992",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Lesezeichen"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "33c34cfb9f569c43",
+    "type": "split",
+    "children": [
+      {
+        "id": "ac88af75ce299f8e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7cbea8c591980672",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Rückverweise für Welcome-to-FOSDEM-2025"
+            }
+          },
+          {
+            "id": "0c6c385c8e331c38",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Ausgehende Links von Welcome-to-FOSDEM-2025 öffnen"
+            }
+          },
+          {
+            "id": "410106cdfc6b53d3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "fcf6aa7bcd3e1c2e",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Gliederung von Welcome-to-FOSDEM-2025"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Schnellauswahl öffnen": false,
+      "graph:Graphen-Ansicht öffnen": false,
+      "canvas:Neuen Canvas erstellen": false,
+      "daily-notes:Heutige Notiz öffnen": false,
+      "templates:Vorlage einfügen": false,
+      "command-palette:Befehlspalette öffnen": false
+    }
+  },
+  "active": "afad9594743a7907",
+  "lastOpenFiles": [
+    "temp-processing/llm/20250225_010506_template_transform_Event.json",
+    "temp-processing/llm/20250225_010455_translation_direct.json",
+    "temp-processing/pdfprocessor/pdf/7f257d34-c19a-45de-a12b-85f56564fb54/temp.pdf",
+    "temp-processing/pdfprocessor/pdf/7f257d34-c19a-45de-a12b-85f56564fb54",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/previews.zip",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_036.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_035.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_034.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_033.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_032.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_031.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_030.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_029.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_028.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/preview_027.png",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088/temp.pdf",
+    "temp-processing/pdfprocessor/pdf/8a6235d6-92af-4b5a-8181-f071dffab088",
+    "temp-processing/videoprocessor/video/cbe07a2f-2838-478d-a608-c11fe7ecb378",
+    "temp-processing/llm/20250225_010122_template_transform_Event.json",
+    "temp-processing/llm/20250225_010110_translation_direct.json",
+    "temp-processing/pdfprocessor/pdf/8c05339e-d13f-48e7-9d4a-91140faf15ee/temp.pdf",
+    "docs/01_architecture.md",
+    "events/FOSDEM 2025/Keynotes-13/0930-Welcome-to-FOSDEM-2025/Welcome-to-FOSDEM-2025.md",
+    "events/Keynotes-13/Welcome-to-FOSDEM-2025.md"
+  ]
+}

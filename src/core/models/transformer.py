@@ -27,6 +27,7 @@ class TransformerInput:
     text: str
     language: str
     format: OutputFormat
+    translated_text: Optional[str] = None
     summarize: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,6 +36,7 @@ class TransformerInput:
             "text": self.text,
             "language": self.language,
             "format": self.format.value,
+            "translated_text": self.translated_text,
             "summarize": self.summarize
         }
 

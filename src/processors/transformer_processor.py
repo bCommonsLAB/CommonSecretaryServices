@@ -313,6 +313,7 @@ class TransformerProcessor(BaseProcessor):
                     text=source_text,
                     language=source_language,
                     format=self.target_format,
+                    translated_text=None,
                     summarize=False
                 ),
                 output=TransformerOutput(
@@ -360,7 +361,13 @@ class TransformerProcessor(BaseProcessor):
                     request=response.request,
                     process=response.process,
                     data=TransformerData(
-                        input=response.data.input,
+                        input=TransformerInput(
+                            text=source_text,
+                            language=source_language,
+                            format=self.target_format,
+                            translated_text=result_text,
+                            summarize=False
+                        ),
                         output=TransformerOutput(
                             text=result_text,
                             language=target_language,

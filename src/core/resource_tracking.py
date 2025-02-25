@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 @dataclass
@@ -15,7 +15,16 @@ class ResourceUsage:
             self.timestamp = datetime.now()
 
 class ResourceCalculator:
+    """
+    Berechnet und trackt Ressourcenverbrauch.
+    Wird für Performance-Monitoring verwendet.
+    """
+    
     def __init__(self):
+        """Initialisiert den ResourceCalculator."""
+        self.total_tokens: int = 0
+        self.total_api_calls: int = 0
+        self.processing_times: Dict[str, float] = {}
         self.storage_cost_per_mb = 0.00001    # Beispielkosten pro MB
         self.compute_cost_per_second = 0.0001  # Beispielkosten pro Sekunde
         self.token_cost_per_1k = {
@@ -74,4 +83,53 @@ class ResourceCalculator:
     def calculate_cost(self, tokens: int, model: str) -> float:
         """Berechnet die Kosten für eine bestimmte Token-Anzahl und ein Modell."""
         cost_per_1k = self.token_cost_per_1k.get(model, 0.01)  # Fallback auf $0.01/1K tokens
-        return (tokens / 1000) * cost_per_1k 
+        return (tokens / 1000) * cost_per_1k
+
+    def add_tokens(self, count: int, model: str) -> None:
+        """
+        Fügt Token-Verbrauch hinzu.
+        
+        Args:
+            count: Anzahl der verbrauchten Token
+            model: Name des verwendeten Modells
+        """
+        self.total_tokens += count
+        
+    def add_api_call(self, endpoint: str) -> None:
+        """
+        Trackt einen API-Aufruf.
+        
+        Args:
+            endpoint: Name des aufgerufenen Endpoints
+        """
+        self.total_api_calls += 1
+        
+    def add_processing_time(self, step: str, time: float) -> None:
+        """
+        Fügt Verarbeitungszeit hinzu.
+        
+        Args:
+            step: Name des Verarbeitungsschritts
+            time: Benötigte Zeit in Sekunden
+        """
+        self.processing_times[step] = time
+        
+    def get_total_tokens(self) -> int:
+        """Gibt die Gesamtzahl der verbrauchten Token zurück."""
+        return self.total_tokens
+        
+    def get_total_api_calls(self) -> int:
+        """Gibt die Gesamtzahl der API-Aufrufe zurück."""
+        return self.total_api_calls
+        
+    def get_processing_times(self) -> Dict[str, float]:
+        """Gibt die Verarbeitungszeiten zurück."""
+        return self.processing_times.copy()
+        
+    def get_summary(self) -> Dict[str, Any]:
+        """Erstellt eine Zusammenfassung der Ressourcennutzung."""
+        return {
+            "total_tokens": self.total_tokens,
+            "total_api_calls": self.total_api_calls,
+            "processing_times": self.processing_times.copy()
+        } 

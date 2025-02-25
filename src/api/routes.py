@@ -1574,7 +1574,9 @@ class EventEndpoint(Resource):
         'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
         'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
         'video_url': fields.String(required=False, description='Optional, URL zum Video'),
-        'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen')
+        'attachments_url': fields.String(required=False, description='Optional, URL zu Anhängen'),
+        'source_language': fields.String(required=False, default='en', description='Quellsprache (Standard: en)'),
+        'target_language': fields.String(required=False, default='de', description='Zielsprache (Standard: de)')
     }))
     @api.response(200, 'Erfolg', api.model('EventResponse', {
         'status': fields.String(description='Status der Verarbeitung (success/error)'),
@@ -1636,7 +1638,9 @@ class EventEndpoint(Resource):
                     endtime=data.get('endtime'),
                     speakers=data.get('speakers', []),
                     video_url=data.get('video_url'),
-                    attachments_url=data.get('attachments_url')
+                    attachments_url=data.get('attachments_url'),
+                    source_language=data.get('source_language', 'en'),
+                    target_language=data.get('target_language', 'de')
                 )
 
                 # Füge Ressourcenverbrauch zum Tracker hinzu

@@ -30,6 +30,8 @@ class EventInput:
         speakers: Liste der Vortragenden
         video_url: URL zum Video
         attachments_url: URL zu Anhängen
+        source_language: Quellsprache (Standardmäßig Englisch)
+        target_language: Zielsprache (Standardmäßig Deutsch)
     """
     # Pflichtfelder
     event: str
@@ -45,6 +47,8 @@ class EventInput:
     speakers: List[str] = field(default_factory=list)
     video_url: Optional[str] = None
     attachments_url: Optional[str] = None
+    source_language: str = "en"  # Standardmäßig Englisch
+    target_language: str = "de"  # Standardmäßig Deutsch
 
     def __post_init__(self) -> None:
         """Validiert die Eingabedaten."""
@@ -74,6 +78,9 @@ class EventInput:
                 except ValueError:
                     raise ValueError("Zeit muss im Format HH:MM sein")
 
+        if not isinstance(self.speakers, list):
+            object.__setattr__(self, 'speakers', list(self.speakers) if self.speakers else [])
+
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Eingabedaten in ein Dictionary."""
         return {
@@ -87,7 +94,9 @@ class EventInput:
             "endtime": self.endtime,
             "speakers": self.speakers,
             "video_url": self.video_url,
-            "attachments_url": self.attachments_url
+            "attachments_url": self.attachments_url,
+            "source_language": self.source_language,
+            "target_language": self.target_language
         }
 
 @dataclass(frozen=True)
