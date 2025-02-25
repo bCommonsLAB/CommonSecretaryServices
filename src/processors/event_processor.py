@@ -28,7 +28,7 @@ import requests
 from bs4 import BeautifulSoup
 import zipfile
 
-from processors.pdf_processor import PDFResponse
+from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
 from src.core.models.event import (
