@@ -13,6 +13,10 @@ processors:
     segment_duration: 300
     temp_dir: temp-processing/audio
     temp_file_suffix: .mp3
+  event:
+    base_dir: events
+    temp_dir: temp-processing/event
+    max_concurrent_tasks: 5
   transformer:
     model: gpt-4o
   youtube:
