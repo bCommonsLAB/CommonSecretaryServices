@@ -14,7 +14,7 @@ import mimetypes
 import json
 
 from flask import request, Blueprint
-from flask_restx import Namespace, Resource, Api, fields  # type: ignore
+from flask_restx import Namespace, Resource, Api, fields, inputs  # type: ignore
 
 from src.core.models.notion import NotionResponse
 from src.core.models.event import BatchEventResponse
@@ -369,31 +369,17 @@ audio_response = api.model('AudioResponse', {
     'segments': fields.List(fields.Raw, description='Liste der Audio-Segmente mit Zeitstempeln'),
     'process_id': fields.String(description='Eindeutige Prozess-ID für Tracking'),
     'process_dir': fields.String(description='Verarbeitungsverzeichnis'),
-    'args': fields.Raw(description='Verwendete Verarbeitungsparameter')
+    'args': fields.Raw(description='Verwendete Verarbeitungsparameter'),
+    'from_cache': fields.Boolean(description='Gibt an, ob das Ergebnis aus dem Cache geladen wurde')
 })
 
 # Model für Audio-Upload Parameter
 upload_parser = api.parser()
-upload_parser.add_argument('file',
-                          type=FileStorage,
-                          location='files',
-                          required=True,
-                          help='Audio file (MP3, WAV, or M4A)')
-upload_parser.add_argument('source_language',
-                          type=str,
-                          location='form',
-                          default='de',
-                          help='Quellsprache der Audio-Datei (ISO 639-1)')
-upload_parser.add_argument('target_language',
-                          type=str,
-                          location='form',
-                          default='de',
-                          help='Zielsprache für die Transkription (ISO 639-1)')
-upload_parser.add_argument('template',
-                          type=str,
-                          location='form',
-                          default='',
-                          help='Template für die Transformation')
+upload_parser.add_argument('file', location='files', type=FileStorage, required=True, help='Audio-Datei')
+upload_parser.add_argument('source_language', location='form', type=str, default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
+upload_parser.add_argument('target_language', location='form', type=str, default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
+upload_parser.add_argument('template', location='form', type=str, default='', help='Optional Template für die Verarbeitung')
+upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')  # type: ignore
 
 @api.errorhandler(ProcessingError)  # type: ignore
 @api.errorhandler(FileSizeLimitExceeded)  # type: ignore
@@ -639,7 +625,7 @@ class AudioEndpoint(Resource):
     @api.expect(upload_parser)
     @api.response(200, 'Erfolg', audio_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet eine Audio-Datei')
+    @api.doc(description='Verarbeitet eine Audio-Datei. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         source_language: str = 'de'  # Default-Wert
         target_language: str = 'de'  # Default-Wert
@@ -650,6 +636,7 @@ class AudioEndpoint(Resource):
             source_language = args.get('source_language', 'de')
             target_language = args.get('target_language', 'de')
             template = args.get('template', '')
+            use_cache = args.get('useCache', True)
 
             if not audio_file:
                 raise ValueError("Keine Audio-Datei gefunden")
@@ -672,7 +659,14 @@ class AudioEndpoint(Resource):
                 )
 
             # Verarbeite die Datei
-            result = asyncio.run(process_file(audio_file, source_info, source_language, target_language, template)) 
+            result = asyncio.run(process_file(
+                audio_file, 
+                source_info, 
+                source_language, 
+                target_language, 
+                template,
+                use_cache
+            )) 
 
             return result
 
@@ -1233,15 +1227,17 @@ metadata_upload_parser.add_argument(
     help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
 )
 
-async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '') -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '', use_cache: bool = True) -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
     Args:
         uploaded_file: Die hochgeladene Datei
+        source_info: Informationen zur Quelle
         source_language: Die Quellsprache der Audio-Datei
         target_language: Die Zielsprache für die Verarbeitung
         template: Optional Template für die Verarbeitung
+        use_cache: Ob der Cache verwendet werden soll (default: True)
         
     Returns:
         Dict mit den Verarbeitungsergebnissen
@@ -1267,7 +1263,8 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
             source_info=source_info,
             source_language=source_language,
             target_language=target_language,
-            template=template
+            template=template,
+            use_cache=use_cache
         )
         return result.to_dict()
         
@@ -1376,11 +1373,12 @@ class VideoEndpoint(Resource):
         'file': fields.Raw(required=False, description='Hochgeladene Video-Datei'),
         'target_language': fields.String(required=False, default='de', description='Zielsprache für die Transkription'),
         'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
-        'template': fields.String(required=False, description='Optional Template für die Verarbeitung')
+        'template': fields.String(required=False, description='Optional Template für die Verarbeitung'),
+        'useCache': fields.Boolean(required=False, default=True, description='Cache verwenden (default: True)')
     }))
     @api.response(200, 'Erfolg', youtube_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet ein Video und extrahiert den Audio-Inhalt')
+    @api.doc(description='Verarbeitet ein Video und extrahiert den Audio-Inhalt. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """
         Verarbeitet ein Video und extrahiert den Audio-Inhalt.
@@ -1392,6 +1390,7 @@ class VideoEndpoint(Resource):
             target_language: str = 'de'
             source_language: str = 'auto'
             template: Optional[str] = None
+            use_cache: bool = True
 
             # Prüfe ob Datei oder URL
             if request.files and 'file' in request.files:
@@ -1406,6 +1405,8 @@ class VideoEndpoint(Resource):
                 target_language = request.form.get('target_language', 'de')
                 source_language = request.form.get('source_language', 'auto')
                 template = request.form.get('template')
+                use_cache_str = request.form.get('useCache', 'true')
+                use_cache = use_cache_str.lower() == 'true'
             else:
                 # JSON Request
                 data = request.get_json()
@@ -1416,6 +1417,7 @@ class VideoEndpoint(Resource):
                 target_language = data.get('target_language', 'de')
                 source_language = data.get('source_language', 'auto')
                 template = data.get('template')
+                use_cache = data.get('useCache', True)
 
             # Initialisiere Prozessor
             process_id = str(uuid.uuid4())
@@ -1426,7 +1428,8 @@ class VideoEndpoint(Resource):
                 source=source,
                 target_language=target_language,
                 source_language=source_language,
-                template=template
+                template=template,
+                use_cache=use_cache
             ))
 
             return result.to_dict()
@@ -1871,3 +1874,426 @@ notion_response = api.model('NotionResponse', {
         'details': fields.Raw(description='Detaillierte Fehlerinformationen')
     }))
 })
+
+# Event-Processor Modelle
+event_input = api.model('EventInput', {
+    'event': fields.String(required=True, description='Name der Veranstaltung'),
+    'session': fields.String(required=True, description='Name der Session'),
+    'url': fields.String(required=True, description='URL zur Event-Seite'),
+    'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
+    'track': fields.String(required=True, description='Track/Kategorie der Session'),
+    'day': fields.String(required=False, description='Veranstaltungstag im Format YYYY-MM-DD'),
+    'starttime': fields.String(required=False, description='Startzeit im Format HH:MM'),
+    'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
+    'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
+    'video_url': fields.String(required=False, description='URL zum Video'),
+    'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
+    'source_language': fields.String(required=False, default='en', description='Quellsprache'),
+    'target_language': fields.String(required=False, default='de', description='Zielsprache')
+})
+
+batch_event_input = api.model('BatchEventInput', {
+    'events': fields.List(fields.Nested(event_input), required=True, description='Liste von Event-Daten')
+})
+
+event_response = api.model('EventResponse', {
+    'status': fields.String(required=True, description='Status der Anfrage'),
+    'request': fields.Raw(required=True, description='Anfrageinformationen'),
+    'process': fields.Raw(required=True, description='Prozessinformationen'),
+    'data': fields.Raw(required=False, description='Ergebnisdaten'),
+    'error': fields.Raw(required=False, description='Fehlerinformationen')
+})
+
+batch_event_response = api.model('BatchEventResponse', {
+    'status': fields.String(required=True, description='Status der Anfrage'),
+    'request': fields.Raw(required=True, description='Anfrageinformationen'),
+    'process': fields.Raw(required=True, description='Prozessinformationen'),
+    'data': fields.Raw(required=False, description='Ergebnisdaten'),
+    'error': fields.Raw(required=False, description='Fehlerinformationen')
+})
+
+# Async Event-Processor Modelle
+async_event_input = api.model('AsyncEventInput', {
+    'event': fields.String(required=True, description='Name der Veranstaltung'),
+    'session': fields.String(required=True, description='Name der Session'),
+    'url': fields.String(required=True, description='URL zur Event-Seite'),
+    'filename': fields.String(required=True, description='Zieldateiname für die Markdown-Datei'),
+    'track': fields.String(required=True, description='Track/Kategorie der Session'),
+    'day': fields.String(required=False, description='Veranstaltungstag im Format YYYY-MM-DD'),
+    'starttime': fields.String(required=False, description='Startzeit im Format HH:MM'),
+    'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
+    'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
+    'video_url': fields.String(required=False, description='URL zum Video'),
+    'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
+    'source_language': fields.String(required=False, default='en', description='Quellsprache'),
+    'target_language': fields.String(required=False, default='de', description='Zielsprache'),
+    'webhook_url': fields.String(required=True, description='URL für den Webhook-Callback'),
+    'webhook_headers': fields.Raw(required=False, description='HTTP-Header für den Webhook'),
+    'include_markdown': fields.Boolean(required=False, default=True, description='Markdown-Inhalt im Webhook einschließen'),
+    'include_metadata': fields.Boolean(required=False, default=True, description='Metadaten im Webhook einschließen'),
+    'event_id': fields.String(required=False, description='Eindeutige ID für das Event')
+})
+
+async_batch_event_input = api.model('AsyncBatchEventInput', {
+    'events': fields.List(fields.Nested(event_input), required=True, description='Liste von Event-Daten'),
+    'webhook_url': fields.String(required=True, description='URL für den Webhook-Callback'),
+    'webhook_headers': fields.Raw(required=False, description='HTTP-Header für den Webhook'),
+    'include_markdown': fields.Boolean(required=False, default=True, description='Markdown-Inhalt im Webhook einschließen'),
+    'include_metadata': fields.Boolean(required=False, default=True, description='Metadaten im Webhook einschließen'),
+    'batch_id': fields.String(required=False, description='Eindeutige ID für den Batch')
+})
+
+# Hilfsfunktion zum Abrufen des Event-Processors
+def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
+    """
+    Erstellt eine Instanz des Event-Processors.
+    
+    Args:
+        process_id: Optional, die Process-ID vom API-Layer
+        
+    Returns:
+        EventProcessor: Eine Instanz des Event-Processors
+    """
+    return EventProcessor(resource_calculator=resource_calculator, process_id=process_id)
+
+@api.route('/process-event')
+class EventEndpoint(Resource):
+    @api.expect(event_input)
+    @api.response(200, 'Erfolg', event_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Event mit allen zugehörigen Medien')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet ein Event mit allen zugehörigen Medien"""
+        process_id = str(uuid.uuid4())
+        tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
+        event_processor: EventProcessor = get_event_processor(process_id)
+        
+        try:
+            data = request.get_json()
+            if not data:
+                raise ProcessingError("Keine Daten erhalten")
+                
+            # Extrahiere Parameter
+            event = data.get('event')
+            session = data.get('session')
+            url = data.get('url')
+            filename = data.get('filename')
+            track = data.get('track')
+            day = data.get('day')
+            starttime = data.get('starttime')
+            endtime = data.get('endtime')
+            speakers = data.get('speakers', [])
+            video_url = data.get('video_url')
+            attachments_url = data.get('attachments_url')
+            source_language = data.get('source_language', 'en')
+            target_language = data.get('target_language', 'de')
+            
+            # Validiere Pflichtfelder
+            if not all([event, session, url, filename, track]):
+                raise ProcessingError("Pflichtfelder fehlen: event, session, url, filename, track")
+            
+            # Verarbeite das Event
+            result: EventResponse = asyncio.run(event_processor.process_event(
+                event=event,
+                session=session,
+                url=url,
+                filename=filename,
+                track=track,
+                day=day,
+                starttime=starttime,
+                endtime=endtime,
+                speakers=speakers,
+                video_url=video_url,
+                attachments_url=attachments_url,
+                source_language=source_language,
+                target_language=target_language
+            ))
+            
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker and hasattr(tracker, 'eval_result'):
+                tracker.eval_result(result)
+            
+            return result.to_dict()
+            
+        except ValueError as ve:
+            logger.error("Validierungsfehler",
+                        error=ve,
+                        error_type="ValidationError",
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Event-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
+        finally:
+            if event_processor and event_processor.logger:
+                event_processor.logger.info("Event-Verarbeitung beendet")
+
+@api.route('/process-events')
+class BatchEventEndpoint(Resource):
+    @api.expect(batch_event_input)
+    @api.response(200, 'Erfolg', batch_event_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet mehrere Events sequentiell')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet mehrere Events sequentiell"""
+        process_id = str(uuid.uuid4())
+        tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
+        event_processor: EventProcessor = get_event_processor(process_id)
+        
+        try:
+            data = request.get_json()
+            if not data:
+                raise ProcessingError("Keine Daten erhalten")
+                
+            events = data.get('events', [])
+            if not events:
+                raise ProcessingError("Keine Events gefunden")
+            
+            # Verarbeite die Events
+            result: BatchEventResponse = asyncio.run(event_processor.process_many_events(
+                events=events
+            ))
+            
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker and hasattr(tracker, 'eval_result'):
+                tracker.eval_result(result)
+            
+            return result.to_dict()
+            
+        except ValueError as ve:
+            logger.error("Validierungsfehler",
+                        error=ve,
+                        error_type="ValidationError",
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Batch-Event-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
+        finally:
+            if event_processor and event_processor.logger:
+                event_processor.logger.info("Batch-Event-Verarbeitung beendet")
+
+@api.route('/process-event-async')
+class AsyncEventEndpoint(Resource):
+    @api.expect(async_event_input)
+    @api.response(200, 'Erfolg', event_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss"""
+        process_id = str(uuid.uuid4())
+        tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
+        event_processor: EventProcessor = get_event_processor(process_id)
+        
+        try:
+            data = request.get_json()
+            if not data:
+                raise ProcessingError("Keine Daten erhalten")
+                
+            # Extrahiere Parameter
+            event = data.get('event')
+            session = data.get('session')
+            url = data.get('url')
+            filename = data.get('filename')
+            track = data.get('track')
+            day = data.get('day')
+            starttime = data.get('starttime')
+            endtime = data.get('endtime')
+            speakers = data.get('speakers', [])
+            video_url = data.get('video_url')
+            attachments_url = data.get('attachments_url')
+            source_language = data.get('source_language', 'en')
+            target_language = data.get('target_language', 'de')
+            webhook_url = data.get('webhook_url')
+            webhook_headers = data.get('webhook_headers', {})
+            include_markdown = data.get('include_markdown', True)
+            include_metadata = data.get('include_metadata', True)
+            event_id = data.get('event_id')
+            
+            # Validiere Pflichtfelder
+            if not all([event, session, url, filename, track, webhook_url]):
+                raise ProcessingError("Pflichtfelder fehlen: event, session, url, filename, track, webhook_url")
+            
+            # Verarbeite das Event asynchron
+            result: EventResponse = asyncio.run(event_processor.process_event_async(
+                event=event,
+                session=session,
+                url=url,
+                filename=filename,
+                track=track,
+                day=day,
+                starttime=starttime,
+                endtime=endtime,
+                speakers=speakers,
+                video_url=video_url,
+                attachments_url=attachments_url,
+                source_language=source_language,
+                target_language=target_language,
+                webhook_url=webhook_url,
+                webhook_headers=webhook_headers,
+                include_markdown=include_markdown,
+                include_metadata=include_metadata,
+                event_id=event_id
+            ))
+            
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker and hasattr(tracker, 'eval_result'):
+                tracker.eval_result(result)
+            
+            return result.to_dict()
+            
+        except ValueError as ve:
+            logger.error("Validierungsfehler",
+                        error=ve,
+                        error_type="ValidationError",
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Async-Event-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
+        finally:
+            if event_processor and event_processor.logger:
+                event_processor.logger.info("Async-Event-Verarbeitung initiiert")
+
+@api.route('/process-events-async')
+class AsyncBatchEventEndpoint(Resource):
+    @api.expect(async_batch_event_input)
+    @api.response(200, 'Erfolg', batch_event_response)
+    @api.response(400, 'Validierungsfehler', error_model)
+    @api.doc(description='Verarbeitet mehrere Events asynchron und sendet Webhook-Callbacks nach Abschluss jedes Events')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet mehrere Events asynchron und sendet Webhook-Callbacks nach Abschluss jedes Events"""
+        process_id = str(uuid.uuid4())
+        tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
+        event_processor: EventProcessor = get_event_processor(process_id)
+        
+        try:
+            data = request.get_json()
+            if not data:
+                raise ProcessingError("Keine Daten erhalten")
+                
+            events = data.get('events', [])
+            webhook_url = data.get('webhook_url')
+            webhook_headers = data.get('webhook_headers', {})
+            include_markdown = data.get('include_markdown', True)
+            include_metadata = data.get('include_metadata', True)
+            batch_id = data.get('batch_id')
+            
+            if not events:
+                raise ProcessingError("Keine Events gefunden")
+                
+            if not webhook_url:
+                raise ProcessingError("Webhook-URL ist erforderlich")
+            
+            # Verarbeite die Events asynchron
+            result: BatchEventResponse = asyncio.run(event_processor.process_many_events_async(
+                events=events,
+                webhook_url=webhook_url,
+                webhook_headers=webhook_headers,
+                include_markdown=include_markdown,
+                include_metadata=include_metadata,
+                batch_id=batch_id
+            ))
+            
+            # Füge Ressourcenverbrauch zum Tracker hinzu
+            if tracker and hasattr(tracker, 'eval_result'):
+                tracker.eval_result(result)
+            
+            return result.to_dict()
+            
+        except ValueError as ve:
+            logger.error("Validierungsfehler",
+                        error=ve,
+                        error_type="ValidationError",
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ValidationError',
+                    'message': str(ve),
+                    'details': {}
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Async-Batch-Event-Verarbeitungsfehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 400
+        finally:
+            if event_processor and event_processor.logger:
+                event_processor.logger.info("Async-Batch-Event-Verarbeitung initiiert")

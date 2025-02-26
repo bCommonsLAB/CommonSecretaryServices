@@ -24,6 +24,9 @@
                         <a class="nav-link {% if request.endpoint == 'main.logs' %}active{% endif %}" href="{{ url_for('main.logs') }}">Logs</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main.event_monitor' %}active{% endif %}" href="{{ url_for('main.event_monitor') }}">Event-Monitor</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'main.config_page' %}active{% endif %}" href="{{ url_for('main.config_page') }}">Config</a>
                     </li>
                     <li class="nav-item">
@@ -41,7 +44,8 @@
         {% block content %}{% endblock %}
     </div>
 
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    {% block extra_js %}{% endblock %}
+    {% block scripts %}{% endblock %}
 </body>
 </html> 

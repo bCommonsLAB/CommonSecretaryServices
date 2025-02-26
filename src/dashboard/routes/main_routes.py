@@ -14,6 +14,7 @@ from src.core.config import Config
 from src.utils.logger import get_logger
 from .tests import run_youtube_test, run_audio_test, run_transformer_test, run_health_test
 import ast
+import asyncio
 
 # Create the blueprint
 main = Blueprint('main', __name__)
@@ -542,3 +543,207 @@ def get_recent_requests():
     except Exception as e:
         logger.error(f"Error getting recent requests: {str(e)}", exc_info=True)
         return jsonify({'html': f'<div class="text-danger">Fehler beim Laden: {str(e)}</div>'}) 
+
+@main.route('/event-monitor')
+def event_monitor():
+    """
+    Zeigt die Monitoring-Seite für asynchrone Event-Verarbeitung an.
+    Hier werden die aktuelle Warteschlange und erledigte Events angezeigt.
+    """
+    try:
+        # Lade Konfiguration
+        config = Config()
+        event_config = config.get('processors.event', {})
+        max_concurrent_tasks = event_config.get('max_concurrent_tasks', 5)
+        
+        # Lade Performance-Daten für Events
+        perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
+        
+        event_data = {
+            'queue': [],
+            'completed': [],
+            'failed': [],
+            'max_concurrent_tasks': max_concurrent_tasks,
+            'current_tasks': 0
+        }
+        
+        if os.path.exists(perf_path):
+            with open(perf_path, 'r') as f:
+                perf_data = json.load(f)
+                
+            # Filtere Event-Prozessor-Daten
+            now = datetime.now()
+            day_ago = now - timedelta(days=1)
+            
+            for entry in perf_data:
+                try:
+                    # Prüfe, ob es sich um einen Event-Prozessor-Eintrag handelt
+                    if entry.get('processor') != 'event':
+                        continue
+                        
+                    # Konvertiere Zeitstempel
+                    timestamp = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+                    if timestamp < day_ago:
+                        continue
+                        
+                    entry['timestamp_formatted'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Prüfe Status
+                    operations = entry.get('operations', [])
+                    if not operations:
+                        continue
+                        
+                    last_op = operations[-1]
+                    
+                    # Prüfe, ob es sich um asynchrone Verarbeitung handelt
+                    request_info = entry.get('request_info', {})
+                    if not request_info.get('async_processing'):
+                        continue
+                        
+                    # Bestimme Status
+                    if 'end_time' not in last_op:
+                        # Noch in Bearbeitung
+                        start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
+                        duration = (now - start_time).total_seconds()
+                        entry['duration'] = f"{duration:.2f}s"
+                        entry['status'] = 'in_progress'
+                        event_data['current_tasks'] += 1
+                        event_data['queue'].append(entry)
+                    else:
+                        # Abgeschlossen
+                        start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
+                        end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
+                        duration = (end_time - start_time).total_seconds()
+                        entry['duration'] = f"{duration:.2f}s"
+                        
+                        # Prüfe auf Fehler
+                        if entry.get('error'):
+                            entry['status'] = 'failed'
+                            event_data['failed'].append(entry)
+                        else:
+                            entry['status'] = 'completed'
+                            event_data['completed'].append(entry)
+                            
+                except Exception as e:
+                    logger.error(f"Fehler bei der Verarbeitung eines Performance-Eintrags: {str(e)}")
+                    continue
+            
+            # Sortiere nach Zeitstempel (neueste zuerst)
+            event_data['queue'] = sorted(event_data['queue'], key=lambda x: x['timestamp'], reverse=True)
+            event_data['completed'] = sorted(event_data['completed'], key=lambda x: x['timestamp'], reverse=True)
+            event_data['failed'] = sorted(event_data['failed'], key=lambda x: x['timestamp'], reverse=True)
+        
+        return render_template('event_monitor.html', event_data=event_data)
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Laden der Event-Monitor-Seite: {str(e)}", exc_info=True)
+        return f"Fehler beim Laden der Event-Monitor-Seite: {str(e)}", 500
+
+@main.route('/api/event-monitor-data')
+def get_event_monitor_data():
+    """
+    API-Endpunkt zum Abrufen der aktuellen Event-Monitor-Daten für Auto-Refresh.
+    """
+    try:
+        # Lade Konfiguration
+        config = Config()
+        event_config = config.get('processors.event', {})
+        max_concurrent_tasks = event_config.get('max_concurrent_tasks', 5)
+        
+        # Lade Performance-Daten für Events
+        perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
+        
+        event_data = {
+            'queue': [],
+            'completed': [],
+            'failed': [],
+            'max_concurrent_tasks': max_concurrent_tasks,
+            'current_tasks': 0
+        }
+        
+        if os.path.exists(perf_path):
+            with open(perf_path, 'r') as f:
+                perf_data = json.load(f)
+                
+            # Filtere Event-Prozessor-Daten
+            now = datetime.now()
+            day_ago = now - timedelta(days=1)
+            
+            for entry in perf_data:
+                try:
+                    # Prüfe, ob es sich um einen Event-Prozessor-Eintrag handelt
+                    if entry.get('processor') != 'event':
+                        continue
+                        
+                    # Konvertiere Zeitstempel
+                    timestamp = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+                    if timestamp < day_ago:
+                        continue
+                        
+                    entry['timestamp_formatted'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Prüfe Status
+                    operations = entry.get('operations', [])
+                    if not operations:
+                        continue
+                        
+                    last_op = operations[-1]
+                    
+                    # Prüfe, ob es sich um asynchrone Verarbeitung handelt
+                    request_info = entry.get('request_info', {})
+                    if not request_info.get('async_processing'):
+                        continue
+                        
+                    # Bestimme Status
+                    if 'end_time' not in last_op:
+                        # Noch in Bearbeitung
+                        start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
+                        duration = (now - start_time).total_seconds()
+                        entry['duration'] = f"{duration:.2f}s"
+                        entry['status'] = 'in_progress'
+                        event_data['current_tasks'] += 1
+                        event_data['queue'].append(entry)
+                    else:
+                        # Abgeschlossen
+                        start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
+                        end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
+                        duration = (end_time - start_time).total_seconds()
+                        entry['duration'] = f"{duration:.2f}s"
+                        
+                        # Prüfe auf Fehler
+                        if entry.get('error'):
+                            entry['status'] = 'failed'
+                            event_data['failed'].append(entry)
+                        else:
+                            entry['status'] = 'completed'
+                            event_data['completed'].append(entry)
+                            
+                except Exception as e:
+                    logger.error(f"Fehler bei der Verarbeitung eines Performance-Eintrags: {str(e)}")
+                    continue
+            
+            # Sortiere nach Zeitstempel (neueste zuerst)
+            event_data['queue'] = sorted(event_data['queue'], key=lambda x: x['timestamp'], reverse=True)
+            event_data['completed'] = sorted(event_data['completed'], key=lambda x: x['timestamp'], reverse=True)
+            event_data['failed'] = sorted(event_data['failed'], key=lambda x: x['timestamp'], reverse=True)
+        
+        # Rendere die HTML-Teile
+        queue_html = render_template('_event_queue.html', queue=event_data['queue'], 
+                                    max_concurrent_tasks=max_concurrent_tasks, 
+                                    current_tasks=event_data['current_tasks'])
+        completed_html = render_template('_event_completed.html', completed=event_data['completed'])
+        failed_html = render_template('_event_failed.html', failed=event_data['failed'])
+        
+        return jsonify({
+            'queue_html': queue_html,
+            'completed_html': completed_html,
+            'failed_html': failed_html,
+            'current_tasks': event_data['current_tasks'],
+            'max_concurrent_tasks': max_concurrent_tasks
+        })
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen der Event-Monitor-Daten: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': f"Fehler beim Abrufen der Event-Monitor-Daten: {str(e)}"
+        }), 500 

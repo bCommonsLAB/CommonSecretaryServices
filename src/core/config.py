@@ -87,7 +87,7 @@ class Config:
         },
         'processors': {
             'youtube': {
-                'max_file_size': 104857600,  # 100 MB
+                'max_file_size': 120000000,  # 120 MB
                 'max_duration': 3600,        # 1 Stunde
                 'temp_dir': 'cache/video/temp',  # Neuer Pfad
                 'cache_dir': 'cache/video/processed',  # Neuer Cache-Pfad
@@ -96,7 +96,7 @@ class Config:
                 }
             },
             'audio': {
-                'max_file_size': 104857600,  # 100 MB
+                'max_file_size': 120000000,  # 120 MB
                 'segment_duration': 300,      # 5 Minuten
                 'temp_dir': 'cache/audio/temp',  # Neuer Pfad
                 'cache_dir': 'cache/audio/processed',  # Neuer Cache-Pfad

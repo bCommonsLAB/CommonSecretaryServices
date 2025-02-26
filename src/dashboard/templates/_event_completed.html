@@ -1,0 +1,123 @@
+{% if completed %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Event</th>
+                <th>Session</th>
+                <th>Abschlusszeit</th>
+                <th>Dauer</th>
+                <th>Status</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in completed %}
+            <tr>
+                <td>
+                    <small class="text-muted">{{ item.process_id }}</small>
+                </td>
+                <td>
+                    {% if item.request_info.event %}
+                        {{ item.request_info.event }}
+                    {% else %}
+                        <span class="text-muted">Batch ({{ item.request_info.event_count }} Events)</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.request_info.session %}
+                        {{ item.request_info.session }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>{{ item.timestamp_formatted }}</td>
+                <td>
+                    <span class="badge bg-info">{{ item.duration }}</span>
+                </td>
+                <td>
+                    <span class="badge bg-success">Abgeschlossen</span>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" 
+                            data-bs-toggle="modal" data-bs-target="#completedModal{{ loop.index }}">
+                        <i class="fas fa-info-circle"></i>
+                    </button>
+                    
+                    <!-- Modal -->
+                    <div class="modal fade" id="completedModal{{ loop.index }}" tabindex="-1" 
+                         aria-labelledby="completedModalLabel{{ loop.index }}" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="completedModalLabel{{ loop.index }}">
+                                        Event-Details (Abgeschlossen)
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <h6>Allgemeine Informationen</h6>
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <th>Process ID:</th>
+                                            <td>{{ item.process_id }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Abschlusszeit:</th>
+                                            <td>{{ item.timestamp_formatted }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Gesamtdauer:</th>
+                                            <td>{{ item.duration }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Event ID:</th>
+                                            <td>{{ item.request_info.event_id }}</td>
+                                        </tr>
+                                        {% if item.data and item.data.output and item.data.output.markdown_file %}
+                                        <tr>
+                                            <th>Markdown-Datei:</th>
+                                            <td>
+                                                <a href="#" class="text-primary">
+                                                    {{ item.data.output.markdown_file }}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        {% endif %}
+                                    </table>
+                                    
+                                    <h6 class="mt-4">Request-Informationen</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.request_info|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    
+                                    <h6 class="mt-4">Operationen</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.operations|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    
+                                    {% if item.data and item.data.output and item.data.output.metadata %}
+                                    <h6 class="mt-4">Metadaten</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.data.output.metadata|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i> Keine abgeschlossenen Events vorhanden.
+</div>
+{% endif %} 

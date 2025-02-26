@@ -3,13 +3,13 @@ logging:
   file: logs/dev_detailed.log
   level: DEBUG
   max_log_entries: 1000
-  max_size: 10485760
+  max_size: 120000000
 
 processors:
   audio:
     batch_size: 5
     export_format: mp3
-    max_file_size: 104857600
+    max_file_size: 120000000
     segment_duration: 300
     temp_dir: temp-processing/audio
     temp_file_suffix: .mp3
@@ -17,7 +17,7 @@ processors:
     model: gpt-4o
   youtube:
     max_duration: 15000
-    max_file_size: 104857600
+    max_file_size: 120000000
     output_template: '%(title)s.%(ext)s'
     temp_dir: temp-processing/video
     ydl_opts:

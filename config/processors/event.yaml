@@ -15,6 +15,9 @@ max_attachment_size: 100
 # Timeout für HTTP-Requests (in Sekunden)
 request_timeout: 30
 
+# Maximale Anzahl gleichzeitiger asynchroner Verarbeitungen
+max_concurrent_tasks: 5
+
 # Markdown-Template für Event-Dokumentation
 markdown_template: |
   # {event} - {session}

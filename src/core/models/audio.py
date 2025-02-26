@@ -9,7 +9,6 @@ from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
 from pathlib import Path
 import io
-from .transformer import TransformationResult
 
 class AudioProcessingError(ProcessingError):
     """Audio-spezifische Fehler."""
@@ -218,31 +217,99 @@ class AudioMetadata:
                 for c in self.chapters
             ]
         }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AudioMetadata':
+        """Erstellt ein AudioMetadata-Objekt aus einem Dictionary.
+        
+        Args:
+            data: Dictionary mit den Metadaten
+            
+        Returns:
+            AudioMetadata: Das erstellte AudioMetadata-Objekt
+        """
+        # Erstelle Chapters aus den Daten, falls vorhanden
+        chapters: List[Chapter] = []
+        for chapter_data in data.get('chapters', []):
+            segments: List[AudioSegmentInfo] = []
+            for segment_data in chapter_data.get('segments', []):
+                # Erstelle ein AudioSegmentInfo für jedes Segment
+                segments.append(AudioSegmentInfo(
+                    file_path=Path(""),  # Leerer Pfad, da wir keine Dateien haben
+                    start=segment_data.get('start', 0.0),
+                    end=segment_data.get('end', 0.0),
+                    duration=segment_data.get('duration', 0.0),
+                    title=segment_data.get('title')
+                ))
+            
+            # Erstelle ein Chapter mit den Segmenten
+            chapters.append(Chapter(
+                title=chapter_data.get('title', ''),
+                start=chapter_data.get('start', 0.0),
+                end=chapter_data.get('end', 0.0),
+                segments=segments
+            ))
+        
+        # Erstelle das AudioMetadata-Objekt
+        return cls(
+            title=data.get('title', 'Unbekannt'),
+            duration=data.get('duration', 0.0),
+            format=data.get('format', 'mp3'),
+            channels=data.get('channels', 2),
+            sample_rate=data.get('sample_rate', 44100),
+            bit_rate=data.get('bit_rate', 128000),
+            process_dir=data.get('process_dir', ''),
+            chapters=chapters
+        )
 
 @dataclass
 class AudioProcessingResult:
     """
     Ergebnis der Audio-Verarbeitung.
     
-    Enthält:
-    1. Transkriptionsergebnis mit Whisper-Requests
-    2. Audio-Metadaten
-    3. Prozess-ID für Nachverfolgbarkeit
-    4. Optional: Transformationsergebnis (Template/Übersetzung)
+    Attributes:
+        transcription (TranscriptionResult): Das Transkriptionsergebnis
+        metadata (AudioMetadata): Metadaten zur Audio-Datei
+        process_id (str): ID des Verarbeitungsprozesses
+        transformation_result (Optional[Dict[str, Any]]): Optionales Transformationsergebnis
+        is_from_cache (bool): Gibt an, ob das Ergebnis aus dem Cache geladen wurde
     """
-    transcription: TranscriptionResult
-    metadata: AudioMetadata
-    process_id: str
-    transformation_result: Optional[TransformationResult] = None
-
+    
+    def __init__(
+        self,
+        transcription: TranscriptionResult,
+        metadata: AudioMetadata,
+        process_id: str,
+        transformation_result: Optional[Dict[str, Any]] = None,
+        is_from_cache: bool = False
+    ):
+        """Initialisiert das AudioProcessingResult."""
+        self.transcription = transcription
+        self.metadata = metadata
+        self.process_id = process_id
+        self.transformation_result = transformation_result
+        self.is_from_cache = is_from_cache
+        
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
-            "transcription": self.transcription.to_dict() if self.transcription else None,
-            "metadata": self.metadata.to_dict() if self.metadata else None,
-            "process_id": self.process_id,
-            "transformation_result": self.transformation_result.to_dict() if self.transformation_result else None
+            'transcription': self.transcription.to_dict() if self.transcription else None,
+            'metadata': self.metadata.to_dict() if self.metadata else None,
+            'process_id': self.process_id,
+            'transformation_result': self.transformation_result,
+            'is_from_cache': self.is_from_cache
         }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AudioProcessingResult':
+        """Erstellt ein AudioProcessingResult aus einem Dictionary."""
+        return cls(
+            transcription=TranscriptionResult.from_dict(data.get('transcription', {})) if data.get('transcription') else TranscriptionResult(text="", source_language="unknown", segments=[], requests=[], llms=[]),
+            metadata=AudioMetadata.from_dict(data.get('metadata', {})) if data.get('metadata') else AudioMetadata(duration=0.0, process_dir="", format="unknown", channels=0),
+            process_id=data.get('process_id', ''),
+            transformation_result=data.get('transformation_result'),
+            is_from_cache=data.get('is_from_cache', False)
+        )
 
 @dataclass(frozen=True, init=False)
 class AudioResponse(BaseResponse):

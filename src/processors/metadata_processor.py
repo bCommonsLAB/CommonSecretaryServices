@@ -55,7 +55,7 @@ class MetadataProcessor(BaseProcessor):
         self,
         resource_calculator: ResourceCalculator,
         process_id: Optional[str] = None,
-        max_file_size: int = 100 * 1024 * 1024,
+        max_file_size: int = 120 * 1024 * 1024,
         supported_mime_types: Optional[List[str]] = None,
         features: Optional[Dict[str, bool]] = None
     ) -> None:

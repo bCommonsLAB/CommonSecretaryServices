@@ -834,6 +834,7 @@ class WhisperTranscriber:
         """
         combined_text_parts: List[str] = []
         combined_requests: List[LLMRequest] = []
+        detected_language: str = source_language
 
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
@@ -846,7 +847,7 @@ class WhisperTranscriber:
         else:
             all_segments = cast(List[AudioSegmentInfo], segments)
 
-        async def process_segment(segment: AudioSegmentInfo, index: int) -> Tuple[int, str, List[LLMRequest]]:
+        async def process_segment(segment: AudioSegmentInfo, index: int, src_lang: str) -> Tuple[int, str, List[LLMRequest], str]:
             """Verarbeitet ein einzelnes Segment parallel."""
             try:
                 # Transkribiere das Segment
@@ -854,7 +855,7 @@ class WhisperTranscriber:
                     file_path=segment.get_audio_data(),
                     segment_id=index,
                     segment_title=segment.title,
-                    source_language=source_language,
+                    source_language=src_lang,
                     target_language=target_language,
                     logger=logger
                 )
@@ -864,10 +865,10 @@ class WhisperTranscriber:
                     segment_requests.extend(result.requests)
 
                 # Übersetze das Segment wenn nötig
-                if source_language != target_language and result.text.strip():
+                if result.source_language != target_language and result.text.strip():
                     translation_result: TranslationResult = self.translate_text(
                         text=result.text,
-                        source_language=source_language,
+                        source_language=result.source_language,
                         target_language=target_language,
                         logger=logger
                     )
@@ -877,10 +878,10 @@ class WhisperTranscriber:
                     
                     # Verwende übersetzten Text
                     if translation_result.text.strip():
-                        return index, translation_result.text, segment_requests
+                        return index, translation_result.text, segment_requests, result.source_language
                 
                 # Verwende Original-Text wenn keine Übersetzung nötig
-                return index, result.text if result.text.strip() else "", segment_requests
+                return index, result.text if result.text.strip() else "", segment_requests, result.source_language
 
             except Exception as e:
                 if logger:
@@ -889,11 +890,11 @@ class WhisperTranscriber:
                         error=e,
                         segment_title=segment.title
                     )
-                return index, "", []
+                return index, "", [], src_lang
 
         # Erstelle Tasks für alle Segmente
         tasks = [
-            process_segment(segment, i) 
+            process_segment(segment, i, detected_language) 
             for i, segment in enumerate(all_segments)
         ]
 
@@ -908,10 +909,13 @@ class WhisperTranscriber:
         sorted_results = sorted(results, key=lambda x: x[0])
 
         # Sammle die Ergebnisse
-        for _, text, requests in sorted_results:
+        for _, text, requests, lang in sorted_results:
             if text:
                 combined_text_parts.append(text)
             combined_requests.extend(requests)
+            # Aktualisiere die erkannte Sprache, wenn sie sich geändert hat
+            if lang != "auto" and lang != detected_language:
+                detected_language = lang
 
         if logger:
             logger.info(f"Parallele Verarbeitung abgeschlossen - {len(combined_requests)} Requests gesammelt")
@@ -919,7 +923,7 @@ class WhisperTranscriber:
         # Erstelle das finale Ergebnis mit allen einzelnen Requests
         return TranscriptionResult(
             text="\n".join(combined_text_parts).strip(),
-            source_language=source_language,
+            source_language=detected_language,
             segments=[],  # Keine Segmente im Output
             requests=combined_requests  # Alle einzelnen Requests
         )

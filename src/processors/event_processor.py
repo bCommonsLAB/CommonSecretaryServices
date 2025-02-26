@@ -27,18 +27,22 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import zipfile
+import asyncio
+import uuid
+import json
 
 from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
 from src.core.models.event import (
-    EventInput, EventOutput, EventData, EventResponse, BatchEventResponse, BatchEventOutput, BatchEventData, BatchEventInput
+    EventInput, EventOutput, EventData, EventResponse, BatchEventResponse, BatchEventOutput, BatchEventData, BatchEventInput,
+    WebhookConfig, AsyncEventInput, AsyncBatchEventInput
 )
 from src.core.models.base import (
      ErrorInfo
 )
 from src.core.models.llm import LLMInfo
-from src.core.models.enums import ProcessorType
+from src.core.models.enums import ProcessorType, ProcessingStatus
 from src.core.exceptions import ProcessingError
 from src.core.models.response_factory import ResponseFactory
 from src.processors.video_processor import VideoProcessor
@@ -78,9 +82,14 @@ class EventProcessor(BaseProcessor):
             self.video_processor = VideoProcessor(resource_calculator, process_id)
             self.transformer_processor = TransformerProcessor(resource_calculator, process_id)
             
+            # Semaphore für die Begrenzung gleichzeitiger asynchroner Verarbeitungen
+            max_concurrent_tasks = event_config.get('max_concurrent_tasks', 5)
+            self._processing_semaphore = asyncio.Semaphore(max_concurrent_tasks)
+            
             self.logger.debug("Event Processor initialisiert",
                             base_dir=str(self.base_dir),
-                            temp_dir=str(self.temp_dir))
+                            temp_dir=str(self.temp_dir),
+                            max_concurrent_tasks=max_concurrent_tasks)
                             
         except Exception as e:
             self.logger.error("Fehler bei der Initialisierung des EventProcessors",
@@ -834,4 +843,450 @@ class EventProcessor(BaseProcessor):
                 },
                 response_class=NotionResponse,
                 error=error_info
-            ) 
+            )
+
+    async def _send_webhook_callback(
+        self,
+        webhook_config: WebhookConfig,
+        event_output: EventOutput,
+        event_input: EventInput,
+        success: bool = True,
+        error: Optional[str] = None
+    ) -> bool:
+        """
+        Sendet einen Webhook-Callback nach der Event-Verarbeitung.
+        
+        Args:
+            webhook_config: Die Webhook-Konfiguration
+            event_output: Die Ausgabedaten des Events
+            event_input: Die Eingabedaten des Events
+            success: Ob die Verarbeitung erfolgreich war
+            error: Optionale Fehlermeldung bei Misserfolg
+            
+        Returns:
+            True wenn der Webhook erfolgreich gesendet wurde, sonst False
+        """
+        try:
+            self.logger.info(f"Sende Webhook-Callback an: {webhook_config.url}")
+            
+            # Erstelle Payload für den Webhook
+            payload = {
+                "event_id": webhook_config.event_id or str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+                "success": success,
+                "event": event_input.event,
+                "session": event_input.session,
+                "track": event_input.track,
+                "day": event_input.day,
+                "filename": event_input.filename,
+                "file_path": event_output.markdown_file if success else None
+            }
+            
+            # Füge Fehlerinformationen hinzu, falls vorhanden
+            if error:
+                payload["error"] = error
+                
+            # Füge Markdown-Inhalt hinzu, falls gewünscht
+            if webhook_config.include_markdown and success:
+                payload["markdown_content"] = event_output.markdown_content
+                
+            # Füge Metadaten hinzu, falls gewünscht
+            if webhook_config.include_metadata and success:
+                payload["metadata"] = json.dumps(event_output.metadata)
+                
+            # Sende den Webhook
+            headers = {
+                "Content-Type": "application/json",
+                **webhook_config.headers
+            }
+            
+            response = requests.post(
+                webhook_config.url,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            self.logger.info(f"Webhook erfolgreich gesendet: {response.status_code}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Senden des Webhooks: {str(e)}")
+            return False
+
+    async def process_event_async(
+        self,
+        event: str,
+        session: str,
+        url: str,
+        filename: str,
+        track: str,
+        webhook_url: str,
+        day: Optional[str] = None,
+        starttime: Optional[str] = None,
+        endtime: Optional[str] = None,
+        speakers: Optional[List[str]] = None,
+        video_url: Optional[str] = None,
+        attachments_url: Optional[str] = None,
+        source_language: str = "en",
+        target_language: str = "de",
+        webhook_headers: Optional[Dict[str, str]] = None,
+        include_markdown: bool = True,
+        include_metadata: bool = True,
+        event_id: Optional[str] = None
+    ) -> EventResponse:
+        """
+        Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss.
+        
+        Args:
+            event: Name der Veranstaltung
+            session: Name der Session
+            url: URL zur Event-Seite
+            filename: Zieldateiname für die Markdown-Datei
+            track: Track/Kategorie der Session
+            webhook_url: URL für den Webhook-Callback
+            day: Optional, Veranstaltungstag im Format YYYY-MM-DD
+            starttime: Optional, Startzeit im Format HH:MM
+            endtime: Optional, Endzeit im Format HH:MM
+            speakers: Optional, Liste der Vortragenden
+            video_url: Optional, URL zum Video
+            attachments_url: Optional, URL zu Anhängen
+            source_language: Optional, Quellsprache (Standard: en)
+            target_language: Optional, Zielsprache (Standard: de)
+            webhook_headers: Optional, HTTP-Header für den Webhook
+            include_markdown: Optional, ob der Markdown-Inhalt im Webhook enthalten sein soll
+            include_metadata: Optional, ob die Metadaten im Webhook enthalten sein soll
+            event_id: Optional, eine eindeutige ID für das Event
+            
+        Returns:
+            EventResponse: Eine sofortige Antwort, dass das Event zur Verarbeitung angenommen wurde
+        """
+        try:
+            # Erstelle Webhook-Konfiguration
+            webhook_config = WebhookConfig(
+                url=webhook_url,
+                headers=webhook_headers or {},
+                include_markdown=include_markdown,
+                include_metadata=include_metadata,
+                event_id=event_id or str(uuid.uuid4())
+            )
+            
+            # Erstelle Eingabedaten
+            input_data = AsyncEventInput(
+                event=event,
+                session=session,
+                url=url,
+                filename=filename,
+                track=track,
+                day=day,
+                starttime=starttime,
+                endtime=endtime,
+                speakers=speakers or [],
+                video_url=video_url,
+                attachments_url=attachments_url,
+                source_language=source_language,
+                target_language=target_language,
+                webhook=webhook_config
+            )
+            
+            # Starte die asynchrone Verarbeitung in einem separaten Task
+            asyncio.create_task(self._process_event_async_task(input_data))
+            
+            # Erstelle eine sofortige Antwort
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,  # Keine Daten, da die Verarbeitung asynchron erfolgt
+                request_info={
+                    "event": event,
+                    "session": session,
+                    "url": url,
+                    "filename": filename,
+                    "track": track,
+                    "day": day,
+                    "starttime": starttime,
+                    "endtime": endtime,
+                    "speakers": speakers or [],
+                    "video_url": video_url,
+                    "attachments_url": attachments_url,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "webhook_url": webhook_url,
+                    "event_id": webhook_config.event_id,
+                    "async_processing": True
+                },
+                response_class=EventResponse
+            )
+            
+        except Exception as e:
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            self.logger.error(f"Fehler bei der asynchronen Event-Verarbeitung: {str(e)}")
+            
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,
+                request_info={
+                    "event": event,
+                    "session": session,
+                    "url": url,
+                    "filename": filename,
+                    "track": track,
+                    "webhook_url": webhook_url,
+                    "async_processing": True
+                },
+                response_class=EventResponse,
+                error=error_info
+            )
+
+    async def _process_event_async_task(self, input_data: AsyncEventInput) -> None:
+        """
+        Interne Methode zur asynchronen Verarbeitung eines Events und Senden des Webhook-Callbacks.
+        Verwendet eine Semaphore zur Begrenzung gleichzeitiger Verarbeitungen.
+        
+        Args:
+            input_data: Die Eingabedaten für die Event-Verarbeitung
+        """
+        # Verwende die Semaphore, um die Anzahl gleichzeitiger Verarbeitungen zu begrenzen
+        async with self._processing_semaphore:
+            try:
+                # Verarbeite das Event
+                self.logger.info(f"Starte asynchrone Verarbeitung von Event: {input_data.event} - {input_data.session}")
+                
+                # Extrahiere die Basis-EventInput-Daten (ohne Webhook)
+                event_input = EventInput(
+                    event=input_data.event,
+                    session=input_data.session,
+                    url=input_data.url,
+                    filename=input_data.filename,
+                    track=input_data.track,
+                    day=input_data.day,
+                    starttime=input_data.starttime,
+                    endtime=input_data.endtime,
+                    speakers=input_data.speakers,
+                    video_url=input_data.video_url,
+                    attachments_url=input_data.attachments_url,
+                    source_language=input_data.source_language,
+                    target_language=input_data.target_language
+                )
+                
+                # Verarbeite das Event mit der regulären Methode
+                result = await self.process_event(
+                    event=input_data.event,
+                    session=input_data.session,
+                    url=input_data.url,
+                    filename=input_data.filename,
+                    track=input_data.track,
+                    day=input_data.day,
+                    starttime=input_data.starttime,
+                    endtime=input_data.endtime,
+                    speakers=input_data.speakers,
+                    video_url=input_data.video_url,
+                    attachments_url=input_data.attachments_url,
+                    source_language=input_data.source_language,
+                    target_language=input_data.target_language
+                )
+                
+                # Sende Webhook-Callback bei Erfolg
+                if result.status == ProcessingStatus.SUCCESS and result.data and input_data.webhook:
+                    await self._send_webhook_callback(
+                        webhook_config=input_data.webhook,
+                        event_output=result.data.output,
+                        event_input=event_input,
+                        success=True
+                    )
+                # Sende Webhook-Callback bei Fehler
+                elif input_data.webhook:
+                    error_message = result.error.message if result.error else "Unbekannter Fehler"
+                    await self._send_webhook_callback(
+                        webhook_config=input_data.webhook,
+                        event_output=EventOutput(
+                            markdown_file="",
+                            markdown_content=""
+                        ),
+                        event_input=event_input,
+                        success=False,
+                        error=error_message
+                    )
+                    
+            except Exception as e:
+                self.logger.error(f"Fehler bei der asynchronen Event-Verarbeitung: {str(e)}")
+                
+                # Sende Webhook-Callback bei Ausnahme, falls Webhook konfiguriert
+                if input_data.webhook:
+                    try:
+                        await self._send_webhook_callback(
+                            webhook_config=input_data.webhook,
+                            event_output=EventOutput(
+                                markdown_file="",
+                                markdown_content=""
+                            ),
+                            event_input=EventInput(
+                                event=input_data.event,
+                                session=input_data.session,
+                                url=input_data.url,
+                                filename=input_data.filename,
+                                track=input_data.track
+                            ),
+                            success=False,
+                            error=str(e)
+                        )
+                    except Exception as webhook_error:
+                        self.logger.error(f"Fehler beim Senden des Fehler-Webhooks: {str(webhook_error)}")
+
+    async def process_many_events_async(
+        self,
+        events: List[Dict[str, Any]],
+        webhook_url: str,
+        webhook_headers: Optional[Dict[str, str]] = None,
+        include_markdown: bool = True,
+        include_metadata: bool = True,
+        batch_id: Optional[str] = None
+    ) -> BatchEventResponse:
+        """
+        Verarbeitet mehrere Events asynchron und sendet Webhook-Callbacks nach Abschluss jedes Events.
+        
+        Args:
+            events: Liste von Event-Daten mit denselben Parametern wie process_event
+            webhook_url: URL für den Webhook-Callback
+            webhook_headers: Optional, HTTP-Header für den Webhook
+            include_markdown: Optional, ob der Markdown-Inhalt im Webhook enthalten sein soll
+            include_metadata: Optional, ob die Metadaten im Webhook enthalten sein soll
+            batch_id: Optional, eine eindeutige ID für den Batch
+            
+        Returns:
+            BatchEventResponse: Eine sofortige Antwort, dass die Events zur Verarbeitung angenommen wurden
+        """
+        try:
+            # Erstelle Webhook-Konfiguration
+            webhook_config = WebhookConfig(
+                url=webhook_url,
+                headers=webhook_headers or {},
+                include_markdown=include_markdown,
+                include_metadata=include_metadata,
+                event_id=batch_id or str(uuid.uuid4())
+            )
+            
+            # Erstelle Eingabedaten
+            input_data = AsyncBatchEventInput(
+                events=events,
+                webhook=webhook_config
+            )
+            
+            # Starte die asynchrone Verarbeitung in einem separaten Task
+            asyncio.create_task(self._process_many_events_async_task(input_data))
+            
+            # Erstelle eine sofortige Antwort
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=BatchEventData(
+                    input=BatchEventInput(events=events),
+                    output=BatchEventOutput(
+                        results=[],
+                        summary={
+                            "total_events": len(events),
+                            "status": "accepted",
+                            "batch_id": webhook_config.event_id,
+                            "webhook_url": webhook_url,
+                            "async_processing": True
+                        }
+                    )
+                ),
+                request_info={
+                    "event_count": len(events),
+                    "webhook_url": webhook_url,
+                    "batch_id": webhook_config.event_id,
+                    "async_processing": True
+                },
+                response_class=BatchEventResponse
+            )
+            
+        except Exception as e:
+            error_info = ErrorInfo(
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            self.logger.error(f"Fehler bei der asynchronen Batch-Event-Verarbeitung: {str(e)}")
+            
+            return ResponseFactory.create_response(
+                processor_name=ProcessorType.EVENT.value,
+                result=None,
+                request_info={
+                    "event_count": len(events),
+                    "webhook_url": webhook_url,
+                    "async_processing": True
+                },
+                response_class=BatchEventResponse,
+                error=error_info
+            )
+
+    async def _process_many_events_async_task(self, input_data: AsyncBatchEventInput) -> None:
+        """
+        Interne Methode zur asynchronen Verarbeitung mehrerer Events und Senden von Webhook-Callbacks.
+        
+        Args:
+            input_data: Die Eingabedaten für die Batch-Event-Verarbeitung
+        """
+        try:
+            # Verarbeite die Events sequentiell
+            self.logger.info(f"Starte asynchrone Verarbeitung von {len(input_data.events)} Events")
+            
+            for i, event_data in enumerate(input_data.events):
+                try:
+                    # Erstelle eine eindeutige Event-ID
+                    event_id = f"{input_data.webhook.event_id}_{i}" if input_data.webhook and input_data.webhook.event_id else str(uuid.uuid4())
+                    
+                    # Erstelle Webhook-Konfiguration für dieses Event
+                    event_webhook = None
+                    if input_data.webhook:
+                        event_webhook = WebhookConfig(
+                            url=input_data.webhook.url,
+                            headers=input_data.webhook.headers,
+                            include_markdown=input_data.webhook.include_markdown,
+                            include_metadata=input_data.webhook.include_metadata,
+                            event_id=event_id
+                        )
+                    
+                    # Erstelle AsyncEventInput für dieses Event
+                    async_event_input = AsyncEventInput(
+                        event=event_data.get("event", ""),
+                        session=event_data.get("session", ""),
+                        url=event_data.get("url", ""),
+                        filename=event_data.get("filename", ""),
+                        track=event_data.get("track", ""),
+                        day=event_data.get("day"),
+                        starttime=event_data.get("starttime"),
+                        endtime=event_data.get("endtime"),
+                        speakers=event_data.get("speakers", []),
+                        video_url=event_data.get("video_url"),
+                        attachments_url=event_data.get("attachments_url"),
+                        source_language=event_data.get("source_language", "en"),
+                        target_language=event_data.get("target_language", "de"),
+                        webhook=event_webhook
+                    )
+                    
+                    # Verarbeite das Event asynchron
+                    # Hier verwenden wir direkt die Task-Methode, die bereits die Semaphore nutzt
+                    await self._process_event_async_task(async_event_input)
+                    
+                except Exception as e:
+                    self.logger.error(
+                        f"Fehler bei der asynchronen Verarbeitung von Event {i}",
+                        error=e,
+                        event=event_data.get("event", "unknown")
+                    )
+                    
+            self.logger.info(f"Asynchrone Batch-Verarbeitung abgeschlossen")
+            
+        except Exception as e:
+            self.logger.error(f"Fehler bei der asynchronen Batch-Event-Verarbeitung: {str(e)}") 

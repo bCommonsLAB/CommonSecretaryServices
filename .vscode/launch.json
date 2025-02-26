@@ -5,6 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Event Batch Test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/test_event_processor_batch.py",
+            "args": ["3"], // Anzahl der Events
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
             "name": "Python: main.py",
             "type": "python",
             "request": "launch",

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Event-Monitor{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-3">Event-Verarbeitungs-Monitor</h1>
+            <p class="lead">
+                Überwachung der asynchronen Event-Verarbeitung. Zeigt aktuelle Warteschlange und erledigte Events.
+            </p>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <span class="badge bg-primary">Maximale gleichzeitige Tasks: {{ event_data.max_concurrent_tasks }}</span>
+                    <span class="badge {% if event_data.current_tasks < event_data.max_concurrent_tasks %}bg-success{% else %}bg-warning{% endif %}">
+                        Aktuelle Tasks: {{ event_data.current_tasks }}
+                    </span>
+                </div>
+                <button id="refreshBtn" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-sync-alt"></i> Aktualisieren
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <ul class="nav nav-tabs" id="eventTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" 
+                            type="button" role="tab" aria-controls="queue" aria-selected="true">
+                        Warteschlange 
+                        <span class="badge bg-primary">{{ event_data.queue|length }}</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="completed-tab" data-bs-toggle="tab" data-bs-target="#completed" 
+                            type="button" role="tab" aria-controls="completed" aria-selected="false">
+                        Abgeschlossen 
+                        <span class="badge bg-success">{{ event_data.completed|length }}</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="failed-tab" data-bs-toggle="tab" data-bs-target="#failed" 
+                            type="button" role="tab" aria-controls="failed" aria-selected="false">
+                        Fehlgeschlagen 
+                        <span class="badge bg-danger">{{ event_data.failed|length }}</span>
+                    </button>
+                </li>
+            </ul>
+            
+            <div class="tab-content p-3 border border-top-0 rounded-bottom" id="eventTabsContent">
+                <!-- Warteschlange Tab -->
+                <div class="tab-pane fade show active" id="queue" role="tabpanel" aria-labelledby="queue-tab">
+                    {% include '_event_queue.html' %}
+                </div>
+                
+                <!-- Abgeschlossen Tab -->
+                <div class="tab-pane fade" id="completed" role="tabpanel" aria-labelledby="completed-tab">
+                    {% include '_event_completed.html' %}
+                </div>
+                
+                <!-- Fehlgeschlagen Tab -->
+                <div class="tab-pane fade" id="failed" role="tabpanel" aria-labelledby="failed-tab">
+                    {% include '_event_failed.html' %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Auto-Refresh alle 10 Sekunden
+        let refreshInterval = setInterval(refreshData, 10000);
+        
+        // Manuelles Refresh
+        $('#refreshBtn').click(function() {
+            refreshData();
+        });
+        
+        function refreshData() {
+            $.ajax({
+                url: '/api/event-monitor-data',
+                type: 'GET',
+                success: function(data) {
+                    if (data.error) {
+                        console.error('Fehler beim Abrufen der Daten:', data.error);
+                        return;
+                    }
+                    
+                    // Aktualisiere die Tabs
+                    $('#queue').html(data.queue_html);
+                    $('#completed').html(data.completed_html);
+                    $('#failed').html(data.failed_html);
+                    
+                    // Aktualisiere die Badges
+                    const queueCount = $('#queue table tbody tr').length;
+                    const completedCount = $('#completed table tbody tr').length;
+                    const failedCount = $('#failed table tbody tr').length;
+                    
+                    $('#queue-tab .badge').text(queueCount);
+                    $('#completed-tab .badge').text(completedCount);
+                    $('#failed-tab .badge').text(failedCount);
+                    
+                    // Aktualisiere die Task-Anzeige
+                    const maxTasks = data.max_concurrent_tasks;
+                    const currentTasks = data.current_tasks;
+                    
+                    $('.badge:contains("Maximale gleichzeitige Tasks")').text('Maximale gleichzeitige Tasks: ' + maxTasks);
+                    
+                    const taskBadge = $('.badge:contains("Aktuelle Tasks")');
+                    taskBadge.text('Aktuelle Tasks: ' + currentTasks);
+                    
+                    if (currentTasks < maxTasks) {
+                        taskBadge.removeClass('bg-warning').addClass('bg-success');
+                    } else {
+                        taskBadge.removeClass('bg-success').addClass('bg-warning');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Fehler beim Abrufen der Daten:', error);
+                }
+            });
+        }
+    });
+</script>
+{% endblock %} 

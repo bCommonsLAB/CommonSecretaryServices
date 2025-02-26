@@ -5,6 +5,7 @@ __pycache__/
 .git/
 .gitignore
 .env
+.obsidian/
 logs/*
 temp-processing/*
 cache/*
