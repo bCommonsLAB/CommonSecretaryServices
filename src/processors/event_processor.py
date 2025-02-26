@@ -678,7 +678,7 @@ class EventProcessor(BaseProcessor):
     async def process_notion_blocks(
         self,
         blocks: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    ) -> NotionResponse:
         """
         Verarbeitet Notion Blocks und erstellt mehrsprachigen Newsfeed-Inhalt.
         Die Quellsprache ist fest auf Deutsch eingestellt, die Zielsprache ist Italienisch.
@@ -687,37 +687,49 @@ class EventProcessor(BaseProcessor):
             blocks: Liste der Notion Blocks
             
         Returns:
-            Dict[str, Any]: Response als Dictionary
+            NotionResponse mit verarbeitetem Newsfeed-Inhalt
         """
         try:
             self.logger.info("Starte Verarbeitung von Notion Blocks",
                            block_count=len(blocks))
 
             # Validiere und konvertiere Blocks
-            notion_blocks = []
+            notion_blocks: List[NotionBlock] = []
             for block in blocks:
                 # Entferne nicht benötigte Felder und extrahiere verschachtelte Werte
-                cleaned_block = {
-                    "root_id": block.get("root_id", ""),
-                    "object": block.get("object", ""),
-                    "id": block.get("id", ""),
-                    "parent_id": block.get("parent", {}).get("page_id", ""),
-                    "type": block.get("type", ""),
-                    "has_children": block.get("has_children", False),
-                    "archived": block.get("archived", False),
-                    "in_trash": block.get("in_trash", False),
-                    "content": block.get("content", ""),
-                    "image": block.get("image", None) if block.get("type") == "image" else None,
-                    "caption": block.get("caption", "")
-                }
+                root_id = str(block.get("root_id") or "")
+                object_type = str(block.get("object") or "")
+                block_id = str(block.get("id") or "")
+                parent_id = str(block.get("parent", {}).get("page_id") or "")
+                block_type = str(block.get("type") or "")
+                has_children = bool(block.get("has_children"))
+                archived = bool(block.get("archived"))
+                in_trash = bool(block.get("in_trash"))
+                content = str(block.get("content") or "")
+                image = block.get("image") if block.get("type") == "image" else None
+                caption = str(block.get("caption") or "")
+                
+                notion_block = NotionBlock(
+                    root_id=root_id,
+                    object=object_type,
+                    id=block_id,
+                    parent_id=parent_id,
+                    type=block_type,
+                    has_children=has_children,
+                    archived=archived,
+                    in_trash=in_trash,
+                    content=content,
+                    image=image,
+                    caption=caption
+                )
                 
                 # Debug-Logging für Block-Struktur
                 self.logger.debug("Block-Struktur:",
-                                block_type=block.get("type"),
-                                has_content=bool(cleaned_block["content"]),
+                                block_type=block_type,
+                                has_content=bool(content),
                                 raw_block=block)
                 
-                notion_blocks.append(NotionBlock(**cleaned_block))
+                notion_blocks.append(notion_block)
             
             self.logger.debug("Notion Blocks validiert und konvertiert",
                             block_count=len(notion_blocks))
