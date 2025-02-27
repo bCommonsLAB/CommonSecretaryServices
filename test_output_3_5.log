@@ -1,0 +1,34 @@
+[2025-02-27T00:54:42.427299] Starte Test der asynchronen Batch-Eventverarbeitung...
+Parameter: startEvent=3, countEvents=2
+[2025-02-27T00:54:42.427299] Prüfe API-Server...
+[2025-02-27T00:54:46.539819] API-Server läuft auf http://localhost:5001
+[2025-02-27T00:54:46.539819] Lösche vorhandene Webhook-Logs...
+Webhook-Logs gelöscht: 0 Webhook-Callbacks gelöscht
+Geladen: 2 Events, beginnend mit Index 3
+Verarbeite 2 Events:
+  1. FOSDEM 2025 - Forked Communities: Project Re-licensing and Community Impact
+  2. FOSDEM 2025 - GIMP 3 and beyond
+[2025-02-27T00:54:48.584010] Sende Batch-Anfrage mit 2 Events...
+[2025-02-27T00:55:12.670142] Initiale Antwort erhalten:
+Status: success
+Batch-ID: batch-test-1740614088
+Event-Anzahl: None
+[2025-02-27T00:55:12.670142] Warte auf die asynchrone Verarbeitung...
+[2025-02-27T00:55:12.670142] Warte seit 0 Sekunden auf Verarbeitung...
+Bisher 2 Webhooks empfangen (neu: 2)
+Alle 2 Webhooks empfangen! Verarbeitung abgeschlossen.
+[2025-02-27T00:55:14.695336] Test abgeschlossen.
+[2025-02-27T00:55:14.695336] Prüfe Webhook-Logs...
+Gefundene Webhook-Logs: 2
+Timestamp: 2025-02-27T00:55:01.798534
+Event-ID: batch-test-1740614088_0
+Success: True
+Datei: events\FOSDEM 2025\Main-Track-Janson-7\Saturday-1700-Forked-Communities-Project-Relicensing-and-Community-Impact\Forked-Communities-Project-Relicensing-and-Community-Impact.md
+Datei existiert: Ja (2267 Bytes)
+--------------------------------------------------
+Timestamp: 2025-02-27T00:55:12.640764
+Event-ID: batch-test-1740614088_1
+Success: True
+Datei: events\FOSDEM 2025\Main-Track-Janson-7\Sunday-1000-GIMP-3-and-beyond\GIMP-3-and-beyond.md
+Datei existiert: Ja (1575 Bytes)
+--------------------------------------------------

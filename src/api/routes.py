@@ -1968,6 +1968,10 @@ class EventEndpoint(Resource):
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
         event_processor: EventProcessor = get_event_processor(process_id)
         
+        # Setze Performance-Tracker-Informationen
+        if tracker:
+            tracker.set_processor_name("event")
+        
         try:
             data = request.get_json()
             if not data:
@@ -2061,6 +2065,10 @@ class BatchEventEndpoint(Resource):
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
         event_processor: EventProcessor = get_event_processor(process_id)
         
+        # Setze Performance-Tracker-Informationen
+        if tracker:
+            tracker.set_processor_name("event")
+        
         try:
             data = request.get_json()
             if not data:
@@ -2126,6 +2134,11 @@ class AsyncEventEndpoint(Resource):
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
         event_processor: EventProcessor = get_event_processor(process_id)
+        
+        # Setze Performance-Tracker-Informationen für den Event-Monitor
+        if tracker:
+            tracker.set_processor_name("event")
+            tracker.set_async_processing(True)
         
         try:
             data = request.get_json()
@@ -2197,26 +2210,38 @@ class AsyncEventEndpoint(Resource):
                     'details': {}
                 }
             }, 400
-        except Exception as e:
-            logger.error("Async-Event-Verarbeitungsfehler",
-                        error=e,
-                        error_type=type(e).__name__,
-                        stack_trace=traceback.format_exc(),
+            
+        except ProcessingError as pe:
+            logger.error("Verarbeitungsfehler",
+                        error=pe,
+                        error_type="ProcessingError",
                         process_id=process_id)
             return {
                 'status': 'error',
                 'error': {
-                    'code': type(e).__name__,
-                    'message': str(e),
+                    'code': 'ProcessingError',
+                    'message': str(pe),
+                    'details': pe.details if hasattr(pe, 'details') else {}
+                }
+            }, 400
+            
+        except Exception as e:
+            logger.error("Unerwarteter Fehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        traceback=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'InternalError',
+                    'message': f"Interner Serverfehler: {str(e)}",
                     'details': {
                         'error_type': type(e).__name__,
                         'traceback': traceback.format_exc()
                     }
                 }
-            }, 400
-        finally:
-            if event_processor and event_processor.logger:
-                event_processor.logger.info("Async-Event-Verarbeitung initiiert")
+            }, 500
 
 @api.route('/process-events-async')
 class AsyncBatchEventEndpoint(Resource):
@@ -2229,6 +2254,11 @@ class AsyncBatchEventEndpoint(Resource):
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
         event_processor: EventProcessor = get_event_processor(process_id)
+        
+        # Setze Performance-Tracker-Informationen für den Event-Monitor
+        if tracker:
+            tracker.set_processor_name("event")
+            tracker.set_async_processing(True)
         
         try:
             data = request.get_json()
@@ -2297,3 +2327,158 @@ class AsyncBatchEventEndpoint(Resource):
         finally:
             if event_processor and event_processor.logger:
                 event_processor.logger.info("Async-Batch-Event-Verarbeitung initiiert")
+
+# Globale Variable für gespeicherte Webhook-Callbacks im Speicher
+test_webhook_callbacks: List[Dict[str, Any]] = []
+
+@api.route('/test-webhook-callback')
+class TestWebhookCallbackEndpoint(Resource):
+    """
+    Test-Endpunkt zum Empfangen und Protokollieren von Webhook-Callbacks.
+    Dient als Mock für Webhook-Tests ohne separaten Server.
+    """
+    
+    @api.doc(description='Empfängt und protokolliert Webhook-Callbacks für Testzwecke')
+    @api.response(200, 'Callback erfolgreich empfangen')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Empfängt und protokolliert Webhook-Callbacks für Testzwecke.
+        
+        Returns:
+            Union[Dict[str, Any], tuple[Dict[str, Any], int]]: Bestätigung des empfangenen Callbacks oder Fehlermeldung
+        """
+        try:
+            # Empfange JSON-Payload
+            payload = request.get_json()
+            
+            # Erstelle Webhook-Log-Objekt
+            webhook_log = {
+                "timestamp": datetime.now().isoformat(),
+                "event_id": payload.get("event_id", str(uuid.uuid4())),
+                "request_id": str(uuid.uuid4()),
+                "headers": dict(request.headers),
+                "payload": payload
+            }
+            
+            # Füge das Log zur globalen Liste hinzu
+            test_webhook_callbacks.append(webhook_log)
+            
+            # Erstelle webhook_logs Verzeichnis, falls es nicht existiert
+            webhook_log_dir = Path("webhook_logs")
+            if not webhook_log_dir.exists():
+                webhook_log_dir.mkdir(parents=True)
+            
+            # Speichere das Log als JSON-Datei
+            event_id = payload.get("event_id", "unknown")
+            log_filename = f"{int(time.time())}_{event_id}.json"
+            log_path = webhook_log_dir / log_filename
+            
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(webhook_log, f, indent=2, ensure_ascii=False)
+            
+            # Ausgabe für Debug-Zwecke
+            print(f"Webhook empfangen und gespeichert: {log_path}")
+            if "success" in payload:
+                print(f"Success: {payload['success']}")
+            if "error" in payload:
+                print(f"Fehler: {payload['error']}")
+            if "file_path" in payload:
+                print(f"Datei: {payload['file_path']}")
+            
+            # Rückgabe einer Bestätigung
+            return {
+                "status": "success",
+                "message": "Webhook-Callback erfolgreich empfangen",
+                "request_id": webhook_log["request_id"],
+                "log_file": str(log_path)
+            }
+            
+        except Exception as e:
+            # Fehlerbehandlung
+            error_info = {
+                "status": "error",
+                "message": f"Fehler beim Verarbeiten des Webhook-Callbacks: {str(e)}",
+                "details": traceback.format_exc()
+            }
+            
+            print(f"Fehler bei Webhook-Verarbeitung: {str(e)}")
+            return error_info, 500
+
+@api.route('/test-webhook-logs')
+class TestWebhookLogsEndpoint(Resource):
+    """
+    Endpunkt zum Abrufen der gespeicherten Webhook-Callbacks.
+    """
+    
+    @api.doc(description='Listet alle protokollierten Webhook-Callbacks auf')
+    @api.response(200, 'Erfolgreich')
+    def get(self) -> Dict[str, Any]:
+        """
+        Listet alle protokollierten Webhook-Callbacks auf.
+        
+        Returns:
+            Dict[str, Any]: Liste der protokollierten Callbacks
+        """
+        return {
+            "status": "success",
+            "total": len(test_webhook_callbacks),
+            "logs": test_webhook_callbacks
+        }
+
+@api.route('/test-webhook-logs/<string:event_id>')
+class TestWebhookLogsByEventEndpoint(Resource):
+    """
+    Endpunkt zum Abrufen der gespeicherten Webhook-Callbacks für eine bestimmte Event-ID.
+    """
+    
+    @api.doc(description='Gibt die Logs für eine bestimmte Event-ID zurück')
+    @api.response(200, 'Erfolgreich')
+    @api.response(404, 'Keine Logs gefunden')
+    def get(self, event_id: str) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Gibt die Logs für eine bestimmte Event-ID zurück.
+        
+        Args:
+            event_id: Die Event-ID
+            
+        Returns:
+            Union[Dict[str, Any], tuple[Dict[str, Any], int]]: Logs für die Event-ID oder Fehlermeldung
+        """
+        matching_logs = [log for log in test_webhook_callbacks if log.get("event_id") == event_id]
+        
+        if not matching_logs:
+            return {
+                "status": "error",
+                "message": f"Keine Logs für Event-ID {event_id} gefunden"
+            }, 404
+        
+        return {
+            "status": "success",
+            "event_id": event_id,
+            "total": len(matching_logs),
+            "logs": matching_logs
+        }
+
+@api.route('/test-webhook-clear')
+class TestWebhookClearEndpoint(Resource):
+    """
+    Endpunkt zum Löschen aller gespeicherten Webhook-Callbacks.
+    """
+    
+    @api.doc(description='Löscht alle protokollierten Webhook-Callbacks')
+    @api.response(200, 'Erfolgreich')
+    def post(self) -> Dict[str, Any]:
+        """
+        Löscht alle protokollierten Webhook-Callbacks.
+        
+        Returns:
+            Dict[str, Any]: Bestätigung
+        """
+        global test_webhook_callbacks
+        count = len(test_webhook_callbacks)
+        test_webhook_callbacks = []
+        
+        return {
+            "status": "success",
+            "message": f"{count} Webhook-Callbacks gelöscht"
+        }

@@ -568,8 +568,12 @@ def event_monitor():
         }
         
         if os.path.exists(perf_path):
-            with open(perf_path, 'r') as f:
-                perf_data = json.load(f)
+            try:
+                with open(perf_path, 'r') as f:
+                    perf_data = json.load(f)
+            except json.JSONDecodeError:
+                logger.error("Fehler beim Lesen der performance.json. Die Datei enthält ungültiges JSON.")
+                return render_template('event_monitor.html', event_data=event_data)
                 
             # Filtere Event-Prozessor-Daten
             now = datetime.now()
@@ -578,6 +582,7 @@ def event_monitor():
             for entry in perf_data:
                 try:
                     # Prüfe, ob es sich um einen Event-Prozessor-Eintrag handelt
+                    # In der neuen Struktur ist 'processor' ein Feld der obersten Ebene
                     if entry.get('processor') != 'event':
                         continue
                         
@@ -588,50 +593,94 @@ def event_monitor():
                         
                     entry['timestamp_formatted'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
                     
-                    # Prüfe Status
-                    operations = entry.get('operations', [])
-                    if not operations:
+                    # Prüfe asynchrone Verarbeitung - jetzt auch auf oberster Ebene
+                    if not entry.get('async_processing'):
                         continue
                         
-                    last_op = operations[-1]
+                    # Debug-Logging für Einträge, die wir verarbeiten
+                    logger.info(f"Event-Monitor: Verarbeite Eintrag für process_id={entry.get('process_id')}")
                     
-                    # Prüfe, ob es sich um asynchrone Verarbeitung handelt
-                    request_info = entry.get('request_info', {})
-                    if not request_info.get('async_processing'):
-                        continue
-                        
+                    # Prüfe Status - Operations sind jetzt in measurements verschachtelt
+                    operations = entry.get('measurements', {}).get('operations', [])
+                    
+                    # Debug-Logging hinzufügen
+                    logger.info(f"Event-Monitor: Eintrag gefunden für process_id={entry.get('process_id')} mit {len(operations)} Operations")
+                    
+                    # Status ist jetzt direkt in der Hauptebene
+                    entry_status = entry.get('status')
+                    
                     # Bestimme Status
-                    if 'end_time' not in last_op:
-                        # Noch in Bearbeitung
-                        start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
-                        duration = (now - start_time).total_seconds()
-                        entry['duration'] = f"{duration:.2f}s"
-                        entry['status'] = 'in_progress'
-                        event_data['current_tasks'] += 1
-                        event_data['queue'].append(entry)
+                    if operations:
+                        last_op = operations[-1]
+                        if 'end_time' not in last_op:
+                            # Noch in Bearbeitung
+                            try:
+                                start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
+                                duration = (now - start_time).total_seconds()
+                                entry['duration'] = f"{duration:.2f}s"
+                                entry['status'] = 'in_progress'
+                                event_data['current_tasks'] += 1
+                                event_data['queue'].append(entry)
+                            except (KeyError, ValueError) as e:
+                                logger.error(f"Fehler beim Verarbeiten eines in_progress Eintrags: {str(e)}")
+                                # Füge trotzdem den Eintrag hinzu, mit Standardwerten
+                                entry['duration'] = "unbekannt"
+                                entry['status'] = 'in_progress'
+                                event_data['current_tasks'] += 1
+                                event_data['queue'].append(entry)
+                        else:
+                            # Abgeschlossen
+                            try:
+                                if len(operations) > 0:
+                                    start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
+                                    end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
+                                    duration = (end_time - start_time).total_seconds()
+                                    entry['duration'] = f"{duration:.2f}s"
+                                else:
+                                    entry['duration'] = "unbekannt"
+                                
+                                # Prüfe auf Fehler - direkt aus der Hauptebene
+                                if entry.get('error') or entry_status == 'error':
+                                    entry['status'] = 'failed'
+                                    event_data['failed'].append(entry)
+                                else:
+                                    entry['status'] = 'completed'
+                                    event_data['completed'].append(entry)
+                            except (KeyError, ValueError) as e:
+                                logger.error(f"Fehler beim Verarbeiten eines abgeschlossenen Eintrags: {str(e)}")
+                                # Füge trotzdem den Eintrag hinzu, mit Standardwerten
+                                entry['duration'] = "unbekannt"
+                                if entry.get('error') or entry_status == 'error':
+                                    entry['status'] = 'failed'
+                                    event_data['failed'].append(entry)
+                                else:
+                                    entry['status'] = 'completed'
+                                    event_data['completed'].append(entry)
                     else:
-                        # Abgeschlossen
-                        start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
-                        end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
-                        duration = (end_time - start_time).total_seconds()
-                        entry['duration'] = f"{duration:.2f}s"
-                        
-                        # Prüfe auf Fehler
-                        if entry.get('error'):
+                        # Keine Operations - trotzdem anzeigen!
+                        entry['duration'] = "unbekannt"
+                        if entry.get('error') or entry_status == 'error':
                             entry['status'] = 'failed'
                             event_data['failed'].append(entry)
-                        else:
+                        elif entry_status == 'success':
                             entry['status'] = 'completed'
                             event_data['completed'].append(entry)
+                        else:
+                            entry['status'] = 'in_progress'
+                            event_data['current_tasks'] += 1
+                            event_data['queue'].append(entry)
                             
                 except Exception as e:
                     logger.error(f"Fehler bei der Verarbeitung eines Performance-Eintrags: {str(e)}")
                     continue
             
             # Sortiere nach Zeitstempel (neueste zuerst)
-            event_data['queue'] = sorted(event_data['queue'], key=lambda x: x['timestamp'], reverse=True)
-            event_data['completed'] = sorted(event_data['completed'], key=lambda x: x['timestamp'], reverse=True)
-            event_data['failed'] = sorted(event_data['failed'], key=lambda x: x['timestamp'], reverse=True)
+            try:
+                event_data['queue'] = sorted(event_data['queue'], key=lambda x: x.get('timestamp', ''), reverse=True)
+                event_data['completed'] = sorted(event_data['completed'], key=lambda x: x.get('timestamp', ''), reverse=True)
+                event_data['failed'] = sorted(event_data['failed'], key=lambda x: x.get('timestamp', ''), reverse=True)
+            except Exception as e:
+                logger.error(f"Fehler beim Sortieren der Event-Daten: {str(e)}")
         
         return render_template('event_monitor.html', event_data=event_data)
         
@@ -662,8 +711,14 @@ def get_event_monitor_data():
         }
         
         if os.path.exists(perf_path):
-            with open(perf_path, 'r') as f:
-                perf_data = json.load(f)
+            try:
+                with open(perf_path, 'r') as f:
+                    perf_data = json.load(f)
+            except json.JSONDecodeError:
+                logger.error("Fehler beim Lesen der performance.json. Die Datei enthält ungültiges JSON.")
+                return jsonify({
+                    'error': "Fehler beim Lesen der Performance-Daten"
+                }), 500
                 
             # Filtere Event-Prozessor-Daten
             now = datetime.now()
@@ -672,6 +727,7 @@ def get_event_monitor_data():
             for entry in perf_data:
                 try:
                     # Prüfe, ob es sich um einen Event-Prozessor-Eintrag handelt
+                    # In der neuen Struktur ist 'processor' ein Feld der obersten Ebene
                     if entry.get('processor') != 'event':
                         continue
                         
@@ -682,50 +738,105 @@ def get_event_monitor_data():
                         
                     entry['timestamp_formatted'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
                     
-                    # Prüfe Status
-                    operations = entry.get('operations', [])
-                    if not operations:
+                    # Prüfe asynchrone Verarbeitung - jetzt auch auf oberster Ebene
+                    if not entry.get('async_processing'):
                         continue
                         
-                    last_op = operations[-1]
+                    # Debug-Logging für Einträge, die wir verarbeiten
+                    logger.info(f"Event-Monitor API: Verarbeite Eintrag für process_id={entry.get('process_id')}")
                     
-                    # Prüfe, ob es sich um asynchrone Verarbeitung handelt
-                    request_info = entry.get('request_info', {})
-                    if not request_info.get('async_processing'):
-                        continue
-                        
-                    # Bestimme Status
-                    if 'end_time' not in last_op:
-                        # Noch in Bearbeitung
-                        start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
-                        duration = (now - start_time).total_seconds()
-                        entry['duration'] = f"{duration:.2f}s"
-                        entry['status'] = 'in_progress'
-                        event_data['current_tasks'] += 1
-                        event_data['queue'].append(entry)
+                    # Extrahiere Event-Metadaten aus den Request-Informationen
+                    if 'request_info' in entry:
+                        entry['event'] = entry['request_info'].get('event', '')
+                        entry['track'] = entry['request_info'].get('track', '')
+                        entry['session'] = entry['request_info'].get('session', '')
+                    # Kompatibilität mit neuem Format, wo request_info Teil der obersten Ebene sein könnte
                     else:
-                        # Abgeschlossen
-                        start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
-                        end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
-                        duration = (end_time - start_time).total_seconds()
-                        entry['duration'] = f"{duration:.2f}s"
-                        
-                        # Prüfe auf Fehler
-                        if entry.get('error'):
+                        entry['event'] = entry.get('event', '')
+                        entry['track'] = entry.get('track', '')
+                        entry['session'] = entry.get('session', '')
+                    
+                    # Prüfe Status - Operations sind jetzt in measurements verschachtelt
+                    operations = entry.get('measurements', {}).get('operations', [])
+                    
+                    # Debug-Logging hinzufügen
+                    logger.info(f"Event-Monitor API: Eintrag gefunden für process_id={entry.get('process_id')} mit {len(operations)} Operations")
+                    
+                    # Status ist jetzt direkt in der Hauptebene
+                    entry_status = entry.get('status')
+                    
+                    # Bestimme Status
+                    if operations:
+                        last_op = operations[-1]
+                        if 'end_time' not in last_op:
+                            # Noch in Bearbeitung
+                            try:
+                                start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
+                                duration = (now - start_time).total_seconds()
+                                entry['duration'] = f"{duration:.2f}s"
+                                entry['status'] = 'in_progress'
+                                event_data['current_tasks'] += 1
+                                event_data['queue'].append(entry)
+                            except (KeyError, ValueError) as e:
+                                logger.error(f"Fehler beim Verarbeiten eines in_progress Eintrags: {str(e)}")
+                                # Füge trotzdem den Eintrag hinzu, mit Standardwerten
+                                entry['duration'] = "unbekannt"
+                                entry['status'] = 'in_progress'
+                                event_data['current_tasks'] += 1
+                                event_data['queue'].append(entry)
+                        else:
+                            # Abgeschlossen
+                            try:
+                                if len(operations) > 0:
+                                    start_time = datetime.fromisoformat(operations[0]['start_time'].replace('Z', '+00:00'))
+                                    end_time = datetime.fromisoformat(last_op['end_time'].replace('Z', '+00:00'))
+                                    duration = (end_time - start_time).total_seconds()
+                                    entry['duration'] = f"{duration:.2f}s"
+                                else:
+                                    entry['duration'] = "unbekannt"
+                                
+                                # Prüfe auf Fehler - direkt aus der Hauptebene
+                                if entry.get('error') or entry_status == 'error':
+                                    entry['status'] = 'failed'
+                                    event_data['failed'].append(entry)
+                                else:
+                                    entry['status'] = 'completed'
+                                    event_data['completed'].append(entry)
+                            except (KeyError, ValueError) as e:
+                                logger.error(f"Fehler beim Verarbeiten eines abgeschlossenen Eintrags: {str(e)}")
+                                # Füge trotzdem den Eintrag hinzu, mit Standardwerten
+                                entry['duration'] = "unbekannt"
+                                if entry.get('error') or entry_status == 'error':
+                                    entry['status'] = 'failed'
+                                    event_data['failed'].append(entry)
+                                else:
+                                    entry['status'] = 'completed'
+                                    event_data['completed'].append(entry)
+                    else:
+                        # Keine Operations - trotzdem anzeigen!
+                        entry['duration'] = "unbekannt"
+                        if entry.get('error') or entry_status == 'error':
                             entry['status'] = 'failed'
                             event_data['failed'].append(entry)
-                        else:
+                        elif entry_status == 'success':
                             entry['status'] = 'completed'
                             event_data['completed'].append(entry)
+                        else:
+                            entry['status'] = 'in_progress'
+                            event_data['current_tasks'] += 1
+                            event_data['queue'].append(entry)
                             
                 except Exception as e:
                     logger.error(f"Fehler bei der Verarbeitung eines Performance-Eintrags: {str(e)}")
                     continue
             
             # Sortiere nach Zeitstempel (neueste zuerst)
-            event_data['queue'] = sorted(event_data['queue'], key=lambda x: x['timestamp'], reverse=True)
-            event_data['completed'] = sorted(event_data['completed'], key=lambda x: x['timestamp'], reverse=True)
-            event_data['failed'] = sorted(event_data['failed'], key=lambda x: x['timestamp'], reverse=True)
+            try:
+                event_data['queue'] = sorted(event_data['queue'], key=lambda x: x.get('timestamp', ''), reverse=True)
+                event_data['completed'] = sorted(event_data['completed'], key=lambda x: x.get('timestamp', ''), reverse=True)
+                event_data['failed'] = sorted(event_data['failed'], key=lambda x: x.get('timestamp', ''), reverse=True)
+            except Exception as e:
+                logger.error(f"Fehler beim Sortieren der Event-Daten: {str(e)}")
         
         # Rendere die HTML-Teile
         queue_html = render_template('_event_queue.html', queue=event_data['queue'], 

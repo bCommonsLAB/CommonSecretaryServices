@@ -17,9 +17,15 @@
                         Aktuelle Tasks: {{ event_data.current_tasks }}
                     </span>
                 </div>
-                <button id="refreshBtn" class="btn btn-sm btn-outline-primary">
-                    <i class="fas fa-sync-alt"></i> Aktualisieren
-                </button>
+                <div>
+                    <div class="form-check form-switch d-inline-block me-3">
+                        <input class="form-check-input" type="checkbox" id="autoRefreshSwitch">
+                        <label class="form-check-label" for="autoRefreshSwitch">Auto-Refresh (10s)</label>
+                    </div>
+                    <button id="refreshBtn" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-sync-alt"></i> Aktualisieren
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -74,8 +80,25 @@
 {% block scripts %}
 <script>
     $(document).ready(function() {
-        // Auto-Refresh alle 10 Sekunden
-        let refreshInterval = setInterval(refreshData, 10000);
+        // Variablen für Auto-Refresh
+        let refreshInterval = null;
+        const refreshTime = 10000; // 10 Sekunden
+        
+        // Auto-Refresh-Schalter
+        $('#autoRefreshSwitch').change(function() {
+            if ($(this).is(':checked')) {
+                // Auto-Refresh aktivieren
+                refreshInterval = setInterval(refreshData, refreshTime);
+                console.log('Auto-Refresh aktiviert');
+            } else {
+                // Auto-Refresh deaktivieren
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                    refreshInterval = null;
+                    console.log('Auto-Refresh deaktiviert');
+                }
+            }
+        });
         
         // Manuelles Refresh
         $('#refreshBtn').click(function() {
@@ -98,9 +121,9 @@
                     $('#failed').html(data.failed_html);
                     
                     // Aktualisiere die Badges
-                    const queueCount = $('#queue table tbody tr').length;
-                    const completedCount = $('#completed table tbody tr').length;
-                    const failedCount = $('#failed table tbody tr').length;
+                    const queueCount = $('#queue table tbody tr').length || 0;
+                    const completedCount = $('#completed table tbody tr').length || 0;
+                    const failedCount = $('#failed table tbody tr').length || 0;
                     
                     $('#queue-tab .badge').text(queueCount);
                     $('#completed-tab .badge').text(completedCount);

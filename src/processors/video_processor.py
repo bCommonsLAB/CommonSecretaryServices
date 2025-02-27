@@ -204,10 +204,10 @@ class VideoProcessor(BaseProcessor):
             str: Der generierte Cache-Schlüssel
         """
         # Einfachen Basis-Key aus URL/Dateiname generieren
-        base_key = ProcessorCache.generate_simple_key(video_source)
+        base_key: str = ProcessorCache.generate_simple_key(video_source)
         
         # Parameter in Hash einbeziehen
-        param_str = f"{source_language}_{target_language}_{template or ''}"
+        param_str: str = f"{source_language}_{target_language}_{template or ''}"
         return hashlib.sha256(f"{base_key}_{param_str}".encode()).hexdigest()
     
 

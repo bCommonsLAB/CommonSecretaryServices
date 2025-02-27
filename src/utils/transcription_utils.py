@@ -335,8 +335,8 @@ class WhisperTranscriber:
             context: Optional, zusätzliche Kontextinformationen
             logger: Optional, Logger für Debug-Ausgaben
         """
-        if logger:
-            logger.debug("Speichere Debug-Output", context=context)
+        #if logger:
+        #    logger.debug("Speichere Debug-Output", context=context)
             
         # TODO: Implementierung der Debug-Ausgabe
         pass

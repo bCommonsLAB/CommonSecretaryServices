@@ -1,10 +1,13 @@
 {% if completed %}
+<div class="alert alert-info mb-3">
+    Insgesamt {{ completed|length }} abgeschlossene Events. Es werden maximal 20 angezeigt.
+</div>
 <div class="table-responsive">
     <table class="table table-hover">
         <thead>
             <tr>
-                <th>ID</th>
                 <th>Event</th>
+                <th>Track</th>
                 <th>Session</th>
                 <th>Abschlusszeit</th>
                 <th>Dauer</th>
@@ -13,21 +16,27 @@
             </tr>
         </thead>
         <tbody>
-            {% for item in completed %}
+            {% for item in completed[:20] %}
             <tr>
                 <td>
-                    <small class="text-muted">{{ item.process_id }}</small>
-                </td>
-                <td>
-                    {% if item.request_info.event %}
-                        {{ item.request_info.event }}
+                    {% if item.event %}
+                        {{ item.event|truncate(40, true) }}
+                    {% elif item.endpoint and 'event' in item.endpoint %}
+                        <span class="text-muted">Event</span>
                     {% else %}
-                        <span class="text-muted">Batch ({{ item.request_info.event_count }} Events)</span>
+                        <span class="text-muted">Unbekannt</span>
                     {% endif %}
                 </td>
                 <td>
-                    {% if item.request_info.session %}
-                        {{ item.request_info.session }}
+                    {% if item.track %}
+                        {{ item.track|truncate(20, true) }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.session %}
+                        {{ item.session|truncate(20, true) }}
                     {% else %}
                         <span class="text-muted">-</span>
                     {% endif %}
@@ -64,6 +73,18 @@
                                             <td>{{ item.process_id }}</td>
                                         </tr>
                                         <tr>
+                                            <th>Event:</th>
+                                            <td>{{ item.event }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Track:</th>
+                                            <td>{{ item.track }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Session:</th>
+                                            <td>{{ item.session }}</td>
+                                        </tr>
+                                        <tr>
                                             <th>Abschlusszeit:</th>
                                             <td>{{ item.timestamp_formatted }}</td>
                                         </tr>
@@ -72,35 +93,41 @@
                                             <td>{{ item.duration }}</td>
                                         </tr>
                                         <tr>
-                                            <th>Event ID:</th>
-                                            <td>{{ item.request_info.event_id }}</td>
+                                            <th>Endpoint:</th>
+                                            <td>{{ item.endpoint }}</td>
                                         </tr>
-                                        {% if item.data and item.data.output and item.data.output.markdown_file %}
                                         <tr>
-                                            <th>Markdown-Datei:</th>
-                                            <td>
-                                                <a href="#" class="text-primary">
-                                                    {{ item.data.output.markdown_file }}
-                                                </a>
-                                            </td>
+                                            <th>Processor:</th>
+                                            <td>{{ item.processor }}</td>
                                         </tr>
-                                        {% endif %}
+                                        <tr>
+                                            <th>Status:</th>
+                                            <td>{{ item.status }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Async Processing:</th>
+                                            <td>{{ item.async_processing }}</td>
+                                        </tr>
                                     </table>
                                     
-                                    <h6 class="mt-4">Request-Informationen</h6>
-                                    <div class="bg-light p-3 rounded">
-                                        <pre class="mb-0"><code>{{ item.request_info|tojson(indent=2) }}</code></pre>
-                                    </div>
-                                    
+                                    {% if item.measurements and item.measurements.operations %}
                                     <h6 class="mt-4">Operationen</h6>
                                     <div class="bg-light p-3 rounded">
-                                        <pre class="mb-0"><code>{{ item.operations|tojson(indent=2) }}</code></pre>
+                                        <pre class="mb-0"><code>{{ item.measurements.operations|tojson(indent=2) }}</code></pre>
                                     </div>
+                                    {% endif %}
                                     
-                                    {% if item.data and item.data.output and item.data.output.metadata %}
-                                    <h6 class="mt-4">Metadaten</h6>
+                                    {% if item.measurements and item.measurements.processors %}
+                                    <h6 class="mt-4">Processors</h6>
                                     <div class="bg-light p-3 rounded">
-                                        <pre class="mb-0"><code>{{ item.data.output.metadata|tojson(indent=2) }}</code></pre>
+                                        <pre class="mb-0"><code>{{ item.measurements.processors|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if item.measurements and item.measurements.resources %}
+                                    <h6 class="mt-4">Resources</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.measurements.resources|tojson(indent=2) }}</code></pre>
                                     </div>
                                     {% endif %}
                                 </div>
