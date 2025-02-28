@@ -9,7 +9,7 @@ Type: Event-Zusammenfassung
 ---
 # {{title|Der Titel des Session}}
 
-> [! warning]-
+> [! hinweis]-
 > Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.
 
 Quelle: [{{url}}]({{url}})

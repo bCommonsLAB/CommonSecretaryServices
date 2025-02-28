@@ -20,7 +20,7 @@ Ablauf:
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, TypeVar, Union
 from pathlib import Path
 import traceback
 import time
@@ -52,6 +52,9 @@ from .base_processor import BaseProcessor
 from src.processors.pdf_processor import PDFProcessor
 from src.core.models.notion import NotionBlock, NotionResponse, NotionData, Newsfeed
 from src.utils.performance_tracker import get_performance_tracker
+
+# TypeVar für den Rückgabetyp von Tasks definieren
+T = TypeVar('T')
 
 class EventProcessor(BaseProcessor):
     """
@@ -865,76 +868,68 @@ class EventProcessor(BaseProcessor):
         event_output: EventOutput,
         event_input: EventInput,
         success: bool = True,
-        error: Optional[str] = None
+        error: Union[str, Exception, None] = None
     ) -> bool:
         """
-        Sendet einen Webhook-Callback nach der Event-Verarbeitung.
+        Sendet einen Webhook-Callback mit den Ergebnissen der Event-Verarbeitung.
         
         Args:
-            webhook_config: Die Webhook-Konfiguration
-            event_output: Die Ausgabedaten des Events
-            event_input: Die Eingabedaten des Events
-            success: Ob die Verarbeitung erfolgreich war
-            error: Optionale Fehlermeldung bei Misserfolg
+            webhook_config: Konfiguration des Webhooks
+            event_output: Output der Event-Verarbeitung
+            event_input: Input der Event-Verarbeitung
+            success: Flag ob die Verarbeitung erfolgreich war
+            error: Optional, Fehlermeldung falls nicht erfolgreich
             
         Returns:
-            True wenn der Webhook erfolgreich gesendet wurde, sonst False
+            bool: True wenn der Webhook erfolgreich gesendet wurde
         """
-        tracker = get_performance_tracker()
-        
         try:
-            with tracker.measure_operation('send_webhook', 'event') if tracker else nullcontext():
-                self.logger.info(f"WEBHOOK-DEBUG: Sende Webhook-Callback an: {webhook_config.url} für Event: {event_input.session}")
-                
-                # Erstelle Payload für den Webhook
-                payload = {
-                    "event_id": webhook_config.event_id or str(uuid.uuid4()),
-                    "timestamp": datetime.now().isoformat(),
-                    "success": success,
-                    "event": event_input.event,
+            # Konvertiere Exception zu String für API-Kompatibilität
+            error_str = str(error) if error is not None else None
+            
+            # Erstelle Webhook-Payload
+            payload = {
+                "status": "success" if success else "error",
+                "event": {
+                    "name": event_input.event,
                     "session": event_input.session,
+                    "url": event_input.url,
                     "track": event_input.track,
-                    "day": event_input.day,
-                    "filename": event_input.filename,
-                    "file_path": event_output.markdown_file if success else None
-                }
-                
-                # Füge Fehlerinformationen hinzu, falls vorhanden
-                if error:
-                    payload["error"] = error
-                    
-                # Füge Markdown-Inhalt hinzu, falls gewünscht
-                if webhook_config.include_markdown and success:
-                    payload["markdown_content"] = event_output.markdown_content
-                    
-                # Füge Metadaten hinzu, falls gewünscht
-                if webhook_config.include_metadata and success:
-                    payload["metadata"] = json.dumps(event_output.metadata)
-                    
-                # Sende den Webhook
-                headers = {
-                    "Content-Type": "application/json",
-                    **webhook_config.headers
-                }
-                
-                self.logger.info(f"WEBHOOK-DEBUG: Webhook-Payload vorbereitet für: {event_input.session}, Größe: {len(str(payload))} Bytes")
-                
-                response = requests.post(
-                    webhook_config.url,
-                    json=payload,
-                    headers=headers,
-                    timeout=30
-                )
-                
-                self.logger.info(f"WEBHOOK-DEBUG: Webhook-Response-Status: {response.status_code} für Event: {event_input.session}")
-                
-                try:
-                    response.raise_for_status()
-                    self.logger.info(f"WEBHOOK-DEBUG: Webhook erfolgreich gesendet: {response.status_code} für: {event_input.session}")
-                    return True
-                except requests.exceptions.HTTPError as http_err:
-                    self.logger.error(f"WEBHOOK-DEBUG: HTTP-Fehler beim Senden des Webhooks: {http_err}, Status: {response.status_code}, Response: {response.text[:200]}")
-                    return False
+                    "speakers": event_input.speakers
+                },
+                "result": {
+                    "markdown_content": event_output.markdown_content,
+                    "markdown_file": event_output.markdown_file,
+                    "metadata": event_output.metadata
+                },
+                "error": error_str,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Sende den Webhook
+            headers = {
+                "Content-Type": "application/json",
+                **webhook_config.headers
+            }
+            
+            self.logger.info(f"WEBHOOK-DEBUG: Webhook-Payload vorbereitet für: {event_input.session}, Größe: {len(str(payload))} Bytes")
+            
+            response = requests.post(
+                webhook_config.url,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            self.logger.info(f"WEBHOOK-DEBUG: Webhook-Response-Status: {response.status_code} für Event: {event_input.session}")
+            
+            try:
+                response.raise_for_status()
+                self.logger.info(f"WEBHOOK-DEBUG: Webhook erfolgreich gesendet: {response.status_code} für: {event_input.session}")
+                return True
+            except requests.exceptions.HTTPError as http_err:
+                self.logger.error(f"WEBHOOK-DEBUG: HTTP-Fehler beim Senden des Webhooks: {http_err}, Status: {response.status_code}, Response: {response.text[:200]}")
+                return False
             
         except Exception as e:
             self.logger.error(f"WEBHOOK-DEBUG: Fehler beim Senden des Webhooks: {str(e)} für: {event_input.session}")
@@ -1092,32 +1087,57 @@ class EventProcessor(BaseProcessor):
                 event=input_data.event,
                 track=input_data.track,
                 session=input_data.session
-            )
-            
+            )            
             # Debug-Logging hinzufügen
             self.logger.info("DEBUG: Performance-Tracker erfolgreich abgerufen")
             self.logger.info(f"DEBUG: Tracker process_id: {tracker.process_id}")
             self.logger.info(f"DEBUG: Tracker processor: {tracker.processor_name}")
             self.logger.info(f"DEBUG: Tracker async: {tracker.async_processing}")
         
-        # Logging: Vor dem Semaphore-Lock
-        self.logger.info(f"EVENT-DEBUG: Warte auf Semaphore für: {input_data.session}")
+        # Semaphore für die Verarbeitung
+        semaphore_acquired = False
         
         try:
-            # Verwende die Semaphore, um die Anzahl gleichzeitiger Verarbeitungen zu begrenzen
-            async with self._processing_semaphore:
-                # Logging: Nach dem Semaphore-Lock
-                self.logger.info(f"EVENT-DEBUG: Semaphore erhalten für: {input_data.session}")
-                
-                # Wichtig: Hier messen wir die gesamte Operation
-                with tracker.measure_operation('async_event_processing', 'event') if tracker else nullcontext():
-                    self.logger.info(f"EVENT-DEBUG: Innerhalb der measure_operation für: {input_data.session}")
-                    try:
-                        # Verarbeite das Event
-                        self.logger.info(f"Starte asynchrone Verarbeitung von Event: {input_data.event} - {input_data.session}")
-                        
-                        # Extrahiere die Basis-EventInput-Daten (ohne Webhook)
-                        event_input = EventInput(
+            # Logging: Vor dem Semaphore-Acquire
+            self.logger.info(f"EVENT-DEBUG: Warte auf Semaphore für: {input_data.session}, aktuell verfügbar: {self._processing_semaphore._value}")
+            
+            # Explizit Semaphore erwerben statt async with
+            await self._processing_semaphore.acquire()
+            semaphore_acquired = True
+            
+            # Logging: Nach dem Semaphore-Acquire
+            self.logger.info(f"EVENT-DEBUG: Semaphore erhalten für: {input_data.session}, aktuell verfügbar: {self._processing_semaphore._value}")
+            
+            # Wichtig: Hier messen wir die gesamte Operation
+            with tracker.measure_operation('async_event_processing', 'event') if tracker else nullcontext():
+                self.logger.info(f"EVENT-DEBUG: Innerhalb der measure_operation für: {input_data.session}")
+                try:
+                    # Verarbeite das Event
+                    self.logger.info(f"Starte asynchrone Verarbeitung von Event: {input_data.event} - {input_data.session}")
+                    
+                    # Extrahiere die Basis-EventInput-Daten (ohne Webhook)
+                    event_input = EventInput(
+                        event=input_data.event,
+                        session=input_data.session,
+                        url=input_data.url,
+                        filename=input_data.filename,
+                        track=input_data.track,
+                        day=input_data.day,
+                        starttime=input_data.starttime,
+                        endtime=input_data.endtime,
+                        speakers=input_data.speakers,
+                        video_url=input_data.video_url,
+                        attachments_url=input_data.attachments_url,
+                        source_language=input_data.source_language,
+                        target_language=input_data.target_language
+                    )
+                    
+                    # Logging: Vor process_event
+                    self.logger.info(f"EVENT-DEBUG: Rufe process_event auf für: {input_data.session}")
+                    
+                    # Verarbeite das Event mit der regulären Methode
+                    with tracker.measure_operation('process_event', 'event') if tracker else nullcontext():
+                        result: EventResponse = await self.process_event(
                             event=input_data.event,
                             session=input_data.session,
                             url=input_data.url,
@@ -1132,92 +1152,87 @@ class EventProcessor(BaseProcessor):
                             source_language=input_data.source_language,
                             target_language=input_data.target_language
                         )
-                        
-                        # Logging: Vor process_event
-                        self.logger.info(f"EVENT-DEBUG: Rufe process_event auf für: {input_data.session}")
-                        
-                        # Verarbeite das Event mit der regulären Methode
-                        with tracker.measure_operation('process_event', 'event') if tracker else nullcontext():
-                            result: EventResponse = await self.process_event(
-                                event=input_data.event,
-                                session=input_data.session,
-                                url=input_data.url,
-                                filename=input_data.filename,
-                                track=input_data.track,
-                                day=input_data.day,
-                                starttime=input_data.starttime,
-                                endtime=input_data.endtime,
-                                speakers=input_data.speakers,
-                                video_url=input_data.video_url,
-                                attachments_url=input_data.attachments_url,
-                                source_language=input_data.source_language,
-                                target_language=input_data.target_language
+                    
+                    # Logging: Nach process_event
+                    self.logger.info(f"EVENT-DEBUG: process_event abgeschlossen für: {input_data.session}, Status: {result.status}")
+                    
+                    # Sende Webhook-Callback bei Erfolg
+                    if result.status == ProcessingStatus.SUCCESS and result.data and input_data.webhook:
+                        self.logger.info(f"EVENT-DEBUG: Sende Erfolgs-Webhook für: {input_data.session}")
+                        with tracker.measure_operation('send_webhook_success', 'event') if tracker else nullcontext():
+                            webhook_success = await self._send_webhook_callback(
+                                webhook_config=input_data.webhook,
+                                event_output=result.data.output,
+                                event_input=event_input,
+                                success=True
                             )
+                            self.logger.info(f"EVENT-DEBUG: Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
+                    # Sende Webhook-Callback bei Fehler
+                    elif input_data.webhook:
+                        self.logger.info(f"EVENT-DEBUG: Sende Fehler-Webhook für: {input_data.session}")
+                        with tracker.measure_operation('send_webhook_error', 'event') if tracker else nullcontext():
+                            error_message = result.error.message if result.error else "Unbekannter Fehler"
+                            webhook_success = await self._send_webhook_callback(
+                                webhook_config=input_data.webhook,
+                                event_output=EventOutput(
+                                    markdown_file="",
+                                    markdown_content=""
+                                ),
+                                event_input=event_input,
+                                success=False,
+                                error=error_message
+                            )
+                            self.logger.info(f"EVENT-DEBUG: Fehler-Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
                         
-                        # Logging: Nach process_event
-                        self.logger.info(f"EVENT-DEBUG: process_event abgeschlossen für: {input_data.session}, Status: {result.status}")
-                        
-                        # Sende Webhook-Callback bei Erfolg
-                        if result.status == ProcessingStatus.SUCCESS and result.data and input_data.webhook:
-                            self.logger.info(f"EVENT-DEBUG: Sende Erfolgs-Webhook für: {input_data.session}")
-                            with tracker.measure_operation('send_webhook_success', 'event') if tracker else nullcontext():
-                                webhook_success = await self._send_webhook_callback(
-                                    webhook_config=input_data.webhook,
-                                    event_output=result.data.output,
-                                    event_input=event_input,
-                                    success=True
-                                )
-                                self.logger.info(f"EVENT-DEBUG: Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
-                        # Sende Webhook-Callback bei Fehler
-                        elif input_data.webhook:
-                            self.logger.info(f"EVENT-DEBUG: Sende Fehler-Webhook für: {input_data.session}")
-                            with tracker.measure_operation('send_webhook_error', 'event') if tracker else nullcontext():
-                                error_message = result.error.message if result.error else "Unbekannter Fehler"
+                except Exception as e:
+                    self.logger.error(f"EVENT-DEBUG: Fehler bei der asynchronen Event-Verarbeitung: {str(e)}")
+                    self.logger.error(f"EVENT-DEBUG: Traceback: {traceback.format_exc()}")
+                    
+                    # Sende Webhook-Callback bei Ausnahme, falls Webhook konfiguriert
+                    if input_data.webhook:
+                        try:
+                            self.logger.info(f"EVENT-DEBUG: Sende Exception-Webhook für: {input_data.session}")
+                            with tracker.measure_operation('send_webhook_exception', 'event') if tracker else nullcontext():
+                                error_exception = Exception(str(e))
                                 webhook_success = await self._send_webhook_callback(
                                     webhook_config=input_data.webhook,
                                     event_output=EventOutput(
                                         markdown_file="",
                                         markdown_content=""
                                     ),
-                                    event_input=event_input,
+                                    event_input=EventInput(
+                                        event=input_data.event,
+                                        session=input_data.session,
+                                        url=input_data.url,
+                                        filename=input_data.filename,
+                                        track=input_data.track
+                                    ),
                                     success=False,
-                                    error=error_message
+                                    error=error_exception
                                 )
-                                self.logger.info(f"EVENT-DEBUG: Fehler-Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
-                            
-                    except Exception as e:
-                        self.logger.error(f"EVENT-DEBUG: Fehler bei der asynchronen Event-Verarbeitung: {str(e)}")
-                        self.logger.error(f"EVENT-DEBUG: Traceback: {traceback.format_exc()}")
-                        
-                        # Sende Webhook-Callback bei Ausnahme, falls Webhook konfiguriert
-                        if input_data.webhook:
-                            try:
-                                self.logger.info(f"EVENT-DEBUG: Sende Exception-Webhook für: {input_data.session}")
-                                with tracker.measure_operation('send_webhook_exception', 'event') if tracker else nullcontext():
-                                    webhook_success = await self._send_webhook_callback(
-                                        webhook_config=input_data.webhook,
-                                        event_output=EventOutput(
-                                            markdown_file="",
-                                            markdown_content=""
-                                        ),
-                                        event_input=EventInput(
-                                            event=input_data.event,
-                                            session=input_data.session,
-                                            url=input_data.url,
-                                            filename=input_data.filename,
-                                            track=input_data.track
-                                        ),
-                                        success=False,
-                                        error=str(e)
-                                    )
-                                    self.logger.info(f"EVENT-DEBUG: Exception-Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
-                            except Exception as webhook_error:
-                                self.logger.error(f"EVENT-DEBUG: Fehler beim Senden des Fehler-Webhooks: {str(webhook_error)}")
-                                self.logger.error(f"EVENT-DEBUG: Webhook-Fehler Traceback: {traceback.format_exc()}")
+                                self.logger.info(f"EVENT-DEBUG: Exception-Webhook gesendet für: {input_data.session}, Erfolg: {webhook_success}")
+                        except Exception as webhook_error:
+                            self.logger.error(
+                                f"Fehler beim Senden des Fehler-Webhooks für Event {input_data.session}: {str(webhook_error)}",
+                                event_id=input_data.session,
+                                error_type=type(webhook_error).__name__,
+                                error_message=str(webhook_error),
+                                traceback=traceback.format_exc()
+                            )
+                
+                # WICHTIG: Stellen Sie sicher, dass das Semaphore IMMER freigegeben wird, aber erst NACH Abschluss der Verarbeitung
+                if semaphore_acquired:
+                    self._processing_semaphore.release()
+                    self.logger.info(f"EVENT-DEBUG: Semaphore freigegeben für: {input_data.session}, aktuell verfügbar: {self._processing_semaphore._value}")
         except Exception as e:
             # Logging im Falle eines Fehlers vor/während des Semaphore-Locks
             self.logger.error(f"EVENT-DEBUG: Kritischer Fehler außerhalb des Semaphore-Blocks: {str(e)}")
             self.logger.error(f"EVENT-DEBUG: Kritischer Fehler Traceback: {traceback.format_exc()}")
+            
+            # Semaphore nur freigeben, wenn es erworben wurde und noch nicht freigegeben wurde
+            if semaphore_acquired:
+                self._processing_semaphore.release()
+                self.logger.info(f"EVENT-DEBUG: Semaphore freigegeben nach kritischem Fehler für: {input_data.session}, aktuell verfügbar: {self._processing_semaphore._value}")
             
         # Logging: Ende der Event-Verarbeitung
         self.logger.info(f"EVENT-DEBUG: Event-Verarbeitung abgeschlossen: {input_data.session}")
@@ -1266,7 +1281,7 @@ class EventProcessor(BaseProcessor):
             processing_task = asyncio.create_task(self._process_many_events_async_task(input_data))
             
             # Fehlerbehandlung über einen zusätzlichen Task, der bei Ausnahmen loggt
-            async def handle_task_exception(task: asyncio.Task) -> None:
+            async def handle_task_exception(task: asyncio.Task[Any]) -> None:
                 try:
                     await task
                 except Exception as e:
@@ -1278,7 +1293,7 @@ class EventProcessor(BaseProcessor):
             
             # Speichere beide Tasks im Klassenvariablen-Dict, um sie vor Garbage Collection zu schützen
             if not hasattr(self, '_background_tasks'):
-                self._background_tasks: List[asyncio.Task] = []
+                self._background_tasks: List[asyncio.Task[Any]] = []
             self._background_tasks.append(processing_task)
             self._background_tasks.append(monitoring_task)
             
@@ -1333,100 +1348,454 @@ class EventProcessor(BaseProcessor):
                 error=error_info
             )
 
-    async def _process_many_events_async_task(self, input_data: AsyncBatchEventInput) -> None:
+    def _validate_event_data(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Interne Methode zur asynchronen Verarbeitung mehrerer Events und Senden von Webhook-Callbacks.
+        Validiert die Event-Daten und gibt ein bereinigtes Dictionary zurück.
         
         Args:
-            input_data: Die Eingabedaten für die Batch-Event-Verarbeitung
+            event: Die zu validierenden Event-Daten
+            
+        Returns:
+            Optional[Dict[str, Any]]: Die validierten Daten oder None, wenn die Daten ungültig sind
         """
+        if not event:
+            self.logger.warning("Event-Daten sind leer")
+            return None
+        
+        # Prüfe, ob mindestens Pflichtfelder vorhanden sind
+        required_fields = ["event", "session"]
+        for field in required_fields:
+            if field not in event or not event[field]:
+                self.logger.warning(f"Pflichtfeld '{field}' fehlt in Event-Daten oder ist leer")
+                return None
+        
+        return event
+
+    async def _process_many_events_async_task(self, input_data: AsyncBatchEventInput) -> None:
+        """
+        Task für die asynchrone Verarbeitung mehrerer Events.
+        
+        Diese Methode wird als separater Task ausgeführt und verarbeitet jedes Event
+        in der übergebenen Liste sequentiell (eines nach dem anderen), aber mit einem
+        komplett isolierten Kontext für jedes Event.
+        
+        Args:
+            input_data: Eingabedaten für die Event-Verarbeitung
+        """
+        import subprocess
+        import sys
+        import tempfile
+        import json
+        import os
+        
+        self.logger.info(
+            "Starte asynchrone Batchverarbeitung",
+            event_count=len(input_data.events)
+        )
+        
         # Hol den Performance-Tracker
         tracker = get_performance_tracker()
         
-        # Logging: Start der Batch-Verarbeitung
-        self.logger.info(f"BATCH-DEBUG: Starte Batch-Verarbeitung von {len(input_data.events)} Events. Batch-ID: {input_data.webhook.event_id if input_data.webhook else 'keine'}")
-        
-        # Messe die Batch-Operation
+        # Verarbeite ein Event nach dem anderen, vollständig sequentiell
         with tracker.measure_operation('async_batch_processing', 'event') if tracker else nullcontext():
-            try:
-                # Verarbeite die Events sequentiell
-                self.logger.info(f"Starte asynchrone Verarbeitung von {len(input_data.events)} Events")
-                
-                # Logging: Status des Semaphores
-                self.logger.info(f"BATCH-DEBUG: Semaphore-Status vor Verarbeitung: {self._processing_semaphore._value} verfügbar")
-                
-                for i, event_data in enumerate(input_data.events):
-                    try:
-                        # Logging: Start der Event-Verarbeitung
-                        self.logger.info(f"BATCH-DEBUG: Verarbeite Event {i+1}/{len(input_data.events)}: {event_data.get('session', 'Unbekannt')}")
-                        
-                        # Erstelle eine eindeutige Event-ID
-                        event_id = f"{input_data.webhook.event_id}_{i}" if input_data.webhook and input_data.webhook.event_id else str(uuid.uuid4())
-                        
-                        # Erstelle Webhook-Konfiguration für dieses Event
-                        event_webhook = None
-                        if input_data.webhook:
-                            event_webhook = WebhookConfig(
-                                url=input_data.webhook.url,
-                                headers=input_data.webhook.headers,
-                                include_markdown=input_data.webhook.include_markdown,
-                                include_metadata=input_data.webhook.include_metadata,
-                                event_id=event_id
-                            )
-                        
-                        # Erstelle AsyncEventInput für dieses Event
-                        async_event_input = AsyncEventInput(
-                            event=event_data.get("event", ""),
-                            session=event_data.get("session", ""),
-                            url=event_data.get("url", ""),
-                            filename=event_data.get("filename", ""),
-                            track=event_data.get("track", ""),
-                            day=event_data.get("day"),
-                            starttime=event_data.get("starttime"),
-                            endtime=event_data.get("endtime"),
-                            speakers=event_data.get("speakers", []),
-                            video_url=event_data.get("video_url"),
-                            attachments_url=event_data.get("attachments_url"),
-                            source_language=event_data.get("source_language", "en"),
-                            target_language=event_data.get("target_language", "de"),
-                            webhook=event_webhook
+            for event_index, event in enumerate(input_data.events):
+                try:
+                    self.logger.info(
+                        f"Verarbeite Event {event_index+1}/{len(input_data.events)}: {event.get('session', 'Unbekannt')}",
+                        event_id=event_index
+                    )
+                    
+                    # Event-Daten extrahieren und validieren
+                    event_data = self._validate_event_data(event)
+                    if not event_data:
+                        self.logger.warning(
+                            f"Ungültige Event-Daten, überspringe Event {event_index}",
+                            event_id=event_index
                         )
+                        continue
                         
-                        # Setze Event-Metadaten für den aktuellen Event im Batch
-                        if tracker is not None:
-                            tracker.set_event_metadata(
-                                event=async_event_input.event,
-                                track=async_event_input.track,
-                                session=async_event_input.session
+                    # Event verarbeiten (vollständig sequentiell)
+                    self.logger.info(
+                        f"Starte Verarbeitung von Event {event_index+1}/{len(input_data.events)}",
+                        event_id=event_index
+                    )
+                    
+                    try:
+                        # RADIKALE ÄNDERUNG: Verarbeite das Event in einem isolierten Prozess
+                        # Dies ist ein dritter Lösungsansatz, der die asynchronen Probleme umgeht,
+                        # indem ein vollständig neuer Prozess verwendet wird
+                        
+                        # Erstelle temporäre Dateien für Input und Output
+                        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as input_file:
+                            # Erstelle die Input-Daten für den Prozess
+                            process_input = {
+                                "event": event_data.get('event', ''),
+                                "session": event_data.get('session', ''),
+                                "url": event_data.get('url', ''),
+                                "filename": event_data.get('filename', ''),
+                                "track": event_data.get('track', ''),
+                                "day": event_data.get('day'),
+                                "starttime": event_data.get('starttime'),
+                                "endtime": event_data.get('endtime'),
+                                "speakers": event_data.get('speakers'),
+                                "video_url": event_data.get('video_url'),
+                                "attachments_url": event_data.get('attachments_url'),
+                                "source_language": event_data.get('source_language', 'en'),
+                                "target_language": event_data.get('target_language', 'de'),
+                                "process_id": f"{self.process_id}_event_{event_index}"
+                            }
+                            
+                            # Schreibe die Input-Daten in die temporäre Datei
+                            json.dump(process_input, input_file)
+                            input_file_path = input_file.name
+                        
+                        # Erstelle einen Pfad für die Output-Datei
+                        output_file_path = input_file_path.replace('.json', '_output.json')
+                        
+                        # Kommandozeile für den isolierten Prozess
+                        python_executable = sys.executable
+                        script_path = os.path.join("src", "tools", "process_single_event.py")
+                        
+                        # Führe den Aufruf mit Subprozess durch
+                        self.logger.info(f"Starte isolierten Prozess für Event {event_index+1}")
+                        
+                        # Stelle sicher, dass das Skript existiert oder erstelle es
+                        script_dir = os.path.join("src", "tools")
+                        os.makedirs(script_dir, exist_ok=True)
+                        
+                        if not os.path.exists(script_path):
+                            # Erstelle das Skript, wenn es nicht existiert
+                            with open(script_path, 'w') as f:
+                                f.write('''"""
+Event-Prozessor-Skript für isolierte Verarbeitung.
+
+Dieses Skript wird als separater Prozess gestartet, um ein einzelnes Event
+in einem völlig isolierten Kontext zu verarbeiten.
+"""
+import sys
+import json
+import os
+from pathlib import Path
+
+# Stelle sicher, dass das Hauptverzeichnis im Pythonpfad ist
+sys.path.append(os.getcwd())
+
+from src.processors.event_processor import EventProcessor
+from src.core.resource_calculator import ResourceCalculator
+import asyncio
+
+async def process_event(input_file_path, output_file_path):
+    """Verarbeitet ein Event basierend auf den Daten in der Input-Datei."""
+    
+    print(f"Starte Verarbeitung von Event aus {input_file_path}")
+    
+    try:
+        # Lese die Input-Daten
+        with open(input_file_path, 'r') as f:
+            input_data = json.load(f)
+        
+        # Erstelle einen neuen EventProcessor
+        process_id = input_data.get('process_id', 'isolated_event_processor')
+        processor = EventProcessor(
+            resource_calculator=ResourceCalculator(),
+            process_id=process_id
+        )
+        
+        # Verarbeite das Event
+        result = await processor.process_event(
+            event=input_data.get('event', ''),
+            session=input_data.get('session', ''),
+            url=input_data.get('url', ''),
+            filename=input_data.get('filename', ''),
+            track=input_data.get('track', ''),
+            day=input_data.get('day'),
+            starttime=input_data.get('starttime'),
+            endtime=input_data.get('endtime'),
+            speakers=input_data.get('speakers'),
+            video_url=input_data.get('video_url'),
+            attachments_url=input_data.get('attachments_url'),
+            source_language=input_data.get('source_language', 'en'),
+            target_language=input_data.get('target_language', 'de')
+        )
+        
+        # Speichere das Ergebnis
+        output_data = {
+            "success": True,
+            "error": None,
+            "data": {
+                "markdown": result.data.markdown if hasattr(result.data, 'markdown') else "",
+                "file_path": result.data.file_path if hasattr(result.data, 'file_path') else "",
+                "metadata": result.data.metadata if hasattr(result.data, 'metadata') else {}
+            }
+        }
+        
+        print(f"Verarbeitung erfolgreich, speichere Ergebnis in {output_file_path}")
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"Fehler bei der Verarbeitung: {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(f"FEHLER: {error_msg}")
+        print(traceback_str)
+        
+        # Speichere den Fehler
+        output_data = {
+            "success": False,
+            "error": {
+                "message": str(e),
+                "traceback": traceback_str
+            },
+            "data": None
+        }
+    
+    # Schreibe das Ergebnis in die Output-Datei
+    try:
+        with open(output_file_path, 'w') as f:
+            json.dump(output_data, f, indent=2)
+        print(f"Ergebnis gespeichert in {output_file_path}")
+    except Exception as e:
+        print(f"Fehler beim Speichern des Ergebnisses: {str(e)}")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Verwendung: python process_single_event.py <input_file_path> <output_file_path>")
+        sys.exit(1)
+    
+    input_file_path = sys.argv[1]
+    output_file_path = sys.argv[2]
+    
+    # Führe die Verarbeitung asynchron aus
+    asyncio.run(process_event(input_file_path, output_file_path))
+''')
+                        
+                        # Kommando für den Subprozess
+                        cmd = [
+                            python_executable,
+                            script_path,
+                            input_file_path,
+                            output_file_path
+                        ]
+                        
+                        # Variable initialisieren, um Linter-Fehler zu verhindern
+                        process = None
+                        
+                        try:
+                            # Führe den Subprozess aus und warte auf Abschluss
+                            process = subprocess.Popen(
+                                cmd, 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE,
+                                text=True
                             )
+                            
+                            # Warte auf Abschluss des Prozesses
+                            stdout, stderr = process.communicate(timeout=3600)  # 1 Stunde Timeout
+                            
+                            # Prüfe, ob der Prozess erfolgreich war
+                            if process.returncode != 0:
+                                self.logger.error(
+                                    f"Fehler im isolierten Prozess für Event {event_index+1}",
+                                    stdout=stdout,
+                                    stderr=stderr,
+                                    returncode=process.returncode
+                                )
+                                raise RuntimeError(f"Isolierter Prozess endete mit Fehlercode {process.returncode}")
+                            
+                            # Lese das Ergebnis
+                            if os.path.exists(output_file_path):
+                                with open(output_file_path, 'r') as f:
+                                    result_data = json.load(f)
+                                
+                                if result_data.get('success'):
+                                    self.logger.info(
+                                        f"Event {event_index+1}/{len(input_data.events)} erfolgreich verarbeitet",
+                                        event_id=event_index
+                                    )
+                                    
+                                    # Erstelle EventOutput aus dem Ergebnis
+                                    data = result_data.get('data', {})
+                                    event_output = EventOutput(
+                                        markdown_content=data.get('markdown', ''),
+                                        markdown_file=data.get('file_path', ''),
+                                        metadata=data.get('metadata', {})
+                                    )
+                                    
+                                    # Erstelle EventInput aus dem Request
+                                    event_input = EventInput(
+                                        event=event_data.get('event', ''),
+                                        session=event_data.get('session', ''),
+                                        url=event_data.get('url', ''),
+                                        filename=event_data.get('filename', ''),
+                                        track=event_data.get('track', ''),
+                                        day=event_data.get('day'),
+                                        starttime=event_data.get('starttime'),
+                                        endtime=event_data.get('endtime'),
+                                        speakers=event_data.get('speakers', []),
+                                        video_url=event_data.get('video_url'),
+                                        attachments_url=event_data.get('attachments_url'),
+                                        source_language=event_data.get('source_language', 'en'),
+                                        target_language=event_data.get('target_language', 'de')
+                                    )
+                                    
+                                    # Webhook-Callback senden
+                                    if input_data.webhook:
+                                        webhook_sent = await self._send_webhook_callback(
+                                            webhook_config=input_data.webhook,
+                                            event_output=event_output,
+                                            event_input=event_input,
+                                            success=True
+                                        )
+                                        self.logger.info(
+                                            f"Webhook für Event {event_index+1}/{len(input_data.events)} gesendet: {webhook_sent}"
+                                        )
+                                else:
+                                    # Fehler bei der Verarbeitung
+                                    error_info = result_data.get('error', {})
+                                    error_message = error_info.get('message', 'Unbekannter Fehler')
+                                    
+                                    self.logger.error(
+                                        f"Fehler bei der Verarbeitung von Event {event_index+1}/{len(input_data.events)}",
+                                        event_id=event_index,
+                                        error_message=error_message,
+                                        traceback=error_info.get('traceback', '')
+                                    )
+                                    
+                                    # Fehler via Webhook senden
+                                    if input_data.webhook:
+                                        # Erstelle EventInput aus dem Request für Fehler-Callback
+                                        event_input = EventInput(
+                                            event=event_data.get('event', ''),
+                                            session=event_data.get('session', ''),
+                                            url=event_data.get('url', ''),
+                                            filename=event_data.get('filename', ''),
+                                            track=event_data.get('track', ''),
+                                            day=event_data.get('day'),
+                                            starttime=event_data.get('starttime'),
+                                            endtime=event_data.get('endtime'),
+                                            speakers=event_data.get('speakers', []),
+                                            video_url=event_data.get('video_url'),
+                                            attachments_url=event_data.get('attachments_url'),
+                                            source_language=event_data.get('source_language', 'en'),
+                                            target_language=event_data.get('target_language', 'de')
+                                        )
+                                        
+                                        # Leeres Output-Objekt für Fehler
+                                        event_output = EventOutput(
+                                            markdown_content="",
+                                            markdown_file="",
+                                            metadata={}
+                                        )
+                                        
+                                        # Webhook mit Fehler senden
+                                        webhook_sent = await self._send_webhook_callback(
+                                            webhook_config=input_data.webhook,
+                                            event_output=event_output,
+                                            event_input=event_input,
+                                            success=False,
+                                            error=error_message
+                                        )
+                                        self.logger.info(
+                                            f"Fehler-Webhook für Event {event_index+1}/{len(input_data.events)} gesendet: {webhook_sent}"
+                                        )
+                            else:
+                                self.logger.error(
+                                    f"Keine Output-Datei gefunden für Event {event_index+1}",
+                                    event_id=event_index,
+                                    output_file_path=output_file_path
+                                )
+                                
+                        except subprocess.TimeoutExpired:
+                            self.logger.error(
+                                f"Timeout bei der Verarbeitung von Event {event_index+1}",
+                                event_id=event_index,
+                                timeout_seconds=3600
+                            )
+                            # Nur kill aufrufen, wenn process nicht None ist
+                            if process:
+                                process.kill()
                         
-                        # Verarbeite das Event asynchron
-                        # Hier verwenden wir direkt die Task-Methode, die bereits die Semaphore nutzt
-                        with tracker.measure_operation(f'process_event_{i}', 'event') if tracker else nullcontext():
-                            # Logging: Status des Semaphores vor der Verarbeitung
-                            self.logger.info(f"BATCH-DEBUG: Semaphore-Status vor Event {i+1}: {self._processing_semaphore._value} verfügbar")
-                            await self._process_event_async_task(async_event_input)
-                            # Logging: Status des Semaphores nach der Verarbeitung
-                            self.logger.info(f"BATCH-DEBUG: Semaphore-Status nach Event {i+1}: {self._processing_semaphore._value} verfügbar")
-                        
-                        # Logging: Ende der Event-Verarbeitung
-                        self.logger.info(f"BATCH-DEBUG: Event {i+1}/{len(input_data.events)} abgeschlossen")
-                        
-                    except Exception as e:
-                        # Logging: Fehler bei der Event-Verarbeitung
+                        finally:
+                            # Lösche temporäre Dateien
+                            try:
+                                if os.path.exists(input_file_path):
+                                    os.unlink(input_file_path)
+                                if os.path.exists(output_file_path):
+                                    os.unlink(output_file_path)
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"Fehler beim Löschen der temporären Dateien für Event {event_index+1}",
+                                    event_id=event_index,
+                                    error=str(e)
+                                )
+                    
+                    except Exception as event_error:
+                        # Fehlerbehandlung für einzelne Events
                         self.logger.error(
-                            f"BATCH-DEBUG: Fehler bei der asynchronen Verarbeitung von Event {i+1}",
-                            error=e,
-                            event=event_data.get("event", "unknown"),
+                            f"Fehler bei der Verarbeitung von Event {event_index+1}/{len(input_data.events)}: {str(event_error)}",
+                            event_id=event_index,
+                            error_type=type(event_error).__name__,
+                            error_message=str(event_error),
                             traceback=traceback.format_exc()
                         )
-                
-                # Logging: Ende der Batch-Verarbeitung
-                self.logger.info(f"BATCH-DEBUG: Asynchrone Batch-Verarbeitung abgeschlossen. Semaphore-Status: {self._processing_semaphore._value} verfügbar")
-                self.logger.info(f"Asynchrone Batch-Verarbeitung abgeschlossen")
-                
-            except Exception as e:
-                # Logging: Fehler bei der Batch-Verarbeitung
-                self.logger.error(f"BATCH-DEBUG: Fehler bei der asynchronen Batch-Event-Verarbeitung: {str(e)}")
-                self.logger.error(f"BATCH-DEBUG: Traceback: {traceback.format_exc()}")
-                self.logger.error(f"Fehler bei der asynchronen Batch-Event-Verarbeitung: {str(e)}") 
+                        
+                        # Fehler via Webhook senden
+                        if input_data.webhook:
+                            try:
+                                # Erstelle EventInput aus dem Request für Fehler-Callback
+                                event_input = EventInput(
+                                    event=event_data.get('event', ''),
+                                    session=event_data.get('session', ''),
+                                    url=event_data.get('url', ''),
+                                    filename=event_data.get('filename', ''),
+                                    track=event_data.get('track', ''),
+                                    day=event_data.get('day'),
+                                    starttime=event_data.get('starttime'),
+                                    endtime=event_data.get('endtime'),
+                                    speakers=event_data.get('speakers', []),
+                                    video_url=event_data.get('video_url'),
+                                    attachments_url=event_data.get('attachments_url'),
+                                    source_language=event_data.get('source_language', 'en'),
+                                    target_language=event_data.get('target_language', 'de')
+                                )
+                                
+                                # Leeres Output-Objekt für Fehler
+                                event_output = EventOutput(
+                                    markdown_content="",
+                                    markdown_file="",
+                                    metadata={}
+                                )
+                                
+                                # Fehler-String für Webhook
+                                error_message = str(event_error)
+                                
+                                # Webhook mit Fehler senden
+                                webhook_sent = await self._send_webhook_callback(
+                                    webhook_config=input_data.webhook,
+                                    event_output=event_output,
+                                    event_input=event_input,
+                                    success=False,
+                                    error=error_message
+                                )
+                                self.logger.info(
+                                    f"Fehler-Webhook für Event {event_index+1}/{len(input_data.events)} gesendet: {webhook_sent}"
+                                )
+                            except Exception as webhook_error:
+                                self.logger.error(
+                                    f"Fehler beim Senden des Fehler-Webhooks für Event {event_index}: {str(webhook_error)}",
+                                    event_id=event_index,
+                                    error_type=type(webhook_error).__name__,
+                                    error_message=str(webhook_error),
+                                    traceback=traceback.format_exc()
+                                )
+                                
+                except Exception as e:
+                    # Allgemeine Fehlerbehandlung für den gesamten Event-Verarbeitungsprozess
+                    self.logger.error(
+                        f"Kritischer Fehler bei der Verarbeitung von Event {event_index}: {str(e)}",
+                        event_id=event_index,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        traceback=traceback.format_exc()
+                    )
+        
+        self.logger.info("Asynchrone Batch-Verarbeitung abgeschlossen") 

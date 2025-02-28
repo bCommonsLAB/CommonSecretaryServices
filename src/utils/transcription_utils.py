@@ -1,16 +1,25 @@
 """
 Utilities für die Transkription und Transformation von Text.
 """
-from typing import Dict, Any, Optional, Union, List, cast, Protocol, Tuple
+from typing import (
+    Dict, 
+    List, 
+    Optional, 
+    Union, 
+    Any,
+    cast,
+    Protocol
+)
 from pathlib import Path
-import time
-from datetime import datetime
-import json
-import re
 import os
-from dataclasses import dataclass
+import time
 import io
+import json
 import asyncio
+import traceback
+from datetime import datetime
+import re
+from dataclasses import dataclass
 
 from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
@@ -633,7 +642,7 @@ class WhisperTranscriber:
                              error=e,
                              template=template)
 
-    def transcribe_segment(
+    async def transcribe_segment(
         self,
         file_path: Union[Path, bytes],
         logger: Optional[ProcessingLogger] = None,
@@ -655,9 +664,10 @@ class WhisperTranscriber:
         Returns:
             TranscriptionResult: Das Transkriptionsergebnis
         """
+        # Initialisiere Zeitmessung sofort
+        start_time: float = time.time()
+        
         try:
-            start_time: float = time.time()
-            
             if logger:
                 logger.info(
                     "Starte Transkription von Segment",
@@ -669,30 +679,165 @@ class WhisperTranscriber:
             # Initialisiere response
             response: Optional[TranscriptionVerbose] = None
 
-            # Sende an Whisper API
-            if isinstance(file_path, Path):
-                with open(file_path, 'rb') as audio_file:
+            # Async-Funktion für API-Aufruf mit Timeout
+            async def call_api_with_timeout():
+                if logger:
+                    logger.info(f"SEGMENT-DEBUG: API-Aufruf mit Timeout für Segment {segment_id} gestartet")
+                
+                # Thread-übergreifende Event-Objekte zur Signalisierung
+                import threading
+                from typing import Any, List, Optional
+                
+                operation_completed = threading.Event()
+                # Typisierte Listen für Thread-übergreifende Kommunikation
+                operation_result: List[Any] = [None]
+                operation_error: List[Optional[Exception]] = [None]
+
+                # Definiere die blockierende Funktion, die im Thread ausgeführt wird
+                def execute_api_call():
+                    if logger:
+                        logger.info(f"SEGMENT-DEBUG: Thread-API-Aufruf für Segment {segment_id} gestartet")
+                    
                     try:
-                        response = self.client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=("audio.mp3", audio_file, "audio/mpeg"),
-                            response_format="verbose_json"
-                        )
-                    except Exception as api_error:
-                        self._handle_api_error(api_error)
-            else:
-                # Wenn file_path bereits bytes ist
+                        # Dateipfad oder Bytes-Objekt verarbeiten
+                        if isinstance(file_path, Path):
+                            with open(file_path, 'rb') as audio_file:
+                                response = self.client.audio.transcriptions.create(
+                                    model="whisper-1",
+                                    file=("audio.mp3", audio_file, "audio/mpeg"),
+                                    response_format="verbose_json"
+                                )
+                        else:
+                            # Wenn file_path bereits bytes ist
+                            bytes_io = io.BytesIO(file_path)
+                            response: TranscriptionVerbose = self.client.audio.transcriptions.create(
+                                model="whisper-1",
+                                file=("audio.mp3", bytes_io, "audio/mpeg"),
+                                response_format="verbose_json"
+                            )
+                        
+                        # Erfolgreicher Aufruf - speichere Ergebnis
+                        operation_result[0] = response
+                        if logger:
+                            logger.info(f"SEGMENT-DEBUG: Thread-API-Aufruf für Segment {segment_id} erfolgreich")
+                    
+                    except Exception as e:
+                        # Fehler - speichere Exception
+                        operation_error[0] = e
+                        if logger:
+                            logger.error(f"SEGMENT-DEBUG: Thread-API-Fehler für Segment {segment_id}: {str(e)}")
+                    
+                    finally:
+                        # In jedem Fall signalisieren, dass die Operation abgeschlossen ist
+                        operation_completed.set()
+                
+                # Thread erstellen und starten
+                thread = threading.Thread(target=execute_api_call, name=f"API-Thread-{segment_id}")
+                thread.daemon = True  # Als Daemon markieren, damit er automatisch beendet wird
+                thread.start()
+                
                 try:
-                    response = self.client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=("audio.mp3", io.BytesIO(file_path), "audio/mpeg"),
-                        response_format="verbose_json"
+                    # Auf den Thread warten mit Timeout
+                    # Verwende asyncio.sleep für asynchrones Warten während der Timeout-Prüfung
+                    timeout_seconds = 120.0
+                    check_interval = 1.0  # Prüfe jede Sekunde
+                    elapsed = 0.0
+                    
+                    if logger:
+                        logger.info(f"SEGMENT-DEBUG: Warte auf Thread-API-Antwort für Segment {segment_id} mit Timeout von {timeout_seconds} Sekunden")
+                    
+                    # Asynchroner Timeout-Loop
+                    while elapsed < timeout_seconds:
+                        # Wenn Thread fertig, breche die Schleife ab
+                        if operation_completed.is_set():
+                            break
+                        
+                        # Warte asynchron für ein Intervall
+                        await asyncio.sleep(check_interval)
+                        elapsed += check_interval
+                    
+                    # Prüfe, ob die Operation abgeschlossen wurde oder ob ein Timeout aufgetreten ist
+                    if operation_completed.is_set():
+                        if operation_error[0]:
+                            # Es ist ein Fehler aufgetreten
+                            error_obj = operation_error[0]  # Typensichere Referenz
+                            if logger:
+                                logger.error(
+                                    f"SEGMENT-DEBUG: API-Fehler für Segment {segment_id}",
+                                    error=error_obj,  # Übergebe Exception-Objekt direkt
+                                    error_type=type(error_obj).__name__
+                                )
+                            # Fehler weiterleiten an Fehlerbehandlung
+                            self._handle_api_error(error_obj)
+                            return None
+                        else:
+                            # Erfolgreicher Abschluss
+                            if logger:
+                                logger.info(f"SEGMENT-DEBUG: API-Antwort für Segment {segment_id} erfolgreich empfangen")
+                            return operation_result[0]
+                    else:
+                        # Timeout ist aufgetreten
+                        if logger:
+                            logger.error(f"SEGMENT-DEBUG: Timeout bei API-Anfrage für Segment {segment_id} nach {timeout_seconds} Sekunden")
+                        # Thread wird als Daemon automatisch beendet
+                        return None
+                
+                except Exception as e:
+                    # Unerwartete Ausnahme während des Wartens
+                    if logger:
+                        logger.error(
+                            f"SEGMENT-DEBUG: Unerwartete Ausnahme beim Warten auf API-Antwort für Segment {segment_id}",
+                            error=e,  # Übergebe Exception-Objekt direkt
+                            error_type=type(e).__name__,
+                            traceback=traceback.format_exc()
+                        )
+                    return None
+
+            # API aufrufen mit Timeout und klarer Fallback
+            try:
+                response = await call_api_with_timeout()
+            except Exception as e:
+                if logger:
+                    logger.error(
+                        f"SEGMENT-DEBUG: Unbehandelte Ausnahme bei API-Aufruf für Segment {segment_id}",
+                        error=e,
+                        error_type=type(e).__name__,
+                        traceback=traceback.format_exc()
                     )
-                except Exception as api_error:
-                    self._handle_api_error(api_error)
-            
+                response = None
+
+            # Wenn keine Antwort oder ungültige Antwort, gib leeres Ergebnis zurück
             if not response or not hasattr(response, 'text'):
-                raise ValueError("Ungültige API-Antwort: Kein Text gefunden")
+                if logger:
+                    logger.warning(
+                        f"SEGMENT-DEBUG: Keine gültige API-Antwort für Segment {segment_id} erhalten, überspringe Segment"
+                    )
+                # Erstelle leeres Ergebnis, damit der Gesamtprozess nicht hängen bleibt
+                segment = TranscriptionSegment(
+                    text="",
+                    segment_id=segment_id or 0,
+                    start=0.0,
+                    end=0.0,
+                    title=segment_title
+                )
+                
+                # Zeitmessung beenden
+                duration = (time.time() - start_time) * 1000
+                
+                # LLM-Nutzung tracken mit zentraler Methode
+                whisper_request: LLMRequest = self.create_llm_request(
+                    purpose="transcription_failed",
+                    tokens=0,
+                    duration=duration,
+                    model="whisper-1"
+                )
+                
+                return TranscriptionResult(
+                    text="",
+                    source_language=source_language,
+                    segments=[segment],
+                    requests=[whisper_request]
+                )
             
             # Zeitmessung beenden
             duration = (time.time() - start_time) * 1000
@@ -745,11 +890,36 @@ class WhisperTranscriber:
                     error=e,
                     error_type=type(e).__name__,
                     segment_id=segment_id,
-                    segment_title=segment_title
+                    segment_title=segment_title,
+                    traceback=traceback.format_exc()
                 )
-            if isinstance(e, ProcessingError):
-                raise
-            raise ProcessingError(f"Transkription fehlgeschlagen: {str(e)}")
+            
+            # Erstelle leeres Ergebnis, damit der Gesamtprozess nicht hängen bleibt
+            segment = TranscriptionSegment(
+                text="",
+                segment_id=segment_id or 0,
+                start=0.0,
+                end=0.0,
+                title=segment_title
+            )
+            
+            # Zeitmessung beenden
+            duration = (time.time() - start_time) * 1000
+            
+            # LLM-Nutzung tracken mit zentraler Methode für Fehler
+            error_request = self.create_llm_request(
+                purpose="transcription_error",
+                tokens=0,
+                duration=duration,
+                model="whisper-1"
+            )
+            
+            return TranscriptionResult(
+                text=f"[Transkriptionsfehler: {str(e)}]",
+                source_language=source_language,
+                segments=[segment],
+                requests=[error_request]
+            )
 
     def _convert_to_iso_code(self, language: str) -> str:
         """Konvertiert Whisper Sprachbezeichnung in ISO 639-1 Code.
@@ -821,7 +991,7 @@ class WhisperTranscriber:
         target_language: str = "de",
         logger: Optional[ProcessingLogger] = None
     ) -> TranscriptionResult:
-        """Transkribiert mehrere Audio-Segmente parallel.
+        """Transkribiert mehrere Audio-Segmente parallel (max. 5 gleichzeitig).
         
         Args:
             segments: Liste von AudioSegmentInfo oder Chapter Objekten
@@ -832,97 +1002,126 @@ class WhisperTranscriber:
         Returns:
             TranscriptionResult: Das Transkriptionsergebnis
         """
+        # Logging: Start der Segment-Verarbeitung
+        if logger:
+            logger.info(f"TRANSKRIPTION-DEBUG: Starte parallele Transkription von {len(segments)} Segmenten/Kapiteln")
+            
         combined_text_parts: List[str] = []
         combined_requests: List[LLMRequest] = []
         detected_language: str = source_language
 
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
+        
+        # Hilfsfunktion zum Umgang mit Kapiteln
         if segments and isinstance(next(iter(segments)), Chapter):
             chapters: List[Chapter] = cast(List[Chapter], segments)
             for chapter in chapters:
                 if chapter.title and chapter.title.strip():
                     combined_text_parts.append(f"\n## {chapter.title}\n")
                 all_segments.extend(chapter.segments)
+                if logger:
+                    logger.info(f"TRANSKRIPTION-DEBUG: Kapitel '{chapter.title}' mit {len(chapter.segments)} Segmenten extrahiert")
         else:
             all_segments = cast(List[AudioSegmentInfo], segments)
+            if logger:
+                logger.info(f"TRANSKRIPTION-DEBUG: {len(all_segments)} Segmente direkt verarbeitet")
 
-        async def process_segment(segment: AudioSegmentInfo, index: int, src_lang: str) -> Tuple[int, str, List[LLMRequest], str]:
-            """Verarbeitet ein einzelnes Segment parallel."""
-            try:
-                # Transkribiere das Segment
-                result: TranscriptionResult = self.transcribe_segment(
+        # Batch-Größe für parallele Verarbeitung
+        BATCH_SIZE = 5
+        
+        # Verarbeite Segmente in Batches parallel
+        if logger:
+            logger.info(f"TRANSKRIPTION-DEBUG: Starte parallele Verarbeitung von {len(all_segments)} Segmenten mit {BATCH_SIZE} gleichzeitig")
+        
+        # Verarbeite alle Segmente in Batches
+        for batch_start in range(0, len(all_segments), BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, len(all_segments))
+            current_batch = all_segments[batch_start:batch_end]
+            
+            if logger:
+                logger.info(f"TRANSKRIPTION-DEBUG: Verarbeite Batch {batch_start//BATCH_SIZE + 1} mit {len(current_batch)} Segmenten")
+            
+            # Erstelle Tasks für alle Segmente im aktuellen Batch
+            segment_tasks = []
+            for i, segment in enumerate(current_batch):
+                segment_index = batch_start + i
+                segment_tasks.append(self.transcribe_segment(
                     file_path=segment.get_audio_data(),
-                    segment_id=index,
+                    segment_id=segment_index,
                     segment_title=segment.title,
-                    source_language=src_lang,
+                    source_language=source_language,
                     target_language=target_language,
                     logger=logger
-                )
-
-                segment_requests: List[LLMRequest] = []
-                if result.requests:
-                    segment_requests.extend(result.requests)
-
-                # Übersetze das Segment wenn nötig
-                if result.source_language != target_language and result.text.strip():
-                    translation_result: TranslationResult = self.translate_text(
-                        text=result.text,
-                        source_language=result.source_language,
-                        target_language=target_language,
-                        logger=logger
-                    )
-                    
-                    if translation_result.requests:
-                        segment_requests.extend(translation_result.requests)
-                    
-                    # Verwende übersetzten Text
-                    if translation_result.text.strip():
-                        return index, translation_result.text, segment_requests, result.source_language
+                ))
+            
+            # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse
+            try:
+                batch_results = await asyncio.gather(*segment_tasks)
                 
-                # Verwende Original-Text wenn keine Übersetzung nötig
-                return index, result.text if result.text.strip() else "", segment_requests, result.source_language
-
+                # Verarbeite die Ergebnisse des Batches
+                for i, result in enumerate(batch_results):
+                    segment_index = batch_start + i
+                    
+                    if logger:
+                        logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Verarbeitung abgeschlossen, Textlänge: {len(result.text or '')}")
+                    
+                    # Sammle Request-Informationen
+                    if result.requests:
+                        combined_requests.extend(result.requests)
+                    
+                    # Übersetzung, falls nötig
+                    if result.source_language != target_language and result.text.strip():
+                        if logger:
+                            logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Starte Übersetzung von {result.source_language} nach {target_language}")
+                        
+                        translation_result = self.translate_text(
+                            text=result.text,
+                            source_language=result.source_language,
+                            target_language=target_language,
+                            logger=logger
+                        )
+                        
+                        if logger:
+                            logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Übersetzung abgeschlossen, Textlänge: {len(translation_result.text or '')}")
+                        
+                        if translation_result.requests:
+                            combined_requests.extend(translation_result.requests)
+                        
+                        # Verwende übersetzten Text
+                        if translation_result.text.strip():
+                            combined_text_parts.append(translation_result.text)
+                        else:
+                            combined_text_parts.append(result.text if result.text.strip() else "")
+                    else:
+                        # Verwende Original-Text
+                        combined_text_parts.append(result.text if result.text.strip() else "")
+                    
+                    # Aktualisiere die erkannte Sprache
+                    if result.source_language != "auto" and result.source_language != detected_language:
+                        detected_language = result.source_language
+                
             except Exception as e:
                 if logger:
                     logger.error(
-                        "Fehler bei der Verarbeitung von Segment",
+                        f"TRANSKRIPTION-DEBUG: Batch {batch_start//BATCH_SIZE + 1} - Fehler bei der Verarbeitung",
                         error=e,
-                        segment_title=segment.title
+                        error_type=type(e).__name__,
+                        traceback=traceback.format_exc()
                     )
-                return index, "", [], src_lang
-
-        # Erstelle Tasks für alle Segmente
-        tasks = [
-            process_segment(segment, i, detected_language) 
-            for i, segment in enumerate(all_segments)
-        ]
-
-        # Verarbeite alle Segmente parallel
+                # Bei Fehler fahren wir mit dem nächsten Batch fort
+        
+        # Erstelle das finale Ergebnis
+        result_text = "\n".join(combined_text_parts).strip()
+        
         if logger:
-            logger.info(f"Starte parallele Verarbeitung von {len(tasks)} Segmenten")
-
-        # Führe alle Tasks parallel aus
-        results = await asyncio.gather(*tasks)
-
-        # Sortiere die Ergebnisse nach dem ursprünglichen Index
-        sorted_results = sorted(results, key=lambda x: x[0])
-
-        # Sammle die Ergebnisse
-        for _, text, requests, lang in sorted_results:
-            if text:
-                combined_text_parts.append(text)
-            combined_requests.extend(requests)
-            # Aktualisiere die erkannte Sprache, wenn sie sich geändert hat
-            if lang != "auto" and lang != detected_language:
-                detected_language = lang
-
-        if logger:
-            logger.info(f"Parallele Verarbeitung abgeschlossen - {len(combined_requests)} Requests gesammelt")
-
-        # Erstelle das finale Ergebnis mit allen einzelnen Requests
+            logger.info(
+                f"TRANSKRIPTION-DEBUG: Parallele Verarbeitung abgeschlossen - Ergebnis mit {len(combined_text_parts)} Segmenten und {len(combined_requests)} Requests"
+            )
+            logger.info(f"TRANSKRIPTION-DEBUG: Finales Ergebnis erstellt, Textlänge: {len(result_text)}")
+        
         return TranscriptionResult(
-            text="\n".join(combined_text_parts).strip(),
+            text=result_text,
             source_language=detected_language,
             segments=[],  # Keine Segmente im Output
             requests=combined_requests  # Alle einzelnen Requests

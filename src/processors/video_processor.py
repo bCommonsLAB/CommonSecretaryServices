@@ -79,7 +79,15 @@ class VideoProcessor(BaseProcessor):
         
         # Lade Konfiguration
         config = Config()
-        self.max_duration = config.get('processors.video.max_duration', 3600)  # 1 Stunde
+        processor_config = config.get('processors', {})
+        video_config = processor_config.get('video', {})
+        
+        # Video-spezifische Konfigurationen
+        self.max_duration = video_config.get('max_duration', 3600)  # 1 Stunde
+        
+        # Debug-Logging der Video-Konfiguration
+        self.logger.debug("VideoProcessor initialisiert mit Konfiguration", 
+                         max_duration=self.max_duration)
         
         # Initialisiere Prozessoren
         self.transformer = TransformerProcessor(resource_calculator, process_id)

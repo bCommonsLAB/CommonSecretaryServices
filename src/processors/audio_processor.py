@@ -214,8 +214,16 @@ class AudioProcessor(BaseProcessor):
         # Konfigurationswerte mit Typ-Annotationen
         self.max_file_size: int = audio_config.get('max_file_size', 120 * 1024 * 1024)  # 100MB
         self.segment_duration: int = audio_config.get('segment_duration', 300)  # 5 Minuten
+        self.max_segments: Optional[int] = audio_config.get('max_segments')  # Maximale Anzahl der Segmente
         self.export_format: str = audio_config.get('export_format', 'mp3')
         self.temp_file_suffix: str = f".{self.export_format}"
+        
+        # Debug-Logging der Audio-Konfigurationsparameter
+        self.logger.debug("AudioProcessor initialisiert mit Konfiguration", 
+                         max_file_size=self.max_file_size,
+                         segment_duration=self.segment_duration,
+                         max_segments=self.max_segments,
+                         export_format=self.export_format)
         
         # Prozessoren initialisieren
         self.transformer: TransformerProcessorProtocol = cast(TransformerProcessorProtocol, 
@@ -489,9 +497,14 @@ class AudioProcessor(BaseProcessor):
                     'end_ms': duration_ms
                 }]
             
-            # Erstelle Kapitel-Segmente (5 Minuten max pro Segment)
+            # Erstelle Kapitel-Segmente (max. Segment-Dauer gemäß Konfiguration)
             chapter_segments: List[Chapter] = []
-            max_duration_minutes = 5
+            
+            # Segmentdauer in Minuten (aus Konfiguration in Sekunden)
+            max_duration_minutes = self.segment_duration / 60
+            
+            # Verwende die Instanzvariable max_segments
+            total_segments_count = 0
             
             for i, chapter in enumerate(chapters):
                 if i in (skip_segments or []):
@@ -523,6 +536,11 @@ class AudioProcessor(BaseProcessor):
                     # Erstelle die Segmente
                     segments: List[AudioSegmentInfo] = []
                     for j in range(num_segments):
+                        # Prüfe, ob wir das maximale Limit erreicht haben
+                        if self.max_segments is not None and total_segments_count >= self.max_segments:
+                            self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, breche Segmentierung ab")
+                            break
+                            
                         start = j * segment_duration_ms
                         end = min((j + 1) * segment_duration_ms, len(chapter_audio))
                         
@@ -543,11 +561,19 @@ class AudioProcessor(BaseProcessor):
                             duration=(end-start)/1000.0  # Konvertiere zu Sekunden
                         ))
                         
+                        total_segments_count += 1  # Inkrementiere den Segmentzähler
+                        
                         self.logger.debug(f"Kapitel {i+1} Teil {j+1}/{num_segments} erstellt",
                                         duration_sec=len(segment)/1000.0,
                                         segment_path=str(segment_path))
                 else:
                     # Wenn Kapitel kurz genug ist, behalte es als ein Segment
+                    
+                    # Prüfe, ob wir das maximale Limit erreicht haben
+                    if self.max_segments is not None and total_segments_count >= self.max_segments:
+                        self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, überspringe Kapitel {i}")
+                        continue
+                        
                     segment_path = chapter_dir / f"full.{self.export_format}"
                     chapter_audio.export(
                         str(segment_path),
@@ -562,17 +588,25 @@ class AudioProcessor(BaseProcessor):
                         duration=len(chapter_audio)/1000.0  # Konvertiere zu Sekunden
                     )]
                     
+                    total_segments_count += 1  # Inkrementiere den Segmentzähler
+                    
                     self.logger.debug(f"Kapitel {i+1} als einzelnes Segment erstellt",
                                     duration_sec=len(chapter_audio)/1000.0,
                                     segment_path=str(segment_path))
                 
                 # Erstelle Chapter mit seinen Segmenten
-                chapter_segments.append(Chapter(
-                    title=title,
-                    start=start_ms/1000.0,  # Konvertiere zu Sekunden
-                    end=end_ms/1000.0,      # Konvertiere zu Sekunden
-                    segments=segments
-                ))
+                if segments:  # Nur wenn Segmente erstellt wurden
+                    chapter_segments.append(Chapter(
+                        title=title,
+                        start=start_ms/1000.0,  # Konvertiere zu Sekunden
+                        end=end_ms/1000.0,      # Konvertiere zu Sekunden
+                        segments=segments
+                    ))
+                    
+                # Wenn wir das maximale Limit erreicht haben, brechen wir ab
+                if self.max_segments is not None and total_segments_count >= self.max_segments:
+                    self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, breche Kapitelverarbeitung ab")
+                    break
             
             return chapter_segments
 
