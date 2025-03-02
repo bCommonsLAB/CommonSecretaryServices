@@ -7,6 +7,10 @@ import os
 import yaml
 import logging
 from logging import Logger, StreamHandler, Formatter
+from .config_utils import replace_env_vars, load_dotenv
+
+# .env-Datei laden
+load_dotenv()
 
 class ServerConfig(TypedDict):
     """Server-Konfiguration."""
@@ -144,6 +148,7 @@ class Config:
     def _read_config(self) -> ApplicationConfig:
         """
         Liest die aktuelle Konfiguration aus der YAML-Datei.
+        Ersetzt Umgebungsvariablen in der Konfiguration.
         
         Returns:
             ApplicationConfig: Die geladene Konfiguration
@@ -153,8 +158,23 @@ class Config:
                 raise ValueError("Config path not initialized")
                 
             with open(self._config_path, 'r', encoding='utf-8') as f:
-                loaded_config: Dict[str, Any] = yaml.safe_load(f) or {}
-            return cast(ApplicationConfig, {**self.DEFAULT_CONFIG, **loaded_config})
+                yaml_content = yaml.safe_load(f)
+            
+            # Stelle sicher, dass wir ein Dictionary haben
+            if not isinstance(yaml_content, dict):
+                yaml_content = {}
+                
+            # Explizite Typisierung für den Linter
+            loaded_config: Dict[str, Any] = yaml_content
+                
+            # Ersetze Umgebungsvariablen in der Konfiguration
+            config_with_env_vars = replace_env_vars(loaded_config)
+            
+            # Explizites Casting für den Typchecker
+            processed_config: Dict[str, Any] = cast(Dict[str, Any], config_with_env_vars)
+            
+            # Kombiniere mit Standard-Konfiguration
+            return cast(ApplicationConfig, {**self.DEFAULT_CONFIG, **processed_config})
         except Exception as e:
             if self._logger:
                 self._logger.error(f"Fehler beim Laden der Konfiguration: {str(e)}")
@@ -200,7 +220,7 @@ class Config:
         Returns:
             Den Konfigurationswert oder den default-Wert
         """
-        config = self._read_config()
+        config: ApplicationConfig = self._read_config()
         try:
             value: Any = config
             for k in key.split('.'):
@@ -219,7 +239,7 @@ class Config:
             key: Der Schlüssel als String, kann Punkt-Notation enthalten
             value: Der zu setzende Wert
         """
-        config = self._read_config()
+        config: ApplicationConfig = self._read_config()
         keys = key.split('.')
         # Explizite Konvertierung zu Dict
         current_dict: Dict[str, Any] = cast(Dict[str, Any], config)

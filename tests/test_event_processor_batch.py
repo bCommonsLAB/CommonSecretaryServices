@@ -10,6 +10,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Any, List
+from core.models.event import BatchEventResponse
 from src.processors.event_processor import EventProcessor
 from src.core.resource_tracking import ResourceCalculator
 
@@ -53,7 +54,7 @@ async def test_process_many_events(max_events: int = 3, verbose: bool = True):
         print(f"\nStarte Verarbeitung um {time.strftime('%H:%M:%S')}...")
         
         # Events verarbeiten
-        result = await processor.process_many_events(test_events)
+        result: BatchEventResponse = await processor.process_many_events(test_events)
         
         processing_time = time.time() - start_time
         print(f"\nVerarbeitung abgeschlossen nach {processing_time:.2f} Sekunden")

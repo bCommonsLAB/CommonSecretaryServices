@@ -102,18 +102,26 @@ class EventOutput:
         attachments: Liste der heruntergeladenen Anhänge
         metadata: Zusätzliche Metadaten zum Event
     """
+    web_text: str
+    video_transcript: str
+    context: Dict[str, Any]
     markdown_file: str
     markdown_content: str
     video_file: Optional[str] = None
+    attachments_url: Optional[str] = None
     attachments: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
         return {
+            "web_text": self.web_text,
+            "video_transcript": self.video_transcript,
+            "context": self.context,
             "markdown_file": self.markdown_file,
             "markdown_content": self.markdown_content,
             "video_file": self.video_file,
+            "attachments_url": self.attachments_url,
             "attachments": self.attachments,
             "metadata": self.metadata
         }
@@ -271,13 +279,16 @@ class AsyncEventInput(EventInput):
     
     Attributes:
         webhook: Konfiguration für den Webhook-Callback nach der Verarbeitung
+        use_cache: Ob die Ergebnisse zwischengespeichert werden sollen
     """
     webhook: Optional[WebhookConfig] = None
+    use_cache: bool = True
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die asynchronen Eingabedaten in ein Dictionary."""
         base_dict = super().to_dict()
         base_dict["webhook"] = self.webhook.to_dict() if self.webhook else None
+        base_dict["use_cache"] = self.use_cache
         return base_dict
 
 @dataclass(frozen=True)

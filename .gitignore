@@ -9,5 +9,6 @@ events/
 temp-processing/
 webhook_logs/
 .obsidian/
+workspace.json
 .trash/
 

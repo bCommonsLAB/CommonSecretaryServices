@@ -1567,7 +1567,7 @@ class SampleFileEndpoint(Resource):
             }, 500
 
 @api.route('/scrape-event-infos')
-class EventEndpoint(Resource):
+class ScrapeEventEndpoint(Resource):
     @api.expect(api.model('EventRequest', {
         'event': fields.String(required=True, description='Name der Veranstaltung (z.B. "FOSDEM 2025")'),
         'session': fields.String(required=True, description='Name der Session (z.B. "Welcome to FOSDEM 2025")'),
@@ -1687,7 +1687,7 @@ def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
     return EventProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
 
 @api.route('/scrape-many-events')
-class BatchEventEndpoint(Resource):
+class ScrapeBatchEventEndpoint(Resource):
     """Endpoint für die Batch-Verarbeitung von Events."""
     
     @api.expect(api.model('BatchEventRequest', {
@@ -1931,7 +1931,8 @@ async_event_input = api.model('AsyncEventInput', {
     'webhook_headers': fields.Raw(required=False, description='HTTP-Header für den Webhook'),
     'include_markdown': fields.Boolean(required=False, default=True, description='Markdown-Inhalt im Webhook einschließen'),
     'include_metadata': fields.Boolean(required=False, default=True, description='Metadaten im Webhook einschließen'),
-    'event_id': fields.String(required=False, description='Eindeutige ID für das Event')
+    'event_id': fields.String(required=False, description='Eindeutige ID für das Event'),
+    'useCache': fields.Boolean(required=False, default=True, description='Cache verwenden (default: True)')
 })
 
 async_batch_event_input = api.model('AsyncBatchEventInput', {
@@ -1944,7 +1945,7 @@ async_batch_event_input = api.model('AsyncBatchEventInput', {
 })
 
 # Hilfsfunktion zum Abrufen des Event-Processors
-def get_event_processor(process_id: Optional[str] = None) -> EventProcessor:
+def get_event_processor_instance(process_id: Optional[str] = None) -> EventProcessor:
     """
     Erstellt eine Instanz des Event-Processors.
     
@@ -1961,12 +1962,12 @@ class EventEndpoint(Resource):
     @api.expect(event_input)
     @api.response(200, 'Erfolg', event_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet ein Event mit allen zugehörigen Medien')
+    @api.doc(description='Verarbeitet ein Event mit allen zugehörigen Medien. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet ein Event mit allen zugehörigen Medien"""
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
-        event_processor: EventProcessor = get_event_processor(process_id)
+        event_processor: EventProcessor = get_event_processor_instance(process_id)
         
         # Setze Performance-Tracker-Informationen
         if tracker:
@@ -1991,6 +1992,7 @@ class EventEndpoint(Resource):
             attachments_url = data.get('attachments_url')
             source_language = data.get('source_language', 'en')
             target_language = data.get('target_language', 'de')
+            use_cache = data.get('useCache', True)
             
             # Validiere Pflichtfelder
             if not all([event, session, url, filename, track]):
@@ -2010,7 +2012,8 @@ class EventEndpoint(Resource):
                 video_url=video_url,
                 attachments_url=attachments_url,
                 source_language=source_language,
-                target_language=target_language
+                target_language=target_language,
+                use_cache=use_cache
             ))
             
             # Füge Ressourcenverbrauch zum Tracker hinzu
@@ -2063,7 +2066,7 @@ class BatchEventEndpoint(Resource):
         """Verarbeitet mehrere Events sequentiell"""
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
-        event_processor: EventProcessor = get_event_processor(process_id)
+        event_processor: EventProcessor = get_event_processor_instance(process_id)
         
         # Setze Performance-Tracker-Informationen
         if tracker:
@@ -2128,12 +2131,12 @@ class AsyncEventEndpoint(Resource):
     @api.expect(async_event_input)
     @api.response(200, 'Erfolg', event_response)
     @api.response(400, 'Validierungsfehler', error_model)
-    @api.doc(description='Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss')
+    @api.doc(description='Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet ein Event asynchron und sendet einen Webhook-Callback nach Abschluss"""
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
-        event_processor: EventProcessor = get_event_processor(process_id)
+        event_processor: EventProcessor = get_event_processor_instance(process_id)
         
         # Setze Performance-Tracker-Informationen für den Event-Monitor
         if tracker:
@@ -2164,6 +2167,7 @@ class AsyncEventEndpoint(Resource):
             include_markdown = data.get('include_markdown', True)
             include_metadata = data.get('include_metadata', True)
             event_id = data.get('event_id')
+            use_cache = data.get('useCache', True)
             
             # Validiere Pflichtfelder
             if not all([event, session, url, filename, track, webhook_url]):
@@ -2188,7 +2192,8 @@ class AsyncEventEndpoint(Resource):
                 webhook_headers=webhook_headers,
                 include_markdown=include_markdown,
                 include_metadata=include_metadata,
-                event_id=event_id
+                event_id=event_id,
+                use_cache=use_cache
             ))
             
             # Füge Ressourcenverbrauch zum Tracker hinzu
@@ -2253,7 +2258,7 @@ class AsyncBatchEventEndpoint(Resource):
         """Verarbeitet mehrere Events asynchron und sendet Webhook-Callbacks nach Abschluss jedes Events"""
         process_id = str(uuid.uuid4())
         tracker: Optional[PerformanceTracker] = get_performance_tracker() or get_performance_tracker(process_id)
-        event_processor: EventProcessor = get_event_processor(process_id)
+        event_processor: EventProcessor = get_event_processor_instance(process_id)
         
         # Setze Performance-Tracker-Informationen für den Event-Monitor
         if tracker:
