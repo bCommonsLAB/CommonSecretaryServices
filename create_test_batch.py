@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-Test-Skript zum Erstellen eines Batches mit Events aus einem bestimmten Track aus der fosdem-events.json Datei.
-Dieses Skript liest die Testdaten, filtert nach einem spezifischen Track und erstellt einen neuen Batch in der Datenbank.
+Test-Skript zum Erstellen mehrerer Batches mit Events aus bestimmten Tracks aus der fosdem-events.json Datei.
+Dieses Skript liest die Testdaten, filtert nach spezifischen Tracks und erstellt für jeden Track einen neuen Batch in der Datenbank.
 """
 
 import json
@@ -56,7 +56,33 @@ class BatchResponse(TypedDict, total=False):
 # Initialisierung
 SAMPLE_FILE = 'tests/samples/fosdem-events.json'
 API_URL = 'http://localhost:5001/api/event-job/batches'
-DEFAULT_TRACK = "Open-Research-22"
+
+# Liste der verfügbaren Tracks
+AVAILABLE_TRACKS = [
+    "Collaboration-and-Content-Management-19",
+    "Government-Collaboration-11",
+    "Open-Media-12",
+    "Open-Research-22",
+    "Main-Track-K-Building-18",
+    "Open-Source-In-The-European-Legislative-Landscape-and-Beyond-34",
+    "Community-17",
+    "Social-Web-12",
+    "Confidential-Computing-11",
+    "Educational-14",
+    "Embedded-Mobile-and-Automotive-19",
+    "Energy-Accelerating-the-Transition-through-Open-Source-24",
+    "FOSDEM-Junior-18",
+    "FOSS-on-Mobile-Devices-11",
+    "Funding-the-FOSS-Ecosystem-12",
+    "Lightning-Talks-38",
+    "LibreOffice-21",
+    "Main-Track-Janson-7",
+    "Keynotes-13",
+    "Modern-Email-18",
+    "Rust-12",
+    "Tool-the-Docs-8",
+    "APIs-GraphQL-OpenAPI-AsyncAPI-and-friends-7"
+]
 
 def load_events(file_path: str) -> List[JobParameters]:
     """
@@ -197,46 +223,78 @@ def create_batch(batch_data: BatchData) -> BatchResponse:
             print(f"Server-Antwort: {e.response.text}")
         raise
 
+def process_track(track: str, events: List[JobParameters]) -> None:
+    """
+    Verarbeitet einen einzelnen Track und erstellt einen Batch.
+    
+    Args:
+        track: Name des zu verarbeitenden Tracks
+        events: Liste aller Event-Daten
+    """
+    print(f"\n=== Verarbeite Track: {track} ===")
+    
+    # Events nach Track filtern
+    filtered_events = filter_events_by_track(events, track)
+    
+    if not filtered_events:
+        print(f"Keine Events für Track '{track}' gefunden. Überspringe...")
+        return
+    
+    # Batch-Daten vorbereiten
+    batch_data = prepare_batch_data(filtered_events, track)
+    
+    # Jobs sicher extrahieren (für Typ-Sicherheit)
+    jobs = batch_data.get("jobs", [])
+    print(f"Batch mit {len(jobs)} Jobs vorbereitet")
+    print(f"Batch-Name: {batch_data.get('batch_name')}")
+    
+    # Batch erstellen
+    response: BatchResponse = create_batch(batch_data)
+    
+    # Ergebnis anzeigen
+    batch = response.get('batch', {})
+    print(f"Batch erfolgreich erstellt:")
+    print(f"Batch-ID: {batch.get('batch_id')}")
+    print(f"Batch-Name: {batch.get('batch_name')}")
+    print(f"Gesamtzahl Jobs: {batch.get('total_jobs')}")
+
 def main() -> None:
-    """Hauptfunktion zum Erstellen eines Test-Batches."""
+    """Hauptfunktion zum Erstellen mehrerer Test-Batches."""
     try:
-        # Track-Parameter aus der Kommandozeile oder Standardwert verwenden
-        track = DEFAULT_TRACK
+        # Tracks entweder aus Kommandozeile oder aus vordefinierten verfügbaren Tracks nehmen
+        tracks_to_process: List[str] = []
+        
         if len(sys.argv) > 1:
-            track = sys.argv[1]
+            # Tracks von der Kommandozeile nehmen
+            tracks_to_process = sys.argv[1:]
+            print(f"Verarbeite {len(tracks_to_process)} Tracks aus Kommandozeilenargumenten")
+        else:
+            # Alle verfügbaren Tracks verwenden
+            tracks_to_process = AVAILABLE_TRACKS
+            print(f"Verarbeite alle {len(tracks_to_process)} verfügbaren Tracks")
         
-        print(f"Erstelle Batch für Track: {track}")
-        
-        # Events laden
+        # Events laden (nur einmal für alle Tracks)
         events = load_events(SAMPLE_FILE)
         
-        # Events nach Track filtern
-        filtered_events = filter_events_by_track(events, track)
+        # Jeden Track einzeln verarbeiten
+        successful_tracks = 0
         
-        if not filtered_events:
-            print("Keine Events gefunden. Abbruch.")
-            return
+        for track in tracks_to_process:
+            try:
+                process_track(track, events)
+                successful_tracks += 1
+            except Exception as e:
+                print(f"Fehler beim Verarbeiten von Track '{track}': {str(e)}")
         
-        # Batch-Daten vorbereiten
-        batch_data = prepare_batch_data(filtered_events, track)
-        
-        # Jobs sicher extrahieren (für Typ-Sicherheit)
-        jobs = batch_data.get("jobs", [])
-        print(f"Batch mit {len(jobs)} Jobs vorbereitet")
-        print(f"Batch-Name: {batch_data.get('batch_name')}")
-        
-        # Batch erstellen
-        response: BatchResponse = create_batch(batch_data)
-        
-        # Ergebnis anzeigen
-        batch = response.get('batch', {})
-        print(f"Batch erfolgreich erstellt:")
-        print(f"Batch-ID: {batch.get('batch_id')}")
-        print(f"Batch-Name: {batch.get('batch_name')}")
-        print(f"Gesamtzahl Jobs: {batch.get('total_jobs')}")
+        # Zusammenfassung anzeigen
+        print("\n=== Zusammenfassung ===")
+        print(f"Verarbeitete Tracks: {len(tracks_to_process)}")
+        print(f"Erfolgreich: {successful_tracks}")
+        print(f"Fehlgeschlagen: {len(tracks_to_process) - successful_tracks}")
         
     except Exception as e:
-        print(f"Fehler: {str(e)}")
+        print(f"Kritischer Fehler: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

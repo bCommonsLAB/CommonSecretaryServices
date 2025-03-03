@@ -27,6 +27,23 @@
     background-color: #fee2e2;
     color: #991b1b;
   }
+  .active-badge {
+    background-color: #dcfce7;
+    color: #166534;
+    border: 1px solid #166534;
+  }
+  .inactive-badge {
+    background-color: #f3f4f6;
+    color: #6b7280;
+    border: 1px solid #9ca3af;
+  }
+  .batch-inactive {
+    opacity: 0.7;
+    border-left: 4px solid #9ca3af;
+  }
+  .batch-active {
+    border-left: 4px solid #10b981;
+  }
   .card {
     margin-bottom: 1rem;
     border-radius: 0.5rem;
@@ -63,6 +80,10 @@
   .batch-meta {
     font-size: 0.875rem;
     color: #6c757d;
+  }
+  .batch-actions {
+    display: flex;
+    gap: 0.5rem;
   }
   .filter-container {
     display: flex;
@@ -108,6 +129,79 @@
   .job-details-modal .modal-dialog {
     max-width: 800px;
   }
+  
+  /* Animation für aktualisierte Elemente */
+  @keyframes highlight-update {
+    0% { background-color: rgba(16, 185, 129, 0.2); }
+    100% { background-color: transparent; }
+  }
+
+  .highlight-update {
+    animation: highlight-update 1.5s ease-out;
+  }
+
+  /* Pulsierender Indikator für aktive Batches */
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+  .batch-active:not(.batch-completed) {
+    animation: pulse 2s infinite;
+  }
+  .batch-completed {
+    border-left-color: #818cf8;
+  }
+
+  /* Hervorhebung für Jobs im Processing-Status */
+  .processing-count {
+    font-weight: bold;
+    color: #2563eb;
+    animation: pulse 2s infinite;
+  }
+  
+  /* Verarbeitungszustand für Batches */
+  .card.processing {
+    opacity: 0.7;
+    position: relative;
+  }
+  .card.processing::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+  }
+  .card.processing::before {
+    content: "Wird verarbeitet...";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: #0d6efd;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    z-index: 11;
+  }
+
+  /* Animation für aktualisierte Elemente */
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+  }
+  
+  @keyframes highlight-fade {
+    0% { background-color: rgba(37, 99, 235, 0.2); }
+    100% { background-color: transparent; }
+  }
 </style>
 {% endblock %}
 
@@ -127,30 +221,6 @@
     </div>
   </div>
 
-  <!-- Filter -->
-  <div class="d-flex flex-wrap align-items-center bg-light p-3 rounded mb-4">
-    <div class="d-flex align-items-center me-3">
-      <i class="fas fa-filter me-2"></i>
-      <strong class="me-3">Filter:</strong>
-    </div>
-    <form id="filter-form" method="get" class="d-flex flex-wrap align-items-center flex-grow-1">
-      <div class="d-flex align-items-center me-3">
-        <label for="status" class="form-label mb-0 me-2">Status</label>
-        <select class="form-select form-select-sm" id="status" name="status" style="width: auto;">
-          <option value="">Alle</option>
-          <option value="pending" {% if event_data.filters.status == 'pending' %}selected{% endif %}>Ausstehend</option>
-          <option value="processing" {% if event_data.filters.status == 'processing' %}selected{% endif %}>In Bearbeitung</option>
-          <option value="completed" {% if event_data.filters.status == 'completed' %}selected{% endif %}>Abgeschlossen</option>
-          <option value="failed" {% if event_data.filters.status == 'failed' %}selected{% endif %}>Fehlgeschlagen</option>
-        </select>
-      </div>
-      <div class="d-flex align-items-center me-3">
-        <label for="date" class="form-label mb-0 me-2">Datum</label>
-        <input type="date" class="form-control form-control-sm" id="date" name="date" value="{{ event_data.filters.date }}">
-      </div>
-      <button type="submit" class="btn btn-sm btn-primary">Filter anwenden</button>
-    </form>
-  </div>
 
   <!-- Tabs -->
   <ul class="nav nav-tabs mb-3" id="eventTabs" role="tablist">
@@ -174,60 +244,71 @@
     <div class="tab-pane fade show active" id="current" role="tabpanel" aria-labelledby="current-tab">
       {% if event_data.current_batches %}
         {% for batch in event_data.current_batches %}
-          <div class="card">
+          <div class="card {% if batch.isActive %}batch-active{% else %}batch-inactive{% endif %} {% if batch.status == 'completed' %}batch-completed{% endif %}" data-batch-id="{{ batch.batch_id }}">
             <div class="card-header">
               <div class="batch-info">
                 <strong>{{ batch.batch_name or batch.batch_id }}</strong>
                 <span class="batch-meta">{{ batch.created_at }}</span>
               </div>
               <div class="d-flex align-items-center gap-2">
-                <span class="status-badge status-{{ batch.status }}">
-                  {{ batch.status|capitalize }}
+                <span class="status-badge {{ 'status-' + batch.status }}">{{ batch.status|capitalize }}</span>
+                <span class="status-badge ms-2 {% if batch.isActive %}active-badge{% else %}inactive-badge{% endif %}">
+                  {% if batch.isActive %}Aktiv{% else %}Inaktiv{% endif %}
                 </span>
-                <span>{{ batch.total_jobs }} Jobs ({{ batch.completed_jobs }} abgeschlossen, {{ batch.failed_jobs }} fehlgeschlagen)</span>
-                <button class="btn btn-sm btn-outline-primary ms-2" type="button" 
-                        onclick="loadJobsForBatch('{{ batch.batch_id }}', {{ loop.index0 }})">
+                <span class="badge bg-primary">{{ batch.status }}</span>
+                <span class="batch-stats">
+                  {{ batch.total_jobs }} Jobs 
+                  ({{ batch.completed_jobs }} abgeschlossen, 
+                   {{ batch.failed_jobs }} fehlgeschlagen
+                   {% if batch.processing_jobs %}, <span class="processing-count">{{ batch.processing_jobs }} in Bearbeitung</span>{% endif %})
+                </span>
+                <button class="btn btn-sm {% if batch.isActive %}btn-success{% else %}btn-outline-secondary{% endif %}" type="button" 
+                        onclick="toggleBatchActive('{{ batch.batch_id }}', this)" 
+                        title="{% if batch.isActive %}Batch deaktivieren{% else %}Batch aktivieren{% endif %}">
+                  <i class="fas {% if batch.isActive %}fa-toggle-on{% else %}fa-toggle-off{% endif %}"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-primary load-jobs-btn ms-2" type="button" 
+                        data-batch-id="{{ batch.batch_id }}" data-index="{{ loop.index0 }}"
+                        onclick="loadJobsForBatch('{{ batch.batch_id }}', '{{ loop.index0 }}', false)">
                   <span id="jobs-toggle-text-{{ loop.index0 }}">Jobs anzeigen</span>
                 </button>
-                <div class="dropdown d-inline-block ms-2">
-                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                          id="batchActionsDropdown{{ loop.index0 }}" data-bs-toggle="dropdown" aria-expanded="false">
-                    Batch-Aktionen
-                  </button>
-                  <ul class="dropdown-menu" aria-labelledby="batchActionsDropdown{{ loop.index0 }}">
-                    <li><a class="dropdown-item" href="#" onclick="restartBatch('{{ batch.batch_id }}'); return false;">Batch neu starten</a></li>
-                    <li><a class="dropdown-item" href="#" onclick="archiveBatch('{{ batch.batch_id }}'); return false;">Batch archivieren</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteBatch('{{ batch.batch_id }}'); return false;">Batch löschen</a></li>
-                  </ul>
-                </div>
-                <div id="jobs-loading-{{ loop.index0 }}" class="d-none">
-                  <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                      <span class="visually-hidden">Laden...</span>
-                    </div>
-                    <span>Laden...</span>
-                  </div>
-                </div>
+                <button class="btn btn-sm btn-outline-warning" 
+                        onclick="restartBatch('{{ batch.batch_id }}')" 
+                        title="Batch neu starten">
+                  <i class="fas fa-redo-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" 
+                        onclick="archiveBatch('{{ batch.batch_id }}')" 
+                        title="Batch archivieren">
+                  <i class="fas fa-archive"></i>
+                </button>
               </div>
             </div>
-            <div class="card-body" id="card-body-{{ loop.index0 }}">
-              <div class="table-responsive d-none" id="table-container-{{ loop.index0 }}">
-                <table class="table table-hover job-table mb-0">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Job-Name</th>
-                      <th>URL</th>
-                      <th>Typ</th>
-                      <th>Fortschritt</th>
-                      <th>Erstellt</th>
-                      <th>Detail</th>
-                    </tr>
-                  </thead>
-                  <tbody id="jobs-container-{{ loop.index0 }}">
-                  </tbody>
-                </table>
+            <div class="card-body">
+              <!-- Batch Jobs Tabelle Container -->
+              <div id="table-container-{{loop.index0}}" class="d-none mt-3">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped job-table">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Status</th>
+                        <th>Job</th>
+                        <th>Erstellt</th>
+                        <th>Abgeschlossen</th>
+                        <th>Fortschritt</th>
+                        <th>Aktionen</th>
+                      </tr>
+                    </thead>
+                    <tbody id="jobs-container-{{loop.index0}}">
+                      <!-- Jobs werden dynamisch hier eingefügt -->
+                    </tbody>
+                  </table>
+                </div>
+                
+                <!-- Pagination Container hinzufügen -->
+                <div id="pagination-container-{{loop.index0}}" class="d-flex justify-content-center mt-2">
+                  <!-- Paginierung wird dynamisch hier eingefügt -->
+                </div>
               </div>
             </div>
           </div>
@@ -275,1056 +356,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/event-monitor.js') }}"></script>
 <script>
-  // Helper Funktionen
-  function getStatusBadgeClass(status) {
-    switch(status) {
-      case 'completed': return 'status-completed';
-      case 'failed': return 'status-failed';
-      case 'processing': return 'status-processing';
-      case 'pending': return 'status-pending';
-      default: return 'bg-secondary';
-    }
-  }
-
-  function getProgressHTML(progress) {
-    if (!progress || !progress.percent) return '-';
-    return `
-      <div>
-        <div class="progress" style="width: 100px;">
-          <div class="progress-bar" role="progressbar" style="width: ${progress.percent}%;" 
-               aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-        <span class="small text-muted">${progress.percent}%</span>
-      </div>
-    `;
-  }
-
-  function formatDateTime(dateString) {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    return date.toLocaleString('de-DE');
-  }
-
-  // Funktion zum Anzeigen der Jobdetails
-  function showJobDetails(jobId, elementOrBatchId) {
-    let batchId = '';
-    
-    // Prüfen, ob der zweite Parameter ein HTML-Element oder eine Batch-ID ist
-    if (typeof elementOrBatchId === 'string') {
-      // Es ist eine Batch-ID
-      batchId = elementOrBatchId;
-    } else if (elementOrBatchId && elementOrBatchId.closest) {
-      // Es ist ein HTML-Element, extrahiere die Batch-ID aus der Tabellenzeile
-      const row = elementOrBatchId.closest('tr');
-      if (row && row.dataset.batchId) {
-        batchId = row.dataset.batchId;
-      }
-    }
-    
-    // Rest der Funktion bleibt unverändert
-    console.log(`Details für Job abrufen: ${jobId}, Batch: ${batchId}`);
-    
-    // Modal vorbereiten und anzeigen
-    const modalElement = document.getElementById('jobDetailsModal');
-    const modalContent = modalElement.querySelector('.modal-body');
-    modalContent.innerHTML = `
-      <div class="text-center py-4">
-        <div class="spinner-border text-primary" role="status">
-          <span class="visually-hidden">Laden...</span>
-        </div>
-      </div>
-    `;
-    
-    // Bootstrap-Modal-Objekt erstellen und anzeigen
-    const bsModal = new bootstrap.Modal(modalElement);
-    bsModal.show();
-
-    // API-Anfrage für Jobdetails
-    fetch(`/api/dashboard/event-monitor/job/${jobId}`)
-      .then(response => {
-        // Prüfen, ob die Antwort erfolgreich war
-        if (!response.ok) {
-          throw new Error(`HTTP Fehler: ${response.status} ${response.statusText}`);
-        }
-        
-        // Prüfen, ob die Antwort ein JSON-Format hat
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Die API-Antwort enthält kein gültiges JSON-Format. Möglicherweise fehlt die API-Route für Job-Details im Backend.');
-        }
-        
-        return response.json();
-      })
-      .then(data => {
-        console.log('Job Details:', data);
-        
-        let job = null;
-        if (data.data && data.data.job) {
-          job = data.data.job;
-        } else if (data.job) {
-          job = data.job;
-        }
-        
-        if (!job) {
-          modalContent.innerHTML = '<div class="alert alert-danger">Job-Details konnten nicht geladen werden. Die API-Antwort enthält keine Job-Daten.</div>';
-          return;
-        }
-        
-        // Jobdetails anzeigen
-        modalContent.innerHTML = `
-          <table class="table table-bordered table-striped">
-            <tbody>
-              <tr>
-                <th class="align-middle bg-light" style="width: 20%">Status</th>
-                <td><span class="status-badge ${getStatusBadgeClass(job.status)}">${job.status}</span></td>
-              </tr>
-              <tr>
-                <th class="align-middle bg-light">Job ID</th>
-                <td class="text-monospace small">${job.job_id}</td>
-              </tr>
-              <tr>
-                <th class="align-middle bg-light">Batch ID</th>
-                <td class="text-monospace small">${job.batch_id || '-'}</td>
-              </tr>
-              <tr>
-                <th class="align-middle bg-light">Erstellt</th>
-                <td>${formatDateTime(job.created_at)}</td>
-              </tr>
-              <tr>
-                <th class="align-middle bg-light">Gestartet</th>
-                <td>${job.started_at ? formatDateTime(job.started_at) : '-'}</td>
-              </tr>
-              <tr>
-                <th class="align-middle bg-light">Abgeschlossen</th>
-                <td>${job.completed_at ? formatDateTime(job.completed_at) : '-'}</td>
-              </tr>
-              ${job.progress ? `
-              <tr>
-                <th>Fortschritt</th>
-                <td>
-                  <div class="progress mb-1">
-                    <div class="progress-bar" role="progressbar" style="width: ${job.progress.percent}%;" 
-                        aria-valuenow="${job.progress.percent}" aria-valuemin="0" aria-valuemax="100"></div>
-                  </div>
-                  <div class="small text-muted">
-                    ${job.progress.message || `${job.progress.percent}%`}
-                  </div>
-                </td>
-              </tr>
-              ` : ''}
-              <tr>
-                <th>Parameter</th>
-                <td><pre class="job-details-content mb-0">${JSON.stringify(job.parameters, null, 2)}</pre></td>
-              </tr>
-              ${job.results ? `
-              <tr>
-                <th>Ergebnisse</th>
-                <td><pre class="job-details-content mb-0">${JSON.stringify(job.results, null, 2)}</pre></td>
-              </tr>
-              ` : ''}
-              ${job.error ? `
-              <tr>
-                <th>Fehler</th>
-                <td class="job-details-content log-entry-error">
-                  <strong>${job.error.message || 'Unbekannter Fehler'}</strong>
-                  ${job.error.details ? `<pre class="mt-2 mb-0">${JSON.stringify(job.error.details, null, 2)}</pre>` : ''}
-                </td>
-              </tr>
-              ` : ''}
-              ${job.logs && job.logs.length > 0 ? `
-              <tr>
-                <th>Logs</th>
-                <td class="job-details-content p-0">
-                  ${job.logs.map(log => `
-                    <div class="log-entry ${log.level === 'error' ? 'log-entry-error' : log.level === 'warning' ? 'log-entry-warning' : ''} p-2">
-                      [${formatDateTime(log.timestamp)}] ${log.message}
-                    </div>
-                  `).join('')}
-                </td>
-              </tr>
-              ` : ''}
-            </tbody>
-          </table>
-        `;
-      })
-      .catch(error => {
-        console.error('Fehler beim Laden der Job-Details:', error);
-        
-        // Detaillierte Fehlermeldung anzeigen
-        modalContent.innerHTML = `
-          <div class="alert alert-danger">
-            <h5>Fehler beim Laden der Job-Details</h5>
-            <p>${error.message}</p>
-            <hr>
-            <p class="mb-0"><strong>Mögliche Ursachen:</strong></p>
-            <ul>
-              <li>Die API-Route für Job-Details (/api/dashboard/event-monitor/job/${jobId}) existiert nicht.</li>
-              <li>Der Server ist nicht erreichbar.</li>
-              <li>Es gibt ein Problem mit der Datenbankverbindung.</li>
-            </ul>
-            <hr>
-            <p class="mb-0">Technische Details für den Administrator:</p>
-            <code>JobID: ${jobId}, BatchID: ${batchId}</code>
-          </div>
-        `;
-      });
-  }
-
-  // Funktion zum Laden von Jobs für einen Batch
-  function loadJobsForBatch(batchId, batchIndex) {
-    // Überprüfe, ob wir es mit einem Archiv-Batch zu tun haben
-    const isArchive = typeof batchIndex === 'string' && batchIndex.startsWith('archive-');
-    
-    // Bestimme die korrekten Container-IDs basierend auf Typ (normal oder archiv)
-    let jobsContainerId, tableContainerId, loadingSpinnerId, toggleButtonId;
-    
-    if (isArchive) {
-      // Format für Archiv-Batches
-      const archiveIndex = batchIndex.replace('archive-', '');
-      jobsContainerId = `archive-jobs-container-${archiveIndex}`;
-      tableContainerId = `table-container-archive-${archiveIndex}`;
-      loadingSpinnerId = `jobs-loading-archive-${archiveIndex}`;
-      toggleButtonId = `jobs-toggle-text-archive-${archiveIndex}`;
-    } else {
-      // Format für normale Batches
-      jobsContainerId = `jobs-container-${batchIndex}`;
-      tableContainerId = `table-container-${batchIndex}`;
-      loadingSpinnerId = `jobs-loading-${batchIndex}`;
-      toggleButtonId = `jobs-toggle-text-${batchIndex}`;
-    }
-    
-    // Hole die DOM-Elemente mit den korrekten IDs
-    const jobsContainer = document.getElementById(jobsContainerId);
-    const tableContainer = document.getElementById(tableContainerId);
-    const loadingSpinner = document.getElementById(loadingSpinnerId);
-    const toggleButton = document.getElementById(toggleButtonId);
-    
-    // Sicherheitsprüfung: Wenn Container nicht gefunden wurden
-    if (!jobsContainer || !tableContainer) {
-      console.error(`Container nicht gefunden: jobs=${jobsContainerId}, table=${tableContainerId}`);
-      alert('Fehler beim Laden der Jobs: Container nicht gefunden');
-      return;
-    }
-    
-    // Prüfen, ob Jobs bereits geladen sind
-    if (jobsContainer.getAttribute('data-loaded') === 'true') {
-      // Jobs wurden bereits geladen, umschalten zwischen anzeigen/verstecken
-      if (tableContainer.classList.contains('d-none')) {
-        // Jobs anzeigen
-        tableContainer.classList.remove('d-none');
-        toggleButton.textContent = 'Jobs verstecken';
-      } else {
-        // Jobs verstecken
-        tableContainer.classList.add('d-none');
-        toggleButton.textContent = 'Jobs anzeigen';
-      }
-      
-      return;
-    }
-    
-    // Jobs noch nicht geladen, API-Anfrage starten
-    if (loadingSpinner) {
-      loadingSpinner.classList.remove('d-none');
-    }
-    
-    // API-Anfrage an den Batch-Jobs-Endpunkt
-    fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
-      .then(response => response.json())
-      .then(data => {
-        // Verbesserte Debug-Ausgaben
-        console.log(`API-Antwort für Batch ${batchId}:`, data);
-        console.log(`Antwortstruktur im Detail:`, JSON.stringify(data, null, 2));
-        
-        // Versuche, die Jobs aus der Antwort zu extrahieren
-        let jobs = [];
-        
-        // Prüfe verschiedene mögliche Strukturen
-        if (data.data && data.data.jobs) {
-          console.log("Jobs gefunden in data.data.jobs:", data.data.jobs.length, "Jobs");
-          jobs = data.data.jobs;
-        } else if (data.jobs) {
-          console.log("Jobs gefunden in data.jobs:", data.jobs.length, "Jobs");
-          jobs = data.jobs;
-        } else {
-          console.warn("Keine Jobs in der Antwort gefunden!");
-          console.log("Antwortstruktur:", JSON.stringify(data, null, 2));
-        }
-        
-        if (loadingSpinner) {
-          loadingSpinner.classList.add('d-none');
-        }
-        
-        if (jobs && jobs.length > 0) {
-          console.log(`Verarbeite ${jobs.length} Jobs für Batch ${batchId}`);
-          
-          // Jobs markieren als geladen
-          jobsContainer.setAttribute('data-loaded', 'true');
-          toggleButton.textContent = 'Jobs verstecken';
-          
-          // Tabelle anzeigen
-          tableContainer.classList.remove('d-none');
-          
-          // HTML für die Jobs generieren
-          jobs.forEach((job, index) => {
-            const jobRow = document.createElement('tr');
-            jobRow.className = 'job-row';
-            jobRow.setAttribute('data-job-id', job.job_id);
-            jobRow.setAttribute('data-batch-id', batchId);
-            
-            jobRow.innerHTML = `
-              <td><span class="status-badge ${getStatusBadgeClass(job.status)}">${job.status}</span></td>
-              <td class="small">${job.job_name || (job.parameters ? [job.parameters.event, job.parameters.track, job.parameters.session].filter(Boolean).join(' - ') : '-')}</td>
-              <td class="text-center">${job.parameters && job.parameters.url ? `<a href="${job.parameters.url}" target="_blank" title="${job.parameters.url}"><i class="fas fa-external-link-alt"></i></a>` : '-'}</td>
-              <td class="small">${job.parameters && job.parameters.type ? job.parameters.type : '-'}</td>
-              <td>${getProgressHTML(job.progress)}</td>
-              <td class="small">${formatDateTime(job.created_at)}</td>
-              <td>
-                <div class="dropdown">
-                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="dropdownBtn${job.job_id}" data-bs-toggle="dropdown" aria-expanded="false">
-                    Aktionen
-                  </button>
-                  <ul class="dropdown-menu" aria-labelledby="dropdownBtn${job.job_id}">
-                    <li><a class="dropdown-item" href="#" onclick="showJobDetails('${job.job_id}', '${batchId}'); return false;">Details</a></li>
-                    <li><a class="dropdown-item" href="#" onclick="restartJob('${job.job_id}', '${batchId}'); return false;">neu starten</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteJob('${job.job_id}', this, '${batchId}'); return false;">Löschen</a></li>
-                  </ul>
-                </div>
-              </td>
-            `;
-            
-            jobsContainer.appendChild(jobRow);
-          });
-        } else {
-          // Keine Jobs gefunden
-          jobsContainer.innerHTML = `
-            <tr>
-              <td colspan="9" class="text-center py-3">
-                <div class="alert alert-info mb-0">
-                  <i class="fas fa-info-circle me-2"></i>
-                  Keine Jobs für diesen Batch gefunden.
-                </div>
-              </td>
-            </tr>
-          `;
-          tableContainer.classList.remove('d-none');
-        }
-      })
-      .catch(error => {
-        console.error('Fehler beim Laden der Jobs:', error);
-        
-        if (loadingSpinner) {
-          loadingSpinner.classList.add('d-none');
-        }
-        
-        jobsContainer.innerHTML = `
-          <tr>
-            <td colspan="9" class="text-center py-3">
-              <div class="alert alert-danger mb-0">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                Fehler beim Laden der Jobs: ${error.message}
-              </div>
-            </td>
-          </tr>
-        `;
-        tableContainer.classList.remove('d-none');
-      });
-  }
-
-  // Funktion zum Neustarten eines Jobs
-  function restartJob(jobId, batchId) {
-    console.log(`Job neu starten: ${jobId}, Batch: ${batchId}`);
-    
-    // Bestätigung vom Benutzer einholen
-    if (!confirm('Möchten Sie diesen Job wirklich neu starten?')) {
-      return;
-    }
-    
-    // Zeige Ladeindikator
-    const statusElement = document.querySelector(`tr[data-job-id="${jobId}"] td:first-child`);
-    const originalContent = statusElement ? statusElement.innerHTML : '';
-    if (statusElement) {
-      statusElement.innerHTML = `<div class="spinner-border spinner-border-sm text-primary" role="status">
-        <span class="visually-hidden">Laden...</span>
-      </div>`;
-    }
-    
-    // API-Anfrage zum Neustarten des Jobs
-    fetch(`/api/dashboard/event-monitor/job/${jobId}/restart`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ batch_id: batchId })
-    })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP Fehler: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      console.log('Job Neustart erfolgreich:', data);
-      
-      // Erfolgsmeldung anzeigen
-      const toast = document.createElement('div');
-      toast.className = 'toast align-items-center text-white bg-success border-0 position-fixed bottom-0 end-0 m-3';
-      toast.setAttribute('role', 'alert');
-      toast.setAttribute('aria-live', 'assertive');
-      toast.setAttribute('aria-atomic', 'true');
-      toast.innerHTML = `
-        <div class="d-flex">
-          <div class="toast-body">
-            Job wurde erfolgreich für den Neustart markiert.
-          </div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-      `;
-      document.body.appendChild(toast);
-      
-      const bsToast = new bootstrap.Toast(toast);
-      bsToast.show();
-      
-      // Optional: Seite nach kurzer Verzögerung neu laden, um den neuen Status anzuzeigen
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
-    })
-    .catch(error => {
-      console.error('Fehler beim Neustarten des Jobs:', error);
-      
-      // Fehlermeldung anzeigen
-      alert(`Fehler beim Neustarten des Jobs: ${error.message}`);
-      
-      // Status-Element zurücksetzen
-      if (statusElement) {
-        statusElement.innerHTML = originalContent;
-      }
-    });
-  }
-
-  // Funktion zum Löschen eines Jobs
-  function deleteJob(jobId, actionLink, batchId) {
-    // Bestätigung vom Benutzer einholen mit deutlicher Warnung
-    if (!confirm('ACHTUNG: Möchten Sie diesen Job wirklich UNWIDERRUFLICH LÖSCHEN? Diese Aktion kann nicht rückgängig gemacht werden!')) {
-      return;
-    }
-    
-    // Lade-Animation anzeigen
-    const row = actionLink.closest('tr');
-    const statusCell = row.querySelector('td:first-child');
-    const originalContent = statusCell.innerHTML;
-    statusCell.innerHTML = '<div class="spinner-border spinner-border-sm text-danger" role="status"><span class="sr-only">Wird gelöscht...</span></div> Wird gelöscht...';
-    
-    // API-Anfrage zum Löschen des Jobs
-    fetch(`/api/dashboard/event-monitor/jobs/${jobId}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP Fehler: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      if (data.status === 'success') {
-        // Erfolgreich gelöscht
-        console.log('Job erfolgreich gelöscht:', data);
-        
-        // Erfolgsanimation und Entfernen der Zeile
-        row.style.backgroundColor = '#ffebee';
-        setTimeout(() => {
-          row.style.opacity = '0';
-          row.style.height = '0';
-          row.style.overflow = 'hidden';
-          row.style.transition = 'all 0.5s ease';
-          
-          setTimeout(() => {
-            row.remove();
-            
-            // Erfolgsmeldung anzeigen
-            const toast = document.createElement('div');
-            toast.className = 'toast align-items-center text-white bg-danger border-0 position-fixed bottom-0 end-0 m-3';
-            toast.setAttribute('role', 'alert');
-            toast.setAttribute('aria-live', 'assertive');
-            toast.setAttribute('aria-atomic', 'true');
-            toast.innerHTML = `
-              <div class="d-flex">
-                <div class="toast-body">
-                  Job wurde erfolgreich gelöscht.
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-              </div>
-            `;
-            document.body.appendChild(toast);
-            
-            const bsToast = new bootstrap.Toast(toast);
-            bsToast.show();
-            
-            // Aktualisiere Zähler und Batch-Statistiken, falls vorhanden
-            if (batchId) {
-              const batchElement = document.querySelector(`[data-batch-id="${batchId}"]`);
-              if (batchElement) {
-                const statsElement = batchElement.querySelector('.batch-status');
-                if (statsElement) {
-                  // Versuche, die Statistik zu aktualisieren (optional)
-                  // Diese Funktion müsste implementiert werden, um die Batch-Statistik zu aktualisieren
-                  updateBatchStatistics(batchId);
-                }
-              }
-            }
-          }, 500);
-        }, 500);
-      } else {
-        // Fehler beim Löschen
-        statusCell.innerHTML = originalContent;
-        alert(`Fehler beim Löschen: ${data.message || 'Unbekannter Fehler'}`);
-      }
-    })
-    .catch(error => {
-      console.error('Fehler beim Löschen des Jobs:', error);
-      
-      // Fehlermeldung anzeigen
-      statusCell.innerHTML = originalContent;
-      alert(`Fehler beim Löschen des Jobs: ${error.message}`);
-    });
-  }
-
-  // Hilfsfunktion zur Anzeige von Benachrichtigungen (falls nicht bereits definiert)
-  function showNotification(type, message) {
-    // Fallback, falls toast oder andere Benachrichtigungsmethoden nicht verfügbar sind
-    console.log(`Notification [${type}]: ${message}`);
-    
-    // Toast-Benachrichtigung erstellen und anzeigen
-    const toast = document.createElement('div');
-    toast.className = `toast align-items-center text-white bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
-    toast.setAttribute('role', 'alert');
-    toast.setAttribute('aria-live', 'assertive');
-    toast.setAttribute('aria-atomic', 'true');
-    toast.innerHTML = `
-      <div class="d-flex">
-        <div class="toast-body">
-          ${message}
-        </div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-      </div>
-    `;
-    document.body.appendChild(toast);
-    
-    // Bootstrap Toast initialisieren und anzeigen
-    try {
-      const bsToast = new bootstrap.Toast(toast);
-      bsToast.show();
-    } catch (e) {
-      // Fallback, falls Bootstrap-Toast nicht verfügbar ist
-      toast.style.display = 'block';
-      console.error('Fehler beim Anzeigen des Toasts:', e);
-      setTimeout(() => {
-        toast.remove();
-      }, 3000);
-    }
-  }
-  
-  // Optional: Hilfsfunktion zur Aktualisierung der Batch-Statistiken
-  function updateBatchStatistics(batchId) {
-    // Diese Funktion könnte implementiert werden, um die Batch-Statistik zu aktualisieren
-    // nach dem Löschen eines Jobs
-    console.log(`Batch-Statistik für ${batchId} sollte aktualisiert werden`);
-    
-    // Hier könnte eine API-Anfrage erfolgen, um aktuelle Batch-Informationen zu erhalten
-    // Oder die Seite könnte einfach neu geladen werden
-  }
-  
-  // Statistik aktualisieren (Fallback-Funktion)
-  function updateStatistics() {
-    // Diese Funktion könnte implementiert werden, um allgemeine Statistiken zu aktualisieren
-    console.log('Statistiken sollten aktualisiert werden');
-  }
-
-  // Batch-Funktionen für globale Verfügbarkeit (außerhalb des DOMContentLoaded)
-  function restartBatch(batchId) {
-    // Bestätigung vom Benutzer einholen
-    if (!confirm(`Möchten Sie wirklich ALLE JOBS in Batch ${batchId} neu starten?`)) {
-      return;
-    }
-    
-    // Erneute Bestätigung für kritische Aktion
-    if (!confirm('Diese Aktion startet alle Jobs neu, unabhängig von ihrem aktuellen Status. Fortfahren?')) {
-      return;
-    }
-    
-    // Lade-Animation anzeigen (falls vorhanden)
-    const batchElement = document.querySelector(`.card-header:has([data-batch-id="${batchId}"])`);
-    const loadingElement = document.createElement('div');
-    loadingElement.className = 'batch-operation-loader d-flex align-items-center mt-2';
-    loadingElement.innerHTML = `
-      <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-        <span class="visually-hidden">Verarbeite...</span>
-      </div>
-      <span>Starte alle Jobs neu...</span>
-    `;
-    
-    if (batchElement) {
-      batchElement.appendChild(loadingElement);
-    }
-    
-    // Lade zuerst alle Jobs für diesen Batch
-    fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
-      .then(response => response.json())
-      .then(data => {
-        let jobs = [];
-        
-        if (data.jobs && data.jobs.length > 0) {
-          jobs = data.jobs;
-        } else if (data.data && data.data.jobs && data.data.jobs.length > 0) {
-          jobs = data.data.jobs;
-        }
-        
-        if (jobs.length === 0) {
-          throw new Error('Keine Jobs gefunden für diesen Batch.');
-        }
-        
-        console.log(`${jobs.length} Jobs im Batch ${batchId} gefunden.`);
-        
-        // Alle Jobs neu starten
-        const restartPromises = jobs.map(job => {
-          return fetch(`/api/dashboard/event-monitor/job/${job.job_id}/restart`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ batch_id: batchId })
-          })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error(`Fehler beim Neustarten von Job ${job.job_id}: ${response.statusText}`);
-            }
-            return response.json();
-          });
-        });
-        
-        // Warten, bis alle Neustarts abgeschlossen sind
-        return Promise.all(restartPromises);
-      })
-      .then(results => {
-        // Entferne Lade-Animation
-        if (loadingElement) {
-          loadingElement.remove();
-        }
-        
-        // Erfolgsmeldung anzeigen
-        const toast = document.createElement('div');
-        toast.className = 'toast align-items-center text-white bg-success border-0 position-fixed bottom-0 end-0 m-3';
-        toast.setAttribute('role', 'alert');
-        toast.setAttribute('aria-live', 'assertive');
-        toast.setAttribute('aria-atomic', 'true');
-        toast.innerHTML = `
-          <div class="d-flex">
-            <div class="toast-body">
-              Alle Jobs im Batch ${batchId} wurden erfolgreich neu gestartet.
-            </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-          </div>
-        `;
-        document.body.appendChild(toast);
-        
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
-        
-        // Seite nach kurzer Verzögerung neu laden
-        setTimeout(() => {
-          window.location.reload();
-        }, 3000);
-      })
-      .catch(error => {
-        console.error('Fehler beim Neustarten des Batches:', error);
-        
-        // Entferne Lade-Animation
-        if (loadingElement) {
-          loadingElement.remove();
-        }
-        
-        // Fehlermeldung anzeigen
-        alert(`Fehler beim Neustarten des Batches: ${error.message}`);
-      });
-  }
-
-  function deleteBatch(batchId) {
-    // Eine klarere und aussagekräftige Warnung anzeigen
-    if (!confirm(`⚠️ WARNUNG ⚠️\n\nMöchten Sie wirklich ALLE JOBS in Batch ${batchId} UNWIDERRUFLICH LÖSCHEN?\nDiese Aktion kann NICHT rückgängig gemacht werden und löscht alle Daten permanent!`)) {
-      return;
-    }
-    
-    // Lade-Animation anzeigen
-    const batchCard = document.querySelector(`.card:has([data-batch-id="${batchId}"])`);
-    if (batchCard) {
-      batchCard.style.backgroundColor = '#ffebee';
-      batchCard.style.transition = 'background-color 0.3s ease';
-    }
-    
-    const loadingElement = document.createElement('div');
-    loadingElement.className = 'batch-operation-loader position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center';
-    loadingElement.style.backgroundColor = 'rgba(220,53,69,0.1)';
-    loadingElement.style.zIndex = '100';
-    loadingElement.innerHTML = `
-      <div class="bg-white p-3 rounded shadow d-flex align-items-center">
-        <div class="spinner-border text-danger me-2" role="status">
-          <span class="visually-hidden">Verarbeite...</span>
-        </div>
-        <span>Lösche Batch und alle Jobs...</span>
-      </div>
-    `;
-    
-    if (batchCard) {
-      batchCard.style.position = 'relative';
-      batchCard.appendChild(loadingElement);
-    }
-    
-    // Effizientere Lösung: Direkt den Batch löschen (dieser löscht auch alle Jobs)
-    fetch(`/api/dashboard/event-monitor/batches/${batchId}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`Fehler beim Löschen des Batches: ${response.statusText}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      console.log(`Batch ${batchId} erfolgreich gelöscht:`, data);
-      
-      // Erfolgsmeldung anzeigen
-      const toast = document.createElement('div');
-      toast.className = 'toast align-items-center text-white bg-danger border-0 position-fixed bottom-0 end-0 m-3';
-      toast.setAttribute('role', 'alert');
-      toast.setAttribute('aria-live', 'assertive');
-      toast.setAttribute('aria-atomic', 'true');
-      toast.innerHTML = `
-        <div class="d-flex">
-          <div class="toast-body">
-            Batch ${batchId} und alle zugehörigen Jobs wurden erfolgreich gelöscht.
-          </div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-      `;
-      document.body.appendChild(toast);
-      
-      const bsToast = new bootstrap.Toast(toast);
-      bsToast.show();
-      
-      // Batch-Karte ausblenden und entfernen
-      if (batchCard) {
-        batchCard.style.transition = 'all 0.5s ease';
-        batchCard.style.opacity = '0';
-        batchCard.style.maxHeight = '0';
-        batchCard.style.overflow = 'hidden';
-        
-        setTimeout(() => {
-          batchCard.remove();
-        }, 500);
-      }
-    })
-    .catch(error => {
-      console.error('Fehler beim Löschen des Batches:', error);
-      
-      // Entferne Lade-Animation und setze Anzeige zurück
-      if (batchCard) {
-        batchCard.style.backgroundColor = '';
-        const loader = batchCard.querySelector('.batch-operation-loader');
-        if (loader) {
-          loader.remove();
-        }
-      }
-      
-      // Fehlermeldung anzeigen
-      alert(`Fehler beim Löschen des Batches: ${error.message}`);
-    });
-  }
-
-  function archiveBatch(batchId) {
-    // Bestätigung vom Benutzer einholen
-    if (!confirm(`Möchten Sie wirklich den Batch ${batchId} archivieren?`)) {
-      return;
-    }
-    
-    // Erneute Bestätigung für kritische Aktion
-    if (!confirm('Dieser Batch wird in der Hauptansicht nicht mehr angezeigt und erscheint stattdessen im Archiv. Fortfahren?')) {
-      return;
-    }
-    
-    // Lade-Animation anzeigen
-    const batchCard = document.querySelector(`.card:has([data-batch-id="${batchId}"])`);
-    if (batchCard) {
-      batchCard.style.opacity = '0.7';
-    }
-    
-    const loadingElement = document.createElement('div');
-    loadingElement.className = 'batch-operation-loader position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center';
-    loadingElement.style.backgroundColor = 'rgba(0,0,0,0.1)';
-    loadingElement.style.zIndex = '100';
-    loadingElement.innerHTML = `
-      <div class="bg-white p-3 rounded shadow d-flex align-items-center">
-        <div class="spinner-border text-primary me-2" role="status">
-          <span class="visually-hidden">Verarbeite...</span>
-        </div>
-        <span>Archiviere Batch...</span>
-      </div>
-    `;
-    
-    if (batchCard) {
-      batchCard.style.position = 'relative';
-      batchCard.appendChild(loadingElement);
-    }
-    
-    // Batch archivieren
-    fetch(`/api/dashboard/event-monitor/batches/${batchId}/archive`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP Fehler: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      console.log('Batch erfolgreich archiviert:', data);
-      
-      // Entferne Lade-Animation
-      if (loadingElement) {
-        loadingElement.remove();
-      }
-      
-      // Nach kurzer Verzögerung die Card ausblenden und entfernen
-      if (batchCard) {
-        batchCard.style.transition = 'all 0.5s ease';
-        batchCard.style.opacity = '0';
-        batchCard.style.height = '0';
-        batchCard.style.overflow = 'hidden';
-        
-        setTimeout(() => {
-          batchCard.remove();
-        }, 500);
-      }
-      
-      // Erfolgsmeldung anzeigen
-      const toast = document.createElement('div');
-      toast.className = 'toast align-items-center text-white bg-success border-0 position-fixed bottom-0 end-0 m-3';
-      toast.setAttribute('role', 'alert');
-      toast.setAttribute('aria-live', 'assertive');
-      toast.setAttribute('aria-atomic', 'true');
-      toast.innerHTML = `
-        <div class="d-flex">
-          <div class="toast-body">
-            Batch ${batchId} wurde erfolgreich archiviert.
-          </div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-      `;
-      document.body.appendChild(toast);
-      
-      const bsToast = new bootstrap.Toast(toast);
-      bsToast.show();
-    })
-    .catch(error => {
-      console.error('Fehler beim Archivieren des Batches:', error);
-      
-      // Entferne Lade-Animation
-      if (loadingElement) {
-        loadingElement.remove();
-      }
-      
-      // Zustand der Batch-Card wiederherstellen
-      if (batchCard) {
-        batchCard.style.opacity = '1';
-      }
-      
-      // Fehlermeldung anzeigen
-      alert(`Fehler beim Archivieren des Batches: ${error.message}`);
-    });
-  }
-
-  // Dokument geladen
-  document.addEventListener('DOMContentLoaded', function() {
-    // Variablen für Auto-Refresh
-    let refreshInterval = null;
-    const refreshTime = 10000; // 10 Sekunden
-    
-    // Auto-Refresh-Schalter
-    const autoRefreshSwitch = document.getElementById('autoRefreshSwitch');
-    if (autoRefreshSwitch) {
-      autoRefreshSwitch.addEventListener('change', function() {
-        if (this.checked) {
-          // Auto-Refresh aktivieren
-          refreshInterval = setInterval(refreshData, refreshTime);
-          console.log('Auto-Refresh aktiviert');
-        } else {
-          // Auto-Refresh deaktivieren
-          if (refreshInterval) {
-            clearInterval(refreshInterval);
-            refreshInterval = null;
-            console.log('Auto-Refresh deaktiviert');
-          }
-        }
-      });
-    }
-    
-    // Manuelles Refresh
-    const refreshBtn = document.getElementById('refreshBtn');
-    if (refreshBtn) {
-      refreshBtn.addEventListener('click', function() {
-        refreshData();
-      });
-    }
-    
-    // Archiv-Tab wechseln
-    const archiveTab = document.getElementById('archive-tab');
-    if (archiveTab) {
-      archiveTab.addEventListener('click', function() {
-        loadArchive();
-      });
-    }
-    
-    // Archiv laden
-    function loadArchive() {
-      const archiveContent = document.getElementById('archive-content');
-      if (!archiveContent) return;
-      
-      archiveContent.innerHTML = `
-        <div class="d-flex justify-content-center py-4">
-          <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Laden...</span>
-          </div>
-        </div>
-      `;
-      
-      // API-Anfrage, um archivierte Batches zu laden
-      fetch('/api/dashboard/event-monitor/batches?archived=true&limit=50')
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Netzwerkantwort war nicht ok');
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('Archivdaten geladen:', data);
-          
-          // Debug: Ausgabe der vollständigen Antwort
-          console.log('Vollständige API-Antwort für Archive:', JSON.stringify(data, null, 2));
-          
-          let batches = [];
-          
-          // Prüfe verschiedene mögliche Datenstrukturen
-          if (data.data && data.data.batches) {
-            console.log('Batches gefunden in data.data.batches:', data.data.batches);
-            batches = data.data.batches;
-          } else if (data.batches) {
-            console.log('Batches gefunden in data.batches:', data.batches);
-            batches = data.batches;
-          } else {
-            console.warn('Keine Batches in der Antwort gefunden!');
-          }
-          
-          if (batches && batches.length > 0) {
-            let html = '';
-            
-            batches.forEach((batch, index) => {
-              html += `
-                <div class="card">
-                  <div class="card-header">
-                    <div class="batch-info">
-                      <strong>${batch.batch_name || batch.batch_id}</strong>
-                      <span class="batch-meta">${formatDateTime(batch.created_at)}</span>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                      <span class="status-badge ${getStatusBadgeClass(batch.status)}">
-                        ${batch.status}
-                      </span>
-                      <span>${batch.total_jobs} Jobs (${batch.completed_jobs} abgeschlossen, ${batch.failed_jobs} fehlgeschlagen)</span>
-                      <button class="btn btn-sm btn-outline-primary ms-2" type="button" 
-                              onclick="loadJobsForBatch('${batch.batch_id}', 'archive-${index}')">
-                        <span id="jobs-toggle-text-archive-${index}">Jobs anzeigen</span>
-                      </button>
-                      <div class="dropdown d-inline-block ms-2">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                                id="batchActionsDropdownArchive${index}" data-bs-toggle="dropdown" aria-expanded="false">
-                          Batch-Aktionen
-                        </button>
-                        <ul class="dropdown-menu" aria-labelledby="batchActionsDropdownArchive${index}">
-                          <li><a class="dropdown-item" href="#" onclick="restartBatch('${batch.batch_id}'); return false;">Batch neu starten</a></li>
-                          <li><hr class="dropdown-divider"></li>
-                          <li><a class="dropdown-item text-danger" href="#" onclick="deleteBatch('${batch.batch_id}'); return false;">Batch löschen</a></li>
-                        </ul>
-                      </div>
-                      <div id="jobs-loading-archive-${index}" class="d-none">
-                        <div class="d-flex align-items-center">
-                          <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                            <span class="visually-hidden">Laden...</span>
-                          </div>
-                          <span>Laden...</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="card-body" id="card-body-archive-${index}">
-                    <div class="table-responsive d-none" id="table-container-archive-${index}">
-                      <table class="table table-hover job-table mb-0">
-                        <thead>
-                          <tr>
-                            <th>Status</th>
-                            <th>Job-Name</th>
-                            <th>URL</th>
-                            <th>Typ</th>
-                            <th>Fortschritt</th>
-                            <th>Erstellt</th>
-                            <th>Aktionen</th>
-                          </tr>
-                        </thead>
-                        <tbody id="archive-jobs-container-${index}">
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              `;
-            });
-            
-            archiveContent.innerHTML = html;
-          } else {
-            archiveContent.innerHTML = `
-              <div class="alert alert-info">
-                <i class="fas fa-info-circle me-2"></i> Keine archivierten Batches gefunden.
-              </div>
-            `;
-          }
-        })
-        .catch(error => {
-          console.error('Fehler beim Laden der archivierten Batches:', error);
-          archiveContent.innerHTML = `
-            <div class="alert alert-danger">
-              <i class="fas fa-exclamation-circle me-2"></i> 
-              Fehler beim Laden der archivierten Batches: ${error.message}
-            </div>
-          `;
-        });
-    }
-    
-    // Daten aktualisieren
-    function refreshData() {
-      // Seite neu laden (einfache Methode)
-      window.location.reload();
-      
-      // Alternativ könnte hier eine AJAX-Anfrage implementiert werden,
-      // die nur die Daten aktualisiert, ohne die Seite neu zu laden
-    }
-  });
+  // Diese Funktion wird vom event-monitor.js aufgerufen
+  // Eventuelle zusätzliche seitenspezifische JavaScript-Funktionen hier
 </script>
 {% endblock %} 

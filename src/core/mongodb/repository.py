@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional, Union
 import datetime
 import logging
 import json
+import time
 
 from src.core.models.job_models import Job, Batch, JobStatus, LogEntry, JobProgress, JobError, JobResults
 from .connection import get_mongodb_database
@@ -105,67 +106,73 @@ class EventJobRepository:
         Aktualisiert den Status eines Jobs.
         
         Args:
-            job_id: Job-ID
+            job_id: ID des Jobs
             status: Neuer Status (pending, processing, completed, failed)
-            progress: Optional, Fortschrittsinformationen
-            results: Optional, Ergebnisse
-            error: Optional, Fehlerinformationen
+            progress: Optionaler Fortschritt (als Dictionary oder JobProgress-Objekt)
+            results: Optionale Ergebnisse (als Dictionary oder JobResults-Objekt)
+            error: Optionaler Fehler (als Dictionary oder JobError-Objekt)
             
         Returns:
-            bool: True, wenn der Job aktualisiert wurde, sonst False
+            bool: True, wenn die Aktualisierung erfolgreich war, sonst False
         """
-        # Status zu Enum konvertieren, falls es ein String ist
-        if type(status) is not JobStatus:
+        # Status konvertieren, falls als String übergeben
+        if isinstance(status, str):
             status = JobStatus(status)
         
-        # Aktuelle Zeit für die Aktualisierung
+        # Aktualisierungs-Dictionary erstellen
         now = datetime.datetime.now(datetime.UTC)
-        
-        # Aktualisierungsdaten vorbereiten
-        update_data: Dict[str, Any] = {
+        update_dict: Dict[str, Any] = {
             "status": status.value,
             "updated_at": now
         }
         
-        # Startzeit setzen, wenn der Job gestartet wird
-        job = self.get_job(job_id)
-        if job and status == JobStatus.PROCESSING and not job.started_at:
-            update_data["started_at"] = now
+        # Wenn Status auf "processing" gesetzt wird, setze processing_started_at
+        if status == JobStatus.PROCESSING:
+            update_dict["processing_started_at"] = now
         
-        # Endzeit setzen, wenn der Job abgeschlossen oder fehlgeschlagen ist
+        # Wenn Status auf "completed" oder "failed" gesetzt wird, setze completed_at
         if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
-            update_data["completed_at"] = now
+            update_dict["completed_at"] = now
         
-        # Optionale Daten hinzufügen
+        # Progress hinzufügen, falls vorhanden
         if progress:
             if isinstance(progress, dict):
-                progress = JobProgress.from_dict(progress)
-            update_data["progress"] = progress.to_dict()
-            
+                update_dict["progress"] = progress
+            else:
+                update_dict["progress"] = progress.to_dict()
+                
+        # Results hinzufügen, falls vorhanden
         if results:
             if isinstance(results, dict):
-                results = JobResults.from_dict(results)
-            update_data["results"] = results.to_dict()
-            
+                update_dict["results"] = results
+            else:
+                update_dict["results"] = results.to_dict()
+                
+        # Error hinzufügen, falls vorhanden
         if error:
             if isinstance(error, dict):
-                error = JobError.from_dict(error)
-            update_data["error"] = error.to_dict()
+                update_dict["error"] = error
+            else:
+                update_dict["error"] = error.to_dict()
         
-        # Job aktualisieren
-        result: UpdateResult = self.jobs.update_one(
+        # Job in der Datenbank aktualisieren
+        result = self.jobs.update_one(
             {"job_id": job_id},
-            {"$set": update_data}
+            {"$set": update_dict}
         )
         
         success = result.modified_count > 0
         
         if success:
             logger.info(f"Job-Status aktualisiert: {job_id} -> {status.value}")
-            logger.debug(f"Update-Daten: {json.dumps(update_data, default=str)}")
+            
+            # Wenn der Job Teil eines Batches ist, aktualisiere auch den Batch-Fortschritt
+            job_data = self.get_job(job_id)
+            if job_data and job_data.batch_id:
+                self.update_batch_progress(job_data.batch_id)
         else:
             logger.warning(f"Job-Status konnte nicht aktualisiert werden: {job_id}")
-        
+            
         return success
     
     def add_log_entry(self, job_id: str, level: str, message: str) -> bool:
@@ -545,13 +552,55 @@ class EventJobRepository:
         Returns:
             List[Job]: Liste der Jobs
         """
+        # Start der Zeitmessung
+        start_time = time.time()
+        
         # Jobs abfragen
-        job_data = self.jobs.find({"batch_id": batch_id}).sort("created_at", DESCENDING).skip(skip).limit(limit)
+        start_find = time.time()
+        
+        # Projektion verwenden, um nur die benötigten Felder zu laden
+        # Dies reduziert die Datenmenge, die übertragen werden muss
+        projection = {
+            "job_id": 1,
+            "status": 1,
+            "job_name": 1,
+            "created_at": 1,
+            "updated_at": 1,
+            "completed_at": 1,
+            "processing_started_at": 1,
+            "progress": 1,
+            "error": 1,
+            "batch_id": 1,
+            "user_id": 1,
+            "_id": 0  # _id nicht benötigt
+        }
+        
+        job_data = self.jobs.find(
+            {"batch_id": batch_id},
+            projection=projection
+        ).sort("created_at", DESCENDING).skip(skip).limit(limit)
+        
+        find_time = time.time() - start_find
+        
+        # Start der Konvertierung
+        start_convert = time.time()
         
         # Jobs in Objekte umwandeln
         jobs = [Job.from_dict(job) for job in job_data]
         
-        logger.debug(f"{len(jobs)} Jobs für Batch {batch_id} abgefragt")
+        # Ende der Konvertierung
+        convert_time = time.time() - start_convert
+        
+        # Ende der Zeitmessung
+        total_time = time.time() - start_time
+        
+        # Performance-Logging
+        logger.warning(
+            f"DB_PERF: get_jobs_for_batch | batch_id={batch_id} | jobs={len(jobs)} | "
+            f"find_time={round(find_time * 1000, 2)}ms | "
+            f"convert_time={round(convert_time * 1000, 2)}ms | "
+            f"total_time={round(total_time * 1000, 2)}ms"
+        )
         
         return jobs
     
@@ -769,7 +818,7 @@ class EventJobRepository:
         """
         now = datetime.datetime.now(datetime.UTC)
         
-        result = self.batches.update_one(
+        result: UpdateResult = self.batches.update_one(
             {"batch_id": batch_id},
             {
                 "$set": {
@@ -798,7 +847,7 @@ class EventJobRepository:
         """
         try:
             # Alle Jobs des Batches mit einem einzigen Aufruf löschen
-            result = self.jobs.delete_many({"batch_id": batch_id})
+            result: DeleteResult = self.jobs.delete_many({"batch_id": batch_id})
             
             deleted_count = result.deleted_count
             logger.info(f"Gelöschte Jobs für Batch {batch_id}: {deleted_count}")
@@ -806,4 +855,118 @@ class EventJobRepository:
             return deleted_count
         except Exception as e:
             logger.error(f"Fehler beim Löschen der Jobs für Batch {batch_id}: {str(e)}", exc_info=True)
-            raise 
+            raise
+    
+    def get_batch_with_current_stats(self, batch_id: str) -> Optional[Batch]:
+        """
+        Gibt einen Batch anhand seiner ID zurück und füllt die aktuellen Statistiken aus.
+        Zählt die Jobs in verschiedenen Status (pending, processing, completed, failed).
+        
+        Args:
+            batch_id: Batch-ID
+            
+        Returns:
+            Optional[Batch]: Batch-Objekt mit aktuellen Statistiken oder None, wenn nicht gefunden
+        """
+        batch = self.get_batch(batch_id)
+        
+        if not batch:
+            logger.warning(f"Batch nicht gefunden: {batch_id}")
+            return None
+        
+        # Zähle Jobs nach Status
+        completed_jobs = self.jobs.count_documents({
+            "batch_id": batch_id,
+            "status": JobStatus.COMPLETED.value
+        })
+        
+        failed_jobs = self.jobs.count_documents({
+            "batch_id": batch_id,
+            "status": JobStatus.FAILED.value
+        })
+        
+        pending_jobs = self.jobs.count_documents({
+            "batch_id": batch_id,
+            "status": JobStatus.PENDING.value
+        })
+        
+        processing_jobs = self.jobs.count_documents({
+            "batch_id": batch_id,
+            "status": JobStatus.PROCESSING.value
+        })
+        
+        # Batch-Objekt aktualisieren (ohne in der DB zu speichern)
+        batch.completed_jobs = completed_jobs
+        batch.failed_jobs = failed_jobs
+        batch.pending_jobs = pending_jobs
+        batch.processing_jobs = processing_jobs
+        
+        # Berechne auch den Gesamtfortschritt neu
+        total_jobs = completed_jobs + failed_jobs + pending_jobs + processing_jobs
+        if total_jobs > 0:
+            batch.total_jobs = total_jobs
+        
+        return batch
+    
+    def reset_stalled_jobs(self, max_processing_time_minutes: int = 10) -> int:
+        """
+        Findet und setzt Jobs zurück, die im processing-Status hängengeblieben sind.
+        Ein Job gilt als hängengeblieben, wenn er länger als die angegebene Zeit im processing-Status ist.
+        
+        Args:
+            max_processing_time_minutes: Maximale Verarbeitungszeit in Minuten, nach der ein Job als hängengeblieben gilt
+            
+        Returns:
+            int: Anzahl der zurückgesetzten Jobs
+        """
+        # Berechne das Zeitlimit
+        now = datetime.datetime.now(datetime.UTC)
+        time_limit = now - datetime.timedelta(minutes=max_processing_time_minutes)
+        
+        # Finde Jobs, die im processing-Status hängengeblieben sind
+        query = {
+            "status": JobStatus.PROCESSING.value,
+            "processing_started_at": {"$lt": time_limit}
+        }
+        
+        # Aktualisiere die Jobs auf failed-Status mit einer Fehlermeldung
+        update = {
+            "$set": {
+                "status": JobStatus.FAILED.value,
+                "updated_at": now,
+                "completed_at": now,
+                "error": {
+                    "code": "PROCESSING_TIMEOUT",
+                    "message": f"Der Job wurde automatisch beendet, da er länger als {max_processing_time_minutes} Minuten im processing-Status war.",
+                    "details": {
+                        "timeout_minutes": max_processing_time_minutes,
+                        "processing_started_at": {"$toString": "$processing_started_at"}
+                    }
+                }
+            }
+        }
+        
+        try:
+            # Führe die Aktualisierung durch
+            result = self.jobs.update_many(query, update)
+            reset_count = result.modified_count
+            
+            if reset_count > 0:
+                logger.info(f"{reset_count} hängengebliebene Jobs zurückgesetzt (Timeout: {max_processing_time_minutes} min)")
+                
+                # Aktualisiere die Batch-Fortschritte für betroffene Batches
+                affected_batches = set()
+                stalled_jobs = self.jobs.find({"status": JobStatus.FAILED.value, "error.code": "PROCESSING_TIMEOUT"})
+                
+                for job in stalled_jobs:
+                    if "batch_id" in job and job["batch_id"]:
+                        affected_batches.add(job["batch_id"])
+                
+                for batch_id in affected_batches:
+                    self.update_batch_progress(batch_id)
+            
+            return reset_count
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Zurücksetzen hängengebliebener Jobs: {str(e)}", exc_info=True)
+            return 0 

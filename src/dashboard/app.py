@@ -13,6 +13,7 @@ from flask import Flask
 from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
 from src.core.mongodb import get_worker_manager, close_mongodb_connection
+from utils.logger import ProcessingLogger
 
 from .routes.config_routes import config
 from .routes.log_routes import logs
@@ -25,9 +26,9 @@ app = Flask(__name__)
 
 # Nur Logger initialisieren, wenn es nicht der Reloader-Prozess ist
 if not os.environ.get('WERKZEUG_RUN_MAIN'):
-    logger = get_logger(process_id="flask-app")
+    logger: ProcessingLogger = get_logger(process_id="flask-app")
 else:
-    logger = get_logger(process_id="flask-app-reloader")
+    logger: ProcessingLogger = get_logger(process_id="flask-app-reloader")
 
 # Register blueprints
 app.register_blueprint(main)
@@ -71,8 +72,11 @@ def before_request() -> None:
         # Worker-Manager starten
         try:
             _worker_manager = get_worker_manager()
-            _worker_manager.start()
-            logger.info("Worker-Manager gestartet")
+            if _worker_manager is not None:
+                _worker_manager.start()
+                logger.info("Worker-Manager gestartet")
+            else:
+                logger.info("Worker-Manager ist deaktiviert (event_worker.active=False in config.yaml)")
         except Exception as e:
             logger.error(f"Fehler beim Starten des Worker-Managers: {str(e)}")
         

@@ -7,8 +7,9 @@ from typing import (
     Optional, 
     Union, 
     Any,
-    cast,
-    Protocol
+    cast as type_cast,
+    Protocol,
+    Coroutine
 )
 from pathlib import Path
 import os
@@ -1015,7 +1016,7 @@ class WhisperTranscriber:
         
         # Hilfsfunktion zum Umgang mit Kapiteln
         if segments and isinstance(next(iter(segments)), Chapter):
-            chapters: List[Chapter] = cast(List[Chapter], segments)
+            chapters: List[Chapter] = type_cast(List[Chapter], segments)
             for chapter in chapters:
                 if chapter.title and chapter.title.strip():
                     combined_text_parts.append(f"\n## {chapter.title}\n")
@@ -1023,7 +1024,7 @@ class WhisperTranscriber:
                 if logger:
                     logger.info(f"TRANSKRIPTION-DEBUG: Kapitel '{chapter.title}' mit {len(chapter.segments)} Segmenten extrahiert")
         else:
-            all_segments = cast(List[AudioSegmentInfo], segments)
+            all_segments = type_cast(List[AudioSegmentInfo], segments)
             if logger:
                 logger.info(f"TRANSKRIPTION-DEBUG: {len(all_segments)} Segmente direkt verarbeitet")
 
@@ -1043,7 +1044,7 @@ class WhisperTranscriber:
                 logger.info(f"TRANSKRIPTION-DEBUG: Verarbeite Batch {batch_start//BATCH_SIZE + 1} mit {len(current_batch)} Segmenten")
             
             # Erstelle Tasks für alle Segmente im aktuellen Batch
-            segment_tasks = []
+            segment_tasks: List[Coroutine[Any, Any, TranscriptionResult]] = []
             for i, segment in enumerate(current_batch):
                 segment_index = batch_start + i
                 segment_tasks.append(self.transcribe_segment(
@@ -1057,7 +1058,9 @@ class WhisperTranscriber:
             
             # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse
             try:
-                batch_results = await asyncio.gather(*segment_tasks)
+                # Expliziter Typecast für die Ergebnisse
+                results = await asyncio.gather(*segment_tasks)
+                batch_results: List[TranscriptionResult] = type_cast(List[TranscriptionResult], results)
                 
                 # Verarbeite die Ergebnisse des Batches
                 for i, result in enumerate(batch_results):

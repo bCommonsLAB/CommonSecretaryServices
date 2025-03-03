@@ -19,7 +19,7 @@ from src.processors.event_processor import EventProcessor
 from src.core.resource_tracking import ResourceCalculator
 
 # Logger initialisieren
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Verzögerter Import innerhalb der Funktionen
 def _get_job_repository():
@@ -49,6 +49,11 @@ class EventWorkerManager:
         self.job_repo = _get_job_repository()
         self.resource_calculator = ResourceCalculator()
         
+        # Einstellungen für die Erkennung hängengebliebener Jobs
+        self.stalled_job_check_interval = 60  # Sekunden zwischen Prüfungen
+        self.max_processing_time_minutes = 10  # Jobs gelten nach 10 Minuten als hängengeblieben
+        self.last_stalled_job_check = 0  # Timestamp der letzten Prüfung
+        
         logger.info(f"EventWorkerManager initialisiert (max_workers={max_concurrent_workers}, poll_interval={poll_interval_sec}s)")
     
     def start(self) -> None:
@@ -60,6 +65,10 @@ class EventWorkerManager:
             return
         
         self.stop_flag = False
+        
+        # Beim Start hängengebliebene Jobs bereinigen
+        self._cleanup_stalled_jobs()
+        
         self.monitor_thread = threading.Thread(target=self._monitor_jobs)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
@@ -99,12 +108,21 @@ class EventWorkerManager:
     
     def _monitor_jobs(self) -> None:
         """
-        Überwacht die Job-Queue und startet Worker-Threads für ausstehende Jobs.
+        Überwachungsschleife für Jobs.
+        Prüft regelmäßig, ob neue Jobs vorhanden sind und startet Worker für sie.
         """
-        logger.info("Job-Monitor gestartet")
+        last_log_time = 0
+        self.last_stalled_job_check = time.time()
         
         while not self.stop_flag:
             try:
+                current_time = time.time()
+                
+                # Prüfe auf hängengebliebene Jobs
+                if current_time - self.last_stalled_job_check > self.stalled_job_check_interval:
+                    self._cleanup_stalled_jobs()
+                    self.last_stalled_job_check = current_time
+                
                 # Bereinige beendete Worker
                 self._cleanup_workers()
                 
@@ -406,25 +424,45 @@ class EventWorkerManager:
             )
             
             logger.error(f"Job {job_id} fehlgeschlagen: {error_info.message}")
+    
+    def _cleanup_stalled_jobs(self) -> None:
+        """
+        Bereinigt Jobs, die im processing-Status hängengeblieben sind.
+        """
+        try:
+            reset_count = self.job_repo.reset_stalled_jobs(self.max_processing_time_minutes)
+            if reset_count > 0:
+                logger.info(f"{reset_count} hängengebliebene Jobs zurückgesetzt (älter als {self.max_processing_time_minutes} min)")
+        except Exception as e:
+            logger.error(f"Fehler beim Bereinigen hängengebliebener Jobs: {str(e)}", exc_info=True)
 
 # Singleton-Instanz des Worker-Managers
 _worker_manager = None
 
-def get_worker_manager() -> EventWorkerManager:
+def get_worker_manager() -> Optional[EventWorkerManager]:
     """
-    Gibt eine Singleton-Instanz des EventWorkerManager zurück.
+    Gibt eine Singleton-Instanz des EventWorkerManager zurück, wenn in der
+    Konfiguration event_worker.active=True gesetzt ist. Ansonsten None.
     
     Returns:
-        EventWorkerManager: Worker-Manager-Instanz
+        Optional[EventWorkerManager]: Worker-Manager-Instanz oder None
     """
     global _worker_manager
     
-    if _worker_manager is None:
-        # Konfiguration laden
-        from src.core.config import Config
-        config = Config()
-        worker_config = config.get('event_worker', {})
-        
+    # Konfiguration laden
+    from src.core.config import Config
+    config = Config()
+    worker_config = config.get('event_worker', {})
+    
+    # Prüfen, ob der Worker aktiv sein soll
+    is_active = worker_config.get('active', False)
+    
+    if not is_active:
+        logger.info("EventWorkerManager ist deaktiviert (event_worker.active=False in config.yaml)")
+        return None
+    
+    # Worker-Manager nur initialisieren, wenn er aktiv sein soll
+    if _worker_manager is None and is_active:
         max_concurrent = worker_config.get('max_concurrent', 5)
         poll_interval_sec = worker_config.get('poll_interval_sec', 5)
         
@@ -432,5 +470,6 @@ def get_worker_manager() -> EventWorkerManager:
             max_concurrent_workers=max_concurrent,
             poll_interval_sec=poll_interval_sec
         )
+        logger.info(f"EventWorkerManager wurde initialisiert (active=True, max_workers={max_concurrent})")
     
     return _worker_manager 

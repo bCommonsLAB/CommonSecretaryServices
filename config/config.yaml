@@ -3,6 +3,7 @@ cache:
   cleanup_interval: 24
   max_age_days: 7
 event_worker:
+  active: true
   max_concurrent: 5
   poll_interval_sec: 5
 logging:

@@ -2,26 +2,36 @@
 Main routes for the dashboard application.
 Contains the main dashboard view and test routes.
 """
-from flask import Blueprint, render_template, jsonify, request, make_response, redirect, url_for
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 from datetime import datetime, timedelta
 import json
 import os
 import re
+from typing import Any, Dict, List, cast, Optional
+
+from core.config import ApplicationConfig
+from utils.logger import ProcessingLogger
 from ..utils import get_system_info
 from pathlib import Path
 import yaml
 from src.core.config import Config
 from src.utils.logger import get_logger
 from .tests import run_youtube_test, run_audio_test, run_transformer_test, run_health_test
-import ast
-import asyncio
 import requests  # Neu hinzugefügt für API-Anfragen
+import markdown  # type: ignore
+from src.core.mongodb.repository import EventJobRepository
+from src.core.mongodb import get_job_repository
 
 # Create the blueprint
 main = Blueprint('main', __name__)
-logger = get_logger(process_id="dashboard")
+logger: ProcessingLogger = get_logger(process_id="dashboard")
 
-def load_logs_for_requests(recent_requests):
+# Funktion zur Markdown-Konvertierung
+def render_markdown(text: str) -> str:
+    """Konvertiert Markdown-Text in HTML"""
+    return markdown.markdown(text)
+
+def load_logs_for_requests(recent_requests: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """
     Load log entries for a list of requests from the detailed log file
     
@@ -35,7 +45,7 @@ def load_logs_for_requests(recent_requests):
     config = Config()
     log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
     log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', log_file)
-    request_logs = {}
+    request_logs: dict[str, list[dict[str, Any]]] = {}
     
     try:
         with open(log_path, 'r') as f:
@@ -55,9 +65,9 @@ def load_logs_for_requests(recent_requests):
                                 details_text = '\n'.join(details_lines)
                                 if details_text.startswith('Details: '):
                                     details_text = details_text[9:]
-                                current_entry['details'] = json.loads(details_text)
+                                current_entry['details'] = cast(Any, json.loads(details_text))
                             except json.JSONDecodeError:
-                                current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                                current_entry['details'] = cast(Any, {'raw': '\n'.join(details_lines)})
                         
                         if current_entry['process_id'] in request_logs:
                             request_logs[current_entry['process_id']].append(current_entry)
@@ -127,9 +137,9 @@ def load_logs_for_requests(recent_requests):
                         details_text = '\n'.join(details_lines)
                         if details_text.startswith('Details: '):
                             details_text = details_text[9:]
-                        current_entry['details'] = json.loads(details_text)
+                        current_entry['details'] = cast(Any, json.loads(details_text))
                     except json.JSONDecodeError:
-                        current_entry['details'] = {'raw': '\n'.join(details_lines)}
+                        current_entry['details'] = cast(Any, {'raw': '\n'.join(details_lines)})
                 
                 # Add to request logs if process_id matches
                 if current_entry['process_id'] in request_logs:
@@ -143,29 +153,20 @@ def load_logs_for_requests(recent_requests):
 @main.route('/')
 def home():
     """
-    Home page with dashboard overview
-    
-    This function:
-    1. Loads performance data from the last 24 hours
-    2. Calculates statistics (total requests, average duration, success rate)
-    3. Aggregates operation statistics
-    4. Creates hourly statistics
-    5. Processes the most recent requests with their details
-    6. Loads associated logs for each request
-    
-    Returns:
-        rendered template: The dashboard.html template with statistics and system information
+    Dashboard main page route.
+    Displays statistics about recent requests.
     """
     # Initialize statistics
-    stats = {
+    stats: dict[str, Any] = {
         'total_requests': 0,
         'avg_duration': 0.0,
         'success_rate': 0.0,
+        'total_tokens': 0,
         'hourly_tokens': 0,
         'operations': {},
+        'processor_stats': {},
         'hourly_stats': {},
-        'recent_requests': [],
-        'processor_stats': {}
+        'recent_requests': []
     }
     
     try:
@@ -189,7 +190,7 @@ def home():
         day_ago = now - timedelta(days=1)
         
         # Filter recent requests and ensure timestamp is valid
-        recent_requests = []
+        recent_requests: list[dict[str, Any]] = []
         for r in perf_data:
             try:
                 timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
@@ -218,7 +219,10 @@ def home():
             for r in recent_requests:
                 for op in r.get('operations', []):
                     op_name = op.get('name', 'unknown')
-                    stats['operations'][op_name] = stats['operations'].get(op_name, 0) + 1
+                    if 'operations' not in stats:
+                        stats['operations'] = {}
+                    operations_dict = cast(Dict[str, int], stats['operations'])
+                    operations_dict[op_name] = operations_dict.get(op_name, 0) + 1
             
             # Processor statistics
             for r in recent_requests:
@@ -254,7 +258,7 @@ def home():
                     proc_stats['avg_cost'] = proc_stats['total_cost'] / req_count
             
             # Hourly statistics
-            hour_counts = {}
+            hour_counts: Dict[str, int] = {}
             for r in recent_requests:
                 try:
                     hour = datetime.strptime(r['timestamp'], '%Y-%m-%d %H:%M:%S').strftime('%H:00')
@@ -264,7 +268,7 @@ def home():
                     continue
             
             # Sort hours and create final hourly stats
-            sorted_hours = sorted(hour_counts.keys())
+            sorted_hours = sorted(list(hour_counts.keys()))
             stats['hourly_stats'] = {hour: hour_counts[hour] for hour in sorted_hours}
             
             # Process recent requests (last 10)
@@ -276,22 +280,21 @@ def home():
             request_logs = load_logs_for_requests(recent_requests)
             for request in recent_requests:
                 process_id = request.get('process_id')
-                request['logs'] = request_logs.get(process_id, [])
+                request['logs'] = request_logs.get(process_id, []) if process_id else []
                 
                 # Get the main operation
-                main_op = next((op for op in request.get('operations', []) 
-                              if op.get('name') == request.get('operation')), {})
-                
-                # Get the processor data
-                processor_name = main_op.get('processor', '')
-                processor_data = request.get('processors', {}).get(processor_name, {})
+                main_op: Dict[str, Any] = {}
+                for op in request.get('operations', []):
+                    if op.get('name') == request.get('operation'):
+                        main_op = op
+                        break
                 
                 # Prepare the main process data
                 request['main_process'] = {
                     'timestamp': request['timestamp'],
                     'duration_seconds': float(request.get('total_duration', 0)),
                     'operation': main_op.get('name', ''),
-                    'processor': processor_name,
+                    'processor': main_op.get('processor', ''),
                     'success': request.get('status') == 'success',
                     'file_size': request.get('file_size', 0),
                     'duration': main_op.get('duration', 0),
@@ -333,7 +336,10 @@ def save_config():
             api_key = config_data['api_keys']['openai_api_key']
             if api_key and not api_key.startswith('sk-...'):  # Nur speichern wenn es kein maskierter Key ist
                 try:
-                    config.set_api_key(api_key)
+                    # Verwende die ConfigKeys-Klasse anstatt config.set_api_key
+                    from src.core.config_keys import ConfigKeys
+                    config_keys = ConfigKeys()
+                    config_keys.set_openai_api_key(api_key)
                     api_key_updated = True
                 except ValueError as e:
                     return jsonify({"status": "error", "message": str(e)}), 400
@@ -359,7 +365,7 @@ def save_config():
         })
         
     except Exception as e:
-        logger.error("Fehler beim Speichern der Konfiguration", error=str(e))
+        logger.error("Fehler beim Speichern der Konfiguration", exc_info=e)
         return jsonify({"status": "error", "message": f"Fehler beim Speichern: {str(e)}"}), 500
 
 @main.route('/config')
@@ -382,7 +388,7 @@ def config_page():
             
         return render_template('config.html', config=config_yaml)
     except Exception as e:
-        logger.error("Fehler beim Laden der Konfiguration", error=str(e))
+        logger.error("Fehler beim Laden der Konfiguration", exc_info=e)
         print("Error:", str(e))  # Debug-Ausgabe
         return render_template('config.html', config="", error=str(e))
 
@@ -440,7 +446,7 @@ def logs():
     try:
         # Lade Konfiguration
         config = Config()
-        config_data = config.get_all()
+        config_data: ApplicationConfig = config.get_all()
         
         max_entries = config_data.get('logging', {}).get('max_log_entries', 1000)
         log_file = config_data.get('logging', {}).get('file', 'logs/detailed.log')
@@ -488,52 +494,47 @@ def clear_logs():
 @main.route('/api/recent-requests')
 def get_recent_requests():
     """
-    API endpoint to get the latest requests for auto-refresh
+    API-Endpunkt zum Abrufen der neuesten Anfragen.
+    Gibt die letzten 10 Anfragen zurück.
+    
+    Returns:
+        Response: JSON mit den neuesten Anfragen
     """
     try:
         # Load performance data
         perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
         
         if not os.path.exists(perf_path):
-            return jsonify({'html': '<div class="text-muted">Keine Daten verfügbar</div>'})
+            return jsonify([])
             
         with open(perf_path, 'r') as f:
             perf_data = json.load(f)
             
         if not perf_data:
-            return jsonify({'html': '<div class="text-muted">Keine Anfragen vorhanden</div>'})
+            return jsonify([])
             
-        # Calculate time window (last 24 hours)
+        # Calculate time window
         now = datetime.now()
         day_ago = now - timedelta(days=1)
         
-        # Filter and process recent requests
-        recent_requests = []
+        # Filter recent requests and ensure timestamp is valid
+        recent_requests: List[Dict[str, Any]] = []
         for r in perf_data:
             try:
                 timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
                 if timestamp > day_ago:
                     r['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    # Check if request is still running (no end_time in operations)
-                    operations = r.get('operations', [])
-                    if operations:
-                        last_op = operations[-1]
-                        if 'end_time' not in last_op:
-                            r['status'] = 'running'
-                            # Calculate current duration
-                            start_time = datetime.fromisoformat(last_op['start_time'].replace('Z', '+00:00'))
-                            r['total_duration'] = (now - start_time).total_seconds()
-                    
                     recent_requests.append(r)
             except (ValueError, KeyError) as e:
                 logger.error(f"Error processing request timestamp: {e}")
                 continue
         
         # Sort by timestamp (newest first) and take last 10
-        recent_requests = sorted(recent_requests, 
-                               key=lambda x: x['timestamp'],
-                               reverse=True)[:10]
+        recent_requests = sorted(
+            recent_requests,
+            key=lambda x: x.get('timestamp', ''),
+            reverse=True
+        )[:10]
         
         # Render only the requests list part
         html = render_template('_recent_requests.html', 
@@ -558,45 +559,29 @@ def event_monitor():
         max_concurrent_tasks = event_config.get('max_concurrent_tasks', 5)
         
         # Basis-URL für API-Anfragen
-        api_base_url = request.url_root.rstrip('/') + '/api/event-job'
+        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
         
         # Filterparameter aus dem Request
         status_filter = request.args.get('status', '')
         date_filter = request.args.get('date', '')
         
         # Aktuelle (nicht-archivierte) Batches abrufen
-        current_batches_url = f"{api_base_url}/batches?archived=false"
+        current_batches_url = f"{api_base_url}/api/event-job/batches?archived=false"
         if status_filter:
             current_batches_url += f"&status={status_filter}"
         
-        # Da wir im Backend sind, können wir direkt HTTP-Requests senden oder
-        # alternativ die Repository-Funktionen direkt aufrufen
         try:
             # HTTP-Request für aktuelle Batches
-            current_batches_response = requests.get(current_batches_url)
+            current_batches_response: requests.Response = requests.get(current_batches_url)
             current_batches_response.raise_for_status()
-            current_batches_data = current_batches_response.json()
+            current_batches_data: Dict[str, Any] = current_batches_response.json()
             
-            # Optional: Auch alle Jobs für diese Batches laden
+            # KEINE Jobs mehr vorab laden - das wird bei Bedarf über JavaScript gemacht
             jobs_data = {}
-            # Anpassen an die tatsächliche API-Struktur (batches anstatt data.batches)
-            for batch in current_batches_data.get('batches', []):
-                batch_id = batch.get('batch_id')
-                if batch_id:
-                    jobs_url = f"{api_base_url}/jobs?batch_id={batch_id}"
-                    jobs_response = requests.get(jobs_url)
-                    if jobs_response.status_code == 200:
-                        # API-Antwort im Format: {"status": "success", "jobs": [...], "total": X}
-                        # oder: {"status": "success", "data": {"jobs": [...], "total": X}}
-                        response_data = jobs_response.json()
-                        if 'data' in response_data and 'jobs' in response_data['data']:
-                            jobs_data[batch_id] = response_data['data']['jobs']
-                        else:
-                            jobs_data[batch_id] = response_data.get('jobs', [])
             
         except requests.RequestException as e:
             logger.error(f"Fehler beim Abrufen der aktuellen Batch-Daten: {str(e)}")
-            current_batches_data = {"batches": [], "total": 0}
+            current_batches_data: Dict[str, Any] = {"batches": [], "total": 0}
             jobs_data = {}
         
         # Daten für das Template vorbereiten
@@ -621,104 +606,59 @@ def event_monitor():
 @main.route('/api/dashboard/event-monitor/batches')
 def api_event_monitor_batches():
     """
-    API-Endpunkt zum Abrufen von Batch-Daten für das Event-Monitoring.
-    Dieser Endpunkt dient als Proxy für den API-Endpunkt /api/event-job/batches.
+    API-Endpunkt zum Abrufen von Batch-Daten für die Event-Monitor-Oberfläche.
+    Unterstützt Paginierung und Filterung.
     """
     try:
-        # Basis-URL für API-Anfragen
-        api_base_url = request.url_root.rstrip('/') + '/api/event-job'
+        # Query-Parameter extrahieren
+        params = request.args
+        status_filter = params.get('status', '')
+        archived_filter = params.get('archived', 'false').lower()  # Normalisieren zu Kleinbuchstaben
+        limit = int(params.get('limit', 100))
         
-        # Parameter aus dem Request übernehmen
-        params = {k: v for k, v in request.args.items()}
+        # Verwende verschiedene Routen basierend auf dem Status-Filter
+        config = Config()
+        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
         
-        # Unterstützung für archived-Parameter hinzufügen
-        archived = request.args.get('archived')
-        if archived is not None:
-            # Archived in booleschen Wert umwandeln
-            archived_bool = archived.lower() in ('true', '1', 'yes')
-            params['archived'] = str(archived_bool).lower()
+        # URL mit Status- und Archiv-Filter erstellen
+        base_url = f"{api_base_url}/api/event-job/batches?limit={limit}"
         
-        # Wenn es einen status-Parameter gibt, der Kommas enthält, müssen wir
-        # mehrere Anfragen senden und die Ergebnisse zusammenführen
-        if 'status' in params and ',' in params['status']:
-            status_list = params['status'].split(',')
-            del params['status']  # Status aus den Parametern entfernen
-            
-            # Liste für die zusammengeführten Batches
-            all_batches = []
-            total_count = 0
-            
-            # Für jeden Status-Wert eine separate Anfrage senden
-            for status in status_list:
-                # Parameter mit aktuellem Status erstellen
-                current_params = params.copy()
-                current_params['status'] = status
-                
-                # Batches für diesen Status abrufen
-                batches_url = f"{api_base_url}/batches"
-                if current_params:
-                    query_string = '&'.join([f"{k}={v}" for k, v in current_params.items()])
-                    batches_url += f"?{query_string}"
-                
-                try:
-                    batches_response = requests.get(batches_url)
-                    batches_response.raise_for_status()
-                    batches_data = batches_response.json()
-                    
-                    # Batches zur Gesamtliste hinzufügen
-                    if batches_data.get('status') == 'success':
-                        all_batches.extend(batches_data.get('batches', []))
-                        total_count += batches_data.get('total', 0)
-                except Exception as e:
-                    logger.warning(f"Fehler beim Abrufen der Batches für Status {status}: {str(e)}")
-                    # Fehler für einzelne Status ignorieren und mit dem nächsten fortfahren
-                    continue
-            
-            # Sortieren der zusammengeführten Batches nach created_at (neueste zuerst)
-            all_batches.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-            
-            # Limit anwenden, falls vorhanden
-            limit = int(params.get('limit', 100))
-            all_batches = all_batches[:limit]
-            
-            # Erfolgsantwort zurückgeben - in dem Format, das vom Template erwartet wird
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "batches": all_batches,
-                    "total": total_count
-                }
-            })
+        # Filter hinzufügen
+        filters: List[str] = []
+        if status_filter:
+            filters.append(f"status={status_filter}")
+        
+        # Archived-Parameter korrekt übergeben (als String 'true' oder 'false')
+        filters.append(f"archived={archived_filter}")
+        
+        # Filter zur URL hinzufügen
+        if filters:
+            filter_string = '&'.join(filters)
+            url = f"{base_url}&{filter_string}"
         else:
-            # Normale Anfrage für einen einzelnen Status
-            batches_url = f"{api_base_url}/batches"
-            if params:
-                query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-                batches_url += f"?{query_string}"
+            url = base_url
             
-            batches_response = requests.get(batches_url)
-            batches_response.raise_for_status()
-            batches_data = batches_response.json()
-            
-            # Format an das erwartete Template-Format anpassen
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "batches": batches_data.get('batches', []),
-                    "total": batches_data.get('total', 0)
-                }
-            })
+        logger.debug(f"Batch-Anfrage an: {url}")
         
+        response: requests.Response = requests.get(url)
+        response.raise_for_status()
+        return jsonify(response.json())
+        
+    except requests.RequestException as e:
+        logger.error(f"Fehler beim Abrufen der Batch-Daten: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Fehler beim Abrufen der Batch-Daten: {str(e)}"
+        }), 500
     except Exception as e:
         logger.error(f"Fehler beim Abrufen der Batch-Daten: {str(e)}", exc_info=True)
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Batch-Daten: {str(e)}",
-            "data": {"batches": [], "total": 0}
+            "message": f"Fehler beim Abrufen der Batch-Daten: {str(e)}"
         }), 500
 
 @main.route('/api/dashboard/event-monitor/job/<job_id>')
-def api_event_monitor_job_detail(job_id):
+def api_event_monitor_job_detail(job_id: str):
     """
     API-Endpunkt zum Abrufen der Details eines einzelnen Jobs anhand seiner ID.
     
@@ -856,45 +796,27 @@ def api_event_monitor_jobs():
         }), 500
 
 @main.route('/api/dashboard/event-monitor/job/<job_id>/restart', methods=['POST'])
-def api_event_monitor_job_restart(job_id):
+def api_event_monitor_job_restart(job_id: str):
     """
     API-Endpunkt zum Neustarten eines Jobs durch Zurücksetzen seines Status.
-    
-    :param job_id: Die ID des Jobs, der neu gestartet werden soll.
-    :return: JSON-Antwort mit Erfolgsmeldung oder Fehlermeldung.
     """
-    if not job_id:
-        logger.error("Keine job_id in der Anfrage")
-        return jsonify({
-            "status": "error",
-            "message": "job_id ist ein erforderlicher Parameter"
-        }), 400
-    
     try:
-        # API-Basis-URL aus der Konfiguration laden
+        # Konfiguration laden für API-Basis-URL
         config = Config()
-        logger.debug(f"Starte Job neu mit job_id: {job_id}")
         
         # Request-Daten extrahieren (optional: batch_id)
-        request_data = request.get_json() or {}
-        batch_id = request_data.get('batch_id', '')
+        request_data: Dict[str, Any] = request.get_json() or {}
+        batch_id: str = request_data.get('batch_id', '')
         
         # Verwende die generische get-Methode für die API-Basis-URL
         base_url = config.get('server.api_base_url', 'http://localhost:5001')
-        
-        if not base_url:
-            logger.error("Keine API-Basis-URL konfiguriert")
-            return jsonify({
-                "status": "error",
-                "message": "API-Basis-URL nicht konfiguriert"
-            }), 500
-        
-        # Erstelle die Anfrage-URL für den Neustart eines Jobs
+        # Korrigierter API-Pfad mit /api/ Präfix
         url = f"{base_url}/api/event-job/{job_id}/restart"
         
-        logger.debug(f"Rufe API auf: {url}")
+        # Debug-Ausgabe für die Problemdiagnose
+        logger.debug(f"Sende Neustart-Anfrage an: {url}")
         
-        # Führe die Anfrage durch
+        # Führe die API-Anfrage durch
         response = requests.post(
             url, 
             json={'batch_id': batch_id},
@@ -931,48 +853,26 @@ def api_event_monitor_job_restart(job_id):
         return jsonify({
             "status": "error",
             "message": f"Unerwarteter Fehler: {str(e)}"
-        }), 500 
+        }), 500
 
 @main.route('/api/dashboard/event-monitor/job/<job_id>/archive', methods=['POST'])
-def api_event_monitor_job_archive(job_id):
+def api_event_monitor_job_archive(job_id: str):
     """
     API-Endpunkt zum Archivieren eines Jobs durch Änderung des Status.
-    
-    :param job_id: Die ID des Jobs, der archiviert werden soll.
-    :return: JSON-Antwort mit Erfolgsmeldung oder Fehlermeldung.
     """
-    if not job_id:
-        logger.error("Keine job_id in der Anfrage")
-        return jsonify({
-            "status": "error",
-            "message": "job_id ist ein erforderlicher Parameter"
-        }), 400
-    
     try:
-        # API-Basis-URL aus der Konfiguration laden
+        # Konfiguration laden für API-Basis-URL
         config = Config()
-        logger.debug(f"Archiviere Job mit job_id: {job_id}")
         
         # Request-Daten extrahieren (optional: batch_id)
-        request_data = request.get_json() or {}
-        batch_id = request_data.get('batch_id', '')
+        request_data: Dict[str, Any] = request.get_json() or {}
+        batch_id: str = request_data.get('batch_id', '')
         
         # Verwende die generische get-Methode für die API-Basis-URL
         base_url = config.get('server.api_base_url', 'http://localhost:5001')
-        
-        if not base_url:
-            logger.error("Keine API-Basis-URL konfiguriert")
-            return jsonify({
-                "status": "error",
-                "message": "API-Basis-URL nicht konfiguriert"
-            }), 500
-        
-        # Erstelle die Anfrage-URL für das Archivieren eines Jobs
         url = f"{base_url}/api/event-job/{job_id}/archive"
         
-        logger.debug(f"Rufe API auf: {url}")
-        
-        # Führe die Anfrage durch
+        # Führe die API-Anfrage durch
         response = requests.post(
             url, 
             json={'batch_id': batch_id},
@@ -1011,139 +911,9 @@ def api_event_monitor_job_archive(job_id):
             "message": f"Unerwarteter Fehler: {str(e)}"
         }), 500
 
-@main.route('/api/dashboard/event-monitor/job-repository-test')
-def api_event_monitor_job_repository_test():
-    """
-    Testroutine zum Analysieren der EventJobRepository-Klasse.
-    Listet verfügbare Methoden auf und versucht, Jobs zu aktualisieren.
-    
-    Returns:
-        JSON-Antwort mit Informationen über die Repository-Methoden
-    """
-    try:
-        # Job-Repository initialisieren
-        from src.core.mongodb import get_job_repository
-        from core.mongodb.repository import EventJobRepository
-        import inspect
-        
-        job_repo = get_job_repository()
-        
-        # Ergebnisse sammeln
-        results = {
-            "status": "success",
-            "repository_class": str(job_repo.__class__),
-            "available_methods": [],
-            "methods_details": {},
-            "update_methods": []
-        }
-        
-        # Alle Methoden auflisten
-        all_methods = [method for method in dir(job_repo) 
-                      if not method.startswith('_') and callable(getattr(job_repo, method))]
-        results["available_methods"] = all_methods
-        
-        # Methoden mit "update" im Namen finden
-        update_methods = [method for method in all_methods if "update" in method]
-        results["update_methods"] = update_methods
-        
-        # Details zu den Update-Methoden sammeln
-        for method_name in update_methods:
-            method = getattr(job_repo, method_name)
-            try:
-                signature = str(inspect.signature(method))
-                doc = inspect.getdoc(method) or "Keine Dokumentation"
-                results["methods_details"][method_name] = {
-                    "signature": signature,
-                    "doc": doc
-                }
-            except Exception as method_error:
-                results["methods_details"][method_name] = {
-                    "error": str(method_error)
-                }
-        
-        # Superklassen und deren Methoden
-        try:
-            repo_class = job_repo.__class__
-            bases = repo_class.__bases__
-            results["class_hierarchy"] = {
-                "class": repo_class.__name__,
-                "bases": [base.__name__ for base in bases],
-                "base_methods": {}
-            }
-            
-            for base in bases:
-                base_methods = [method for method in dir(base) 
-                              if not method.startswith('_') and callable(getattr(base, method))]
-                results["class_hierarchy"]["base_methods"][base.__name__] = base_methods
-        except Exception as hierarchy_error:
-            results["class_hierarchy_error"] = str(hierarchy_error)
-        
-        # Versuch, einen Job zu aktualisieren (falls Job-ID verfügbar)
-        job_id_param = request.args.get('job_id')
-        if job_id_param:
-            try:
-                # Prüfe, ob der Job existiert
-                job = job_repo.get_job(job_id_param)
-                if job:
-                    results["test_job"] = {
-                        "job_id": job_id_param,
-                        "current_status": job.status,
-                        "update_attempts": {}
-                    }
-                    
-                    # Versuche verschiedene Update-Methoden
-                    for method_name in update_methods:
-                        try:
-                            method = getattr(job_repo, method_name)
-                            # Verschiedene Aufrufe versuchen (abhängig von der Signatur)
-                            if method_name == "update_job_status":
-                                method_result = method(job_id_param, "pending")
-                                results["test_job"]["update_attempts"][method_name] = {
-                                    "success": True,
-                                    "result": str(method_result)
-                                }
-                            elif method_name == "set_job_status":
-                                method_result = method(job_id_param, "pending")
-                                results["test_job"]["update_attempts"][method_name] = {
-                                    "success": True,
-                                    "result": str(method_result)
-                                }
-                            elif method_name == "reset_job":
-                                method_result = method(job_id_param)
-                                results["test_job"]["update_attempts"][method_name] = {
-                                    "success": True,
-                                    "result": str(method_result)
-                                }
-                            else:
-                                results["test_job"]["update_attempts"][method_name] = {
-                                    "skipped": "Unbekannte Methodensignatur"
-                                }
-                        except Exception as method_error:
-                            results["test_job"]["update_attempts"][method_name] = {
-                                "success": False,
-                                "error": str(method_error)
-                            }
-                    
-                    # Job nach Update-Versuchen erneut abrufen
-                    updated_job = job_repo.get_job(job_id_param)
-                    if updated_job:
-                        results["test_job"]["new_status"] = updated_job.status
-                else:
-                    results["test_job_error"] = f"Job mit ID {job_id_param} nicht gefunden"
-            except Exception as test_error:
-                results["test_job_error"] = str(test_error)
-        
-        return jsonify(results)
-        
-    except Exception as e:
-        logger.error(f"Fehler bei der Repository-Analyse: {str(e)}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": f"Fehler bei der Repository-Analyse: {str(e)}"
-        }), 500 
 
 @main.route('/api/dashboard/event-monitor/jobs/<job_id>', methods=['DELETE'])
-def api_event_monitor_job_delete(job_id):
+def api_event_monitor_job_delete(job_id: str):
     """
     API-Endpunkt zum Löschen eines Jobs.
     
@@ -1213,7 +983,7 @@ def api_event_monitor_job_delete(job_id):
         }), 500 
 
 @main.route('/api/dashboard/event-monitor/batches/<batch_id>', methods=['DELETE'])
-def api_event_monitor_batch_delete(batch_id):
+def api_event_monitor_batch_delete(batch_id: str):
     """
     API-Endpunkt zum Löschen eines Batches und aller zugehörigen Jobs.
     
@@ -1280,4 +1050,265 @@ def api_event_monitor_batch_delete(batch_id):
         return jsonify({
             "status": "error",
             "message": f"Unerwarteter Fehler: {str(e)}"
+        }), 500 
+
+@main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/stats')
+def api_event_monitor_batch_stats(batch_id: str):
+    """
+    API-Endpunkt zum Abrufen aktueller Statistiken eines Batches ohne Änderungen in der Datenbank.
+    Dies ist nützlich für Live-Updates im Frontend ohne vollständige Seitenneuladen.
+    
+    :param batch_id: Die ID des Batches, dessen Statistiken abgerufen werden sollen.
+    :return: JSON-Antwort mit den aktuellen Batch-Statistiken.
+    """
+    if not batch_id:
+        logger.error("Keine batch_id in der Anfrage")
+        return jsonify({
+            "status": "error",
+            "message": "batch_id ist ein erforderlicher Parameter"
+        }), 400
+    
+    try:
+        # Direkt das Repository für effizientere Abfragen verwenden
+        job_repo: EventJobRepository = get_job_repository()
+        
+        # Batch mit aktuellen Statistiken abrufen, ohne Status zu ändern
+        batch = job_repo.get_batch_with_current_stats(batch_id)  # type: ignore
+        
+        if not batch:
+            logger.error(f"Batch nicht gefunden: {batch_id}")
+            return jsonify({
+                "status": "error",
+                "message": f"Batch mit ID {batch_id} nicht gefunden"
+            }), 404
+        
+        # Erfolgsantwort zurückgeben
+        return jsonify({
+            "status": "success",
+            "batch": batch.to_dict()  # type: ignore
+        })
+    
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen der Batch-Statistiken: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"Fehler beim Abrufen der Batch-Statistiken: {str(e)}"
+        }), 500
+
+@main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/toggle-active', methods=['POST'])
+def api_event_monitor_toggle_active(batch_id: str):
+    """
+    API-Endpunkt zum Umschalten des isActive-Status eines Batches.
+    """
+    try:
+        # Konfiguration laden für API-Basis-URL
+        config = Config()
+        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
+        
+        # Request-Daten (falls vorhanden) weitergeben
+        data: Dict[str, Any] = request.get_json() if request.is_json else {}
+        
+        # API-Anfrage zur Umschaltung des isActive-Status
+        # Verwende standardisierte Event-Job-API-URL
+        url = f"{api_base_url}/api/event-job/batches/{batch_id}/toggle-active"
+        logger.debug(f"Toggle-Active-Anfrage an: {url} mit Daten: {data}")
+        response: requests.Response = requests.post(url, json=data)
+        response.raise_for_status()
+        
+        # Antwort verarbeiten
+        result = response.json()
+        
+        # Erfolgsantwort zurückgeben
+        return jsonify(result)
+    
+    except requests.RequestException as e:
+        logger.error(f"Fehler beim Umschalten des isActive-Status: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Fehler beim Umschalten des isActive-Status: {str(e)}"
+        }), 500
+    except Exception as e:
+        logger.error(f"Unerwarteter Fehler: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Unerwarteter Fehler: {str(e)}"
+        }), 500 
+
+@main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/archive', methods=['POST'])
+def api_event_monitor_batch_archive(batch_id: str):
+    """
+    API-Endpunkt zum Archivieren eines Batches.
+    """
+    try:
+        # Konfiguration laden für API-Basis-URL
+        config = Config()
+        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
+        
+        # Request-Daten (falls vorhanden) weitergeben oder Standarddaten verwenden
+        data: Dict[str, Any] = request.get_json() if request.is_json else {}
+        
+        # Sicherstellen, dass die Mindestanforderungen erfüllt sind
+        if 'batch_id' not in data:
+            data['batch_id'] = batch_id
+        if 'archived' not in data:
+            data['archived'] = True
+            
+        logger.debug(f"Archiviere Batch {batch_id} mit Daten: {data}")
+        
+        # API-Anfrage zum Archivieren des Batches
+        # Korrigierte URL-Konstruktion - prüfe, ob Basis-URL bereits den API-Pfad enthält
+        url = f"{api_base_url}/api/event-job/batches/{batch_id}/archive"
+            
+        logger.debug(f"Batch-Archivierung-Anfrage an: {url}")
+        
+        # Initialisiere response als None
+        response = None
+        
+        try:
+            response: requests.Response = requests.post(url, json=data)
+            response.raise_for_status()
+            
+            # Antwort verarbeiten
+            result = response.json()
+            
+            # Erfolgsantwort zurückgeben
+            return jsonify(result)
+            
+        except requests.exceptions.HTTPError as http_err:
+            error_message = f"HTTP-Fehler beim Archivieren des Batches: {http_err}"
+            logger.error(error_message)
+            
+            # Versuche, Details aus der Antwort zu extrahieren, wenn response existiert
+            if response is not None:
+                try:
+                    error_details = response.json()
+                    logger.error(f"API-Fehlerdetails: {error_details}")
+                    return jsonify({
+                        "status": "error",
+                        "message": error_message,
+                        "details": error_details
+                    }), response.status_code
+                except Exception:
+                    pass
+                
+                return jsonify({
+                    "status": "error",
+                    "message": error_message
+                }), response.status_code
+            
+            # Standardantwort, wenn keine Antwort vom Server kam
+            return jsonify({
+                "status": "error",
+                "message": error_message
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Fehler beim Archivieren des Batches {batch_id}: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Fehler: {str(e)}"
+        }), 500
+
+@main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/restart', methods=['POST'])
+def api_event_monitor_batch_restart(batch_id: str):
+    """
+    API-Endpunkt zum Neustarten der fehlgeschlagenen Jobs in einem Batch.
+    
+    :param batch_id: Die ID des Batches, dessen fehlgeschlagene Jobs neu gestartet werden sollen.
+    :return: JSON-Antwort mit Erfolgsmeldung oder Fehlermeldung.
+    """
+    if not batch_id:
+        logger.error("Keine batch_id in der Anfrage")
+        return jsonify({
+            "status": "error",
+            "message": "batch_id ist ein erforderlicher Parameter"
+        }), 400
+    
+    try:
+        # Alle Jobs für diesen Batch abrufen
+        config = Config()
+        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
+        
+        # Jobs für diesen Batch abfragen
+        url = f"{api_base_url}/api/dashboard/event-monitor/jobs?batch_id={batch_id}"
+        jobs_response: requests.Response = requests.get(url)
+        jobs_response.raise_for_status()
+        
+        jobs_data = jobs_response.json()
+        jobs: List[Dict[str, Any]] = []
+        
+        if 'data' in jobs_data and 'jobs' in jobs_data['data']:
+            jobs = jobs_data['data']['jobs']
+        elif 'jobs' in jobs_data:
+            jobs = jobs_data['jobs']
+        
+        if not jobs:
+            return jsonify({
+                "status": "warning",
+                "message": "Keine Jobs für diesen Batch gefunden"
+            }), 200
+        
+        # Nur fehlgeschlagene Jobs im Batch neu starten
+        results: List[Dict[str, Any]] = []
+        success_count = 0
+        failed_jobs_count = 0
+        
+        for job in jobs:
+            job_id = job.get('job_id')
+            job_status = job.get('status')
+            
+            # Nur Jobs mit Status "failed" neu starten
+            if not job_id or job_status != "failed":
+                if job_id and job_status != "failed":
+                    results.append({
+                        "job_id": job_id,
+                        "status": "skipped",
+                        "message": f"Job hat Status '{job_status}', nicht 'failed'"
+                    })
+                continue
+                
+            failed_jobs_count += 1
+            
+            # Direkter Aufruf der Event-Job-API statt rekursivem Dashboard-API-Aufruf
+            restart_url = f"{api_base_url}/api/event-job/{job_id}/restart"
+            logger.debug(f"Neustart für fehlgeschlagenen Job {job_id} an {restart_url}")
+            restart_response: requests.Response = requests.post(restart_url, json={"batch_id": batch_id})
+            
+            logger.debug(f"Neustart für Job {job_id} an {restart_url}: Status {restart_response.status_code}")
+            
+            if restart_response.status_code == 200:
+                success_count += 1
+                results.append({
+                    "job_id": job_id,
+                    "status": "success"
+                })
+            else:
+                results.append({
+                    "job_id": job_id,
+                    "status": "error",
+                    "message": f"Fehler: Status {restart_response.status_code}"
+                })
+        
+        # Erfolgsantwort zurückgeben
+        if failed_jobs_count == 0:
+            return jsonify({
+                "status": "warning",
+                "message": "Keine fehlgeschlagenen Jobs in diesem Batch gefunden",
+                "data": {
+                    "results": results
+                }
+            })
+        else:
+            return jsonify({
+                "status": "success",
+                "message": f"{success_count} von {failed_jobs_count} fehlgeschlagenen Jobs wurden neu gestartet",
+                "data": {
+                    "results": results
+                }
+            })
+    except Exception as e:
+        logger.error(f"Fehler beim Neustarten des Batches {batch_id}: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Fehler: {str(e)}"
         }), 500 

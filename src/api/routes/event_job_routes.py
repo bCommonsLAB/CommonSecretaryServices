@@ -10,6 +10,9 @@ import mimetypes
 import traceback
 import json
 from datetime import datetime
+import time
+
+from pymongo.results import UpdateResult
 
 from core.models.job_models import Batch, Job
 from core.mongodb.repository import EventJobRepository
@@ -238,6 +241,9 @@ class EventJobsEndpoint(Resource):
     def get(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Gibt eine Liste aller Event-Jobs zurück."""
         try:
+            # Start der Zeitmessung für den gesamten Endpunkt
+            start_time_total = time.time()
+            
             # Parameter für Filterung und Paginierung
             status = request.args.get("status")
             batch_id = request.args.get("batch_id")
@@ -250,6 +256,9 @@ class EventJobsEndpoint(Resource):
             
             # Repository holen
             job_repo: EventJobRepository = get_job_repository()
+            
+            # Zeitmessung für die Datenbankabfrage starten
+            start_time_db = time.time()
             
             # Jobs abfragen
             if user_id:
@@ -278,13 +287,45 @@ class EventJobsEndpoint(Resource):
                 )
                 total = job_repo.count_jobs(status=status)
             
+            # Ende der Zeitmessung für die Datenbankabfrage
+            db_query_time = time.time() - start_time_db
+            
+            # Startzeit für die Serialisierung
+            start_time_serialize = time.time()
+            
             # Jobs in Dictionaries umwandeln
             job_dicts: List[Dict[str, Any]] = [job.to_dict() for job in jobs]
+            
+            # Ende der Zeitmessung für die Serialisierung
+            serialize_time = time.time() - start_time_serialize
+            
+            # Ende der Zeitmessung für den gesamten Endpunkt
+            total_time = time.time() - start_time_total
+            
+            # Performance-Logging
+            perf_log = {
+                "endpoint": "/api/event-job/jobs",
+                "batch_id": batch_id,
+                "user_id": user_id,
+                "status": status,
+                "total_jobs": total,
+                "returned_jobs": len(jobs),
+                "db_query_time_ms": round(db_query_time * 1000, 2),
+                "serialize_time_ms": round(serialize_time * 1000, 2),
+                "total_time_ms": round(total_time * 1000, 2)
+            }
+            
+            logger.warning(f"PERFORMANCE_LOG: {json.dumps(perf_log)}")
             
             return json_response({
                 "status": "success",
                 "total": total,
-                "jobs": job_dicts
+                "jobs": job_dicts,
+                # Zusätzliche Performance-Informationen (optional)
+                "performance": {
+                    "db_query_time_ms": round(db_query_time * 1000, 2),
+                    "total_time_ms": round(total_time * 1000, 2)
+                }
             })
                 
         except Exception as e:
@@ -474,6 +515,12 @@ class EventBatchesEndpoint(Resource):
         try:
             # Parameter für Filterung und Paginierung
             status = request.args.get("status")
+            archived = request.args.get("archived") 
+            if archived == "true":
+                archived = True
+            else:
+                archived = False
+                
             user_id = request.args.get("user_id")
             if not user_id and 'X-User-ID' in request.headers:
                 user_id = request.headers.get('X-User-ID')
@@ -498,6 +545,7 @@ class EventBatchesEndpoint(Resource):
                 # Alle Batches abfragen
                 batches = job_repo.get_batches(
                     status=status,
+                    archived=archived,
                     limit=limit,
                     skip=skip
                 )
@@ -808,4 +856,91 @@ class EventBatchArchiveEndpoint(Resource):
             })
                 
         except Exception as e:
-            return json_response(handle_error(e), 400) 
+            return json_response(handle_error(e), 400)
+
+@event_job_ns.route('/batches/<string:batch_id>/toggle-active')  # type: ignore
+class EventBatchToggleActiveEndpoint(Resource):
+    @event_job_ns.response(200, 'Erfolg', batch_response_model)  # type: ignore
+    @event_job_ns.response(404, 'Batch nicht gefunden', error_response_model)  # type: ignore
+    def post(self, batch_id: str) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Schaltet den isActive-Status eines Batches um.
+        
+        Diese Methode wechselt den isActive-Status eines Batches zwischen True und False,
+        was die Verarbeitung des Batches steuert. Wenn isActive=False ist, werden keine 
+        weiteren Jobs aus diesem Batch verarbeitet.
+        
+        Args:
+            batch_id: Die ID des Batches, dessen Status umgeschaltet werden soll.
+            
+        Returns:
+            Response mit Erfolgs- oder Fehlermeldung und dem aktualisierten Batch.
+        """
+        try:
+            # Repository holen
+            job_repo: EventJobRepository = get_job_repository()
+            
+            # Batch abrufen
+            batch = job_repo.get_batch(batch_id)
+            
+            if not batch:
+                return json_response({
+                    "status": "error",
+                    "message": f"Batch {batch_id} nicht gefunden"
+                }, 404)
+            
+            # Benutzer-ID aus den Headern holen
+            user_id = request.headers.get('X-User-ID')
+            
+            # Zugriffsrechte prüfen, falls Benutzer-ID vorhanden
+            if user_id and batch.user_id and batch.user_id != user_id:
+                # Prüfen, ob der Benutzer Schreibzugriff hat
+                if user_id not in batch.access_control.write_access:
+                    return json_response({
+                        "status": "error",
+                        "message": f"Keine Berechtigung zum Ändern des Status von Batch {batch_id}"
+                    }, 403)
+            
+            # Aktuellen isActive-Status aus dem MongoDB-Dokument abrufen
+            batch_doc = job_repo.batches.find_one({"batch_id": batch_id})
+            current_active_status = batch_doc.get("isActive", True) if batch_doc else True
+            
+            # Wenn das Feld auf oberster Ebene existiert, diesen Wert verwenden
+            if batch_doc and "isActive" in batch_doc:
+                current_active_status = batch_doc.get("isActive", True)
+                
+            new_active_status = not current_active_status
+            
+            # Metadaten und oberste Ebene aktualisieren (Doppelte Speicherung während der Migration)
+            update_result: UpdateResult = job_repo.batches.update_one(
+                {"batch_id": batch_id},
+                {"$set": {
+                    "isActive": new_active_status
+                }}
+            )
+            
+            if update_result.modified_count == 0:
+                return json_response({
+                    "status": "error",
+                    "message": f"Batch {batch_id} konnte nicht aktualisiert werden"
+                }, 500)
+            
+            # Aktualisierte Batch-Daten abrufen
+            updated_batch = job_repo.get_batch(batch_id)
+            
+            if not updated_batch:
+                return json_response({
+                    "status": "error",
+                    "message": f"Aktualisierter Batch {batch_id} konnte nicht abgerufen werden"
+                }, 500)
+            
+            # Erfolgsantwort zurückgeben
+            return json_response({
+                "status": "success",
+                "message": f"Batch {batch_id} Active-Status wurde auf {new_active_status} gesetzt",
+                "batch": updated_batch.to_dict()
+            })
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Umschalten des Active-Status: {str(e)}")
+            return json_response(handle_error(e), 500) 

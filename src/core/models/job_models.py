@@ -188,22 +188,24 @@ class JobError:
 
 @dataclass
 class Job:
-    """Ein Job in der Verarbeitung."""
-    parameters: JobParameters
+    """Ein Job für die asynchrone Verarbeitung."""
     job_id: str = field(default_factory=lambda: f"job-{uuid.uuid4()}")
+    job_type: str = ""
+    job_name: Optional[str] = None  # Name des Jobs für die Anzeige
     status: JobStatus = JobStatus.PENDING
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    user_id: Optional[str] = None
-    access_control: AccessControl = field(default_factory=AccessControl)
-    progress: Optional[JobProgress] = None
-    logs: List[LogEntry] = field(default_factory=list)
+    parameters: JobParameters = field(default_factory=JobParameters)
     results: Optional[JobResults] = None
     error: Optional[JobError] = None
-    batch_id: str = "undefined"
-    job_name: Optional[str] = None
+    progress: Optional[JobProgress] = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    completed_at: Optional[datetime] = None
+    processing_started_at: Optional[datetime] = None  # Timestamp für den Start der Verarbeitung
+    user_id: Optional[str] = None
+    access_control: AccessControl = field(default_factory=AccessControl)
+    event_type: Optional[str] = None
+    batch_id: Optional[str] = None
+    log_entries: List[Dict[str, Any]] = field(default_factory=list)
     archived: bool = False
     
     def __post_init__(self) -> None:
@@ -222,7 +224,7 @@ class Job:
             )
         
         # Job-Name automatisch aus Parametern generieren, falls nicht angegeben
-        if self.job_name is None and self.parameters:
+        if self.job_name is None:
             parts: List[str] = []
             if self.parameters.event:
                 parts.append(self.parameters.event)
@@ -238,6 +240,7 @@ class Job:
         """Konvertiert den Job in ein Dictionary für MongoDB."""
         job_dict = {
             "job_id": self.job_id,
+            "job_type": self.job_type,
             "status": self.status.value,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -246,6 +249,9 @@ class Job:
         }
         
         # Optionale Felder hinzufügen
+        if self.job_name:
+            job_dict["job_name"] = self.job_name
+            
         if self.user_id:
             job_dict["user_id"] = self.user_id
         
@@ -255,8 +261,8 @@ class Job:
             access_dict["visibility"] = self.access_control.visibility.value
             job_dict["access_control"] = access_dict
         
-        if self.started_at:
-            job_dict["started_at"] = self.started_at
+        if self.processing_started_at:
+            job_dict["processing_started_at"] = self.processing_started_at
         
         if self.completed_at:
             job_dict["completed_at"] = self.completed_at
@@ -264,8 +270,8 @@ class Job:
         if self.progress:
             job_dict["progress"] = self.progress.to_dict()
         
-        if self.logs:
-            job_dict["logs"] = [log.to_dict() for log in self.logs]  # type: ignore
+        if self.log_entries:
+            job_dict["log_entries"] = self.log_entries
         
         if self.results:
             job_dict["results"] = self.results.to_dict()
@@ -275,63 +281,76 @@ class Job:
         
         if self.batch_id:
             job_dict["batch_id"] = self.batch_id
-            
-        if self.job_name:
-            job_dict["job_name"] = self.job_name
         
         return job_dict
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Job":
         """Erstellt einen Job aus einem Dictionary aus MongoDB."""
-        # Parameter konvertieren
-        parameters = JobParameters.from_dict(data.get("parameters", {}))
+        # Performance-Optimierung: Nur die minimal notwendigen Felder konvertieren
+        # für die Anzeige in der Tabelle
         
-        # Optionale Felder extrahieren
-        user_id = data.get("user_id")
-        batch_id = data.get("batch_id", "undefined")
-        job_name = data.get("job_name")
+        # Parameter konvertieren - nur wenn sie vorhanden sind und benötigt werden
+        parameters = JobParameters() 
+        if "parameters" in data:
+            parameters = JobParameters.from_dict(data.get("parameters", {}))
         
-        # Zeitstempel konvertieren
+        # Zeitstempel direkt übernehmen ohne zusätzliche Konvertierung
         created_at = data.get("created_at", datetime.now(UTC))
         updated_at = data.get("updated_at", datetime.now(UTC))
-        started_at = data.get("started_at")
+        processing_started_at = data.get("processing_started_at")
         completed_at = data.get("completed_at")
         
-        # Fortschritt, Ergebnisse und Fehler konvertieren
-        progress = JobProgress.from_dict(data["progress"]) if "progress" in data else None
-        results = JobResults.from_dict(data["results"]) if "results" in data else None
-        error = JobError.from_dict(data["error"]) if "error" in data else None
+        # Minimale Felder für Fortschritt konvertieren (für Anzeige wichtig)
+        progress = None
+        if "progress" in data:
+            progress_data = data["progress"]
+            # Schnellere direkte Erstellung ohne vollständige Validierung
+            progress = JobProgress(
+                step=progress_data.get("step", "unknown"),
+                percent=progress_data.get("percent", 0),
+                message=progress_data.get("message")
+            )
         
-        # Logs konvertieren
-        logs = [LogEntry.from_dict(log) for log in data.get("logs", [])]
+        # Nur Fehlermeldung extrahieren, wenn vorhanden
+        error = None
+        if "error" in data:
+            error_data = data["error"]
+            error = JobError(
+                code=error_data.get("code", "unknown_error"),
+                message=error_data.get("message", "Ein unbekannter Fehler ist aufgetreten"),
+                details=error_data.get("details")
+            )
         
-        # Zugriffssteuerung konvertieren
-        access_control_data = data.get("access_control", {})
-        access_control = AccessControl(
-            visibility=AccessVisibility(access_control_data.get("visibility", "private")),
-            read_access=access_control_data.get("read_access", []),
-            write_access=access_control_data.get("write_access", []),
-            admin_access=access_control_data.get("admin_access", [])
-        )
+        # Ergebnisse nur bei Bedarf konvertieren
+        results = None
+        if "results" in data:
+            results = JobResults.from_dict(data["results"])
+        
+        # Zugriffssteuerung vereinfacht übernehmen
+        access_control = AccessControl()
+        
+        # Minimale Log-Einträge übernehmen
+        log_entries = data.get("log_entries", [])
         
         return cls(
             job_id=data.get("job_id", f"job-{uuid.uuid4()}"),
             status=JobStatus(data.get("status", "pending")),
             created_at=created_at,
             updated_at=updated_at,
-            started_at=started_at,
+            processing_started_at=processing_started_at,
             completed_at=completed_at,
-            user_id=user_id,
+            user_id=data.get("user_id"),
             access_control=access_control,
             parameters=parameters,
             progress=progress,
-            logs=logs,
+            log_entries=log_entries,
             results=results,
             error=error,
-            batch_id=batch_id,
-            job_name=job_name,
-            archived=data.get("archived", False)
+            batch_id=data.get("batch_id"),
+            job_name=data.get("job_name"),
+            archived=data.get("archived", False),
+            job_type=data.get("job_type", "")
         )
 
 
@@ -349,7 +368,10 @@ class Batch:
     access_control: AccessControl = field(default_factory=AccessControl)
     completed_jobs: int = 0
     failed_jobs: int = 0
+    pending_jobs: int = 0     # Anzahl der Jobs im Status PENDING
+    processing_jobs: int = 0  # Anzahl der Jobs im Status PROCESSING
     archived: bool = False
+    isActive: bool = True
     
     def __post_init__(self) -> None:
         """Validiert den Batch nach der Initialisierung."""
@@ -378,7 +400,10 @@ class Batch:
             "total_jobs": self.total_jobs,
             "completed_jobs": self.completed_jobs,
             "failed_jobs": self.failed_jobs,
-            "archived": self.archived
+            "pending_jobs": self.pending_jobs,
+            "processing_jobs": self.processing_jobs,
+            "archived": self.archived,
+            "isActive": self.isActive
         }
         
         # Optionale Felder hinzufügen
@@ -433,5 +458,8 @@ class Batch:
             total_jobs=data.get("total_jobs", 0),
             completed_jobs=data.get("completed_jobs", 0),
             failed_jobs=data.get("failed_jobs", 0),
-            archived=data.get("archived", False)
+            pending_jobs=data.get("pending_jobs", 0),
+            processing_jobs=data.get("processing_jobs", 0),
+            archived=data.get("archived", False),
+            isActive=data.get("isActive", True)
         ) 
