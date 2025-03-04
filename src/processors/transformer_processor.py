@@ -338,9 +338,6 @@ class TransformerProcessor(BaseProcessor):
 
             self.logger.info(f"Starte Template-Transformation: {source_language} -> {target_language}")
             
-            if validated_context:
-                self.logger.debug("Context-Informationen", context=validated_context)
-
             # Zuerst den Quelltext übersetzen
             result_text:str = source_text
             if source_language != target_language:

@@ -76,7 +76,7 @@ Beispiel Response:
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol, cast, TypeVar, Mapping
+from typing import Dict, Any, Optional, List, Union, Protocol, cast, TypeVar, Mapping, Tuple
 from types import TracebackType
 import time
 import hashlib
@@ -101,11 +101,11 @@ from src.core.models.base import (
 )
 from src.core.models.audio import (
     AudioProcessingError, AudioProcessingResult, AudioResponse,
-    AudioMetadata, AudioSegmentInfo, Chapter, TranscriptionResult,
-    TranscriptionSegment
+    AudioMetadata, AudioSegmentInfo, Chapter, TranscriptionResult
 )
 from src.core.models.llm import LLModel, LLMRequest
 from src.core.models.response_factory import ResponseFactory
+from src.utils.processor_cache import ProcessorCache
 
 try:
     from pydub import AudioSegment  # type: ignore
@@ -212,10 +212,18 @@ class AudioProcessor(BaseProcessor):
         audio_config: AudioConfig = processor_config.get('audio', {})
         
         # Konfigurationswerte mit Typ-Annotationen
-        self.max_file_size: int = audio_config.get('max_file_size', 100 * 1024 * 1024)  # 100MB
+        self.max_file_size: int = audio_config.get('max_file_size', 120 * 1024 * 1024)  # 100MB
         self.segment_duration: int = audio_config.get('segment_duration', 300)  # 5 Minuten
+        self.max_segments: Optional[int] = audio_config.get('max_segments')  # Maximale Anzahl der Segmente
         self.export_format: str = audio_config.get('export_format', 'mp3')
         self.temp_file_suffix: str = f".{self.export_format}"
+        
+        # Debug-Logging der Audio-Konfigurationsparameter
+        self.logger.debug("AudioProcessor initialisiert mit Konfiguration", 
+                         max_file_size=self.max_file_size,
+                         segment_duration=self.segment_duration,
+                         max_segments=self.max_segments,
+                         export_format=self.export_format)
         
         # Prozessoren initialisieren
         self.transformer: TransformerProcessorProtocol = cast(TransformerProcessorProtocol, 
@@ -230,6 +238,9 @@ class AudioProcessor(BaseProcessor):
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
         self.duration: Optional[float] = None
+        
+        # Cache initialisieren
+        self.cache = ProcessorCache[AudioProcessingResult]("audio")
 
     @property
     def process_info(self) -> ProcessInfo:
@@ -486,9 +497,14 @@ class AudioProcessor(BaseProcessor):
                     'end_ms': duration_ms
                 }]
             
-            # Erstelle Kapitel-Segmente (5 Minuten max pro Segment)
+            # Erstelle Kapitel-Segmente (max. Segment-Dauer gemäß Konfiguration)
             chapter_segments: List[Chapter] = []
-            max_duration_minutes = 5
+            
+            # Segmentdauer in Minuten (aus Konfiguration in Sekunden)
+            max_duration_minutes = self.segment_duration / 60
+            
+            # Verwende die Instanzvariable max_segments
+            total_segments_count = 0
             
             for i, chapter in enumerate(chapters):
                 if i in (skip_segments or []):
@@ -520,6 +536,11 @@ class AudioProcessor(BaseProcessor):
                     # Erstelle die Segmente
                     segments: List[AudioSegmentInfo] = []
                     for j in range(num_segments):
+                        # Prüfe, ob wir das maximale Limit erreicht haben
+                        if self.max_segments is not None and total_segments_count >= self.max_segments:
+                            self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, breche Segmentierung ab")
+                            break
+                            
                         start = j * segment_duration_ms
                         end = min((j + 1) * segment_duration_ms, len(chapter_audio))
                         
@@ -540,11 +561,19 @@ class AudioProcessor(BaseProcessor):
                             duration=(end-start)/1000.0  # Konvertiere zu Sekunden
                         ))
                         
+                        total_segments_count += 1  # Inkrementiere den Segmentzähler
+                        
                         self.logger.debug(f"Kapitel {i+1} Teil {j+1}/{num_segments} erstellt",
                                         duration_sec=len(segment)/1000.0,
                                         segment_path=str(segment_path))
                 else:
                     # Wenn Kapitel kurz genug ist, behalte es als ein Segment
+                    
+                    # Prüfe, ob wir das maximale Limit erreicht haben
+                    if self.max_segments is not None and total_segments_count >= self.max_segments:
+                        self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, überspringe Kapitel {i}")
+                        continue
+                        
                     segment_path = chapter_dir / f"full.{self.export_format}"
                     chapter_audio.export(
                         str(segment_path),
@@ -559,17 +588,25 @@ class AudioProcessor(BaseProcessor):
                         duration=len(chapter_audio)/1000.0  # Konvertiere zu Sekunden
                     )]
                     
+                    total_segments_count += 1  # Inkrementiere den Segmentzähler
+                    
                     self.logger.debug(f"Kapitel {i+1} als einzelnes Segment erstellt",
                                     duration_sec=len(chapter_audio)/1000.0,
                                     segment_path=str(segment_path))
                 
                 # Erstelle Chapter mit seinen Segmenten
-                chapter_segments.append(Chapter(
-                    title=title,
-                    start=start_ms/1000.0,  # Konvertiere zu Sekunden
-                    end=end_ms/1000.0,      # Konvertiere zu Sekunden
-                    segments=segments
-                ))
+                if segments:  # Nur wenn Segmente erstellt wurden
+                    chapter_segments.append(Chapter(
+                        title=title,
+                        start=start_ms/1000.0,  # Konvertiere zu Sekunden
+                        end=end_ms/1000.0,      # Konvertiere zu Sekunden
+                        segments=segments
+                    ))
+                    
+                # Wenn wir das maximale Limit erreicht haben, brechen wir ab
+                if self.max_segments is not None and total_segments_count >= self.max_segments:
+                    self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, breche Kapitelverarbeitung ab")
+                    break
             
             return chapter_segments
 
@@ -577,54 +614,125 @@ class AudioProcessor(BaseProcessor):
             self.logger.error("Fehler bei der Segmentierung", error=e)
             raise
 
-    def _read_existing_transcript(self, process_dir: Path) -> Optional[TranscriptionResult]:
-        """Liest eine existierende Transkriptionsdatei im JSON-Format.
+    def _generate_cache_key(
+        self,
+        audio_path: str,
+        source_language: str,
+        target_language: str,
+        template: Optional[str] = None,
+        original_filename: Optional[str] = None,
+        video_id: Optional[str] = None
+    ) -> str:
+        """Generiert einen eindeutigen Cache-Schlüssel für die Audio-Verarbeitung.
         
         Args:
-            process_dir (Path): Verzeichnis mit der Transkriptionsdatei
+            audio_path: Pfad zur Audio-Datei
+            source_language: Quellsprache
+            target_language: Zielsprache
+            template: Optionales Template
+            original_filename: Optionaler Original-Dateiname
+            video_id: Optionale Video-ID
             
         Returns:
-            Optional[TranscriptionResult]: Das validierte TranscriptionResult oder None wenn keine Datei existiert
+            str: Der generierte Cache-Schlüssel
         """
-        transcript_file: Path = process_dir / "segments_transcript.txt"
-        if not transcript_file.exists():
-            self.logger.info("Keine existierende Transkription gefunden ", process_dir=str(process_dir))
-            return None
+        # Bestimme die Basis für den Cache-Key
+        if video_id:
+            # Bei Video-ID diese als Basis verwenden
+            base_key = video_id
+        elif original_filename:
+            # Bei Original-Dateinamen diesen als Basis verwenden
+            base_key = ProcessorCache.generate_simple_key(original_filename)
+        else:
+            # Sonst den Pfad als Basis verwenden
+            file_size = None
+            try:
+                file_size = Path(audio_path).stat().st_size
+            except:
+                pass
+            base_key = ProcessorCache.generate_simple_key(audio_path, file_size)
+        
+        # Parameter in Hash einbeziehen
+        param_str = f"{source_language}_{target_language}_{template or ''}"
+        return hashlib.sha256(f"{base_key}_{param_str}".encode()).hexdigest()
+    
+    def _check_cache(
+        self,
+        cache_key: str
+    ) -> Optional[Tuple[AudioProcessingResult, Dict[str, Any]]]:
+        """Prüft, ob ein Cache-Eintrag für die Audio-Verarbeitung existiert.
+        
+        Args:
+            cache_key: Der Cache-Schlüssel
             
-        try:
-            with open(transcript_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.logger.info("Existierende Transkription gefunden", transcript_file=str(transcript_file))
-                
-                # Erstelle ein LLModel für die Whisper-Nutzung
-                whisper_model = LLModel(
-                    model="whisper-1",
-                    duration=data.get('duration', 0.0),
-                    tokens=data.get('token_count', 0)
-                )
-                
-                # Erstelle TranscriptionSegments aus den Segmentdaten
-                segments: List[TranscriptionSegment] = []
-                for i, segment_data in enumerate(data.get('segments', [])):
-                    segment = TranscriptionSegment(
-                        text=segment_data.get('text', ''),
-                        segment_id=i,
-                        start=segment_data.get('start', 0.0),
-                        end=segment_data.get('end', 0.0),
-                        title=segment_data.get('title')
-                    )
-                    segments.append(segment)
-                
-                return TranscriptionResult(
-                    text=data.get('text', ''),
-                    source_language=data.get('detected_language', 'de'),
-                    segments=segments,
-                    llms=[whisper_model]
-                )
-                
-        except Exception as e:
-            self.logger.warning(f"Fehler beim Lesen der existierenden Transkription: {str(e)}")
+        Returns:
+            Optional[Tuple[AudioProcessingResult, Dict[str, Any]]]: 
+                Das geladene Ergebnis und Metadaten oder None
+        """
+        # Prüfe Cache
+        cache_result = self.cache.load_cache_with_key(
+            cache_key=cache_key,
+            result_class=AudioProcessingResult
+        )
+        
+        if cache_result:
+            self.logger.info("Cache-Hit für Audio-Verarbeitung", 
+                           cache_key=cache_key)
+            
+            # Markiere als aus Cache geladen
+            result, _ = cache_result
+            result.is_from_cache = True
+            return cache_result
+            
         return None
+    
+    def _save_to_cache(
+        self,
+        cache_key: str,
+        result: AudioProcessingResult,
+        audio_path: str,
+        source_language: str,
+        target_language: str,
+        template: Optional[str] = None,
+        source_info: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Speichert ein Verarbeitungsergebnis im Cache.
+        
+        Args:
+            cache_key: Der Cache-Schlüssel
+            result: Das zu speichernde Ergebnis
+            audio_path: Pfad zur Audio-Datei
+            source_language: Quellsprache
+            target_language: Zielsprache
+            template: Optionales Template
+            source_info: Optionale Quellinformationen
+        """
+        # Extrahiere relevante Informationen aus source_info
+        original_filename = None
+        video_id = None
+        if source_info:
+            original_filename = source_info.get('original_filename')
+            video_id = source_info.get('video_id')
+        
+        # Erstelle Metadaten
+        metadata = {
+            'source_language': source_language,
+            'target_language': target_language,
+            'template': template,
+            'original_filename': original_filename,
+            'video_id': video_id,
+            'process_id': self.process_id
+        }
+        
+        # Speichere im Cache
+        self.cache.save_cache_with_key(
+            cache_key=cache_key,
+            result=result,
+            metadata=metadata
+        )
+        
+        self.logger.info("Audio-Verarbeitungsergebnis im Cache gespeichert", 
+                       cache_key=cache_key)
 
     async def process(
         self,
@@ -634,7 +742,8 @@ class AudioProcessor(BaseProcessor):
         source_language: Optional[str] = None,
         target_language: Optional[str] = None,
         template: Optional[str] = None,
-        skip_segments: Optional[List[int]] = None
+        skip_segments: Optional[List[int]] = None,
+        use_cache: bool = True
     ) -> AudioResponse:
         """Verarbeitet eine Audio-Datei.
         
@@ -646,6 +755,7 @@ class AudioProcessor(BaseProcessor):
             target_language: Zielsprache (ISO 639-1)
             template: Optionales Template für die Transformation
             skip_segments: Optionale Liste von zu überspringenden Segmenten
+            use_cache: Ob der Cache verwendet werden soll (default: True)
             
         Returns:
             AudioResponse: Das Verarbeitungsergebnis
@@ -671,6 +781,48 @@ class AudioProcessor(BaseProcessor):
                 temp_file_path = self._download_audio(audio_source)
             else:
                 temp_file_path = Path(audio_source)
+            
+            # Extrahiere relevante Informationen aus source_info
+            original_filename = source_info.get('original_filename')
+            video_id = source_info.get('video_id')
+            
+            # Generiere Cache-Schlüssel
+            cache_key = self._generate_cache_key(
+                audio_path=str(temp_file_path),
+                source_language=source_language,
+                target_language=target_language,
+                template=template,
+                original_filename=original_filename,
+                video_id=video_id
+            )
+                
+            # Prüfe Cache vor der Verarbeitung
+            cache_result = self._check_cache(cache_key)
+            
+            if cache_result and use_cache:
+                cached_result, _ = cache_result
+                # Erstelle Response aus Cache
+                end_time = datetime.now()
+                duration_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                self.logger.info("Verwende Cache-Ergebnis für Audio-Verarbeitung")
+                
+                return ResponseFactory.create_response(
+                    processor_name="audio",
+                    result=cached_result,
+                    request_info={
+                        'original_filename': source_info.get('original_filename'),
+                        'source_language': source_language,
+                        'target_language': target_language,
+                        'template': template,
+                        'started': start_time.isoformat(),
+                        'completed': end_time.isoformat(),
+                        'duration_ms': duration_ms,
+                        'from_cache': True
+                    },
+                    response_class=AudioResponse,
+                    llm_info=None  # Keine LLM-Info bei Cache-Hit
+                )
 
             # Erstelle Verarbeitungsverzeichnis
             process_dir: Path = self.get_process_dir(
@@ -771,6 +923,17 @@ class AudioProcessor(BaseProcessor):
                     metadata=metadata,
                     process_id=self.process_id,
                     transformation_result=None  # Kein separates Transformationsergebnis mehr
+                )
+                
+                # Speichere im Cache
+                self._save_to_cache(
+                    cache_key=cache_key,
+                    result=result,
+                    audio_path=str(temp_file_path),
+                    source_language=source_language,
+                    target_language=target_language,
+                    template=template,
+                    source_info=source_info
                 )
 
                 # Erstelle die Response mit ResponseFactory

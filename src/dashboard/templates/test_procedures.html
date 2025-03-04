@@ -1,344 +1,285 @@
 {% extends "base.html" %}
 
-{% block title %}Test Procedures - Processing Service{% endblock %}
-
-{% block extra_head %}
-<!-- Toast UI Editor -->
-<link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
-<script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
-<style>
-.modal-body {
-    max-height: 80vh;
-    overflow-y: auto;
-}
-#viewer {
-    height: 100%;
-    min-height: 400px;
-    overflow-y: auto;
-}
-.toastui-editor-contents {
-    max-height: none !important;
-}
-</style>
-{% endblock %}
+{% block title %}Test-Prozeduren{% endblock %}
 
 {% block content %}
-<h1>Test Procedures</h1>
-
-<!-- Loading Spinner -->
-<div id="loadingSpinner" class="text-center" style="display: none;">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-    <p class="mt-2">Processing test, please wait...</p>
-</div>
-
-<!-- Tab Navigation -->
-<ul class="nav nav-tabs mt-4" id="testTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="youtube-tab" data-bs-toggle="tab" data-bs-target="#youtube" 
-                type="button" role="tab" aria-controls="youtube" aria-selected="true">
-            Youtube Test
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio" 
-                type="button" role="tab" aria-controls="audio" aria-selected="false">
-            Audio Test
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="transformer-tab" data-bs-toggle="tab" data-bs-target="#transformer" 
-                type="button" role="tab" aria-controls="transformer" aria-selected="false">
-            Transformer Test
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health" 
-                type="button" role="tab" aria-controls="health" aria-selected="false">
-            Health Check
-        </button>
-    </li>
-</ul>
-
-<!-- Tab Content -->
-<div class="tab-content mt-3" id="testTabsContent">
-    <!-- Youtube Test Tab -->
-    <div class="tab-pane fade show active" id="youtube" role="tabpanel" aria-labelledby="youtube-tab">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Youtube Processing Test</h5>
-                <p class="card-text">Test the Youtube processing functionality by providing a video URL.</p>
-                <form action="{{ url_for('main.youtube_test') }}" method="POST" class="mt-3 test-form">
-                    <div class="mb-3">
-                        <label for="youtube_url" class="form-label">Youtube URL</label>
-                        <input type="url" class="form-control" id="youtube_url" name="youtube_url" 
-                               placeholder="https://www.youtube.com/watch?v=..." 
-                               value="{{ request.cookies.get('youtube_last_url', '') }}"
-                               required>
-                        <div class="form-text">Enter a Youtube video URL to test the processing pipeline.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="target_language" class="form-label">Generate Language</label>
-                        <select name="target_language" class="form-control">
-                            <option value="de">German</option>
-                            <option value="en">English</option>
-                            <option value="fr">French</option>
-                            <option value="es">Spanish</option>
-                            <option value="it">Italian</option>
-                        </select>
-                        <div class="form-text">Select the language of the video content.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="template" class="form-label">Template</label>
-                        <select name="template" class="form-control" id="template">
-                            <option value="Youtube" selected>Youtube</option>
-                            <option value="Article">Article</option>
-                            <option value="Podcast">Podcast</option>
-                            <option value="Interview">Interview</option>
-                        </select>
-                        <div class="form-text">Select the template format for content processing.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Run Test</button>
-                </form>
-            </div>
+<div class="container py-4">
+    <h1 class="mb-4">Test-Prozeduren</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Event-Monitor Funktionalitäten</h5>
         </div>
-    </div>
+        <div class="card-body">
+            <h6>Batch-Buttons Funktionstest</h6>
+            <p>Diese Tests überprüfen die Funktionalität der Buttons, die für jeden Batch im Event-Monitor angezeigt werden.</p>
 
-    <!-- Audio Test Tab -->
-    <div class="tab-pane fade" id="audio" role="tabpanel" aria-labelledby="audio-tab">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Audio Processing Test</h5>
-                <p class="card-text">Test the audio processing functionality by uploading an audio file.</p>
-                <form action="{{ url_for('main.audio_test') }}" method="POST" class="mt-3 test-form" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="audio_file" class="form-label">Audio File</label>
-                        <input type="file" class="form-control" id="audio_file" name="audio_file" 
-                               accept="audio/*" required>
-                        <div class="form-text">Select an audio file to test the processing pipeline.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="target_language" class="form-label">Generate Language</label>
-                        <select name="target_language" class="form-control">
-                            <option value="en">English</option>
-                            <option value="de">German</option>
-                            <option value="fr">French</option>
-                            <option value="es">Spanish</option>
-                            <option value="it">Italian</option>
-                        </select>
-                        <div class="form-text">Select the language of the audio content.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="template" class="form-label">Template</label>
-                        <select name="template" class="form-control" id="template">
-                            <option value="Gedanken" selected>Gedanken</option>
-                            <option value="Besprechung">Besprechung</option>
-                        </select>
-                        <div class="form-text">Select the template format for content processing.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Run Test</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Transformer Test Tab -->
-    <div class="tab-pane fade" id="transformer" role="tabpanel" aria-labelledby="transformer-tab">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Transformer Processing Test</h5>
-                <p class="card-text">Test the transformer processing functionality by providing input text.</p>
-                <form action="{{ url_for('main.transformer_test') }}" method="POST" class="mt-3 test-form">
-                    <div class="mb-3">
-                        <label for="input_text" class="form-label">Input Text</label>
-                        <textarea class="form-control" id="input_text" name="input_text" 
-                                rows="4" required
-                                placeholder="Enter the text you want to process..."></textarea>
-                        <div class="form-text">Enter the text you want to process with the transformer.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="target_language" class="form-label">Generate Language</label>
-                        <select name="target_language" class="form-control">
-                            <option value="de">German</option>
-                            <option value="en">English</option>
-                            <option value="fr">French</option>
-                            <option value="es">Spanish</option>
-                            <option value="it">Italian</option>
-                        </select>
-                        <div class="form-text">Select the language of the audio content.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="model_type" class="form-label">Model Type</label>
-                        <select name="model_type" class="form-control" id="model_type">
-                            <option value="summarize">Summarization</option>
-                        </select>
-                        <div class="form-text">Select the type of transformer processing to perform.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Run Test</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Health Check Tab -->
-    <div class="tab-pane fade" id="health" role="tabpanel" aria-labelledby="health-tab">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">System Health Test</h5>
-                <p class="card-text">Run system health checks to verify the functionality of various components.</p>
-                <form action="{{ url_for('main.health_test') }}" method="POST" class="mt-3 test-form">
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="check_api" name="check_api" checked>
-                            <label class="form-check-label" for="check_api">
-                                Check API Endpoints
-                            </label>
-                            <div class="form-text">Verify that all API endpoints are responding correctly.</div>
-                        </div>
-                        <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="check_storage" name="check_storage" checked>
-                            <label class="form-check-label" for="check_storage">
-                                Check Storage
-                            </label>
-                            <div class="form-text">Verify that the storage system is accessible and working.</div>
-                        </div>
-                        <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="check_processors" name="check_processors" checked>
-                            <label class="form-check-label" for="check_processors">
-                                Check Processors
-                            </label>
-                            <div class="form-text">Verify that all processing modules are functioning properly.</div>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Run Health Check</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Test Results -->
-{% if test_results %}
-<div class="row mt-4">
-    <div class="col-12" id="testResults">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Test Results</h5>
-                <div class="alert alert-{{ 'success' if test_results.success else 'danger' }} mt-3">
-                    {{ test_results.message }}
-                    {% if test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
-                        <button type="button" class="btn btn-sm btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#markdownModal">
-                            <i class="bi bi-eye"></i> View Markdown
-                        </button>
-                    {% endif %}
+            <div class="mb-3">
+                <h6>1. Test: Batch-Aktiv-Status umschalten</h6>
+                <div class="input-group mb-2">
+                    <input type="text" id="toggleBatchId" class="form-control" placeholder="Batch-ID eingeben">
+                    <button class="btn btn-primary" onclick="testToggleBatchActive()">Status umschalten</button>
                 </div>
-                {% if test_results.details %}
-                <div class="mt-3">
-                    <h6>Details:</h6>
-                    <pre class="bg-light p-3"><code>{{ test_results.details|tojson(indent=2) }}</code></pre>
+                <div id="toggleResult" class="alert alert-info d-none"></div>
+            </div>
+
+            <div class="mb-3">
+                <h6>2. Test: Jobs für Batch anzeigen</h6>
+                <div class="input-group mb-2">
+                    <input type="text" id="loadJobsBatchId" class="form-control" placeholder="Batch-ID eingeben">
+                    <button class="btn btn-primary" onclick="testLoadJobs()">Jobs laden</button>
                 </div>
-                {% endif %}
+                <div id="loadJobsResult" class="mt-2"></div>
+            </div>
+
+            <div class="mb-3">
+                <h6>3. Test: Batch neu starten</h6>
+                <div class="input-group mb-2">
+                    <input type="text" id="restartBatchId" class="form-control" placeholder="Batch-ID eingeben">
+                    <button class="btn btn-primary" onclick="testRestartBatch()">Batch neu starten</button>
+                </div>
+                <div id="restartResult" class="alert alert-info d-none"></div>
+            </div>
+
+            <div class="mb-3">
+                <h6>4. Test: Batch archivieren</h6>
+                <div class="input-group mb-2">
+                    <input type="text" id="archiveBatchId" class="form-control" placeholder="Batch-ID eingeben">
+                    <button class="btn btn-primary" onclick="testArchiveBatch()">Batch archivieren</button>
+                </div>
+                <div id="archiveResult" class="alert alert-info d-none"></div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Markdown Modal -->
-{% if test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
-<div class="modal fade" id="markdownModal" tabindex="-1" aria-labelledby="markdownModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="markdownModalLabel">Markdown Preview</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="viewer"></div>
-            </div>
+    <div class="card">
+        <div class="card-header">
+            <h5>Aktive Batches anzeigen</h5>
+        </div>
+        <div class="card-body">
+            <button class="btn btn-primary" onclick="loadActiveBatches()">Aktive Batches laden</button>
+            <div id="batchesResult" class="mt-3"></div>
         </div>
     </div>
 </div>
-{% endif %}
-{% endif %}
+{% endblock %}
 
+{% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Get all forms with class 'test-form'
-    const testForms = document.querySelectorAll('.test-form');
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    const testResults = document.getElementById('testResults');
-
-    testForms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            loadingSpinner.style.display = 'block';
-            if (testResults) {
-                testResults.style.display = 'none';
-            }
+    function testToggleBatchActive() {
+        const batchId = document.getElementById('toggleBatchId').value.trim();
+        const resultDiv = document.getElementById('toggleResult');
+        
+        if (!batchId) {
+            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
+            return;
+        }
+        
+        showResult(resultDiv, 'Verarbeite Anfrage...', 'info');
+        
+        fetch(`/api/dashboard/event-monitor/batches/${batchId}/toggle-active`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            showResult(resultDiv, `Ergebnis: ${JSON.stringify(data)}`, data.status === 'success' ? 'success' : 'danger');
+        })
+        .catch(error => {
+            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
         });
-    });
-
-    // Handle transformer form dynamic fields
-    const modelTypeSelect = document.getElementById('model_type');
-    if (modelTypeSelect) {
-        const translationOptions = document.querySelector('.translation-options');
-        const qaOptions = document.querySelector('.qa-options');
-
-        modelTypeSelect.addEventListener('change', function() {
-            if (translationOptions) translationOptions.style.display = 'none';
-            if (qaOptions) qaOptions.style.display = 'none';
-
-            if (this.value === 'translate' && translationOptions) {
-                translationOptions.style.display = 'block';
-            } else if (this.value === 'qa' && qaOptions) {
-                qaOptions.style.display = 'block';
-            }
-        });
-    }
-
-    // Initialize Toast UI Viewer if content exists
-    {% if test_results and test_results.details and test_results.details.api_response and test_results.details.api_response.audio_process and test_results.details.api_response.audio_process.text %}
-    const rawMarkdown = {{ test_results.details.api_response.audio_process.text|tojson|safe }};
-    if (rawMarkdown) {
-        const viewer = new toastui.Editor.factory({
-            el: document.querySelector('#viewer'),
-            viewer: true,
-            initialValue: rawMarkdown,
-            height: 'auto',
-            theme: 'dark',
-            previewStyle: 'vertical'
-        });
-    }
-    {% endif %}
-
-    // Handle tab switching for test results
-    {% if test_results and test_results.details and test_results.details.test_type %}
-    const testType = {{ test_results.details.test_type|tojson|safe }};
-    let tabId = null;
-    
-    switch(testType) {
-        case 'youtube_processing':
-            tabId = 'youtube-tab';
-            break;
-        case 'audio_processing':
-            tabId = 'audio-tab';
-            break;
-        case 'transformer_processing':
-            tabId = 'transformer-tab';
-            break;
-        case 'health_check':
-            tabId = 'health-tab';
-            break;
     }
     
-    if (tabId) {
-        const tab = document.getElementById(tabId);
-        if (tab) {
-            const bsTab = new bootstrap.Tab(tab);
-            bsTab.show();
+    function testLoadJobs() {
+        const batchId = document.getElementById('loadJobsBatchId').value.trim();
+        const resultDiv = document.getElementById('loadJobsResult');
+        
+        if (!batchId) {
+            resultDiv.innerHTML = '<div class="alert alert-danger">Bitte eine Batch-ID eingeben</div>';
+            return;
+        }
+        
+        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div></div>';
+        
+        fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
+        .then(response => response.json())
+        .then(data => {
+            let jobs = [];
+            
+            if (data.data && data.data.jobs) {
+                jobs = data.data.jobs;
+            } else if (data.jobs) {
+                jobs = data.jobs;
+            }
+            
+            if (jobs.length > 0) {
+                let html = '<table class="table table-sm table-striped mt-3">';
+                html += '<thead><tr><th>Job-ID</th><th>Status</th><th>Name</th><th>Erstellt</th></tr></thead>';
+                html += '<tbody>';
+                
+                jobs.forEach(job => {
+                    html += `<tr>
+                        <td>${job.job_id}</td>
+                        <td><span class="badge ${getStatusClass(job.status)}">${job.status}</span></td>
+                        <td>${job.job_name || '-'}</td>
+                        <td>${formatDate(job.created_at)}</td>
+                    </tr>`;
+                });
+                
+                html += '</tbody></table>';
+                resultDiv.innerHTML = html;
+            } else {
+                resultDiv.innerHTML = '<div class="alert alert-info">Keine Jobs für diese Batch-ID gefunden.</div>';
+            }
+        })
+        .catch(error => {
+            resultDiv.innerHTML = `<div class="alert alert-danger">Fehler: ${error.message}</div>`;
+        });
+    }
+    
+    function testRestartBatch() {
+        const batchId = document.getElementById('restartBatchId').value.trim();
+        const resultDiv = document.getElementById('restartResult');
+        
+        if (!batchId) {
+            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
+            return;
+        }
+        
+        showResult(resultDiv, 'Starte Batch neu...', 'info');
+        
+        fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
+        .then(response => response.json())
+        .then(data => {
+            let jobs = [];
+            if (data.data && data.data.jobs) jobs = data.data.jobs;
+            else if (data.jobs) jobs = data.jobs;
+            
+            if (!jobs.length) {
+                showResult(resultDiv, 'Keine Jobs zum Neustarten gefunden', 'warning');
+                return;
+            }
+            
+            // Restart all jobs in the batch
+            const promises = jobs.map(job => 
+                fetch(`/api/dashboard/event-monitor/job/${job.job_id}/restart`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ batch_id: batchId })
+                })
+                .then(resp => resp.json())
+            );
+            
+            return Promise.all(promises);
+        })
+        .then(results => {
+            if (results && results.length) {
+                showResult(resultDiv, `${results.length} Jobs neu gestartet: ${JSON.stringify(results)}`, 'success');
+            }
+        })
+        .catch(error => {
+            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
+        });
+    }
+    
+    function testArchiveBatch() {
+        const batchId = document.getElementById('archiveBatchId').value.trim();
+        const resultDiv = document.getElementById('archiveResult');
+        
+        if (!batchId) {
+            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
+            return;
+        }
+        
+        showResult(resultDiv, 'Archiviere Batch...', 'info');
+        
+        // API call to archive the batch
+        fetch(`/api/dashboard/event-monitor/batches/${batchId}/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            showResult(resultDiv, `Ergebnis: ${JSON.stringify(data)}`, data.status === 'success' ? 'success' : 'danger');
+        })
+        .catch(error => {
+            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
+        });
+    }
+    
+    function loadActiveBatches() {
+        const resultDiv = document.getElementById('batchesResult');
+        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div></div>';
+        
+        fetch('/api/dashboard/event-monitor/batches?archived=false')
+        .then(response => response.json())
+        .then(data => {
+            let batches = [];
+            if (data.data && data.data.batches) batches = data.data.batches;
+            else if (data.batches) batches = data.batches;
+            
+            if (batches.length > 0) {
+                let html = '<div class="list-group mt-3">';
+                
+                batches.forEach(batch => {
+                    const statusClass = getStatusClass(batch.status);
+                    html += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="badge ${statusClass} me-2">${batch.status}</span>
+                                <strong>${batch.batch_name || batch.batch_id}</strong>
+                                <small class="text-muted ms-2">${formatDate(batch.created_at)}</small>
+                            </div>
+                            <div>
+                                <span class="badge bg-secondary">${batch.total_jobs} Jobs</span>
+                                <button class="btn btn-sm btn-outline-primary ms-2" 
+                                        onclick="document.getElementById('loadJobsBatchId').value='${batch.batch_id}'; testLoadJobs();">
+                                    Jobs anzeigen
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+                
+                html += '</div>';
+                resultDiv.innerHTML = html;
+            } else {
+                resultDiv.innerHTML = '<div class="alert alert-info">Keine aktiven Batches gefunden.</div>';
+            }
+        })
+        .catch(error => {
+            resultDiv.innerHTML = `<div class="alert alert-danger">Fehler: ${error.message}</div>`;
+        });
+    }
+    
+    // Helper functions
+    function showResult(element, message, type) {
+        element.className = `alert alert-${type}`;
+        element.style.display = 'block';
+        element.textContent = message;
+    }
+    
+    function getStatusClass(status) {
+        switch(status) {
+            case 'completed': return 'bg-success';
+            case 'failed': return 'bg-danger';
+            case 'processing': return 'bg-primary';
+            case 'pending': return 'bg-warning';
+            default: return 'bg-secondary';
         }
     }
-    {% endif %}
-});
+    
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleString('de-DE');
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        // Automatisch beim Laden aktive Batches anzeigen
+        loadActiveBatches();
+    });
 </script>
 {% endblock %} 

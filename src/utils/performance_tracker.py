@@ -73,6 +73,9 @@ class Measurements(TypedDict):
     processors: Dict[str, ProcessorStats]
     resources: ResourceInfo
     error: Optional[ErrorInfo]
+    event: Optional[str]
+    track: Optional[str]
+    session: Optional[str]
 
 class PerformanceResult(TypedDict):
     """Ergebnis eines Performance-Trackings"""
@@ -104,6 +107,10 @@ class PerformanceTracker:
         self.start_time: float = time.time()
         self.logger: Logger = logging.getLogger(f"performance_tracker.{process_id}")
         
+        # Standardwerte für Prozessor-Name und async_processing
+        self.processor_name: Optional[str] = None
+        self.async_processing: bool = False
+        
         self.measurements: Measurements = {
             'process_id': process_id,
             'timestamp': datetime.now().isoformat(),
@@ -121,7 +128,10 @@ class PerformanceTracker:
                 'total_cost': 0.0,
                 'models_used': []
             },
-            'error': None
+            'error': None,
+            'event': None,
+            'track': None,
+            'session': None
         }
         self._local = threading.local()
 
@@ -137,6 +147,48 @@ class PerformanceTracker:
         self.measurements['endpoint'] = endpoint
         self.measurements['client_info']['ip'] = ip
         self.measurements['client_info']['user_agent'] = user_agent
+
+    def set_processor_name(self, processor_name: str) -> None:
+        """
+        Setzt den Namen des Hauptprozessors für diesen API-Aufruf.
+        
+        Args:
+            processor_name: Name des Hauptprozessors (z.B. 'event', 'video', etc.)
+        """
+        self.processor_name = processor_name
+
+    def set_event_metadata(self, event: str, track: str, session: str) -> None:
+        """
+        Setzt Metadaten für Event-Processor-Aufrufe.
+        
+        Args:
+            event: Name des Events (z.B. 'FOSDEM 2025')
+            track: Track des Events (z.B. 'Keynotes-13')
+            session: Session des Events (z.B. 'Closing FOSDEM 2025')
+        """
+        self.measurements['event'] = event
+        self.measurements['track'] = track
+        self.measurements['session'] = session
+        
+        # Debug-Log hinzufügen, um zu überprüfen, ob die Methode aufgerufen wird
+        self.logger.debug(
+            f"Event-Metadaten gesetzt: event={event}, track={track}, session={session}",
+            extra={
+                'process_id': self.process_id,
+                'event': event,
+                'track': track,
+                'session': session
+            }
+        )
+
+    def set_async_processing(self, is_async: bool = True) -> None:
+        """
+        Markiert diesen API-Aufruf als asynchrone Verarbeitung.
+        
+        Args:
+            is_async: Ob die Verarbeitung asynchron ist
+        """
+        self.async_processing = is_async
 
     def add_resource_usage(self, tokens: int, cost: float, model: str) -> None:
         """
@@ -296,23 +348,66 @@ class PerformanceTracker:
         
         log_file = log_dir / 'performance.json'
         try:
-            logs: List[StoredLog] = []
+            logs: List[Dict[str, Any]] = []
             if log_file.exists():
-                with open(log_file, 'r', encoding='utf-8') as f:
-                    logs = json.load(f)
-                    
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        logs = json.load(f)
+                except json.JSONDecodeError:
+                    self.logger.error("JSON-Fehler beim Lesen der Performance-Datei. Erstelle neue Datei.")
+                    # Erstelle ein Backup der möglicherweise korrupten Datei
+                    backup_file = log_file.with_suffix('.json.bak')
+                    try:
+                        import shutil
+                        shutil.copy2(log_file, backup_file)
+                        self.logger.info(f"Backup der Performance-Datei erstellt: {backup_file}")
+                    except Exception as backup_err:
+                        self.logger.error(f"Fehler beim Erstellen des Backups: {backup_err}")
+            
             # Entferne alte Logs (älter als 30 Tage)
             thirty_days_ago: datetime = datetime.now() - timedelta(days=30)
             logs = [
                 log for log in logs 
-                if datetime.fromisoformat(log['timestamp']) > thirty_days_ago
+                if datetime.fromisoformat(log.get('timestamp', '2000-01-01')) > thirty_days_ago
             ]
             
-            logs.append(cast(StoredLog, {
+            # Erstelle einen neuen Log-Eintrag mit flacher Struktur
+            new_log = {
                 'timestamp': self.measurements['timestamp'],
                 'process_id': self.measurements['process_id'],
-                'measurements': self.measurements
-            }))
+                'processor': self.processor_name,  # Wichtig: Flache Struktur für den Prozessor-Namen
+                'status': self.measurements['status'],
+                'async_processing': self.async_processing,  # Wichtig: Flache Struktur für async_processing
+                
+                # Event-Metadaten, falls vorhanden
+                'event': self.measurements.get('event', ''),
+                'track': self.measurements.get('track', ''),
+                'session': self.measurements.get('session', ''),
+                
+                'total_duration': self.measurements['total_duration'],
+                'endpoint': self.measurements['endpoint'],
+                # Wichtige Felder direkt in der Hauptebene
+                'client_ip': self.measurements['client_info']['ip'],
+                'client_user_agent': self.measurements['client_info']['user_agent'],
+                # Verschachtelte Daten werden als measurements gespeichert
+                'measurements': {
+                    'operations': self.measurements['operations'],
+                    'processors': self.measurements['processors'],
+                    'resources': self.measurements['resources'],
+                },
+                'error': self.measurements['error']
+            }
+            
+            # Debug-Log für die Event-Metadaten hinzufügen
+            self.logger.debug(
+                f"Event-Metadaten in Logs geschrieben: event={self.measurements.get('event')}, "
+                f"track={self.measurements.get('track')}, session={self.measurements.get('session')}",
+                extra={
+                    'process_id': self.process_id
+                }
+            )
+            
+            logs.append(new_log)
             
             with open(log_file, 'w', encoding='utf-8') as f:
                 json.dump(logs, f, indent=2)
@@ -377,7 +472,7 @@ def get_performance_tracker(process_id: Optional[str] = None) -> Optional[Perfor
         process_id (str, optional): Process-ID für einen neuen Tracker
         
     Returns:
-        PerformanceTracker: Der aktuelle Performance-Tracker oder None
+        Optional[PerformanceTracker]: Der aktuelle Performance-Tracker oder None
     """
     if not hasattr(_performance_trackers, 'tracker'):
         if process_id:

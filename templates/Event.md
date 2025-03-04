@@ -9,10 +9,16 @@ Type: Event-Zusammenfassung
 ---
 # {{title|Der Titel des Session}}
 
+> [! hinweis]-
+> Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.
+
+Quelle: [{{url}}]({{url}})
+
 <video src="{{video_url}}" controls></video>
 
 ## Zusammenfassung & Highlights:
-{{summary|Bitte die Texte des Transcripts, des Webtexts und des attachment_text sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter den Abschnitt ausführlich zusammenfassen.Absätze und Titel mit \n trennen.}}
+
+{{summary|Bitte die Texte des Transcripts, des Webtexts und des attachment_text sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter jeden Abschnitt ausführlich mit mindestens 120 Worte zusammenfassen. Absätze und Titel mit \n trennen.}}
 
 ## Links
 {{attachment_links|Liste aller Links aus attachment_text erstellen, formatiert als markdown links mit Beschreibung und Beistrich getrennt.}}

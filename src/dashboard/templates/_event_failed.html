@@ -1,0 +1,164 @@
+{% if failed %}
+<div class="alert alert-info mb-3">
+    Insgesamt {{ failed|length }} fehlgeschlagene Events. Es werden maximal 20 angezeigt.
+</div>
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Event</th>
+                <th>Track</th>
+                <th>Session</th>
+                <th>Fehlerzeit</th>
+                <th>Dauer</th>
+                <th>Status</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in failed[:20] %}
+            <tr>
+                <td>
+                    {% if item.event %}
+                        {{ item.event|truncate(40, true) }}
+                    {% elif item.endpoint and 'event' in item.endpoint %}
+                        <span class="text-muted">Event</span>
+                    {% else %}
+                        <span class="text-muted">Unbekannt</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.track %}
+                        {{ item.track|truncate(20, true) }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.session %}
+                        {{ item.session|truncate(20, true) }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td>{{ item.timestamp_formatted }}</td>
+                <td>
+                    <span class="badge bg-info">{{ item.duration }}</span>
+                </td>
+                <td>
+                    <span class="badge bg-danger">Fehlgeschlagen</span>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" 
+                            data-bs-toggle="modal" data-bs-target="#failedModal{{ loop.index }}">
+                        <i class="fas fa-info-circle"></i>
+                    </button>
+                    
+                    <!-- Modal -->
+                    <div class="modal fade" id="failedModal{{ loop.index }}" tabindex="-1" 
+                         aria-labelledby="failedModalLabel{{ loop.index }}" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="failedModalLabel{{ loop.index }}">
+                                        Event-Details (Fehlgeschlagen)
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <h6>Allgemeine Informationen</h6>
+                                    <table class="table table-sm">
+                                        <tr>
+                                            <th>Process ID:</th>
+                                            <td>{{ item.process_id }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Event:</th>
+                                            <td>{{ item.event }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Track:</th>
+                                            <td>{{ item.track }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Session:</th>
+                                            <td>{{ item.session }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Fehlerzeit:</th>
+                                            <td>{{ item.timestamp_formatted }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Dauer bis Fehler:</th>
+                                            <td>{{ item.duration }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Endpoint:</th>
+                                            <td>{{ item.endpoint }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Processor:</th>
+                                            <td>{{ item.processor }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Status:</th>
+                                            <td>{{ item.status }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Async Processing:</th>
+                                            <td>{{ item.async_processing }}</td>
+                                        </tr>
+                                    </table>
+                                    
+                                    {% if item.error %}
+                                    <h6 class="mt-4">Fehlerinformationen</h6>
+                                    <div class="alert alert-danger">
+                                        <h6>{{ item.error.code }}</h6>
+                                        <p>{{ item.error.message }}</p>
+                                        {% if item.error.details %}
+                                        <div class="mt-2">
+                                            <strong>Details:</strong>
+                                            <pre class="mt-2 mb-0"><code>{{ item.error.details|tojson(indent=2) }}</code></pre>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if item.measurements and item.measurements.operations %}
+                                    <h6 class="mt-4">Operationen</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.measurements.operations|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if item.measurements and item.measurements.processors %}
+                                    <h6 class="mt-4">Processors</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.measurements.processors|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if item.measurements and item.measurements.resources %}
+                                    <h6 class="mt-4">Resources</h6>
+                                    <div class="bg-light p-3 rounded">
+                                        <pre class="mb-0"><code>{{ item.measurements.resources|tojson(indent=2) }}</code></pre>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i> Keine fehlgeschlagenen Events vorhanden.
+</div>
+{% endif %} 

@@ -29,15 +29,13 @@ Der VideoProcessor trackt die LLM-Nutzung auf zwei Ebenen:
 """
 
 import hashlib
-import uuid
 import traceback
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, Tuple
-
+from typing import Dict, Any, Optional, Union, Tuple
+from datetime import datetime
+import uuid
 import yt_dlp  # type: ignore
 
-from src.utils.video_cache import CacheMetadata
 from src.core.models.audio import AudioResponse
 from src.core.config import Config
 from src.core.models.base import (
@@ -54,7 +52,7 @@ from src.core.models.video import (
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.models.response_factory import ResponseFactory
-from src.utils.video_cache import VideoCache
+from src.utils.processor_cache import ProcessorCache
 
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
@@ -81,13 +79,21 @@ class VideoProcessor(BaseProcessor):
         
         # Lade Konfiguration
         config = Config()
-        self.max_duration = config.get('processors.video.max_duration', 3600)  # 1 Stunde
+        processor_config = config.get('processors', {})
+        video_config = processor_config.get('video', {})
+        
+        # Video-spezifische Konfigurationen
+        self.max_duration = video_config.get('max_duration', 3600)  # 1 Stunde
+        
+        # Debug-Logging der Video-Konfiguration
+        self.logger.debug("VideoProcessor initialisiert mit Konfiguration", 
+                         max_duration=self.max_duration)
         
         # Initialisiere Prozessoren
         self.transformer = TransformerProcessor(resource_calculator, process_id)
         self.transcriber = WhisperTranscriber({"process_id": process_id})
         self.audio_processor = AudioProcessor(resource_calculator, process_id)
-        self.cache = VideoCache()
+        self.cache = ProcessorCache[VideoProcessingResult]("video")
         
         # Download-Optionen
         self.ydl_opts = {
@@ -187,12 +193,115 @@ class VideoProcessor(BaseProcessor):
             
             return title, duration, video_id
 
+    def _generate_cache_key(
+        self,
+        video_source: str,
+        source_language: str,
+        target_language: str,
+        template: Optional[str] = None
+    ) -> str:
+        """Generiert einen eindeutigen Cache-Schlüssel für die Video-Verarbeitung.
+        
+        Args:
+            video_source: Die Video-Quelle (URL oder Pfad)
+            source_language: Quellsprache
+            target_language: Zielsprache
+            template: Optionales Template
+            
+        Returns:
+            str: Der generierte Cache-Schlüssel
+        """
+        # Einfachen Basis-Key aus URL/Dateiname generieren
+        base_key: str = ProcessorCache.generate_simple_key(video_source)
+        
+        # Parameter in Hash einbeziehen
+        param_str: str = f"{source_language}_{target_language}_{template or ''}"
+        return hashlib.sha256(f"{base_key}_{param_str}".encode()).hexdigest()
+    
+
+    def _check_cache(
+        self,
+        cache_key: str
+    ) -> Optional[Tuple[VideoProcessingResult, Dict[str, Any]]]:
+        """Prüft, ob ein Cache-Eintrag für die Video-Verarbeitung existiert.
+        
+        Args:
+            video_source: Die Video-Quelle (URL oder Pfad)
+            source_language: Quellsprache
+            target_language: Zielsprache
+            template: Optionales Template
+            
+        Returns:
+            Optional[Tuple[VideoProcessingResult, Dict[str, Any], Dict[str, Path]]]: 
+                Das geladene Ergebnis, Metadaten und Dateien oder None
+        """
+        
+        # Prüfe Cache
+        cache_result = self.cache.load_cache_with_key(
+            cache_key=cache_key,
+            result_class=VideoProcessingResult,
+        )
+        
+        if cache_result:
+            self.logger.info("Cache-Hit für Video-Verarbeitung", 
+                           cache_key=cache_key)
+            
+            # Markiere als aus Cache geladen
+            result, _ = cache_result
+            result.is_from_cache = True
+            return cache_result
+            
+        return None
+    
+    def _save_to_cache(
+        self,
+        cache_key: str,
+        result: VideoProcessingResult,
+        video_source: str,
+        audio_path: str,
+        source_language: str,
+        target_language: str,
+        template: Optional[str] = None
+    ) -> None:
+        """Speichert ein Verarbeitungsergebnis im Cache.
+        
+        Args:
+            cache_key: Der Cache-Schlüssel
+            result: Das zu speichernde Ergebnis
+            video_source: Die Video-Quelle (URL oder Pfad)
+            audio_path: Pfad zur extrahierten Audio-Datei
+            source_language: Quellsprache
+            target_language: Zielsprache
+            template: Optionales Template
+        """
+        
+        # Erstelle Metadaten
+        metadata = {
+            'video_source': video_source,
+            'source_language': source_language,
+            'target_language': target_language,
+            'template': template,
+            'process_id': self.process_id
+        }
+        
+        
+        # Speichere im Cache
+        self.cache.save_cache_with_key(
+            cache_key=cache_key,
+            result=result,
+            metadata=metadata,
+        )
+        
+        self.logger.info("Video-Verarbeitungsergebnis im Cache gespeichert", 
+                       cache_key=cache_key)
+
     async def process(
         self, 
         source: Union[str, VideoSource],
         target_language: str = 'de',
         source_language: str = 'auto',
-        template: Optional[str] = None
+        template: Optional[str] = None,
+        use_cache: bool = True
     ) -> VideoResponse:
         """
         Verarbeitet ein Video.
@@ -202,6 +311,7 @@ class VideoProcessor(BaseProcessor):
             target_language: Zielsprache für die Transkription
             source_language: Quellsprache (auto für automatische Erkennung)
             template: Optional Template für die Verarbeitung
+            use_cache: Ob der Cache verwendet werden soll (default: True)
             
         Returns:
             VideoResponse: Die standardisierte Response mit Transkription und Metadaten
@@ -223,11 +333,19 @@ class VideoProcessor(BaseProcessor):
                 video_source = VideoSource(url=source)
             else:
                 video_source: VideoSource = source
-                
-            # 2. Cache prüfen
-            cache_result: Optional[Tuple[VideoProcessingResult, Path, CacheMetadata]] = self.cache.load(video_source, target_language, template)
-            if cache_result:
-                result, _, metadata = cache_result
+
+            # 2. Generiere Cache-Schlüssel , da später parameter verändert werden können
+            cache_key: str = self._generate_cache_key(
+                video_source=str(source),
+                source_language=source_language,
+                target_language=target_language,
+                template=template
+            )
+            
+            # Cache prüfen
+            cache_result = self._check_cache(cache_key)
+            if cache_result and use_cache:
+                result, _= cache_result
                 self.logger.info(f"Cache-Hit für Video: {result.metadata.title}")
                 
                 # Response aus Cache erstellen
@@ -307,7 +425,8 @@ class VideoProcessor(BaseProcessor):
                 },
                 source_language=source_language,
                 target_language=target_language,
-                template=template
+                template=template,
+                use_cache=use_cache
             )
             
             # LLM-Requests aus Audio-Verarbeitung übernehmen
@@ -339,7 +458,15 @@ class VideoProcessor(BaseProcessor):
             )
             
             # Nach erfolgreicher Verarbeitung im Cache speichern
-            self.cache.save(result, video_source, target_language, template, audio_path)
+            self._save_to_cache(
+                result=result,
+                cache_key=cache_key,
+                video_source=str(source),
+                audio_path=str(audio_path),
+                source_language=source_language,
+                target_language=target_language,
+                template=template
+            )
             
             # Response erstellen
             self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}")

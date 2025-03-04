@@ -1,23 +1,43 @@
+cache:
+  base_dir: ./cache
+  cleanup_interval: 24
+  max_age_days: 7
+event_worker:
+  active: true
+  max_concurrent: 5
+  poll_interval_sec: 5
 logging:
   backup_count: 5
   file: logs/dev_detailed.log
   level: DEBUG
   max_log_entries: 1000
-  max_size: 10485760
-
+  max_size: 120000000
+mongodb:
+  connect_timeout_ms: 5000
+  db_name: common-secretary-service
+  max_pool_size: 50
+  uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
 processors:
+  pdf:
+    max_file_size: 150000000
+    max_pages: 300
   audio:
     batch_size: 5
     export_format: mp3
-    max_file_size: 104857600
+    max_file_size: 120000000
+    max_segments: 100
     segment_duration: 300
     temp_dir: temp-processing/audio
     temp_file_suffix: .mp3
+  event:
+    base_dir: events
+    max_concurrent_tasks: 5
+    temp_dir: temp-processing/event
   transformer:
     model: gpt-4o
   youtube:
     max_duration: 15000
-    max_file_size: 104857600
+    max_file_size: 120000000
     output_template: '%(title)s.%(ext)s'
     temp_dir: temp-processing/video
     ydl_opts:
@@ -29,6 +49,7 @@ rate_limiting:
   enabled: true
   requests_per_minute: 60
 server:
+  api_base_url: http://localhost:5001
   debug: true
   host: 127.0.0.1
   port: 5000

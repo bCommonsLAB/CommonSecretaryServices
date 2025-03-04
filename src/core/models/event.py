@@ -102,18 +102,26 @@ class EventOutput:
         attachments: Liste der heruntergeladenen Anhänge
         metadata: Zusätzliche Metadaten zum Event
     """
+    web_text: str
+    video_transcript: str
+    context: Dict[str, Any]
     markdown_file: str
     markdown_content: str
     video_file: Optional[str] = None
+    attachments_url: Optional[str] = None
     attachments: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
         return {
+            "web_text": self.web_text,
+            "video_transcript": self.video_transcript,
+            "context": self.context,
             "markdown_file": self.markdown_file,
             "markdown_content": self.markdown_content,
             "video_file": self.video_file,
+            "attachments_url": self.attachments_url,
             "attachments": self.attachments,
             "metadata": self.metadata
         }
@@ -225,4 +233,77 @@ class BatchEventResponse(BaseResponse):
         """Konvertiert die Response in ein Dictionary."""
         base_dict = super().to_dict()
         base_dict["data"] = self.data.to_dict() if self.data else None
-        return base_dict 
+        return base_dict
+
+@dataclass(frozen=True)
+class WebhookConfig:
+    """
+    Konfiguration für Webhook-Callbacks nach der Event-Verarbeitung.
+    
+    Attributes:
+        url: Die URL, an die der Webhook-Callback gesendet wird
+        headers: Optionale HTTP-Header für den Webhook-Request
+        include_markdown: Ob der Markdown-Inhalt im Callback enthalten sein soll
+        include_metadata: Ob die Metadaten im Callback enthalten sein soll
+        event_id: Eine eindeutige ID für das Event (wird vom Aufrufer bereitgestellt)
+    """
+    url: str
+    headers: Dict[str, str] = field(default_factory=dict)
+    include_markdown: bool = True
+    include_metadata: bool = True
+    event_id: Optional[str] = None
+    
+    def __post_init__(self) -> None:
+        """Validiert die Webhook-Konfiguration."""
+        if not self.url.strip():
+            raise ValueError("Webhook URL darf nicht leer sein")
+        
+        # Stelle sicher, dass die URL mit http oder https beginnt
+        if not (self.url.startswith("http://") or self.url.startswith("https://")):
+            raise ValueError("Webhook URL muss mit http:// oder https:// beginnen")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die Webhook-Konfiguration in ein Dictionary."""
+        return {
+            "url": self.url,
+            "headers": self.headers,
+            "include_markdown": self.include_markdown,
+            "include_metadata": self.include_metadata,
+            "event_id": self.event_id
+        }
+
+@dataclass(frozen=True)
+class AsyncEventInput(EventInput):
+    """
+    Erweiterte Eingabedaten für die asynchrone Event-Verarbeitung.
+    
+    Attributes:
+        webhook: Konfiguration für den Webhook-Callback nach der Verarbeitung
+        use_cache: Ob die Ergebnisse zwischengespeichert werden sollen
+    """
+    webhook: Optional[WebhookConfig] = None
+    use_cache: bool = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die asynchronen Eingabedaten in ein Dictionary."""
+        base_dict = super().to_dict()
+        base_dict["webhook"] = self.webhook.to_dict() if self.webhook else None
+        base_dict["use_cache"] = self.use_cache
+        return base_dict
+
+@dataclass(frozen=True)
+class AsyncBatchEventInput(BatchEventInput):
+    """
+    Erweiterte Eingabedaten für die asynchrone Batch-Event-Verarbeitung.
+    
+    Attributes:
+        webhook: Konfiguration für den Webhook-Callback nach der Verarbeitung
+    """
+    webhook: Optional[WebhookConfig] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert die asynchronen Batch-Eingabedaten in ein Dictionary."""
+        return {
+            "events": self.events,
+            "webhook": self.webhook.to_dict() if self.webhook else None
+        } 
