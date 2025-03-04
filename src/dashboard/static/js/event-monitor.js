@@ -387,58 +387,81 @@ window.loadJobsForBatch = function(batchId, batchIndex, isAutoOpen = false) {
   // Toggle der Sichtbarkeit
   if (isOpening) {
     // Tabelle anzeigen
-    tableContainer.classList.remove('d-none');
-    if (toggleButton) {
-      toggleButton.textContent = 'Jobs verstecken';
+      tableContainer.classList.remove('d-none');
+      if (toggleButton) {
+        toggleButton.textContent = 'Jobs verstecken';
     }
     
     // Prüfen ob Daten bereits geladen wurden
     if (jobsContainer.getAttribute('data-loaded') === 'true') {
       console.log(`Jobs für Batch ${batchId} wurden bereits geladen, zeige aus Cache an`);
-      return;
-    }
-    
+    return;
+  }
+  
     // Benutzer-Feedback während des Ladens anzeigen
     jobsContainer.innerHTML = `<tr><td colspan="6" class="text-center py-3">
       <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
       <span>Lade Jobs...</span>
     </td></tr>`;
-    
-    // API-Anfrage an den Batch-Jobs-Endpunkt
+  
+  // API-Anfrage an den Batch-Jobs-Endpunkt
     console.log(`API-Anfrage für Jobs von Batch ${batchId} wird gesendet`);
-    fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
+  fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
       .then(response => {
         if (!response.ok) {
           throw new Error(`Netzwerkantwort war nicht ok für Jobs von Batch ${batchId}`);
         }
         return response.json();
       })
-      .then(data => {
-        // Versuche, die Jobs aus der Antwort zu extrahieren
-        let jobs = [];
-        
-        // Prüfe verschiedene mögliche Strukturen
-        if (data.data && data.data.jobs) {
+    .then(data => {
+      // Versuche, die Jobs aus der Antwort zu extrahieren
+      let jobs = [];
+      
+      // Prüfe verschiedene mögliche Strukturen
+      if (data.data && data.data.jobs) {
           console.log(`Jobs gefunden in data.data.jobs: ${data.data.jobs.length} Jobs`);
-          jobs = data.data.jobs;
-        } else if (data.jobs) {
+        jobs = data.data.jobs;
+      } else if (data.jobs) {
           console.log(`Jobs gefunden in data.jobs: ${data.jobs.length} Jobs`);
-          jobs = data.jobs;
-        } else {
+        jobs = data.jobs;
+      } else {
           console.error(`Keine Jobs in der Antwort gefunden!`, data);
-        }
+      }
+      
+      if (loadingSpinner) {
+        loadingSpinner.classList.add('d-none');
+      }
+      
+      if (jobs && jobs.length > 0) {
+        console.log(`Verarbeite ${jobs.length} Jobs für Batch ${batchId}`);
         
-        if (loadingSpinner) {
-          loadingSpinner.classList.add('d-none');
-        }
-        
-        if (jobs && jobs.length > 0) {
-          console.log(`Verarbeite ${jobs.length} Jobs für Batch ${batchId}`);
-          
-          // Jobs markieren als geladen
-          jobsContainer.setAttribute('data-loaded', 'true');
-          // HTML für die Jobs generieren
+        // Jobs markieren als geladen
+        jobsContainer.setAttribute('data-loaded', 'true');
+        // HTML für die Jobs generieren
           const jobsHTML = jobs.map((job) => {
+            // Bestimme Button-Klasse und Tooltip basierend auf Status
+            let reloadButtonClass = 'btn-outline-warning';  // Standard für failed
+            let reloadButtonTooltip = 'Job neu starten';
+            let reloadButtonDisabled = '';
+            
+            switch(job.status) {
+              case 'completed':
+                reloadButtonClass = 'btn-outline-secondary';
+                reloadButtonTooltip = 'Abgeschlossenen Job neu starten';
+                break;
+              case 'processing':
+                reloadButtonClass = 'btn-outline-secondary';
+                reloadButtonTooltip = 'Laufender Job kann nicht neu gestartet werden';
+                break;
+              case 'failed':
+                reloadButtonClass = 'btn-outline-warning';
+                reloadButtonTooltip = 'Fehlgeschlagenen Job neu starten';
+                break;
+              default:
+                reloadButtonClass = 'btn-outline-secondary';
+                reloadButtonTooltip = 'Job neu starten';
+            }
+
             return `<tr class="job-row" data-job-id="${job.job_id}" data-batch-id="${batchId}">
               <td>
                 <span class="status-badge ${getStatusBadgeClass(job.status)}">
@@ -460,18 +483,17 @@ window.loadJobsForBatch = function(batchId, batchIndex, isAutoOpen = false) {
                   <button type="button" class="btn btn-outline-primary" title="Details anzeigen" 
                           onclick="showJobDetails('${job.job_id}'); return false;">
                     <i class="fas fa-info-circle"></i>
+                </button>
+                  <button type="button" class="btn ${reloadButtonClass}" title="${reloadButtonTooltip}" 
+                          onclick="restartJob('${job.job_id}', '${job.job_type}'); return false;" ${reloadButtonDisabled}>
+                    <i class="fas fa-redo-alt"></i>
                   </button>
-                  ${job.status === 'failed' ? 
-                    `<button type="button" class="btn btn-outline-warning" title="Job neu starten" 
-                             onclick="restartJob('${job.job_id}', '${job.job_type}'); return false;">
-                       <i class="fas fa-redo-alt"></i>
-                     </button>` : ''}
                   <button type="button" class="btn btn-outline-danger" title="Job löschen" 
                           onclick="deleteJob('${job.job_id}'); return false;">
                     <i class="fas fa-trash-alt"></i>
                   </button>
-                </div>
-              </td>
+              </div>
+            </td>
             </tr>`;
           }).join('');
           
@@ -479,32 +501,32 @@ window.loadJobsForBatch = function(batchId, batchIndex, isAutoOpen = false) {
           jobsContainer.innerHTML = jobsHTML;
           
           console.log(`Jobs für Batch ${batchId} erfolgreich geladen und gerendert`);
-        } else {
-          // Keine Jobs gefunden
-          jobsContainer.innerHTML = `
-            <tr>
-              <td colspan="6" class="text-center py-3">
-                <div class="alert alert-info mb-0">
-                  <i class="fas fa-info-circle me-2"></i> Keine Jobs für diesen Batch gefunden.
-                </div>
-              </td>
-            </tr>
-          `;
-          console.log(`Keine Jobs für Batch ${batchId} gefunden`);
-        }
-      })
-      .catch(error => {
-        // Fehlerbehandlung
+      } else {
+        // Keine Jobs gefunden
         jobsContainer.innerHTML = `
           <tr>
-            <td colspan="6" class="text-center py-3">
-              <div class="alert alert-danger mb-0">
-                <i class="fas fa-exclamation-circle me-2"></i> 
-                Fehler beim Laden der Jobs: ${error.message}
+              <td colspan="6" class="text-center py-3">
+              <div class="alert alert-info mb-0">
+                  <i class="fas fa-info-circle me-2"></i> Keine Jobs für diesen Batch gefunden.
               </div>
             </td>
           </tr>
         `;
+          console.log(`Keine Jobs für Batch ${batchId} gefunden`);
+      }
+    })
+    .catch(error => {
+        // Fehlerbehandlung
+      jobsContainer.innerHTML = `
+        <tr>
+            <td colspan="6" class="text-center py-3">
+            <div class="alert alert-danger mb-0">
+                <i class="fas fa-exclamation-circle me-2"></i> 
+              Fehler beim Laden der Jobs: ${error.message}
+            </div>
+          </td>
+        </tr>
+      `;
         console.error('Fehler beim Laden der Jobs:', error);
       });
   } else {
@@ -936,7 +958,7 @@ window.deleteJob = function(jobId, element, batchId) {
 window.restartBatch = function(batchId) {
   console.log(`Batch ${batchId} neu starten`);
   
-  if (!confirm(`Möchten Sie wirklich fehlerhafte Jobs im Batch ${batchId} neu starten?`)) {
+  if (!confirm(`Möchten Sie wirklich nicht erledigte Jobs im Batch ${batchId} neu starten?`)) {
     return;
   }
   
@@ -966,7 +988,7 @@ window.restartBatch = function(batchId) {
       alert(`Batch wurde erfolgreich neu gestartet. ${data.message || ''}`);
       
       // Sofortiger Reload ohne Verzögerung
-      window.location.reload();
+        window.location.reload();
     } else {
       alert(`Fehler beim Neustarten des Batches: ${data.message || 'Unbekannter Fehler'}`);
       

@@ -1212,9 +1212,9 @@ def api_event_monitor_batch_archive(batch_id: str):
 @main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/restart', methods=['POST'])
 def api_event_monitor_batch_restart(batch_id: str):
     """
-    API-Endpunkt zum Neustarten der fehlgeschlagenen Jobs in einem Batch.
+    API-Endpunkt zum Neustarten aller Jobs in einem Batch, außer completed Jobs.
     
-    :param batch_id: Die ID des Batches, dessen fehlgeschlagene Jobs neu gestartet werden sollen.
+    :param batch_id: Die ID des Batches, dessen Jobs neu gestartet werden sollen.
     :return: JSON-Antwort mit Erfolgsmeldung oder Fehlermeldung.
     """
     if not batch_id:
@@ -1248,30 +1248,30 @@ def api_event_monitor_batch_restart(batch_id: str):
                 "message": "Keine Jobs für diesen Batch gefunden"
             }), 200
         
-        # Nur fehlgeschlagene Jobs im Batch neu starten
+        # Alle Jobs außer completed neu starten
         results: List[Dict[str, Any]] = []
         success_count = 0
-        failed_jobs_count = 0
+        restartable_jobs_count = 0
         
         for job in jobs:
             job_id = job.get('job_id')
             job_status = job.get('status')
             
-            # Nur Jobs mit Status "failed" neu starten
-            if not job_id or job_status != "failed":
-                if job_id and job_status != "failed":
+            # Nur Jobs neu starten, die nicht completed sind
+            if not job_id or job_status == "completed":
+                if job_id and job_status == "completed":
                     results.append({
                         "job_id": job_id,
                         "status": "skipped",
-                        "message": f"Job hat Status '{job_status}', nicht 'failed'"
+                        "message": "Job ist bereits abgeschlossen"
                     })
                 continue
                 
-            failed_jobs_count += 1
+            restartable_jobs_count += 1
             
             # Direkter Aufruf der Event-Job-API statt rekursivem Dashboard-API-Aufruf
             restart_url = f"{api_base_url}/api/event-job/{job_id}/restart"
-            logger.debug(f"Neustart für fehlgeschlagenen Job {job_id} an {restart_url}")
+            logger.debug(f"Neustart für Job {job_id} (Status: {job_status}) an {restart_url}")
             restart_response: requests.Response = requests.post(restart_url, json={"batch_id": batch_id})
             
             logger.debug(f"Neustart für Job {job_id} an {restart_url}: Status {restart_response.status_code}")
@@ -1280,20 +1280,22 @@ def api_event_monitor_batch_restart(batch_id: str):
                 success_count += 1
                 results.append({
                     "job_id": job_id,
-                    "status": "success"
+                    "status": "success",
+                    "previous_status": job_status
                 })
             else:
                 results.append({
                     "job_id": job_id,
                     "status": "error",
-                    "message": f"Fehler: Status {restart_response.status_code}"
+                    "message": f"Fehler: Status {restart_response.status_code}",
+                    "previous_status": job_status
                 })
         
         # Erfolgsantwort zurückgeben
-        if failed_jobs_count == 0:
+        if restartable_jobs_count == 0:
             return jsonify({
                 "status": "warning",
-                "message": "Keine fehlgeschlagenen Jobs in diesem Batch gefunden",
+                "message": "Keine neu startbaren Jobs in diesem Batch gefunden (alle sind completed)",
                 "data": {
                     "results": results
                 }
@@ -1301,7 +1303,7 @@ def api_event_monitor_batch_restart(batch_id: str):
         else:
             return jsonify({
                 "status": "success",
-                "message": f"{success_count} von {failed_jobs_count} fehlgeschlagenen Jobs wurden neu gestartet",
+                "message": f"{success_count} von {restartable_jobs_count} Jobs wurden neu gestartet",
                 "data": {
                     "results": results
                 }

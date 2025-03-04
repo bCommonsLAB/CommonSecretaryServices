@@ -18,6 +18,9 @@ mongodb:
   max_pool_size: 50
   uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
 processors:
+  pdf:
+    max_file_size: 150000000
+    max_pages: 300
   audio:
     batch_size: 5
     export_format: mp3

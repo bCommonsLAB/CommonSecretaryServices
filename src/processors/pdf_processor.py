@@ -33,6 +33,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, cast
 from dataclasses import dataclass
+import subprocess
+import os
+from urllib.parse import urlparse
 
 from PIL.ImageFile import ImageFile
 import fitz  # type: ignore
@@ -58,7 +61,7 @@ PROCESSOR_TYPE_PDF = "pdf"
 EXTRACTION_NATIVE = "native"  # Nur native Text-Extraktion
 EXTRACTION_OCR = "ocr"       # Nur OCR
 EXTRACTION_BOTH = "both"     # Beide Methoden kombinieren
-EXTRACTION_PREVIEW = "preview"  # Nur Vorschaubilder
+EXTRACTION_PREVIEW = "preview"
 
 @dataclass
 class PDFProcessingResult:
@@ -125,6 +128,72 @@ class PDFProcessor(BaseProcessor):
         pix.save(str(preview_path))
         return str(preview_path)
 
+    def _get_file_extension(self, url: str) -> str:
+        """Extrahiert die Dateiendung aus einer URL.
+        
+        Args:
+            url: Die URL der Datei
+            
+        Returns:
+            Die Dateiendung (z.B. '.pdf', '.pptx')
+        """
+        parsed = urlparse(url)
+        path = parsed.path
+        # Extrahiere die Dateiendung aus dem Pfad
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:
+            # Wenn keine Endung gefunden wurde, versuche sie aus dem Content-Type zu ermitteln
+            try:
+                response = requests.head(url)
+                content_type = response.headers.get('content-type', '').lower()
+                if 'powerpoint' in content_type or 'presentation' in content_type:
+                    return '.pptx'
+                elif 'pdf' in content_type:
+                    return '.pdf'
+            except:
+                pass
+        return ext
+
+    def _convert_pptx_to_pdf(self, input_path: Path, output_path: Path) -> None:
+        """Konvertiert eine PowerPoint-Datei zu PDF.
+        
+        Args:
+            input_path: Pfad zur PowerPoint-Datei
+            output_path: Pfad für die PDF-Ausgabe
+            
+        Raises:
+            ProcessingError: Wenn die Konvertierung fehlschlägt
+        """
+        try:
+            # Prüfe ob LibreOffice installiert ist
+            if os.name == 'nt':  # Windows
+                libreoffice_path = r"C:\Program Files\LibreOffice\program\soffice.exe"
+            else:  # Linux/Mac
+                libreoffice_path = "soffice"
+                
+            if not os.path.exists(libreoffice_path):
+                raise ProcessingError("LibreOffice ist nicht installiert. Bitte installieren Sie LibreOffice für die PDF-Konvertierung.")
+            
+            # Konvertiere PPTX zu PDF
+            cmd: list[str] = [
+                libreoffice_path,
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", str(output_path.parent),
+                str(input_path)
+            ]
+            
+            self.logger.info(f"Starte Konvertierung: {' '.join(cmd)}")
+            result: subprocess.CompletedProcess[str] = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise ProcessingError(f"Fehler bei der Konvertierung: {result.stderr}")
+                
+            self.logger.info("Konvertierung erfolgreich")
+            
+        except Exception as e:
+            raise ProcessingError(f"Fehler bei der PPTX zu PDF Konvertierung: {str(e)}")
+
     async def process(
         self,
         file_path: Union[str, Path],
@@ -161,8 +230,12 @@ class PDFProcessor(BaseProcessor):
         try:
             # Prüfe ob es sich um eine URL handelt
             if str(file_path).startswith(('http://', 'https://')):
-                # Lade PDF von URL herunter
-                temp_file = working_dir / "temp.pdf"
+                # Extrahiere Dateiendung aus URL
+                file_extension = self._get_file_extension(str(file_path))
+                self.logger.info(f"Erkannte Dateiendung: {file_extension}")
+                
+                # Lade Datei von URL herunter
+                temp_file = working_dir / f"temp{file_extension}"
                 response = requests.get(str(file_path), stream=True)
                 response.raise_for_status()
                 
@@ -174,13 +247,20 @@ class PDFProcessor(BaseProcessor):
             else:
                 path = Path(file_path)
             
-            self.logger.info(f"Verarbeite PDF: {path.name}",
+            self.logger.info(f"Verarbeite Datei: {path.name}",
                            file_size=path.stat().st_size,
                            working_dir=str(working_dir),
                            extraction_method=extraction_method)
             
             # Dateigröße prüfen
             self.check_file_size(path)
+            
+            # Prüfe Dateityp und konvertiere wenn nötig
+            if path.suffix.lower() in ['.pptx', '.ppt']:
+                self.logger.info("Konvertiere PowerPoint zu PDF")
+                pdf_path = working_dir / "temp.pdf"
+                self._convert_pptx_to_pdf(path, pdf_path)
+                path = pdf_path
             
             # PDF verarbeiten
             with fitz.open(path) as pdf:

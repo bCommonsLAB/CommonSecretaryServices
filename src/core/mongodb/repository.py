@@ -948,7 +948,7 @@ class EventJobRepository:
         
         try:
             # Führe die Aktualisierung durch
-            result = self.jobs.update_many(query, update)
+            result: UpdateResult = self.jobs.update_many(query, update)
             reset_count = result.modified_count
             
             if reset_count > 0:
