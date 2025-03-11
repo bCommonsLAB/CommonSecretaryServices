@@ -211,4 +211,22 @@ class APIv2Migrator:
 ### Release-Zyklus
 - Monatliche Minor Updates
 - Quartalsweise Major Releases
-- Hotfixes nach Bedarf 
+- Hotfixes nach Bedarf
+
+## 2025-03-10: MongoDB-Caching für Prozessoren
+
+### Neue Features
+- MongoDB-Caching für AudioProcessor und VideoProcessor eingeführt
+- Generische Typisierung für Prozessoren implementiert
+- Bessere Typsicherheit durch Protocol-Klassen für dynamische Attribute
+- Optimierte Vererbungshierarchie für Prozessoren
+
+### Verbesserungen
+- Verbesserte Methoden für den Zugriff auf dynamische Attribute (getattr statt hasattr)
+- Einheitliches Cache-System für alle Prozessoren
+- Optimierte Serialisierung und Deserialisierung von Objekten für das Caching
+- Bessere IDE-Unterstützung durch Typisierung
+
+### Dokumentation
+- Neue Dokumentationsdateien zu MongoDB-Caching und generischer Typisierung
+- Aktualisierte Beispiele für die Verwendung des Cache-Systems 

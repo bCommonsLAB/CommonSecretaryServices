@@ -79,8 +79,8 @@ class EventProcessor(BaseProcessor):
             if not self.base_dir.exists():
                 self.base_dir.mkdir(parents=True)
                 
-            # Temporäres Verzeichnis einrichten
-            self.init_temp_dir("event", event_config)
+            # Das temp_dir wird jetzt vollständig vom BaseProcessor verwaltet
+            # und basiert auf der Konfiguration in config.yaml
             
             # Initialisiere Sub-Prozessoren
             self.video_processor = VideoProcessor(resource_calculator, process_id)
@@ -237,7 +237,7 @@ class EventProcessor(BaseProcessor):
                 # Template-Transformation in Quellsprache durchführen
                 result: TransformerResponse = self.transformer_processor.transformByTemplate(
                     source_text=video_transcript or "Keine Transkription verfügbar.",
-                    source_language=event_data.target_language, # video_transcript ist schon übersetzt
+                    source_language=event_data.source_language, 
                     target_language=event_data.target_language,  
                     template="Event",
                     context=template_context

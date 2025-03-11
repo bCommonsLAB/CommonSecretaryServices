@@ -9,7 +9,8 @@ from typing import (
     Any,
     cast as type_cast,
     Protocol,
-    Coroutine
+    Coroutine,
+    Tuple
 )
 from pathlib import Path
 import os
@@ -83,8 +84,37 @@ class WhisperTranscriber:
             config: Konfiguration für den Transcriber
         """
         self.config: Dict[str, Any] = config
-        self.debug_dir: Path = Path(config.get('debug_dir', './temp-processing/transform'))
-        self.temp_dir: Path = Path(config.get('temp_dir', './temp-processing/audio'))
+        
+        # Verwende konfigurierte Verzeichnisse oder Fallback zu processor-spezifischen Verzeichnissen
+        # Anmerkung: In der config.yaml sollten für jeden Prozessor temp_dir und debug_dir definiert sein
+        
+        # Debugging-Verzeichnis
+        debug_dir_str = config.get('debug_dir')
+        if debug_dir_str is not None:
+            self.debug_dir: Path = Path(str(debug_dir_str))
+        else:
+            # Fallback zu processor.temp_dir/debug
+            temp_dir_str = config.get('temp_dir')
+            if temp_dir_str is not None:
+                self.debug_dir = Path(str(temp_dir_str)) / "debug"
+            else:
+                # Letzter Fallback - sollte eigentlich nie auftreten
+                from src.core.config import Config
+                app_config = Config()
+                cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
+                self.debug_dir = cache_base / "default" / "debug"
+        
+        # Temporäres Verzeichnis
+        temp_dir_str = config.get('temp_dir')
+        if temp_dir_str is not None:
+            self.temp_dir: Path = Path(str(temp_dir_str))
+        else:
+            # Letzter Fallback - sollte eigentlich nie auftreten
+            from src.core.config import Config
+            app_config = Config()
+            cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
+            self.temp_dir = cache_base / "default"
+        
         self.model: str = config.get('model', 'gpt-4o')
         self.client: OpenAI = OpenAI(api_key=config.get('openai_api_key'))
         self.batch_size: int = config.get('batch_size', 10)
@@ -366,8 +396,11 @@ class WhisperTranscriber:
 
             # 1. Template-Datei lesen
             template_content: str = self._read_template_file(template, logger)
+            
+            # 2. Systemprompt extrahieren
+            template_content, system_prompt = self._extract_system_prompt(template_content, logger)
 
-            # 2. Strukturierte Variablen extrahieren und Model erstellen
+            # 3. Strukturierte Variablen extrahieren und Model erstellen
             field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
             
             if not field_definitions.fields:
@@ -384,12 +417,9 @@ class WhisperTranscriber:
                 if isinstance(context, dict)
                 else "No additional context."
             )
-            system_prompt: str = (
-                f"You are a precise assistant for text analysis and data extraction. "
-                f"Analyze the text and extract the requested information. "
-                f"Provide all answers in the target language ISO 639-1 code:{target_language}. "
-                f"IMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
-            )
+            
+            # Formatiere den Systemprompt mit der Zielsprache
+            system_prompt = system_prompt.format(target_language=target_language)
             
             # Extrahiere die Feldnamen und Beschreibungen
             field_descriptions = {
@@ -413,7 +443,7 @@ class WhisperTranscriber:
 
             # 5. OpenAI Anfrage senden
             if logger:
-                logger.info("Sende Anfrage an OpenAI")
+                logger.info("Sende Anfrage an OpenAI " + self.model)
 
             # Zeitmessung starten
             start_time: float = time.time()
@@ -585,6 +615,46 @@ class WhisperTranscriber:
                     
         return field_definitions
 
+    def _extract_system_prompt(self, template_content: str, logger: Optional[ProcessingLogger] = None) -> Tuple[str, str]:
+        """
+        Extrahiert den Systemprompt aus dem Template-Inhalt.
+        
+        Args:
+            template_content: Der Inhalt des Templates
+            logger: Optional Logger
+            
+        Returns:
+            Tuple[str, str]: (Template-Inhalt ohne Systemprompt, Systemprompt)
+        """
+        # Standard-Systemprompt, falls keiner im Template gefunden wird
+        default_system_prompt = (
+            "You are a precise assistant for text analysis and data extraction. "
+            "Analyze the text and extract the requested information. "
+            "Provide all answers in the target language ISO 639-1 code:{target_language}. "
+            "IMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
+        )
+        
+        # Prüfe, ob ein Systemprompt im Template vorhanden ist
+        if "--- systemprompt" in template_content:
+            parts = template_content.split("--- systemprompt", 1)
+            template_without_prompt = parts[0].strip()
+            
+            # Extrahiere den Systemprompt
+            system_prompt = parts[1].strip()
+            
+            if logger:
+                logger.info("Systemprompt aus Template extrahiert", 
+                           prompt_length=len(system_prompt))
+            
+            # Füge die Formatierungsanweisung hinzu
+            system_prompt += "\n\nIMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
+            
+            return template_without_prompt, system_prompt
+        else:
+            if logger:
+                logger.info("Kein Systemprompt im Template gefunden, verwende Standard-Prompt")
+            return template_content, default_system_prompt
+
     def _save_llm_interaction(
         self, 
         purpose: str,
@@ -597,7 +667,17 @@ class WhisperTranscriber:
     ) -> None:
         """Speichert die LLM-Interaktion für Debugging und Analyse."""
         try:
-            debug_dir: Path = Path('./temp-processing/llm')
+            # Verwende das konfigurierte Debug-Verzeichnis, falls der Transcriber initialisiert ist
+            # Ansonsten einen allgemeinen Pfad aus der Konfiguration
+            from src.core.config import Config
+            app_config = Config()
+            cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
+            debug_dir = cache_base / "default" / "debug" / "llm"
+            
+            # Wenn wir im Kontext eines Transcribers sind, verwende dessen Debug-Verzeichnis
+            if hasattr(self, 'debug_dir'):
+                debug_dir = self.debug_dir / "llm"
+            
             debug_dir.mkdir(parents=True, exist_ok=True)
             
             # Erstelle einen eindeutigen Dateinamen
@@ -1060,7 +1140,7 @@ class WhisperTranscriber:
             try:
                 # Expliziter Typecast für die Ergebnisse
                 results = await asyncio.gather(*segment_tasks)
-                batch_results: List[TranscriptionResult] = type_cast(List[TranscriptionResult], results)
+                batch_results = results
                 
                 # Verarbeite die Ergebnisse des Batches
                 for i, result in enumerate(batch_results):

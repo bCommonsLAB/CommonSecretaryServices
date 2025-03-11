@@ -2,7 +2,7 @@
 Video-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Protocol
 
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .audio import TranscriptionResult
@@ -54,6 +54,21 @@ class VideoSource:
             url=data.get('url'),
             file_name=data.get('file_name')
         )
+
+class VideoMetadataProtocol(Protocol):
+    """Protocol für die VideoMetadata-Klasse und ihre dynamischen Attribute."""
+    title: str
+    duration: int
+    duration_formatted: str
+    file_size: Optional[int]
+    process_dir: Optional[str]
+    audio_file: Optional[str]
+    source: 'VideoSource'
+    
+    # Dynamische Attribute, die zur Laufzeit hinzugefügt werden können
+    source_language: Optional[str]
+    target_language: Optional[str]
+    template: Optional[str]
 
 @dataclass
 class VideoMetadata:

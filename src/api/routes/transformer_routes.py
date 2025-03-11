@@ -5,7 +5,7 @@ Enthält Endpoints für Text- und Template-Transformationen.
 """
 from datetime import datetime
 import time
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, Union, Optional, List, cast
 import traceback
 import uuid
 
@@ -18,10 +18,12 @@ from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimi
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker
+from utils.logger import ProcessingLogger
 from utils.performance_tracker import PerformanceTracker
+from src.core.models.enums import OutputFormat
 
 # Initialisiere Logger
-logger = get_logger(process_id="transformer-api")
+logger: ProcessingLogger = get_logger(process_id="transformer-api")
 
 # Initialisiere Resource Calculator
 resource_calculator = ResourceCalculator()
@@ -90,9 +92,24 @@ def _calculate_llm_cost(model: str, tokens: int) -> float:
 # Text-Transformation Endpoint
 @transformer_ns.route('/text')  # type: ignore
 class TransformTextEndpoint(Resource):
-    @transformer_ns.doc(description='Transformiert Text basierend auf einer Anweisung')  # type: ignore
+    # Swagger-Dokumentation für den Endpunkt
+    transform_model = transformer_ns.model('TransformRequest', {
+        'text': fields.String(required=True, description='Der zu transformierende Text'),
+        'source_language': fields.String(required=True, description='Die Quellsprache (ISO 639-1 Code)'),
+        'target_language': fields.String(required=True, description='Die Zielsprache (ISO 639-1 Code)'),
+        'summarize': fields.Boolean(required=False, default=False, description='Ob der Text zusammengefasst werden soll'),
+        'target_format': fields.String(required=False, description='Das Zielformat (TEXT, HTML, MARKDOWN, JSON)'),
+        'context': fields.Raw(required=False, description='Optionaler Kontext für die Transformation'),
+        'use_cache': fields.Boolean(required=False, default=True, description='Ob der Cache verwendet werden soll')
+    })
+    
+    @transformer_ns.doc(description='Transformiert Text von einer Sprache in eine andere')  # type: ignore
+    @transformer_ns.expect(transform_model)  # type: ignore
+    @transformer_ns.response(200, 'Erfolgreiche Transformation')  # type: ignore
+    @transformer_ns.response(400, 'Ungültige Anfrage')  # type: ignore
+    @transformer_ns.response(500, 'Server-Fehler')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
-        """Transformiert Text basierend auf einer Anweisung."""
+        """Transformiert Text von einer Sprache in eine andere, mit optionaler Zusammenfassung."""
         try:
             # Request-Daten extrahieren
             data = request.json
@@ -107,9 +124,12 @@ class TransformTextEndpoint(Resource):
             
             # Parameter extrahieren
             source_text = data.get('text', '')
-            instruction = data.get('instruction', '')
-            max_tokens = data.get('max_tokens', 1000)
-            model = data.get('model', 'gpt-3.5-turbo')
+            source_language = data.get('source_language', 'de')
+            target_language = data.get('target_language', 'de')
+            summarize = data.get('summarize', False)
+            target_format_str = data.get('target_format', 'TEXT')
+            context = data.get('context', {})
+            use_cache = data.get('use_cache', True)
             
             # Validierung
             if not source_text:
@@ -121,18 +141,39 @@ class TransformTextEndpoint(Resource):
                     }
                 }, 400
             
-            if not instruction:
+            if not source_language:
                 return {
                     "status": "error",
                     "error": {
                         "code": "InvalidRequest",
-                        "message": "Anweisung darf nicht leer sein."
+                        "message": "Quellsprache darf nicht leer sein."
+                    }
+                }, 400
+                
+            if not target_language:
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidRequest",
+                        "message": "Zielsprache darf nicht leer sein."
+                    }
+                }, 400
+            
+            # Target-Format konvertieren
+            try:
+                target_format = OutputFormat[target_format_str] if target_format_str else None
+            except KeyError:
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidRequest",
+                        "message": f"Ungültiges Zielformat: {target_format_str}. Erlaubte Werte: {', '.join([f.name for f in OutputFormat])}"
                     }
                 }, 400
             
             # Logging
             logger.info(f"Transformiere Text: {_truncate_text(source_text)}")
-            logger.info(f"Anweisung: {instruction}")
+            logger.info(f"Von {source_language} nach {target_language}, Zusammenfassung: {summarize}")
             
             # Performance-Tracking starten
             process_id = str(uuid.uuid4())
@@ -142,16 +183,19 @@ class TransformTextEndpoint(Resource):
             
             # Processor initialisieren und Text transformieren
             processor = get_transformer_processor(process_id)
-            result = processor.transform(  # type: ignore
+            result = processor.transform(
                 source_text=source_text,
-                instruction=instruction,  # type: ignore
-                max_tokens=max_tokens,  # type: ignore
-                model=model  # type: ignore
+                source_language=source_language,
+                target_language=target_language,
+                summarize=summarize,
+                target_format=target_format,
+                context=context,
+                use_cache=use_cache
             )
             
             # LLM-Nutzung tracken
             if hasattr(processor, 'llm_usage') and processor.llm_usage:  # type: ignore
-                model_name = processor.llm_usage.get('model', model)  # type: ignore
+                model_name = processor.llm_usage.get('model', 'gpt-3.5-turbo')  # type: ignore
                 total_tokens = processor.llm_usage.get('total_tokens', 0)  # type: ignore
                 duration = time.time() - start_time
                 
@@ -180,26 +224,18 @@ class TransformTextEndpoint(Resource):
             end_time = time.time()
             duration_ms = int((end_time - start_time) * 1000)
             
-            response = {  # type: ignore
+            response_data = {
                 "status": "success",
-                "request": {
-                    "text": source_text,
-                    "instruction": instruction,
-                    "max_tokens": max_tokens,
-                    "model": model
-                },
-                "process": {
-                    "start_time": start_datetime,
-                    "end_time": datetime.now().isoformat(),
-                    "duration_ms": duration_ms,
-                    "llm_info": llm_info
-                },
                 "data": {
-                    "transformed_text": result.output.text  # type: ignore
+                    "transformed_text": result.data.output.text,
+                    "language": result.data.output.language,
+                    "format": result.data.output.format.value,
+                    "summarized": result.data.output.summarized,
+                    "structured_data": result.data.output.structured_data
                 }
             }
             
-            return response  # type: ignore
+            return response_data
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
             # Spezifische Fehlerbehandlung
@@ -236,7 +272,8 @@ class TemplateTransformEndpoint(Resource):
         'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
         'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
         'template': fields.String(required=True, description='Name des Templates (ohne .md Endung)'),
-        'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung')
+        'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung'),
+        'use_cache': fields.Boolean(required=False, default=True, description='Ob der Cache verwendet werden soll')
     }))
     @transformer_ns.response(200, 'Erfolg', transformer_ns.model('TransformerTemplateResponse', {  # type: ignore
         'status': fields.String(description='Status der Verarbeitung (success/error)'),
@@ -263,20 +300,22 @@ class TemplateTransformEndpoint(Resource):
     }))
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
-        data = request.get_json()
-        tracker = get_performance_tracker()
+        from flask import request as flask_request  # Lokaler Import, um Namenskonflikte zu vermeiden
+        data = flask_request.get_json()
+        tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
             # Zeitmessung für Gesamtprozess starten
             process_start = time.time()
             
-            transformer_processor = get_transformer_processor(tracker.process_id if tracker else None)
-            result = transformer_processor.transformByTemplate(
+            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
+            result: TransformerResponse = transformer_processor.transformByTemplate(
                 source_text=data['text'],
                 source_language=data.get('source_language', 'de'),
                 target_language=data.get('target_language', 'de'),
                 template=data['template'],
-                context=data.get('context', {})
+                context=data.get('context', {}),
+                use_cache=data.get('use_cache', True)
             )
 
             # Tracke LLM-Nutzung wenn vorhanden

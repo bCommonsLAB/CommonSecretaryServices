@@ -65,9 +65,9 @@ def load_logs_for_requests(recent_requests: list[dict[str, Any]]) -> dict[str, l
                                 details_text = '\n'.join(details_lines)
                                 if details_text.startswith('Details: '):
                                     details_text = details_text[9:]
-                                current_entry['details'] = cast(Any, json.loads(details_text))
+                                current_entry['details'] = cast(str, json.loads(details_text))
                             except json.JSONDecodeError:
-                                current_entry['details'] = cast(Any, {'raw': '\n'.join(details_lines)})
+                                current_entry['details'] = cast(str, {'raw': '\n'.join(details_lines)})
                         
                         if current_entry['process_id'] in request_logs:
                             request_logs[current_entry['process_id']].append(current_entry)
@@ -137,9 +137,9 @@ def load_logs_for_requests(recent_requests: list[dict[str, Any]]) -> dict[str, l
                         details_text = '\n'.join(details_lines)
                         if details_text.startswith('Details: '):
                             details_text = details_text[9:]
-                        current_entry['details'] = cast(Any, json.loads(details_text))
+                        current_entry['details'] = cast(str, json.loads(details_text))
                     except json.JSONDecodeError:
-                        current_entry['details'] = cast(Any, {'raw': '\n'.join(details_lines)})
+                        current_entry['details'] = cast(str, {'raw': '\n'.join(details_lines)})
                 
                 # Add to request logs if process_id matches
                 if current_entry['process_id'] in request_logs:
@@ -1162,10 +1162,10 @@ def api_event_monitor_batch_archive(batch_id: str):
         logger.debug(f"Batch-Archivierung-Anfrage an: {url}")
         
         # Initialisiere response als None
-        response = None
+        response: Optional[requests.Response] = None
         
         try:
-            response: requests.Response = requests.post(url, json=data)
+            response = requests.post(url, json=data)
             response.raise_for_status()
             
             # Antwort verarbeiten

@@ -2,7 +2,7 @@
 Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Protocol
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLMRequest, LLModel, LLMInfo
 from .enums import ProcessingStatus
@@ -161,6 +161,26 @@ class Chapter:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:
             raise ValueError("End muss größer als Start sein")
+
+class AudioMetadataProtocol(Protocol):
+    """Protocol für die AudioMetadata-Klasse und ihre dynamischen Attribute."""
+    duration: float
+    duration_formatted: str
+    file_size: int
+    sample_rate: int
+    channels: int
+    bits_per_sample: int
+    format: str
+    codec: str
+    
+    # Dynamische Attribute, die zur Laufzeit hinzugefügt werden können
+    source_path: Optional[str]
+    source_language: Optional[str]
+    target_language: Optional[str]
+    template: Optional[str]
+    original_filename: Optional[str]
+    video_id: Optional[str]
+    filename: Optional[str]
 
 @dataclass
 class AudioMetadata:
@@ -476,3 +496,25 @@ class AudioTranscriptionParams:
         if self.language:
             params["language"] = self.language
         return params 
+
+@dataclass
+class AudioProcessingRequest:
+    """Request-Daten für die Audio-Verarbeitung."""
+    source: str
+    source_language: Optional[str] = None
+    target_language: Optional[str] = None
+    template: Optional[str] = None
+    original_filename: Optional[str] = None
+    video_id: Optional[str] = None
+    
+    def __post_init__(self) -> None:
+        """Validiert die Request-Daten."""
+        if not self.source:
+            raise ValueError("Source darf nicht leer sein")
+
+@dataclass
+class AudioProcessingProcess:
+    """Process-Daten für die Audio-Verarbeitung."""
+    elapsed_time: int  # in Millisekunden
+    llm_info: Optional[LLMInfo] = None
+    is_from_cache: bool = False 

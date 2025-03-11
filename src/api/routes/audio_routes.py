@@ -5,7 +5,7 @@ Enthält alle Endpoints zur Verarbeitung von Audio-Dateien.
 """
 
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields, inputs
-from typing import Dict, Any, Union, Optional, IO
+from typing import Dict, Any, Union, Optional, IO, cast, Tuple
 import asyncio
 import uuid
 import tempfile
@@ -86,18 +86,23 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
     if not uploaded_file:
         raise ProcessingError("Keine Datei hochgeladen")
         
-    # Erstelle temporäre Datei
     temp_file: IO[bytes] | None = None
+    temp_file_path: str | None = None
     try:
-        # Speichere Upload in temporärer Datei
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        uploaded_file.save(temp_file.name)
-        
-        # Verarbeite die Datei
+        # Initialisiere Processor, damit wir die konfigurierten Temp-Verzeichnisse nutzen können
         process_id = str(uuid.uuid4())
         processor: AudioProcessor = get_audio_processor(process_id)
+        
+        # Speichere Upload in konfiguriertem temporären Verzeichnis
+        temp_file, temp_file_path = processor.get_upload_temp_file(
+            suffix=Path(uploaded_file.filename).suffix if uploaded_file.filename else ".audio"
+        )
+        uploaded_file.save(temp_file_path)
+        temp_file.close()
+        
+        # Verarbeite die Datei
         result: AudioResponse = await processor.process(
-            audio_source=temp_file.name,
+            audio_source=temp_file_path,
             source_info=source_info,
             source_language=source_language,
             target_language=target_language,
@@ -114,7 +119,7 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
         if temp_file:
             temp_file.close()
             try:
-                os.unlink(temp_file.name)
+                os.unlink(temp_file_path)
             except OSError:
                 pass
 

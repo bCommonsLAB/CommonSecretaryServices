@@ -177,7 +177,15 @@ class YoutubeProcessor(BaseProcessor):
         
         # Initialisiere Prozessoren
         self.transformer = TransformerProcessor(resource_calculator, process_id)
-        self.transcriber = WhisperTranscriber({"process_id": process_id})
+        
+        # Initialisiere den Transcriber mit YouTube-spezifischen Konfigurationen
+        transcriber_config = {
+            "process_id": process_id,
+            "processor_name": "youtube",
+            "temp_dir": str(self.temp_dir),
+            "debug_dir": str(self.temp_dir / "debug")
+        }
+        self.transcriber = WhisperTranscriber(transcriber_config)
             
         # Erstelle Cache-Verzeichnis
         cache_dir = Path(self.ydl_opts['cachedir'])

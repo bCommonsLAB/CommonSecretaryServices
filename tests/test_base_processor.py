@@ -95,17 +95,45 @@ class TestBaseProcessor:
         assert processor.validate_context(invalid_int_context) is None
 
     def test_init_temp_dir(self, processor: BaseProcessor, tmp_path: Any) -> None:
-        """Test der Temp-Dir-Initialisierung."""
+        """Test der Temp-Dir-Initialisierung (veraltet)."""
+        # Hinweis: Diese Methode ist veraltet, wird aber für Rückwärtskompatibilität getestet
+        
         # Test mit Standard-Pfad
         temp_dir = processor.init_temp_dir("test")
         assert temp_dir.exists()
-        assert temp_dir.name == "test"
+        assert "temp" in str(temp_dir)  # Es sollte jetzt ein Unterverzeichnis 'temp' sein
         
         # Test mit Config-Pfad
-        config = {"temp_dir": str(tmp_path / "custom")}
+        config = {"cache_dir": str(tmp_path / "custom")}
         temp_dir = processor.init_temp_dir("test", config)
         assert temp_dir.exists()
-        assert temp_dir.name == "custom"
+        assert "custom" in str(temp_dir)
+        assert "temp" in str(temp_dir)  # Auch hier sollte ein Unterverzeichnis 'temp' sein
+
+    def test_get_cache_dir(self, processor: BaseProcessor, tmp_path: Any) -> None:
+        """Test der Cache-Dir-Funktionalität."""
+        # Test ohne Unterverzeichnis
+        cache_dir = processor.get_cache_dir("test")
+        assert cache_dir.exists()
+        assert "test" in str(cache_dir)
+        
+        # Test mit Unterverzeichnis
+        cache_dir = processor.get_cache_dir("test", subdirectory="processed")
+        assert cache_dir.exists()
+        assert "test" in str(cache_dir)
+        assert "processed" in str(cache_dir)
+        
+        # Test mit eigener Konfiguration
+        config = {"cache_dir": str(tmp_path / "custom_cache")}
+        cache_dir = processor.get_cache_dir("test", config)
+        assert cache_dir.exists()
+        assert "custom_cache" in str(cache_dir)
+        
+        # Test mit Konfiguration und Unterverzeichnis
+        cache_dir = processor.get_cache_dir("test", config, subdirectory="data")
+        assert cache_dir.exists()
+        assert "custom_cache" in str(cache_dir)
+        assert "data" in str(cache_dir)
 
     def test_processor_response(self, response: BaseProcessorResponse) -> None:
         """Test der BaseProcessorResponse."""

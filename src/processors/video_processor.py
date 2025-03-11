@@ -28,20 +28,19 @@ Der VideoProcessor trackt die LLM-Nutzung auf zwei Ebenen:
       - Requests vom TransformerProcessor
 """
 
-import hashlib
-import traceback
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, Tuple
 from datetime import datetime
 import uuid
+import hashlib
+import traceback
+
 import yt_dlp  # type: ignore
 
 from src.core.models.audio import AudioResponse
 from src.core.config import Config
-from src.core.models.base import (
-    ProcessInfo, RequestInfo, ErrorInfo
-)
-from src.core.models.enums import ProcessingStatus, ProcessorType
+from src.core.models.base import ErrorInfo
+from src.core.models.enums import ProcessorType
 from src.core.models.llm import LLMInfo
 from src.core.models.video import (
     VideoSource,
@@ -52,20 +51,24 @@ from src.core.models.video import (
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.models.response_factory import ResponseFactory
-from src.utils.processor_cache import ProcessorCache
 
-from .base_processor import BaseProcessor
+from .cacheable_processor import CacheableProcessor
 from .transformer_processor import TransformerProcessor
 from .audio_processor import AudioProcessor
 
 # Typ-Alias für yt-dlp
 YDLDict = Dict[str, Any]
 
-class VideoProcessor(BaseProcessor):
+class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
     """
     Prozessor für die Verarbeitung von Video-Dateien.
     Lädt Videos herunter, extrahiert Audio und transkribiert sie.
+    
+    Der VideoProcessor erbt von CacheableProcessor, um MongoDB-Caching zu nutzen.
     """
+    
+    # Name der Cache-Collection für MongoDB
+    cache_collection_name = "video_cache"
     
     def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
         """
@@ -87,13 +90,24 @@ class VideoProcessor(BaseProcessor):
         
         # Debug-Logging der Video-Konfiguration
         self.logger.debug("VideoProcessor initialisiert mit Konfiguration", 
-                         max_duration=self.max_duration)
+                         max_duration=self.max_duration,
+                         temp_dir=str(self.temp_dir),
+                         cache_dir=str(self.cache_dir))
         
         # Initialisiere Prozessoren
         self.transformer = TransformerProcessor(resource_calculator, process_id)
-        self.transcriber = WhisperTranscriber({"process_id": process_id})
+        
+        # Initialisiere den Transcriber mit Video-spezifischen Konfigurationen
+        transcriber_config = {
+            "process_id": process_id,
+            "processor_name": "video",
+            "cache_dir": str(self.cache_dir),  # Haupt-Cache-Verzeichnis
+            "temp_dir": str(self.temp_dir),    # Temporäres Unterverzeichnis
+            "debug_dir": str(self.temp_dir / "debug")
+        }
+        self.transcriber = WhisperTranscriber(transcriber_config)
+        
         self.audio_processor = AudioProcessor(resource_calculator, process_id)
-        self.cache = ProcessorCache[VideoProcessingResult]("video")
         
         # Download-Optionen
         self.ydl_opts = {
@@ -122,9 +136,22 @@ class VideoProcessor(BaseProcessor):
             }
         }
     
-    def create_process_dir(self, identifier: str) -> Path:
-        """Erstellt und gibt das Verarbeitungsverzeichnis für ein Video zurück."""
-        process_dir = self.temp_dir / "video" / identifier
+    def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
+        """
+        Erstellt und gibt das Verarbeitungsverzeichnis für ein Video zurück.
+        
+        Args:
+            identifier: Eindeutige Kennung des Videos (URL, ID, etc.)
+            use_temp: Ob das temporäre Verzeichnis (temp_dir) oder das dauerhafte Cache-Verzeichnis (cache_dir) verwendet werden soll
+            
+        Returns:
+            Path: Pfad zum Verarbeitungsverzeichnis
+        """
+        # Basis-Verzeichnis je nach Verwendungszweck wählen
+        base_dir = self.temp_dir if use_temp else self.cache_dir
+        
+        # Verzeichnis mit Unterordner "video" erstellen
+        process_dir = base_dir / "video" / identifier
         process_dir.mkdir(parents=True, exist_ok=True)
         return process_dir
         
@@ -154,21 +181,12 @@ class VideoProcessor(BaseProcessor):
         Returns:
             VideoResponse: Die standardisierte Response
         """
-        return VideoResponse(
-            request=RequestInfo(
-                processor=ProcessorType.VIDEO.value,
-                timestamp=datetime.now().isoformat(),
-                parameters=request_info
-            ),
-            process=ProcessInfo(
-                id=self.process_id,
-                main_processor=ProcessorType.VIDEO.value,
-                started=datetime.now().isoformat(),
-                completed=datetime.now().isoformat(),
-                llm_info=llm_info if llm_info.requests else None
-            ),
-            data=result,
-            status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
+        return ResponseFactory.create_response(
+            processor_name=ProcessorType.VIDEO.value,
+            result=result,
+            request_info=request_info,
+            response_class=VideoResponse,
+            llm_info=llm_info if llm_info.requests else None,
             error=error
         )
 
@@ -193,107 +211,111 @@ class VideoProcessor(BaseProcessor):
             
             return title, duration, video_id
 
-    def _generate_cache_key(
-        self,
-        video_source: str,
-        source_language: str,
-        target_language: str,
-        template: Optional[str] = None
-    ) -> str:
-        """Generiert einen eindeutigen Cache-Schlüssel für die Video-Verarbeitung.
+    def _create_cache_key(self, source: Union[str, VideoSource], target_language: str = 'de', template: Optional[str] = None) -> str:
+        """
+        Erstellt einen Cache-Schlüssel basierend auf der Video-Quelle, Zielsprache und Template.
         
         Args:
-            video_source: Die Video-Quelle (URL oder Pfad)
-            source_language: Quellsprache
-            target_language: Zielsprache
-            template: Optionales Template
+            source: Die Video-Quelle (URL oder VideoSource-Objekt)
+            target_language: Die Zielsprache für die Verarbeitung
+            template: Optionales Template für die Verarbeitung
             
         Returns:
             str: Der generierte Cache-Schlüssel
         """
-        # Einfachen Basis-Key aus URL/Dateiname generieren
-        base_key: str = ProcessorCache.generate_simple_key(video_source)
+        # Basis-Schlüssel aus der Quelle erstellen
+        base_key = ""
         
-        # Parameter in Hash einbeziehen
-        param_str: str = f"{source_language}_{target_language}_{template or ''}"
-        return hashlib.sha256(f"{base_key}_{param_str}".encode()).hexdigest()
-    
+        # Bei VideoSource das URL-Attribut verwenden
+        if isinstance(source, VideoSource):
+            if source.url:
+                base_key = source.url
+            elif source.file_name:
+                # Bei hochgeladenen Dateien Hash aus Dateiinhalt erzeugen
+                base_key = source.file_name
+            else:
+                raise ValueError("VideoSource muss entweder URL oder file_name haben")
+        else:
+            # Bei String direkt als URL verwenden
+            base_key = source
+        
+        # Zielsprache hinzufügen
+        cache_key = f"{base_key}|lang={target_language}"
+        
+        # Template hinzufügen, wenn vorhanden
+        if template:
+            cache_key += f"|template={template}"
+            
+        self.logger.debug(f"Cache-Schlüssel erstellt: {cache_key}")
+        
+        # Hash aus dem kombinierten Schlüssel erzeugen
+        return self.generate_cache_key(cache_key)
 
-    def _check_cache(
-        self,
-        cache_key: str
-    ) -> Optional[Tuple[VideoProcessingResult, Dict[str, Any]]]:
-        """Prüft, ob ein Cache-Eintrag für die Video-Verarbeitung existiert.
+    def serialize_for_cache(self, result: VideoProcessingResult) -> Dict[str, Any]:
+        """
+        Serialisiert das VideoProcessingResult für die Speicherung im Cache.
         
         Args:
-            video_source: Die Video-Quelle (URL oder Pfad)
-            source_language: Quellsprache
-            target_language: Zielsprache
-            template: Optionales Template
+            result: Das VideoProcessingResult
             
         Returns:
-            Optional[Tuple[VideoProcessingResult, Dict[str, Any], Dict[str, Path]]]: 
-                Das geladene Ergebnis, Metadaten und Dateien oder None
+            Dict[str, Any]: Die serialisierten Daten
         """
-        
-        # Prüfe Cache
-        cache_result = self.cache.load_cache_with_key(
-            cache_key=cache_key,
-            result_class=VideoProcessingResult,
-        )
-        
-        if cache_result:
-            self.logger.info("Cache-Hit für Video-Verarbeitung", 
-                           cache_key=cache_key)
-            
-            # Markiere als aus Cache geladen
-            result, _ = cache_result
-            result.is_from_cache = True
-            return cache_result
-            
-        return None
-    
-    def _save_to_cache(
-        self,
-        cache_key: str,
-        result: VideoProcessingResult,
-        video_source: str,
-        audio_path: str,
-        source_language: str,
-        target_language: str,
-        template: Optional[str] = None
-    ) -> None:
-        """Speichert ein Verarbeitungsergebnis im Cache.
-        
-        Args:
-            cache_key: Der Cache-Schlüssel
-            result: Das zu speichernde Ergebnis
-            video_source: Die Video-Quelle (URL oder Pfad)
-            audio_path: Pfad zur extrahierten Audio-Datei
-            source_language: Quellsprache
-            target_language: Zielsprache
-            template: Optionales Template
-        """
-        
-        # Erstelle Metadaten
-        metadata = {
-            'video_source': video_source,
-            'source_language': source_language,
-            'target_language': target_language,
-            'template': template,
-            'process_id': self.process_id
+        # Hauptdaten speichern
+        cache_data = {
+            "result": result.to_dict(),
+            "source_url": result.metadata.source.url if result.metadata.source else None,
+            "processed_at": datetime.now().isoformat(),
+            # Zusätzliche Metadaten aus dem Result-Objekt extrahieren
+            "source_language": getattr(result.metadata, "source_language", None),
+            "target_language": getattr(result.metadata, "target_language", None),
+            "template": getattr(result.metadata, "template", None)
         }
         
+        return cache_data
+
+    def deserialize_cached_data(self, cached_data: Dict[str, Any]) -> VideoProcessingResult:
+        """
+        Deserialisiert die Cache-Daten zurück in ein VideoProcessingResult.
         
-        # Speichere im Cache
-        self.cache.save_cache_with_key(
-            cache_key=cache_key,
-            result=result,
-            metadata=metadata,
-        )
+        Args:
+            cached_data: Die gespeicherten Cache-Daten
+            
+        Returns:
+            VideoProcessingResult: Das rekonstruierte Ergebnis
+        """
+        result_data = cached_data.get("result", {})
+        # Stelle sicher, dass is_from_cache auf True gesetzt ist
+        if "is_from_cache" not in result_data:
+            result_data["is_from_cache"] = True
+        else:
+            result_data["is_from_cache"] = True
+            
+        return VideoProcessingResult.from_dict(result_data)
+
+    def _create_specialized_indexes(self, collection: Any) -> None:
+        """
+        Erstellt spezielle Indizes für die Video-Cache-Collection.
         
-        self.logger.info("Video-Verarbeitungsergebnis im Cache gespeichert", 
-                       cache_key=cache_key)
+        Args:
+            collection: Die MongoDB-Collection
+        """
+        try:
+            # Vorhandene Indizes abrufen
+            index_info = collection.index_information()
+            
+            # Index für source_url
+            if "source_url_1" not in index_info:
+                collection.create_index([("source_url", 1)])
+                self.logger.debug("source_url-Index erstellt")
+            
+            # Index für processed_at
+            if "processed_at_1" not in index_info:
+                collection.create_index([("processed_at", 1)])
+                self.logger.debug("processed_at-Index erstellt")
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
 
     async def process(
         self, 
@@ -334,36 +356,36 @@ class VideoProcessor(BaseProcessor):
             else:
                 video_source: VideoSource = source
 
-            # 2. Generiere Cache-Schlüssel , da später parameter verändert werden können
-            cache_key: str = self._generate_cache_key(
-                video_source=str(source),
-                source_language=source_language,
-                target_language=target_language,
-                template=template
-            )
+            # 2. Generiere Cache-Schlüssel
+            cache_key: str = self._create_cache_key(source, target_language, template)
             
-            # Cache prüfen
-            cache_result = self._check_cache(cache_key)
-            if cache_result and use_cache:
-                result, _= cache_result
-                self.logger.info(f"Cache-Hit für Video: {result.metadata.title}")
+            # 3. Cache prüfen (wenn aktiviert)
+            if use_cache and self.is_cache_enabled():
+                # Versuche, aus dem MongoDB-Cache zu laden
+                cache_hit, cached_result = self.get_from_cache(cache_key)
                 
-                # Response aus Cache erstellen
-                response = ResponseFactory.create_response(
-                    processor_name=ProcessorType.VIDEO.value,
-                    result=result,
-                    request_info={
-                        'source': str(source),
-                        'target_language': target_language,
-                        'source_language': source_language,
-                        'template': template
-                    },
-                    response_class=VideoResponse,
-                    llm_info=None  # Keine LLM-Info bei Cache-Hit
-                )
-                return response
+                if cache_hit and cached_result:
+                    self.logger.info(f"Cache-Hit für Video: {cached_result.metadata.title}")
+                    
+                    # Stelle sicher, dass is_from_cache auf True gesetzt ist
+                    cached_result.is_from_cache = True
+                    
+                    # Response aus Cache erstellen
+                    response = ResponseFactory.create_response(
+                        processor_name=ProcessorType.VIDEO.value,
+                        result=cached_result,
+                        request_info={
+                            'source': str(source),
+                            'target_language': target_language,
+                            'source_language': source_language,
+                            'template': template
+                        },
+                        response_class=VideoResponse,
+                        llm_info=None  # Keine LLM-Info bei Cache-Hit
+                    )
+                    return response
                 
-            # 3. Video-Informationen extrahieren
+            # 4. Video-Informationen extrahieren
             if video_source.url:
                 title, duration, video_id = self._extract_video_info(video_source.url)
             else:
@@ -379,13 +401,13 @@ class VideoProcessor(BaseProcessor):
                     f"(Maximum: {self.max_duration} Sekunden)"
                 )
             
-            # 4. Arbeitsverzeichnis erstellen
+            # 5. Arbeitsverzeichnis erstellen
             self.logger.info(f"Verarbeite Video: {title}", 
                            video_id=video_id,
                            duration=duration,
                            working_dir=str(working_dir))
             
-            # 5. Video herunterladen oder Datei verarbeiten
+            # 6. Video herunterladen oder Datei verarbeiten
             if video_source.url:
                 # Download-Optionen aktualisieren
                 download_opts = self.ydl_opts.copy()
@@ -409,13 +431,13 @@ class VideoProcessor(BaseProcessor):
                 else:
                     raise ValueError("Ungültiger Dateityp")
             
-            # 6. MP3-Datei finden
+            # 7. MP3-Datei finden
             mp3_files = list(working_dir.glob("*.mp3"))
             if not mp3_files:
                 raise ValueError("Keine MP3-Datei nach Verarbeitung gefunden")
             audio_path = mp3_files[0]
             
-            # 7. Audio verarbeiten
+            # 8. Audio verarbeiten
             self.logger.info("Starte Audio-Verarbeitung")
             audio_response: AudioResponse = await self.audio_processor.process(
                 audio_source=str(audio_path),
@@ -439,7 +461,7 @@ class VideoProcessor(BaseProcessor):
                 if source_language == 'auto':
                     source_language = audio_response.data.transcription.source_language
             
-            # 8. Metadaten erstellen
+            # 9. Metadaten erstellen
             metadata = VideoMetadata(
                 title=title,
                 source=video_source,
@@ -450,25 +472,22 @@ class VideoProcessor(BaseProcessor):
                 audio_file=str(audio_path) if audio_path else None
             )
             
-            # 9. Ergebnis erstellen
+            # 10. Ergebnis erstellen
             result = VideoProcessingResult(
                 metadata=metadata,
                 transcription=audio_response.data.transcription if audio_response.data else None,
                 process_id=self.process_id
             )
             
-            # Nach erfolgreicher Verarbeitung im Cache speichern
-            self._save_to_cache(
-                result=result,
-                cache_key=cache_key,
-                video_source=str(source),
-                audio_path=str(audio_path),
-                source_language=source_language,
-                target_language=target_language,
-                template=template
-            )
+            # 11. Im MongoDB-Cache speichern (wenn aktiviert)
+            if use_cache and self.is_cache_enabled():
+                self.save_to_cache(
+                    cache_key=cache_key,
+                    result=result
+                )
+                self.logger.debug(f"Video-Ergebnis im MongoDB-Cache gespeichert: {cache_key}")
             
-            # Response erstellen
+            # 12. Response erstellen
             self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}")
             
             response: VideoResponse = ResponseFactory.create_response(
@@ -499,31 +518,27 @@ class VideoProcessor(BaseProcessor):
             # Erstelle ein gültiges VideoSource Objekt
             video_source = VideoSource(url=str(source)) if isinstance(source, str) else source
             
-            # Erstelle ein Dummy-Result für den Fehlerfall
-            dummy_result = VideoProcessingResult(
+            # Leeres Ergebnis erstellen
+            result = VideoProcessingResult(
                 metadata=VideoMetadata(
-                    title="",
+                    title="Fehlgeschlagene Verarbeitung",
                     source=video_source,
                     duration=0,
-                    duration_formatted="00:00:00",
-                    process_dir=str(working_dir) if working_dir else ""
+                    duration_formatted="00:00:00"
                 ),
-                transcription=None,
                 process_id=self.process_id
             )
             
-            # Error-Response mit ResponseFactory
-            response = ResponseFactory.create_response(
-                processor_name=ProcessorType.VIDEO.value,
-                result=dummy_result,
+            # Fehler-Response erstellen
+            response = self._create_response(
+                result=result,
                 request_info={
                     'source': str(source),
                     'target_language': target_language,
                     'source_language': source_language,
                     'template': template
                 },
-                response_class=VideoResponse,
-                error=error_info,
-                llm_info=None  # Keine LLM-Info im Fehlerfall
+                llm_info=llm_info,
+                error=error_info
             )
             return response 

@@ -5,16 +5,21 @@ Datum: {{date_range|Welcher Zeitraum wurde durch die Sessions in diesem Track ab
 Ort: {{locations|Welche Orte oder Veranstaltungsräume wurden in den Sessions erwähnt?}}
 track: {{track|Wie lautet der Name des Tracks?}}
 Kategorie: {{category|Welcher thematische Schwerpunkt zieht sich durch die Sessions in diesem Track?}}
+EcoSocialRating: {{EcoSocialRating|Welche Bedeutung haben diese Inhalte für eine eco soziale Anwendung auf einer skala von 0 (unbedeutend) bis 10 (sehr bedeutend) ?}}
 Type: Gesamtübersicht
 ---
 # {{track|Titel des Tracks als Überschrift}}
 
 > [! hinweis]-
-> Diese Zusammenfassung basiert auf mehreren Sessions innerhalb dieses Tracks. Sie fasst die wichtigsten Inhalte zusammen und stellt sie in einen ökosozialen Kontext.
+> Diese Zusammenfassung basiert auf mehreren Sessions innerhalb dieses Tracks. Sie fasst die wichtigsten Inhalte zusammen und stellt sie in einen ökosozialen Kontext. Die Texte basieren auf Audio/Video-Transkribtion und Text-Transformation - generiert aus dem Inhalt und Links dieser Sessions.
 
 ## Überblick  
 
-{{general_summary|Kurze Einführung in das Thema des Tracks: Welche technischen Entwicklungen oder Trends wurden in den Sessions behandelt? Warum sind sie für eine ökosoziale Transformation relevant? Mindestens 150 Worte.}}
+{{general_summary|Kurze Einführung in das Thema des Tracks: Welche Themen werden hier behandelt? Wie könnte man diese einfach erklären? Mindestens 150 Worte.}}
+
+## Events
+
+{{event_list|Können wir ALLE Events hier als Liste auflisten mit Titel auf Deutsch in Fett, gefolgt von einem \n und einem Zweizeiler, der den Inhalt des Events kurz erklärt, gefolgt von einem \n und dem Obsidian-Link. Gertrennt durch \n\n}}
 
 ## Bedeutung für eine ökosoziale Transformation  
 
@@ -22,19 +27,11 @@ Type: Gesamtübersicht
 
 ## Anwendungsmöglichkeiten für Eco-Social Designer  
 
-{{eco_social_applications|Wie können Designer:innen, Entwickler:innen und Initiativen aus dem ökosozialen Bereich diese Erkenntnisse konkret nutzen? Welche Tools, Plattformen oder Ansätze sind besonders vielversprechend? Bitte in mindestens drei konkreten Beispielen ausarbeiten.}}
+{{eco_social_applications|Wie können Designer:innen, Entwickler:innen und Initiativen aus dem ökosozialen Bereich diese Erkenntnisse konkret nutzen? Welche Tools, Plattformen oder Ansätze sind besonders vielversprechend? Bitte bis zu 10 konkrete Beispielen ausarbeiten, jedes Beispiel gefolgt mit einem Obsidian-link, in dem das Beispiel vorkommt.}}
 
 ## Herausforderungen & offene Fragen  
 
 {{challenges|Welche technischen, ethischen oder gesellschaftlichen Herausforderungen wurden diskutiert? Wo besteht noch Forschungs- oder Entwicklungsbedarf?}}
-
-## Highlights der Sessions  
-
-{{session_highlights|Welche Sessions waren besonders relevant für den ökosozialen Bereich? Liste mit kurzen Stichpunkten zu ihren wichtigsten Erkenntnissen.}}
-
-## Relevante Links  
-
-{{attachment_links|Liste aller relevanten Links aus den Sessions in diesem Track, formatiert als Markdown-Links mit Beschreibung und Beistrich getrennt.}}
 
 
 --- systemprompt
