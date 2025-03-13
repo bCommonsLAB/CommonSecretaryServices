@@ -3,8 +3,7 @@ Erweiterter Prozessor mit MongoDB-Caching-Funktionalität.
 """
 import hashlib
 from datetime import datetime, UTC, timedelta
-from typing import Any, Dict, List, MutableMapping, Optional, Tuple, cast, TypeVar, Generic, TYPE_CHECKING
-
+from typing import Any, Dict, List, Optional, Tuple, cast, TypeVar, Generic, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pymongo.collection import Collection
@@ -25,8 +24,8 @@ from .base_processor import BaseProcessor
 # TypeVar für generischen Rückgabetyp
 T = TypeVar('T')  # Ergebnistyp für die verschiedenen Prozessoren (AudioProcessingResult, VideoProcessingResult, etc.)
 
-# Hilfsfunktion für verzögertes Importieren
-def _get_mongodb_database():
+# Verzögerter Import der MongoDB-Funktionen, um zirkuläre Importe zu vermeiden
+def _get_mongodb_database() -> Database[Any]:
     """Verzögerter Import der MongoDB-Datenbankfunktion, um zirkuläre Importe zu vermeiden."""
     from src.core.mongodb.connection import get_mongodb_database
     return get_mongodb_database()
@@ -84,6 +83,7 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
     def _setup_cache_indices(self) -> None:
         """
         Richtet die Indizes für die Cache-Collection ein.
+        Diese Methode wurde optimiert, um die zentrale Initialisierung zu nutzen.
         """
         if not self.is_cache_enabled():
             return
@@ -92,24 +92,35 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
         if not self.cache_collection_name:
             self.logger.warning("Kein Cache-Collection-Name definiert, Cache wird nicht initialisiert")
             return
+        
+        # Import der MongoDB-Verbindungsfunktionen
+        from src.core.mongodb.connection import get_mongodb_database, is_collection_initialized
+        
+        # Prüfen, ob die Collection bereits initialisiert wurde
+        if is_collection_initialized(self.cache_collection_name):
+            self.logger.debug(f"Collection {self.cache_collection_name} bereits zentral initialisiert, überspringe Setup")
+            # Nur die Collection für die Verwendung speichern
+            self._cache_collection = get_mongodb_database()[self.cache_collection_name]
+            return
             
+        # Wenn die Collection noch nicht initialisiert ist, den alten Prozess durchführen
         try:
             # Datenbank abrufen
-            db: Database[Any] = _get_mongodb_database()
+            db = get_mongodb_database()
             
             # Collection abrufen oder erstellen
-            collection: Collection[Any] = db[self.cache_collection_name]
+            collection = db[self.cache_collection_name]
             
             # Standardwert für index_info, falls die Abfrage fehlschlägt
             index_info = {}
             
             # Vorhandene Indizes abrufen
             try:
-                index_info: MutableMapping[str, Any] = collection.index_information()
+                index_info = collection.index_information()
                 self.logger.debug(f"Vorhandene Indizes für {self.cache_collection_name}: {list(index_info.keys())}")
                 
                 # Cache-Collection speichern
-                self._cache_collection: Collection[Any] = collection
+                self._cache_collection = collection
                 
                 # Wenn bereits Indizes existieren, nicht erneut erstellen
                 if len(index_info) > 1:  # Mehr als nur der Standard-_id-Index
@@ -119,34 +130,23 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
             except Exception as e:
                 self.logger.error(f"Fehler beim Abrufen der Index-Informationen für '{self.cache_collection_name}': {str(e)}")
             
-            # Indizes erstellen nur, wenn sie noch nicht existieren
-            # Cache-Key als Unique-Index
+            # Wenn keine Indizes vorhanden sind, erstelle sie
             try:
-                # Prüfen, ob der cache_key-Index bereits existiert
-                if "cache_key_1" not in index_info:
-                    collection.create_index([("cache_key", 1)], unique=True, background=True)
-                    self.logger.debug(f"cache_key-Index für {self.cache_collection_name} erstellt")
+                # Standardindizes erstellen
+                collection.create_index("cache_key")
+                collection.create_index("last_accessed")
                 
-                # Prüfen, ob der last_accessed-Index bereits existiert
-                if "last_accessed_1" not in index_info:
-                    collection.create_index([("last_accessed", 1)], background=True)
-                    self.logger.debug(f"last_accessed-Index für {self.cache_collection_name} erstellt")
+                # Prozessor-spezifische Indizes erstellen
+                if hasattr(self, '_create_specialized_indexes') and callable(getattr(self, '_create_specialized_indexes')):
+                    self._create_specialized_indexes(collection)
                 
-                # Nicht "created_at"-Index erstellen, da dieser als TTL-Index vom Cache-Setup erstellt wird
-                
-                # Spezialisierte Indizes für den jeweiligen Prozessor-Typ
-                self._create_specialized_indexes(collection)
-                
-                # Cache-Collection speichern
+                self.logger.info(f"Indizes für {self.cache_collection_name} erstellt")
                 self._cache_collection = collection
                 
-                self.logger.debug(f"Cache-Indizes für {self.cache_collection_name} initialisiert")
             except Exception as e:
-                self.logger.error(f"Fehler beim Erstellen von Index für '{self.cache_collection_name}': {str(e)}")
-                # Trotz Fehler bei Index-Erstellung mit der Collection weitermachen
-                self._cache_collection = collection
+                self.logger.error(f"Fehler beim Erstellen der Indizes für '{self.cache_collection_name}': {str(e)}")
         except Exception as e:
-            self.logger.error(f"Fehler beim Initialisieren der Cache-Indizes: {str(e)}")
+            self.logger.error(f"Fehler beim Einrichten der Cache-Collections: {str(e)}")
         
     def _create_specialized_indexes(self, collection: Any) -> None:
         """

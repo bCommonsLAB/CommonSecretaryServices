@@ -10,6 +10,7 @@ import traceback
 import asyncio
 import uuid
 from werkzeug.datastructures import FileStorage
+import time
 
 from src.processors.video_processor import VideoProcessor
 from src.processors.youtube_processor import YoutubeProcessor
@@ -25,6 +26,13 @@ logger = get_logger(process_id="video-api")
 
 # Initialisiere Resource Calculator
 resource_calculator = ResourceCalculator()
+
+# Cache für Prozessoren
+_processor_cache = {
+    'youtube': {},  # Speichert YouTube-Prozessoren
+    'video': {}     # Speichert Video-Prozessoren
+}
+_max_cache_size = 10  # Maximale Anzahl der gespeicherten Prozessoren pro Typ
 
 # Erstelle Namespace
 video_ns = Namespace('video', description='Video-Verarbeitungs-Operationen')
@@ -66,7 +74,8 @@ youtube_input = video_ns.model('YoutubeInput', {
     'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
     'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache (ISO 639-1 code)'),
-    'template': fields.String(required=False, default=None, description='Template für die Verarbeitung')
+    'template': fields.String(required=False, default='youtube', description='Template für die Verarbeitung (default: youtube)'),
+    'useCache': fields.Boolean(required=False, default=True, description='Cache verwenden (default: True)')
 })
 
 # Model für Video-Requests
@@ -82,11 +91,51 @@ video_request = video_ns.model('VideoRequest', {
 # Helper-Funktionen zum Abrufen der Prozessoren
 def get_video_processor(process_id: Optional[str] = None) -> VideoProcessor:
     """Get or create video processor instance with process ID"""
-    return VideoProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
+    # Erstelle eine neue process_id, wenn keine angegeben wurde
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    
+    # Prüfe, ob ein passender Prozessor im Cache ist
+    if process_id in _processor_cache['video']:
+        logger.debug(f"Verwende gecachten Video-Processor für {process_id}")
+        return _processor_cache['video'][process_id]
+    
+    # Andernfalls erstelle einen neuen Prozessor
+    processor = VideoProcessor(resource_calculator, process_id=process_id)
+    
+    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
+    if len(_processor_cache['video']) >= _max_cache_size:
+        # Hole den ältesten Schlüssel (first in)
+        oldest_key = next(iter(_processor_cache['video']))
+        del _processor_cache['video'][oldest_key]
+    
+    # Speichere den neuen Prozessor im Cache
+    _processor_cache['video'][process_id] = processor
+    return processor
 
 def get_youtube_processor(process_id: Optional[str] = None) -> YoutubeProcessor:
     """Get or create youtube processor instance with process ID"""
-    return YoutubeProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
+    # Erstelle eine neue process_id, wenn keine angegeben wurde
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    
+    # Prüfe, ob ein passender Prozessor im Cache ist
+    if process_id in _processor_cache['youtube']:
+        logger.debug(f"Verwende gecachten YouTube-Processor für {process_id}")
+        return _processor_cache['youtube'][process_id]
+    
+    # Andernfalls erstelle einen neuen Prozessor
+    processor = YoutubeProcessor(resource_calculator, process_id=process_id)
+    
+    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
+    if len(_processor_cache['youtube']) >= _max_cache_size:
+        # Hole den ältesten Schlüssel (first in)
+        oldest_key = next(iter(_processor_cache['youtube']))
+        del _processor_cache['youtube'][oldest_key]
+    
+    # Speichere den neuen Prozessor im Cache
+    _processor_cache['youtube'][process_id] = processor
+    return processor
 
 # YouTube-Endpunkt - exakt wie in der alten routes.py
 @video_ns.route('/youtube')
@@ -94,14 +143,34 @@ class YoutubeEndpoint(Resource):
     @video_ns.expect(youtube_input)
     @video_ns.response(200, 'Erfolg', youtube_response)
     @video_ns.response(400, 'Validierungsfehler', error_model)
-    @video_ns.doc(description='Verarbeitet ein Youtube-Video')
+    @video_ns.doc(description='Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet ein Youtube-Video"""
+        # Startzeit des Requests messen
+        start_time = time.time()
+        
         process_id = str(uuid.uuid4())
+        logger.info(f"YouTube API Request gestartet: {process_id}")
+        
+        # Zeit nach Initialisierung
+        init_time = time.time()
+        logger.info(f"Initialisierungszeit: {(init_time - start_time) * 1000:.2f} ms")
+        
         tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+        
+        # Zeit nach Tracker-Initialisierung
+        tracker_time = time.time()
+        logger.info(f"Tracker-Initialisierungszeit: {(tracker_time - init_time) * 1000:.2f} ms")
+        
+        # Processor-Erstellung messen
+        processor_start = time.time()
         youtube_processor: YoutubeProcessor = get_youtube_processor(process_id)
+        processor_end = time.time()
+        logger.info(f"Processor-Erstellungszeit: {(processor_end - processor_start) * 1000:.2f} ms")
         
         try:
+            # Parameterverarbeitung messen
+            param_start = time.time()
             data = request.get_json()
             if not data:
                 raise ProcessingError("Keine Daten erhalten")
@@ -110,22 +179,41 @@ class YoutubeEndpoint(Resource):
             source_language = data.get('source_language', 'auto')
             target_language = data.get('target_language', 'de')
             template = data.get('template')
+            use_cache = data.get('useCache', True)
 
             if not url:
                 raise ProcessingError("Youtube-URL ist erforderlich")
+                
+            param_end = time.time()
+            logger.info(f"Parameterverarbeitungszeit: {(param_end - param_start) * 1000:.2f} ms")
 
+            # Processor-Ausführung messen
+            process_start = time.time()
             result: YoutubeResponse = asyncio.run(youtube_processor.process(
                 file_path=url,
                 source_language=source_language,
                 target_language=target_language,
-                template=template
+                template=template,
+                use_cache=use_cache
             ))
+            process_end = time.time()
+            logger.info(f"Processor-Ausführungszeit: {(process_end - process_start) * 1000:.2f} ms")
             
+            # Response-Erstellung messen
+            response_start = time.time()
             # Füge Ressourcenverbrauch zum Tracker hinzu
             if tracker and hasattr(tracker, 'eval_result'):
                 tracker.eval_result(result)
             
-            return result.to_dict()
+            response = result.to_dict()
+            response_end = time.time()
+            logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
+            
+            # Gesamtzeit
+            total_time = time.time() - start_time
+            logger.info(f"Gesamte Verarbeitungszeit: {total_time * 1000:.2f} ms")
+            
+            return response
             
         except ValueError as ve:
             logger.error("Validierungsfehler",

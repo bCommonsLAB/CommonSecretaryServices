@@ -5,6 +5,10 @@ from flask import Flask
 from src.dashboard.routes.main_routes import main as dashboard_blueprint
 from src.dashboard.routes.config_routes import config as config_blueprint
 from typing import Optional
+import logging
+
+# Logger initialisieren
+logger = logging.getLogger(__name__)
 
 def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = None) -> Flask:
     """
@@ -20,9 +24,15 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     # Importiere die API-Blueprint
     from src.api.routes import blueprint as api_blueprint
     
-    # Importiere Dashboard Blueprint
-    
-    # Importiere Config Blueprint
+    # Initialisiere MongoDB und Cache-Indizes früh, bevor die App Anfragen verarbeitet
+    try:
+        logger.info("Initialisiere MongoDB-Verbindung beim Serverstart...")
+        from src.core.mongodb.connection import setup_mongodb_connection
+        setup_mongodb_connection()
+        logger.info("MongoDB-Verbindung und Cache-Indizes erfolgreich initialisiert")
+    except Exception as e:
+        logger.error(f"Fehler bei der Initialisierung der MongoDB-Verbindung: {str(e)}")
+        logger.warning("Server wird trotzdem gestartet, aber es kann zu Cache-Problemen kommen")
     
     # Erstelle die Flask-App
     app = Flask(__name__, 
@@ -41,6 +51,13 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     
     # Registriere die Konfigurations-Routen
     app.register_blueprint(config_blueprint)
+
+    # Event-Handler für Serverbeendigung
+    import atexit
+    from src.core.mongodb.connection import close_mongodb_connection
+    
+    # MongoDB-Verbindung beim Beenden der App schließen
+    atexit.register(close_mongodb_connection)
     
     return app
 

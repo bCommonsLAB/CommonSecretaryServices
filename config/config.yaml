@@ -76,13 +76,55 @@ processors:
       ttl_days: 30
       collection_name: video_cache
 
+  youtube:
+    max_duration: 15000  # Maximale Videolänge in Sekunden
+    max_file_size: 120000000  # 120 MB
+    cache_dir: cache/youtube
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: youtube_cache
+    # Minimale yt-dlp Optionen - sinnvolle Standardwerte werden im Code gesetzt
+    ydl_opts:
+      format: bestaudio/best
+      postprocessors:
+      - key: FFmpegExtractAudio
+        preferredcodec: mp3
+
   transformer:
+    # Modellkonfiguration 
     model: gpt-4o
+    temperature: 0.7
+    max_tokens: 4000
+    # Cache-Konfiguration
     cache_dir: cache/transformer
     cache:
       enabled: true
       ttl_days: 14
       collection_name: transformer_cache
+    # Performance-Einstellungen
+    max_concurrent_requests: 10
+    timeout_seconds: 120
+    # Templates-Verzeichnis
+    templates_dir: resources/templates
+
+  metadata:
+    # Cache-Konfiguration
+    cache_dir: cache/metadata
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: metadata_cache
+    # Dateiverarbeitung
+    max_file_size: 50000000  # 50 MB
+    supported_files:
+      - image: [jpg, jpeg, png, gif, bmp, webp, tiff]
+      - document: [pdf, docx, doc, xlsx, xls, pptx, ppt, txt, md]
+      - audio: [mp3, wav, ogg, m4a, flac]
+      - video: [mp4, webm, avi, mov, mkv]
+    # Performance-Einstellungen
+    timeout_seconds: 30
+    extract_advanced_metadata: true
 
   event:
     base_dir: events
@@ -119,17 +161,6 @@ processors:
       model: "gpt-4"
       temperature: 0.7
       max_tokens: 4000
-
-  youtube:
-    max_duration: 15000
-    max_file_size: 120000000
-    output_template: '%(title)s.%(ext)s'
-    cache_dir: cache/youtube
-    ydl_opts:
-      format: worstaudio/worst
-      postprocessors:
-      - key: FFmpegExtractAudio
-        preferredcodec: mp3
 
 rate_limiting:
   enabled: true

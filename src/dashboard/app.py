@@ -79,8 +79,7 @@ def before_request() -> None:
         # MongoDB-Cache-Collections einrichten
         if not _cache_setup_done:
             try:
-                import asyncio
-                asyncio.run(setup_mongodb_caching(force_recreate=False))
+                setup_mongodb_caching(force_recreate=False)
                 logger.info("MongoDB-Cache-Collections eingerichtet")
                 _cache_setup_done = True
             except Exception as e:

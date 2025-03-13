@@ -85,10 +85,12 @@ class YoutubeProcessingResult:
         metadata: Metadaten des Videos
         transcription: Transkriptionsergebnis (wenn verfügbar)
         process_id: ID des Verarbeitungsprozesses
+        is_from_cache: Gibt an, ob das Ergebnis aus dem Cache geladen wurde
     """
     metadata: YoutubeMetadata
     transcription: Optional[TranscriptionResult] = None
     process_id: Optional[str] = None
+    is_from_cache: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -107,7 +109,8 @@ class YoutubeProcessingResult:
                     } for seg in self.transcription.segments
                 ]
             } if self.transcription else None,
-            'process_id': self.process_id
+            'process_id': self.process_id,
+            'is_from_cache': self.is_from_cache
         }
 
 @dataclass(frozen=True, init=False)

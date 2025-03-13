@@ -8,12 +8,16 @@ import time
 from typing import Dict, Any, Union, Optional, List, cast
 import traceback
 import uuid
+import json
+import asyncio
 
 from flask import request
+from werkzeug.datastructures import FileStorage
 from flask_restx import Namespace, Resource, fields  # type: ignore
 
 from core.models.transformer import TransformerResponse
 from src.processors.transformer_processor import TransformerProcessor
+from src.processors.metadata_processor import MetadataProcessor, MetadataResponse
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
@@ -31,10 +35,62 @@ resource_calculator = ResourceCalculator()
 # Erstelle Namespace
 transformer_ns = Namespace('transformer', description='Transformer Operationen')
 
+# Cache für Prozessoren
+_processor_cache = {
+    'transformer': {},  # Speichert Transformer-Prozessoren
+    'metadata': {}      # Speichert Metadata-Prozessoren
+}
+_max_cache_size = 10  # Maximale Anzahl der gespeicherten Prozessoren pro Typ
+
 # Helper-Funktion zum Abrufen des Transformer-Processors
 def get_transformer_processor(process_id: Optional[str] = None) -> TransformerProcessor:
     """Get or create transformer processor instance with process ID"""
-    return TransformerProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
+    # Erstelle eine neue process_id, wenn keine angegeben wurde
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    
+    # Prüfe, ob ein passender Prozessor im Cache ist
+    if process_id in _processor_cache['transformer']:
+        logger.debug(f"Verwende gecachten Transformer-Processor für {process_id}")
+        return _processor_cache['transformer'][process_id]
+    
+    # Andernfalls erstelle einen neuen Prozessor
+    processor = TransformerProcessor(resource_calculator, process_id=process_id)
+    
+    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
+    if len(_processor_cache['transformer']) >= _max_cache_size:
+        # Hole den ältesten Schlüssel (first in)
+        oldest_key = next(iter(_processor_cache['transformer']))
+        del _processor_cache['transformer'][oldest_key]
+    
+    # Speichere den neuen Prozessor im Cache
+    _processor_cache['transformer'][process_id] = processor
+    return processor
+
+# Helper-Funktion zum Abrufen des Metadata-Processors
+def get_metadata_processor(process_id: Optional[str] = None) -> MetadataProcessor:
+    """Get or create metadata processor instance with process ID"""
+    # Erstelle eine neue process_id, wenn keine angegeben wurde
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    
+    # Prüfe, ob ein passender Prozessor im Cache ist
+    if process_id in _processor_cache['metadata']:
+        logger.debug(f"Verwende gecachten Metadata-Processor für {process_id}")
+        return _processor_cache['metadata'][process_id]
+    
+    # Andernfalls erstelle einen neuen Prozessor
+    processor = MetadataProcessor(resource_calculator, process_id=process_id)
+    
+    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
+    if len(_processor_cache['metadata']) >= _max_cache_size:
+        # Hole den ältesten Schlüssel (first in)
+        oldest_key = next(iter(_processor_cache['metadata']))
+        del _processor_cache['metadata'][oldest_key]
+    
+    # Speichere den neuen Prozessor im Cache
+    _processor_cache['metadata'][process_id] = processor
+    return processor
 
 # Hilfsfunktion zum Kürzen von Text
 def _truncate_text(text: str, max_length: int = 100) -> str:
@@ -565,5 +621,182 @@ class HtmlTableTransformEndpoint(Resource):
                 'error': {
                     'code': 'ProcessingError',
                     'message': f'Fehler bei der HTML-Tabellen-Transformation: {error}'
+                }
+            }, 400 
+
+# Definiere ein Fehlermodell für API-Responses
+error_model = transformer_ns.model('ErrorModel', {
+    'status': fields.String(description='Status der Verarbeitung (error)'),
+    'error': fields.Raw(description='Fehlerinformationen')
+})
+
+# Metadata Upload Parser - für den integrierten Metadata-Endpoint
+metadata_upload_parser = transformer_ns.parser()
+metadata_upload_parser.add_argument(
+    'file', 
+    type=FileStorage, 
+    location='files',
+    required=True,
+    help='Die zu analysierende Datei'
+)
+metadata_upload_parser.add_argument(
+    'content',
+    type=str,
+    location='form',
+    required=False,
+    help='Optionaler zusätzlicher Text für die Analyse'
+)
+metadata_upload_parser.add_argument(
+    'context',
+    type=str,  # JSON string
+    location='form',
+    required=False,
+    help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
+)
+metadata_upload_parser.add_argument(
+    'use_cache',
+    type=str,
+    location='form',
+    required=False,
+    default='true',
+    help='Ob der Cache verwendet werden soll (true/false)'
+)
+
+metadata_response = transformer_ns.model('MetadataResponse', {
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Raw(description='Details zur Anfrage'),
+    'process': fields.Raw(description='Informationen zur Verarbeitung'),
+    'data': fields.Raw(description='Extrahierte Metadaten'),
+    'error': fields.Raw(description='Fehlerinformationen (falls vorhanden)')
+})
+
+# Metadata-Extraktion Endpunkt (aus src/api/routes.py integriert)
+@transformer_ns.route('/metadata')
+class MetadataEndpoint(Resource):
+    @transformer_ns.expect(metadata_upload_parser)
+    @transformer_ns.response(200, 'Erfolg', metadata_response)
+    @transformer_ns.response(400, 'Validierungsfehler', error_model)
+    @transformer_ns.doc(description='Extrahiert Metadaten aus Dateien wie Bildern, Videos, PDFs und anderen Dokumenten')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Extrahiert Metadaten aus einer Datei oder einem Text.
+        
+        Die Metadaten enthalten technische Informationen (Dateigröße, Format, etc.) 
+        und inhaltliche Metadaten (Titel, Autoren, Beschreibung, etc.).
+        """
+        # Zeitmessung starten
+        process_start_time = time.time()
+        
+        # Prozess-Tracking initialisieren
+        process_id = str(uuid.uuid4())
+        logger.info(f"Metadata API Request gestartet: {process_id}")
+        
+        # Performance Tracking für detaillierte Zeitmessung
+        tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
+        processor_start = time.time()
+        
+        try:
+            # Request-Parameter extrahieren
+            args = metadata_upload_parser.parse_args()
+            uploaded_file = args.get('file')
+            content = args.get('content')
+            context_str = args.get('context')
+            use_cache_str = args.get('use_cache', 'true').lower()
+            use_cache = use_cache_str != 'false'  # Alles außer explizite 'false' wird als true behandelt
+            
+            # Kontext parsen, falls vorhanden
+            context = None
+            if context_str:
+                try:
+                    context = json.loads(context_str)
+                except json.JSONDecodeError:
+                    logger.warning(f"Ungültiger JSON-Kontext: {context_str}")
+            
+            # Processor initialisieren (optimiert mit Cache)
+            processor = get_metadata_processor(process_id)
+            processor_end = time.time()
+            logger.info(f"Processor-Erstellungszeit: {(processor_end - processor_start) * 1000:.2f} ms")
+                
+            # Verarbeitung starten
+            processing_start = time.time()
+            result = asyncio.run(processor.process(
+                binary_data=uploaded_file,
+                content=content,
+                context=context,
+                use_cache=use_cache
+            ))
+            processing_end = time.time()
+            logger.info(f"Metadata-Verarbeitungszeit: {(processing_end - processing_start) * 1000:.2f} ms")
+            
+            # Response erstellen
+            response_start = time.time()
+            response: Dict[str, Any] = {
+                'status': 'error' if result.error else 'success',
+                'request': {
+                    'processor': 'metadata',
+                    'timestamp': datetime.now().isoformat(),
+                    'parameters': {
+                        'has_file': uploaded_file is not None,
+                        'has_content': content is not None,
+                        'context': context,
+                        'duration_ms': int((time.time() - process_start_time) * 1000)
+                    }
+                },
+                'process': result.process.to_dict(),
+                'data': {
+                    'technical': result.data.technical.to_dict() if result.data.technical else None,
+                    'content': result.data.content.to_dict() if result.data.content else None
+                },
+                'error': None
+            }
+
+            # Fehlerbehandlung
+            if result.error:
+                response['error'] = {
+                    'code': result.error.code,
+                    'message': result.error.message,
+                    'details': result.error.details if hasattr(result.error, 'details') else {}
+                }
+                response_end = time.time()
+                logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
+                return response, 400
+            
+            response_end = time.time()
+            logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
+            
+            # Gesamtzeit
+            total_time = time.time() - process_start_time
+            logger.info(f"Gesamte Verarbeitungszeit: {total_time * 1000:.2f} ms")
+            
+            return response
+                
+        except ProcessingError as e:
+            logger.error("Bekannter Verarbeitungsfehler",
+                        error=e,
+                        error_type="ProcessingError",
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError',
+                    'message': str(e),
+                    'details': {}
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Fehler bei der Metadaten-Extraktion",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
                 }
             }, 400 
