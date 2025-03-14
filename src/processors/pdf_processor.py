@@ -590,14 +590,14 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         working_dir = Path(self.temp_dir) / "pdf" / file_key
         
         # Voller Cache-Key für die Ergebniscachierung (beinhaltet alle Parameter)
-        cache_key = self._create_cache_key(
-            file_path=file_path,
-            template=template,
-            context=context,
+                cache_key = self._create_cache_key(
+                    file_path=file_path,
+                    template=template,
+                    context=context,
             extraction_method="_".join(methods_list),  # Kombinierte Methoden als Teil des Cache-Keys
-            file_hash=file_hash
-        )
-        
+                    file_hash=file_hash
+                )
+                
         # Initialisiere LLM-Info außerhalb des try-blocks
         llm_info = LLMInfo(
             model="pdf-processing",
@@ -649,7 +649,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
             if not working_dir.exists():
-                working_dir.mkdir(parents=True, exist_ok=True)
+            working_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.debug(f"Arbeitsverzeichnis angelegt: {str(working_dir)}")
             
             # Prüfe ob es sich um eine URL handelt
@@ -676,7 +676,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     original_name_file = working_dir / "original_name.txt"
                     with open(original_name_file, 'w') as f:
                         f.write(str(file_path))
-                    
+                
                 path = temp_file
             else:
                 # Lokale Datei wird direkt verwendet
@@ -967,8 +967,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     metadata=metadata,
                     extracted_text=result_text if EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list else None,
                     ocr_text=ocr_text if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list else None,
-                    process_id=self.process_id
-                )
+                process_id=self.process_id
+            )
             
                 # Konvertiere Dateipfade in URLs für die API-Antwort
                 self._convert_paths_to_urls(result)
@@ -983,19 +983,19 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     self.save_to_cache(cache_key, result)  # type: ignore
                 
                 # Erstelle und gib Response zurück
-                return ResponseFactory.create_response(
-                    processor_name=PROCESSOR_TYPE_PDF,
+            return ResponseFactory.create_response(
+                processor_name=PROCESSOR_TYPE_PDF,
                     result=result,
-                    request_info={
-                        'file_path': str(file_path),
-                        'template': template,
-                        'context': context,
+                request_info={
+                    'file_path': str(file_path),
+                    'template': template,
+                    'context': context,
                         'extraction_method': "_".join(methods_list)  # Korrekter kombinierter String
-                    },
-                    response_class=PDFResponse,
-                    llm_info=llm_info,
-                    from_cache=False
-                )
+                },
+                response_class=PDFResponse,
+                llm_info=llm_info,
+                from_cache=False
+            )
 
         except Exception as e:
             error_info = ErrorInfo(
