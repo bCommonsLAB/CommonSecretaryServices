@@ -1,6 +1,6 @@
 """
-Worker-Manager für Event-Jobs.
-Verwaltet die Verarbeitung von Event-Jobs aus der MongoDB.
+Worker-Manager für Session-Jobs.
+Verwaltet die Verarbeitung von Session-Jobs aus der MongoDB.
 """
 
 import time
@@ -11,11 +11,11 @@ from typing import Dict, Optional, List
 import logging
 from pathlib import Path
 
-from core.models.event import EventResponse
+from src.core.models.session import SessionResponse
 from src.core.models.job_models import Job, JobStatus, JobProgress, JobError, JobResults
 # Entferne den zirkulären Import
 # from src.core.mongodb import get_job_repository
-from src.processors.event_processor import EventProcessor
+from src.processors.session_processor import SessionProcessor
 from src.core.resource_tracking import ResourceCalculator
 
 # Logger initialisieren
@@ -27,9 +27,9 @@ def _get_job_repository():
     from src.core.mongodb import get_job_repository
     return get_job_repository()
 
-class EventWorkerManager:
+class SessionWorkerManager:
     """
-    Manager für die Verarbeitung von Event-Jobs aus der MongoDB.
+    Manager für die Verarbeitung von Session-Jobs aus der MongoDB.
     Überwacht die Job-Queue und startet Worker-Threads für ausstehende Jobs.
     """
     
@@ -54,7 +54,7 @@ class EventWorkerManager:
         self.max_processing_time_minutes = 10  # Jobs gelten nach 10 Minuten als hängengeblieben
         self.last_stalled_job_check = 0  # Timestamp der letzten Prüfung
         
-        logger.info(f"EventWorkerManager initialisiert (max_workers={max_concurrent_workers}, poll_interval={poll_interval_sec}s)")
+        logger.info(f"SessionWorkerManager initialisiert (max_workers={max_concurrent_workers}, poll_interval={poll_interval_sec}s)")
     
     def start(self) -> None:
         """
@@ -224,8 +224,8 @@ class EventWorkerManager:
         batch_id = job.batch_id
         
         try:
-            # Führe den Event-Processor aus
-            asyncio.run(self._process_event(job))
+            # Führe den Session-Processor aus
+            asyncio.run(self._process_session(job))
             
             # Aktualisiere den Batch-Status, falls vorhanden
             if batch_id:
@@ -259,9 +259,9 @@ class EventWorkerManager:
             logger.error(f"Fehler bei der Verarbeitung von Job {job_id}: {str(e)}")
             logger.debug(traceback.format_exc())
     
-    async def _process_event(self, job: Job) -> None:
+    async def _process_session(self, job: Job) -> None:
         """
-        Verarbeitet ein Event mit dem EventProcessor.
+        Verarbeitet eine Session mit dem SessionProcessor.
         
         Args:
             job: Job-Objekt
@@ -269,8 +269,8 @@ class EventWorkerManager:
         job_id = job.job_id
         params = job.parameters
         
-        # Initialisiere den Event-Processor
-        processor = EventProcessor(
+        # Initialisiere den Session-Processor
+        processor = SessionProcessor(
             resource_calculator=self.resource_calculator,
             process_id=job_id
         )
@@ -282,7 +282,7 @@ class EventWorkerManager:
             progress=JobProgress(
                 step="processing",
                 percent=10,
-                message="Event-Verarbeitung läuft"
+                message="Session-Verarbeitung läuft"
             )
         )
         
@@ -302,8 +302,8 @@ class EventWorkerManager:
         target_language = getattr(params, "target_language", "de")
         use_cache = getattr(params, "use_cache", True)
         
-        # Verarbeite das Event
-        result: EventResponse = await processor.process_event(
+        # Verarbeite die Session
+        result: SessionResponse = await processor.process_session(
             event=event,
             session=session,
             url=url,
@@ -333,20 +333,20 @@ class EventWorkerManager:
                 # der Markdown-Datei, der bereits existiert
                 
                 # Konvertiere Markdown-Dateipfad zum API-Pfad
-                # Beispiel: "events/FOSDEM 2025/Open-Research-22/Beyond-.../Beyond-...md" 
-                # wird zu "/api/event-job/files/FOSDEM 2025/Open-Research-22/Beyond-..."
+                # Beispiel: "sessions/FOSDEM 2025/Open-Research-22/Beyond-.../Beyond-...md" 
+                # wird zu "/api/session-job/files/FOSDEM 2025/Open-Research-22/Beyond-..."
                 
-                # 1. Entferne das 'events/' Präfix und den Dateinamen am Ende
+                # 1. Entferne das 'sessions/' Präfix und den Dateinamen am Ende
                 markdown_path = Path(markdown_file)
-                relative_dir = str(markdown_path.parent).replace('events/', '', 1)
+                relative_dir = str(markdown_path.parent).replace('sessions/', '', 1)
                 
                 # 2. Ersetze Backslashes durch Forward Slashes für Web-URLs
                 relative_dir = relative_dir.replace('\\', '/')
                 
-                # WICHTIG: Wir dürfen kein "events/" in der URL haben, da die API dies bereits hinzufügt
-                # Stelle sicher, dass kein "events/" am Anfang des Pfads steht
-                if relative_dir.startswith("events/"):
-                    relative_dir = relative_dir[7:]  # Entferne "events/"
+                # WICHTIG: Wir dürfen kein "sessions/" in der URL haben, da die API dies bereits hinzufügt
+                # Stelle sicher, dass kein "sessions/" am Anfang des Pfads steht
+                if relative_dir.startswith("sessions/"):
+                    relative_dir = relative_dir[9:]  # Entferne "sessions/"
                 
                 # Prüfe, ob das Verzeichnis existiert
                 file_system_dir = markdown_path.parent
@@ -385,6 +385,7 @@ class EventWorkerManager:
                     assets=assets,
                     web_text=result.data.output.web_text if hasattr(result.data.output, "web_text") else None,
                     video_transcript=result.data.output.video_transcript if hasattr(result.data.output, "video_transcript") else None,
+                    attachments_text=result.data.output.attachments_text if hasattr(result.data.output, "attachments_text") else None,
                     context=result.data.output.context if hasattr(result.data.output, "context") else None,
                     attachments_url=result.data.output.attachments_url if hasattr(result.data.output, "attachments_url") else None
                 )
@@ -394,7 +395,7 @@ class EventWorkerManager:
             self.job_repo.add_log_entry(
                 job_id=job_id,
                 level="info",
-                message="Event-Verarbeitung erfolgreich abgeschlossen"
+                message="Session-Verarbeitung erfolgreich abgeschlossen"
             )
             
             logger.info(f"Job {job_id} erfolgreich abgeschlossen")
@@ -438,26 +439,26 @@ class EventWorkerManager:
 # Singleton-Instanz des Worker-Managers
 _worker_manager = None
 
-def get_worker_manager() -> Optional[EventWorkerManager]:
+def get_worker_manager() -> Optional[SessionWorkerManager]:
     """
-    Gibt eine Singleton-Instanz des EventWorkerManager zurück, wenn in der
-    Konfiguration event_worker.active=True gesetzt ist. Ansonsten None.
+    Gibt eine Singleton-Instanz des SessionWorkerManager zurück, wenn in der
+    Konfiguration session_worker.active=True gesetzt ist. Ansonsten None.
     
     Returns:
-        Optional[EventWorkerManager]: Worker-Manager-Instanz oder None
+        Optional[SessionWorkerManager]: Worker-Manager-Instanz oder None
     """
     global _worker_manager
     
     # Konfiguration laden
     from src.core.config import Config
     config = Config()
-    worker_config = config.get('event_worker', {})
+    worker_config = config.get('session_worker', {})
     
     # Prüfen, ob der Worker aktiv sein soll
     is_active = worker_config.get('active', False)
     
     if not is_active:
-        logger.info("EventWorkerManager ist deaktiviert (event_worker.active=False in config.yaml)")
+        logger.info("SessionWorkerManager ist deaktiviert (session_worker.active=False in config.yaml)")
         return None
     
     # Worker-Manager nur initialisieren, wenn er aktiv sein soll
@@ -465,10 +466,10 @@ def get_worker_manager() -> Optional[EventWorkerManager]:
         max_concurrent = worker_config.get('max_concurrent', 5)
         poll_interval_sec = worker_config.get('poll_interval_sec', 5)
         
-        _worker_manager = EventWorkerManager(
+        _worker_manager = SessionWorkerManager(
             max_concurrent_workers=max_concurrent,
             poll_interval_sec=poll_interval_sec
         )
-        logger.info(f"EventWorkerManager wurde initialisiert (active=True, max_workers={max_concurrent})")
+        logger.info(f"SessionWorkerManager wurde initialisiert (active=True, max_workers={max_concurrent})")
     
     return _worker_manager 

@@ -20,7 +20,7 @@ api = Api(
 # Importiere Namespaces aus den Modulen
 from .audio_routes import audio_ns
 from .video_routes import video_ns
-from .event_routes import event_ns
+from .session_routes import session_ns
 from .common_routes import common_ns, SamplesEndpoint, SampleFileEndpoint
 from .transformer_routes import transformer_ns
 from .event_job_routes import event_job_ns
@@ -31,10 +31,10 @@ from .imageocr_routes import imageocr_ns
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
 api.add_namespace(video_ns, path='/video')  # type: ignore
-api.add_namespace(event_ns, path='/event')  # type: ignore
+api.add_namespace(session_ns, path='/session')  # type: ignore
 api.add_namespace(common_ns, path='/common')  # type: ignore
 api.add_namespace(transformer_ns, path='/transformer')  # type: ignore
-api.add_namespace(event_job_ns, path='/event-job')  # type: ignore
+api.add_namespace(event_job_ns, path='/session-job')  # type: ignore
 api.add_namespace(track_ns, path='/tracks')  # type: ignore
 api.add_namespace(pdf_ns, path='/pdf')  # type: ignore
 api.add_namespace(imageocr_ns, path='/imageocr')  # type: ignore

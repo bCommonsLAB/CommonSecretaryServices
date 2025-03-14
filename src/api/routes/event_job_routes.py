@@ -1,6 +1,6 @@
 """
-Event-Job API-Routen.
-Enthält alle Endpoints zur Verwaltung von Event-Jobs in der MongoDB.
+Session-Job API-Routen.
+Enthält alle Endpoints zur Verwaltung von Session-Jobs in der MongoDB.
 """
 from flask import request, send_file
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields  # type: ignore
@@ -15,16 +15,16 @@ import time
 from pymongo.results import UpdateResult
 
 from core.models.job_models import Batch, Job
-from core.mongodb.repository import EventJobRepository
+from core.mongodb.repository import SessionJobRepository
 from src.core.mongodb import get_job_repository
 from src.utils.logger import get_logger
 from utils.logger import ProcessingLogger
 
 # Initialisiere Logger
-logger: ProcessingLogger = get_logger(process_id="event-job-api")
+logger: ProcessingLogger = get_logger(process_id="session-job-api")
 
 # Erstelle Namespace
-event_job_ns = Namespace('event-job', description='Event-Job-Verwaltungs-Operationen')  # type: ignore
+event_job_ns = Namespace('event-job', description='Session-Job-Verwaltungs-Operationen')  # type: ignore
 
 # Definiere einen benutzerdefinierten JSON-Encoder für datetime-Objekte
 class DateTimeEncoder(json.JSONEncoder):
@@ -208,7 +208,7 @@ class EventJobsEndpoint(Resource):
             data = request.get_json()
             
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Benutzer-ID aus dem Request oder den Headern holen
             user_id = data.get('user_id')
@@ -255,7 +255,7 @@ class EventJobsEndpoint(Resource):
             skip = int(request.args.get("skip", 0))
             
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Zeitmessung für die Datenbankabfrage starten
             start_time_db = time.time()
@@ -339,7 +339,7 @@ class EventJobDetailsEndpoint(Resource):
         """Gibt Details zu einem Event-Job zurück."""
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Job abrufen
             job = job_repo.get_job(job_id)
@@ -376,7 +376,7 @@ class EventJobDetailsEndpoint(Resource):
         """Löscht einen Event-Job."""
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Job abrufen
             job = job_repo.get_job(job_id)
@@ -428,7 +428,7 @@ class EventBatchesEndpoint(Resource):
             data = request.get_json()
             
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Benutzer-ID aus dem Request oder den Headern holen
             user_id = data.get('user_id')
@@ -529,7 +529,7 @@ class EventBatchesEndpoint(Resource):
             skip = int(request.args.get("skip", 0))
             
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Batches abfragen
             if user_id:
@@ -574,7 +574,7 @@ class EventBatchDetailsEndpoint(Resource):
         """Gibt Details zu einem Batch zurück."""
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Batch abrufen
             batch: Batch | None = job_repo.get_batch(batch_id)
@@ -616,7 +616,7 @@ class EventBatchDetailsEndpoint(Resource):
         """
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Batch abrufen
             batch: Batch | None = job_repo.get_batch(batch_id)
@@ -715,7 +715,7 @@ class EventJobRestartEndpoint(Resource):
         """
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Job abrufen
             job = job_repo.get_job(job_id)
@@ -807,7 +807,7 @@ class EventBatchArchiveEndpoint(Resource):
         """
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Batch abrufen
             batch = job_repo.get_batch(batch_id)
@@ -878,7 +878,7 @@ class EventBatchToggleActiveEndpoint(Resource):
         """
         try:
             # Repository holen
-            job_repo: EventJobRepository = get_job_repository()
+            job_repo: SessionJobRepository = get_job_repository()
             
             # Batch abrufen
             batch = job_repo.get_batch(batch_id)

@@ -19,7 +19,7 @@ from src.utils.logger import get_logger
 from .tests import run_youtube_test, run_audio_test, run_transformer_test, run_health_test
 import requests  # Neu hinzugefügt für API-Anfragen
 import markdown  # type: ignore
-from src.core.mongodb.repository import EventJobRepository
+from src.core.mongodb.repository import SessionJobRepository
 from src.core.mongodb import get_job_repository
 
 # Create the blueprint
@@ -1070,7 +1070,7 @@ def api_event_monitor_batch_stats(batch_id: str):
     
     try:
         # Direkt das Repository für effizientere Abfragen verwenden
-        job_repo: EventJobRepository = get_job_repository()
+        job_repo: SessionJobRepository = get_job_repository()
         
         # Batch mit aktuellen Statistiken abrufen, ohne Status zu ändern
         batch = job_repo.get_batch_with_current_stats(batch_id)  # type: ignore

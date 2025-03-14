@@ -5,10 +5,14 @@ logs/
 __pycache__/
 .pytest_cache/
 cache/
+sessions/
 events/
 temp-processing/
 webhook_logs/
 .obsidian/
 workspace.json
 .trash/
-
+appearance.json
+.obsidian/appearance.json
+.obsidian/workspace.json
+.obsidian/obsidian.css
