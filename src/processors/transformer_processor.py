@@ -328,7 +328,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                     
                     # Response aus Cache erstellen
                     response_start = time.time()
-                    response = self._create_response_from_cached_result(
+                    response: TransformerResponse = self._create_response_from_cached_result(
                         cached_result=cached_result,
                         source_text=source_text,
                         source_language=source_language,
@@ -398,8 +398,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             result = TransformationResult(
                 text=transformed_text,
                 target_language=target_language,
-                structured_data={},  # Leeres Objekt, da keine strukturierten Daten
-                is_from_cache=False
+                structured_data={}
             )
             result_creation_end = time.time()
             self.logger.info(f"Zeit für Ergebnis-Erstellung: {(result_creation_end - result_creation_start) * 1000:.2f} ms")
@@ -428,6 +427,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                     'target_format': target_format.value if target_format else None
                 },
                 response_class=TransformerResponse,
+                from_cache=False,
                 llm_info=llm_info if llm_info.requests else None
             )
             response_creation_end = time.time()
@@ -462,8 +462,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                 result=TransformationResult(
                     text="",
                     target_language=target_language,
-                    structured_data={},
-                    is_from_cache=False
+                    structured_data={}
                 ),
                 request_info={
                     'source_text': source_text[:100] + "..." if len(source_text) > 100 else source_text,
@@ -473,7 +472,8 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                     'target_format': target_format.value if target_format else None
                 },
                 response_class=TransformerResponse,
-                llm_info=llm_info,
+                from_cache=False,
+                llm_info=None,
                 error=error_info
             )
 
@@ -571,8 +571,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             result = TransformationResult(
                 text=cached_result.get("text", ""),
                 target_language=cached_result.get("target_language", target_language),
-                structured_data=cached_result.get("structured_data", {}),
-                is_from_cache=True
+                structured_data=cached_result.get("structured_data", {})
             )
         else:
             # Es ist bereits ein TransformationResult
@@ -581,7 +580,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
         # Erstelle eine leere LLMInfo, da wir aus dem Cache laden
         llm_info = LLMInfo(model=self.model, purpose="text_transformation_cached")
         
-        # Erstelle Response
+        # Erstelle Response mit ResponseFactory, explizit from_cache=True setzen
         return ResponseFactory.create_response(
             processor_name="transformer",
             result=result,
@@ -593,6 +592,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 'target_format': target_format.value if target_format else None
             },
             response_class=TransformerResponse,
+            from_cache=True,  # Explizit True, da es sich um ein Ergebnis aus dem Cache handelt
             llm_info=llm_info
         )
 
@@ -809,6 +809,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 result=response.data,
                 request_info=response.request.parameters,
                 response_class=TransformerResponse,
+                from_cache=False,
                 llm_info=None,
                 error=error_info
             )
@@ -1079,6 +1080,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 result=response.data,
                 request_info=response.request.parameters,
                 response_class=TransformerResponse,
+                from_cache=False,
                 llm_info=None,
                 error=error_info
             ) 

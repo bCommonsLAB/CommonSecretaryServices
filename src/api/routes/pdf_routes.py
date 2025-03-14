@@ -113,7 +113,6 @@ pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
         })),
         'extracted_text': fields.String(description='Extrahierter Text'),
         'ocr_text': fields.String(description='OCR-Text'),
-        'is_from_cache': fields.Boolean(description='Aus dem Cache geladen'),
         'process_id': fields.String(description='Prozess-ID')
     })),
     'error': fields.Nested(pdf_ns.model('PDFError', {  # type: ignore

@@ -34,6 +34,8 @@ from datetime import datetime
 import uuid
 import hashlib
 import traceback
+import subprocess  # Importiere subprocess für die FFmpeg-Integration
+import json
 
 import yt_dlp  # type: ignore
 
@@ -162,34 +164,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         seconds = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    def _create_response(
-        self,
-        result: VideoProcessingResult,
-        request_info: Dict[str, Any],
-        llm_info: LLMInfo,
-        error: Optional[ErrorInfo] = None
-    ) -> VideoResponse:
-        """
-        Erstellt die standardisierte Response.
-        
-        Args:
-            result: Das Video-Verarbeitungsergebnis
-            request_info: Die Request-Parameter
-            llm_info: Die gesammelten LLM-Informationen
-            error: Optionale Fehlerinformationen
-            
-        Returns:
-            VideoResponse: Die standardisierte Response
-        """
-        return ResponseFactory.create_response(
-            processor_name=ProcessorType.VIDEO.value,
-            result=result,
-            request_info=request_info,
-            response_class=VideoResponse,
-            llm_info=llm_info if llm_info.requests else None,
-            error=error
-        )
-
+    
     def _extract_video_info(self, url: str) -> Tuple[str, int, str]:
         """
         Extrahiert grundlegende Informationen aus einem Video.
@@ -231,8 +206,13 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             if source.url:
                 base_key = source.url
             elif source.file_name:
-                # Bei hochgeladenen Dateien Hash aus Dateiinhalt erzeugen
-                base_key = source.file_name
+                # Bei hochgeladenen Dateien einen erweiterten Schlüssel mit mehreren Attributen erstellen
+                file_info = {
+                    'name': source.file_name,
+                    'size': source.file_size
+                }
+                # Serialisieren und hashen
+                base_key = hashlib.md5(json.dumps(file_info, sort_keys=True).encode()).hexdigest()
             else:
                 raise ValueError("VideoSource muss entweder URL oder file_name haben")
         else:
@@ -285,12 +265,6 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             VideoProcessingResult: Das rekonstruierte Ergebnis
         """
         result_data = cached_data.get("result", {})
-        # Stelle sicher, dass is_from_cache auf True gesetzt ist
-        if "is_from_cache" not in result_data:
-            result_data["is_from_cache"] = True
-        else:
-            result_data["is_from_cache"] = True
-            
         return VideoProcessingResult.from_dict(result_data)
 
     def _create_specialized_indexes(self, collection: Any) -> None:
@@ -323,7 +297,8 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         target_language: str = 'de',
         source_language: str = 'auto',
         template: Optional[str] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        binary_data: Optional[bytes] = None  # Neuer Parameter für die Binärdaten
     ) -> VideoResponse:
         """
         Verarbeitet ein Video.
@@ -334,6 +309,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             source_language: Quellsprache (auto für automatische Erkennung)
             template: Optional Template für die Verarbeitung
             use_cache: Ob der Cache verwendet werden soll (default: True)
+            binary_data: Optionale Binärdaten des Videos (für hochgeladene Dateien)
             
         Returns:
             VideoResponse: Die standardisierte Response mit Transkription und Metadaten
@@ -342,6 +318,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         working_dir: Path = Path(self.temp_dir) / "video" / str(uuid.uuid4())
         working_dir.mkdir(parents=True, exist_ok=True)
         audio_path: Optional[Path] = None
+        temp_video_path: Optional[Path] = None  # Pfad für temporär gespeicherte Binärdaten
         
         # Initialisiere LLM-Info
         llm_info = LLMInfo(
@@ -367,9 +344,6 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 if cache_hit and cached_result:
                     self.logger.info(f"Cache-Hit für Video: {cached_result.metadata.title}")
                     
-                    # Stelle sicher, dass is_from_cache auf True gesetzt ist
-                    cached_result.is_from_cache = True
-                    
                     # Response aus Cache erstellen
                     response = ResponseFactory.create_response(
                         processor_name=ProcessorType.VIDEO.value,
@@ -381,6 +355,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                             'template': template
                         },
                         response_class=VideoResponse,
+                        from_cache=True,  # Explizit True, da wir aus dem Cache lesen
                         llm_info=None  # Keine LLM-Info bei Cache-Hit
                     )
                     return response
@@ -419,17 +394,71 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 with yt_dlp.YoutubeDL(download_opts) as ydl:
                     ydl.download([video_source.url])  # type: ignore
             else:
-                # Datei in Arbeitsverzeichnis speichern
+                # Datei in Arbeitsverzeichnis speichern - GEÄNDERT zur Verwendung der separaten Binärdaten
                 if not video_source.file_name:
                     raise ValueError("Dateiname fehlt für Upload")
-                    
-                file_path = working_dir / video_source.file_name
-                if isinstance(video_source.file, bytes):
-                    file_path.write_bytes(video_source.file)
-                elif isinstance(video_source.file, Path):
-                    file_path.write_bytes(video_source.file.read_bytes())
+                
+                # Speichere die Binärdaten temporär
+                if binary_data:
+                    # Binärdaten wurden separat bereitgestellt
+                    file_path = working_dir / video_source.file_name
+                    file_path.write_bytes(binary_data)
+                    temp_video_path = file_path  # Merken für späteres Aufräumen
                 else:
-                    raise ValueError("Ungültiger Dateityp")
+                    raise ValueError("Keine Binärdaten für Datei-Upload gefunden")
+                
+                # Konvertiere die hochgeladene Datei zu MP3, falls es keine MP3-Datei ist
+                if not file_path.suffix.lower() == '.mp3':
+                    self.logger.debug(f"Konvertiere Video zu MP3: {file_path.name}")
+                    try:
+                        # Definiere den Ausgabepfad für die MP3-Datei
+                        output_mp3 = file_path.with_suffix('.mp3')
+                        
+                        # FFmpeg aufrufen, um Audio zu extrahieren
+                        cmd = [
+                            'ffmpeg', '-i', str(file_path), 
+                            '-vn',                  # Keine Video-Streams
+                            '-acodec', 'libmp3lame', # MP3-Codec
+                            '-q:a', '4',            # Qualitätsstufe (0-9, wobei 0 die beste Qualität ist)
+                            '-y',                   # Überschreiben ohne Nachfrage
+                            str(output_mp3)
+                        ]
+                        
+                        self.logger.debug(f"FFmpeg-Befehl: {' '.join(cmd)}")
+                        
+                        # Führe FFmpeg aus und fange die Ausgabe ab
+                        process: subprocess.CompletedProcess[str] = subprocess.run(
+                            cmd, 
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        
+                        self.logger.debug("FFmpeg-Ausgabe", stdout=process.stdout, stderr=process.stderr)
+                        
+                        # Prüfe, ob die MP3-Datei erstellt wurde
+                        if not output_mp3.exists():
+                            raise ValueError(f"MP3-Datei wurde nicht erstellt: {output_mp3}")
+                            
+                        self.logger.info(f"Video erfolgreich zu MP3 konvertiert: {output_mp3.name}")
+                        
+                        # Lösche die ursprüngliche Videodatei, um Speicherplatz zu sparen
+                        # (nur wenn die MP3-Extraktion erfolgreich war)
+                        if temp_video_path and temp_video_path.exists():
+                            temp_video_path.unlink()
+                            self.logger.debug(f"Ursprüngliche Videodatei gelöscht: {file_path.name}")
+                            temp_video_path = None  # Setze auf None, da wir sie bereits aufgeräumt haben
+                        
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error("Fehler bei der FFmpeg-Verarbeitung", 
+                                         error=e,
+                                         stdout=e.stdout if hasattr(e, 'stdout') else "",
+                                         stderr=e.stderr if hasattr(e, 'stderr') else "")
+                        raise ValueError(f"Fehler bei der Konvertierung zu MP3: {str(e)}")
+                    except Exception as e:
+                        self.logger.error(f"Unerwarteter Fehler bei der Konvertierung: {str(e)}")
+                        raise
             
             # 7. MP3-Datei finden
             mp3_files = list(working_dir.glob("*.mp3"))
@@ -450,6 +479,18 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 template=template,
                 use_cache=use_cache
             )
+            
+            # Debug-Ausgabe der Audio-Response
+            self.logger.debug("Audio-Verarbeitung abgeschlossen", 
+                             status=audio_response.status,
+                             has_data=bool(audio_response.data),
+                             has_transcription=bool(audio_response.data and audio_response.data.transcription),
+                             error=bool(audio_response.error))
+                             
+            if not audio_response.data or not audio_response.data.transcription:
+                self.logger.warning("Audio-Response enthält keine Transkriptionsdaten",
+                                   audio_response_status=audio_response.status,
+                                   error=audio_response.error.message if audio_response.error else "Kein Fehler")
             
             # LLM-Requests aus Audio-Verarbeitung übernehmen
             if audio_response.process.llm_info:
@@ -472,12 +513,33 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 audio_file=str(audio_path) if audio_path else None
             )
             
+            # Debug-Ausgabe der Metadaten
+            self.logger.debug("Erstellte Metadaten",
+                             title=title,
+                             duration=duration,
+                             file_size=audio_path.stat().st_size if audio_path else None)
+            
+            # Prüfe Transkriptionsdaten aus der Audio-Response
+            transcription = None
+            if audio_response.data and audio_response.data.transcription:
+                transcription = audio_response.data.transcription
+                self.logger.debug("Transkriptionsdaten gefunden",
+                                 text_length=len(transcription.text) if transcription and hasattr(transcription, 'text') else 0,
+                                 segments_count=len(transcription.segments) if transcription and hasattr(transcription, 'segments') else 0)
+            else:
+                self.logger.warning("Keine Transkriptionsdaten in der Audio-Response")
+            
             # 10. Ergebnis erstellen
             result = VideoProcessingResult(
                 metadata=metadata,
-                transcription=audio_response.data.transcription if audio_response.data else None,
+                transcription=transcription,
                 process_id=self.process_id
             )
+            
+            # Debug-Ausgabe des Ergebnisses
+            self.logger.debug("Erstelltes VideoProcessingResult", 
+                             has_metadata=bool(result.metadata),
+                             has_transcription=bool(result.transcription))
             
             # 11. Im MongoDB-Cache speichern (wenn aktiviert)
             if use_cache and self.is_cache_enabled():
@@ -497,14 +559,35 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                     'source': str(source),
                     'target_language': target_language,
                     'source_language': source_language,
-                    'template': template
+                    'template': template,
+                    'video_id': video_id,
+                    'video_duration': duration
                 },
                 response_class=VideoResponse,
+                from_cache=False,  # Neue Berechnung, nicht aus dem Cache
                 llm_info=llm_info if llm_info.requests else None
             )
+            
+            # Überprüfe die Response auf Vollständigkeit
+            response_dict = response.to_dict()
+            self.logger.debug("Erzeugte Response", 
+                             has_data=bool(response_dict.get('data')),
+                             has_metadata=bool(response_dict.get('data', {}).get('metadata')),
+                             has_transcription=bool(response_dict.get('data', {}).get('transcription')),
+                             status=response_dict.get('status'))
+            
             return response
 
         except Exception as e:
+            # Beim Fehler aufräumen - sicherstellen, dass die temporären Binärdaten gelöscht werden
+            if temp_video_path and temp_video_path.exists():
+                try:
+                    temp_video_path.unlink()
+                    self.logger.debug(f"Temporäre Videodatei bei Fehler gelöscht: {temp_video_path}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Konnte temporäre Datei nicht löschen: {cleanup_error}")
+            
+            # Originalen Error-Handling-Code beibehalten
             error_info = ErrorInfo(
                 code=type(e).__name__,
                 message=str(e),
@@ -530,7 +613,8 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             )
             
             # Fehler-Response erstellen
-            response = self._create_response(
+            response: VideoResponse = ResponseFactory.create_response(
+                processor_name=ProcessorType.VIDEO.value,
                 result=result,
                 request_info={
                     'source': str(source),
@@ -538,7 +622,17 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                     'source_language': source_language,
                     'template': template
                 },
-                llm_info=llm_info,
+                response_class=VideoResponse,
+                from_cache=False,  # Lese is_from_cache vom Ergebnisobjekt
+                llm_info=llm_info if llm_info.requests else None,
                 error=error_info
             )
-            return response 
+            return response
+        finally:
+            # Immer sicherstellen, dass temporäre Binärdaten gelöscht werden
+            if temp_video_path and temp_video_path.exists():
+                try:
+                    temp_video_path.unlink()
+                    self.logger.debug(f"Temporäre Videodatei nach Verarbeitung gelöscht: {temp_video_path}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Konnte temporäre Datei nicht löschen: {cleanup_error}") 

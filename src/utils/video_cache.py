@@ -24,7 +24,6 @@ class CacheMetadata:
     template: Optional[str]
     created_at: str
     cache_version: str = "1.0.0"  # Für Cache-Invalidierung
-    is_from_cache: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert Metadaten in Dict"""
@@ -79,8 +78,9 @@ class VideoCache:
         if source.url:
             source_hash = hashlib.sha256(source.url.encode()).hexdigest()
         else:
-            # Bei Datei-Upload den Inhalt hashen
-            source_hash = hashlib.sha256(source.file).hexdigest() if isinstance(source.file, bytes) else ""
+            # Bei Datei-Upload erstelle einen aussagekräftigeren Hash mit mehreren Parametern
+            source_info = f"{source.file_name or ''}|{source.file_size or 0}|{source.upload_timestamp or ''}"
+            source_hash = hashlib.sha256(source_info.encode()).hexdigest()
             
         # Parameter in Hash einbeziehen
         param_str = f"{target_language}_{template or ''}"

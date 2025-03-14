@@ -160,13 +160,6 @@ class MetadataProcessor(BaseProcessor):
                     if content_llm_info and content_llm_info.requests:
                         llm_info.add_request(content_llm_info.requests)
                         
-                    # Prüfe, ob die Metadaten aus dem Cache kommen
-                    if content_metadata:
-                        # Versuche, den Cache-Status aus den Metadaten zu extrahieren
-                        content_metadata_dict = content_metadata.to_dict()
-                        if 'is_from_cache' in content_metadata_dict:
-                            cache_hit = content_metadata_dict.get('is_from_cache', False)
-                        
                 except Exception as e:
                     if self.logger:
                         self.logger.error("Fehler bei der Content-Metadaten-Extraktion", error=e)
@@ -198,7 +191,8 @@ class MetadataProcessor(BaseProcessor):
                 ),
                 request_info=request_info,
                 response_class=MetadataResponse,
-                llm_info=llm_info
+                llm_info=llm_info,
+                from_cache=False
             )
 
         except Exception as e:
@@ -241,7 +235,9 @@ class MetadataProcessor(BaseProcessor):
                     "duration": float((end_time - start_time).total_seconds() * 1000)
                 },
                 response_class=MetadataResponse,
-                error=error_info
+                error=error_info,
+                llm_info=llm_info,
+                from_cache=False
             )
 
     async def extract_technical_metadata(self, file_path: Union[str, Path, FileStorage, BinaryIO]) -> TechnicalMetadata:
@@ -519,9 +515,6 @@ class MetadataProcessor(BaseProcessor):
             # Stelle sicher, dass structured_data ein Dictionary ist
             metadata: Dict[str, Any] = structured_data if isinstance(structured_data, dict) else {}
             
-            # Cache-Status zur Metadaten hinzufügen
-            metadata['is_from_cache'] = cache_hit
-                
             # ContentMetadata aus den strukturierten Daten erstellen
             content_metadata = ContentMetadata(
                 type=str(metadata.get('type', "text")),
@@ -534,7 +527,6 @@ class MetadataProcessor(BaseProcessor):
                 abstract=metadata.get('abstract'),
                 created=datetime.now(timezone.utc).isoformat(),
                 modified=datetime.now(timezone.utc).isoformat()
-                # ContentMetadata hat keinen is_from_cache Parameter
             )
             
             self.logger.info(f"Content-Metadaten erfolgreich extrahiert (Cache-Hit: {cache_hit})",

@@ -159,7 +159,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
         
         # YouTube-spezifische Konfigurationen
         self.max_duration = youtube_config.get('max_duration', 3600)  # 1 Stunde
-        self.max_file_size = youtube_config.get('max_file_size', 120000000)  # 120 MB
+        self.max_file_size = youtube_config.get('max_file_size', 140000000)  # 120 MB
         
         # Debug-Logging der YouTube-Konfiguration
         self.logger.debug("YoutubeProcessor initialisiert mit Konfiguration", 
@@ -486,12 +486,10 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             llms=[]
         )
         
-        # Erstelle das Ergebnis und setze is_from_cache auf True
         return YoutubeProcessingResult(
             metadata=metadata,
             transcription=transcription,
-            process_id=result_data.get("process_id"),
-            is_from_cache=True
+            process_id=result_data.get("process_id")
         )
 
     def _create_specialized_indexes(self, collection: Any) -> None:
@@ -605,7 +603,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                             'template': template
                         },
                         response_class=YoutubeResponse,
-                        llm_info=None  # Keine LLM-Info bei Cache-Hit
+                        llm_info=None,  # Keine LLM-Info bei Cache-Hit
+                        from_cache=True
                     )
                     response_end = time.time()
                     self.logger.info(f"Zeit für Response-Erstellung aus Cache: {(response_end - response_start) * 1000:.2f} ms")
@@ -779,7 +778,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                         message="Fehler bei der Audio-Verarbeitung",
                         details={}
                     )
-                    response = ResponseFactory.create_response(
+                    response: YoutubeResponse = ResponseFactory.create_response(
                         processor_name=ProcessorType.YOUTUBE.value,
                         result=YoutubeProcessingResult(
                             metadata=metadata,
@@ -794,7 +793,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                         },
                         response_class=YoutubeResponse,
                         llm_info=llm_info,
-                        error=error_info
+                        error=error_info,
+                        from_cache=False
                     )
                     return response
                 
@@ -846,7 +846,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                     'template': template
                 },
                 response_class=YoutubeResponse,
-                llm_info=llm_info if llm_info.requests else None
+                llm_info=llm_info if llm_info.requests else None,
+                from_cache=False
             )
             response_creation_end = time.time()
             self.logger.info(f"Zeit für Response-Erstellung: {(response_creation_end - response_creation_start) * 1000:.2f} ms")
@@ -914,5 +915,6 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 },
                 response_class=YoutubeResponse,
                 llm_info=llm_info,
-                error=error_info
+                error=error_info,
+                from_cache=False
             )

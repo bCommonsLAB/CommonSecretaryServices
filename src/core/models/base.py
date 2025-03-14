@@ -69,6 +69,7 @@ class ProcessInfo:
     completed: Optional[str] = None
     duration: Optional[float] = None
     llm_info: Optional[LLMInfo] = None
+    is_from_cache: bool = False  # Flag, das anzeigt, ob das Ergebnis aus dem Cache stammt
 
     def __post_init__(self) -> None:
         """Validiert die Felder nach der Initialisierung."""
@@ -92,7 +93,8 @@ class ProcessInfo:
             'sub_processors': self.sub_processors,
             'completed': self.completed,
             'duration': self.duration,
-            'llm_info': self.llm_info.to_dict() if self.llm_info else None
+            'llm_info': self.llm_info.to_dict() if self.llm_info else None,
+            'is_from_cache': self.is_from_cache
         }
 
     def add_llm_requests(self, requests: Union[List[LLMRequest], LLMInfo]) -> None:

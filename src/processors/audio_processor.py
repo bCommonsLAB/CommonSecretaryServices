@@ -218,9 +218,9 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         audio_config: ProcessorConfig = processor_config.get('audio', {})
         
         # Konfigurationswerte mit Typ-Annotationen
-        self.max_file_size: int = audio_config.get('max_file_size', 120 * 1024 * 1024)  # 100MB
+        self.max_file_size: int = audio_config.get('max_file_size', 125829120)  # 120MB
         self.segment_duration: int = audio_config.get('segment_duration', 300)  # 5 Minuten
-        self.max_segments: Optional[int] = audio_config.get('max_segments')  # Maximale Anzahl der Segmente
+        self.max_segments: Optional[int] = audio_config.get('max_segments', 100)
         self.export_format: str = audio_config.get('export_format', 'mp3')
         self.temp_file_suffix: str = f".{self.export_format}"
         
@@ -234,7 +234,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                          cache_dir=str(self.cache_dir))
         
         # Initialisiere Sub-Prozessoren
-        self.transformer_processor = cast(TransformerProcessorProtocol,
+        self.transformer_processor: TransformerProcessorProtocol = cast(TransformerProcessorProtocol,
             TransformerProcessor(resource_calculator, process_id))
         
         # Initialisiere den Transcriber mit Audio-spezifischen Konfigurationen
@@ -740,9 +740,6 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         result_data = cached_data.get('result', {})
         result = AudioProcessingResult.from_dict(result_data)
         
-        # Setze is_from_cache auf True
-        result.is_from_cache = True
-        
         # Dynamisch zusätzliche Metadaten aus dem Cache hinzufügen
         metadata_attrs = {
             'source_path': cached_data.get('source_path'),
@@ -841,12 +838,9 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 
                 if cache_hit and cached_result:
                     self.logger.info(f"Cache-Hit für Audio: {getattr(cached_result.metadata, 'filename', 'unbekannt')}")
-                    
-                    # Stelle sicher, dass is_from_cache auf True gesetzt ist
-                    cached_result.is_from_cache = True
-                    
+
                     # Response aus Cache erstellen
-                    response = self._create_response(
+                    response: AudioResponse = self._create_response(
                         result=cached_result,
                         request={
                             'source': str(audio_source),
@@ -855,7 +849,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                             'template': template
                         },
                         elapsed_time=0.0,
-                        llm_info=None  # Keine LLM-Info bei Cache-Hit
+                        llm_info=None,  # Keine LLM-Info bei Cache-Hit
+                        from_cache=True
                     )
                     return response
             
@@ -969,7 +964,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 self.logger.debug(f"Audio-Ergebnis im MongoDB-Cache gespeichert: {cache_key}")
                 
                 # Response erstellen
-                response = self._create_response(
+                response: AudioResponse = self._create_response(
                     result=result,
                     request={
                         'source': str(audio_source),
@@ -978,7 +973,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         'template': template
                     },
                     elapsed_time=0.0,
-                    llm_info=llm_info if llm_info.requests else None
+                    llm_info=llm_info if llm_info.requests else None,
+                    from_cache=False
                 )
                 
                 return response
@@ -1025,7 +1021,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         'duration_ms': duration_ms
                     },
                     elapsed_time=0.0,
-                    llm_info=None
+                    llm_info=None,
+                    from_cache=False
                 )
 
         except Exception as e:
@@ -1061,7 +1058,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                     'duration_ms': duration_ms
                 },
                 elapsed_time=0.0,
-                llm_info=None
+                llm_info=None,
+                from_cache=False
             )
 
     def _create_temp_file(self, audio_data: bytes) -> Path:
@@ -1122,7 +1120,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         )
 
     def _create_response(self, result: AudioProcessingResult, request: Dict[str, Any], 
-                        elapsed_time: float, llm_info: Optional[LLMInfo] = None) -> AudioResponse:
+                        elapsed_time: float, from_cache: bool = False, llm_info: Optional[LLMInfo] = None) -> AudioResponse:
         """Erstellt eine API-Response aus dem Verarbeitungsergebnis.
         
         Args:
@@ -1135,12 +1133,13 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             AudioResponse: Die API-Response
         """
         # Response erstellen
-        response = ResponseFactory.create_response(
+        response: AudioResponse = ResponseFactory.create_response(
             processor_name=ProcessorType.AUDIO.value,
             result=result,
             request_info=request,
             response_class=AudioResponse,
-            llm_info=llm_info if llm_info and getattr(llm_info, "requests", None) else None
+            from_cache=from_cache,
+            llm_info=llm_info if llm_info and getattr(llm_info, "requests", None) else None,
         )
         
         return response 

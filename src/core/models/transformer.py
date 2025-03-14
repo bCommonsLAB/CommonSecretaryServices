@@ -101,7 +101,6 @@ class TransformationResult:
         requests: Liste der LLM-Requests (nur bei direkter Verarbeitung, nicht bei Cache-Treffern)
         llms: Liste der verwendeten LLM-Modelle (nur bei direkter Verarbeitung)
         llm_info: LLM-Informationen für die Transformation (nur bei direkter Verarbeitung)
-        is_from_cache: Gibt an, ob das Ergebnis aus dem Cache stammt
     """
     text: str
     target_language: str
@@ -109,7 +108,6 @@ class TransformationResult:
     requests: Optional[List[LLMRequest]] = None
     llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
     llm_info: Optional[LLMInfo] = None  # LLM-Informationen für die Transformation
-    is_from_cache: bool = False  # Gibt an, ob das Ergebnis aus dem Cache stammt
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -145,14 +143,13 @@ class TransformationResult:
             TransformationResult: Das deserialisierte Ergebnis
         """
         if not data:
-            return cls(text="", target_language="unknown", is_from_cache=True)
+            return cls(text="", target_language="unknown")
             
         return cls(
             text=data.get("text", ""),
             target_language=data.get("target_language", "unknown"),
             structured_data=data.get("structured_data"),
             # Keine LLM-Informationen bei Cache-Treffern
-            is_from_cache=True
         )
 
 @dataclass(frozen=True, init=False)

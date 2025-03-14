@@ -11,6 +11,9 @@ import asyncio
 import uuid
 from werkzeug.datastructures import FileStorage
 import time
+from datetime import datetime
+import os
+from pathlib import Path
 
 from src.processors.video_processor import VideoProcessor
 from src.processors.youtube_processor import YoutubeProcessor
@@ -27,15 +30,43 @@ logger = get_logger(process_id="video-api")
 # Initialisiere Resource Calculator
 resource_calculator = ResourceCalculator()
 
-# Cache für Prozessoren
-_processor_cache = {
-    'youtube': {},  # Speichert YouTube-Prozessoren
-    'video': {}     # Speichert Video-Prozessoren
-}
-_max_cache_size = 10  # Maximale Anzahl der gespeicherten Prozessoren pro Typ
-
 # Erstelle Namespace
 video_ns = Namespace('video', description='Video-Verarbeitungs-Operationen')
+
+# Parser für Multipart-Formulardaten (für Datei-Uploads)
+video_upload_parser = video_ns.parser()
+video_upload_parser.add_argument('file', location='files', type=FileStorage, required=False, help='Video-Datei zum Hochladen')
+video_upload_parser.add_argument('url', location='form', type=str, required=False, help='URL des Videos (alternativ zur Datei)')
+video_upload_parser.add_argument('target_language', location='form', type=str, default='de', required=False, help='Zielsprache für die Transkription')
+video_upload_parser.add_argument('source_language', location='form', type=str, default='auto', required=False, help='Quellsprache (auto für automatische Erkennung)')
+video_upload_parser.add_argument('template', location='form', type=str, required=False, help='Optional Template für die Verarbeitung')
+video_upload_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
+video_upload_parser.add_argument('force_refresh', location='form', type=str, default='false', required=False, help='Cache ignorieren und Verarbeitung erzwingen (true/false)')
+
+# Parser für JSON-Anfragen
+video_json_parser = video_ns.parser()
+video_json_parser.add_argument('url', location='json', type=str, required=True, help='URL des Videos')
+video_json_parser.add_argument('target_language', location='json', type=str, default='de', required=False, help='Zielsprache für die Transkription')
+video_json_parser.add_argument('source_language', location='json', type=str, default='auto', required=False, help='Quellsprache (auto für automatische Erkennung)')
+video_json_parser.add_argument('template', location='json', type=str, required=False, help='Optional Template für die Verarbeitung')
+video_json_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
+video_json_parser.add_argument('force_refresh', location='json', type=bool, default=False, required=False, help='Cache ignorieren und Verarbeitung erzwingen (default: False)')
+
+# Parser für YouTube-Anfragen
+youtube_parser = video_ns.parser()
+youtube_parser.add_argument('url', location='json', type=str, required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', help='YouTube Video URL')
+youtube_parser.add_argument('source_language', location='json', type=str, default='auto', required=False, help='Quellsprache (auto für automatische Erkennung)')
+youtube_parser.add_argument('target_language', location='json', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
+youtube_parser.add_argument('template', location='json', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
+youtube_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
+
+# Parser für YouTube-Anfragen mit Formular
+youtube_form_parser = video_ns.parser()
+youtube_form_parser.add_argument('url', location='form', type=str, required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', help='YouTube Video URL')
+youtube_form_parser.add_argument('source_language', location='form', type=str, default='auto', required=False, help='Quellsprache (auto für automatische Erkennung)')
+youtube_form_parser.add_argument('target_language', location='form', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
+youtube_form_parser.add_argument('template', location='form', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
+youtube_form_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
 
 # Definiere Error-Modell, identisch zum alten Format
 error_model: Model | OrderedModel = video_ns.model('Error', {
@@ -69,6 +100,33 @@ youtube_response: Model | OrderedModel = video_ns.model('YoutubeResponse', {
     }))
 })
 
+# Explizites Modell für Video-Responses
+video_response: Model | OrderedModel = video_ns.model('VideoResponse', {
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(video_ns.model('VideoRequestInfo', {
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    })),
+    'process': fields.Nested(video_ns.model('VideoProcessInfo', {
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    })),
+    'data': fields.Nested(video_ns.model('VideoData', {
+        'metadata': fields.Raw(description='Video Metadaten'),
+        'transcription': fields.Raw(description='Transkriptionsergebnis (wenn verfügbar)')
+    })),
+    'error': fields.Nested(video_ns.model('VideoError', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    }))
+})
+
 # Model für Youtube-URLs und Parameter
 youtube_input = video_ns.model('YoutubeInput', {
     'url': fields.String(required=True, default='https://www.youtube.com/watch?v=jNQXAC9IVRw', description='Youtube Video URL'),
@@ -78,10 +136,9 @@ youtube_input = video_ns.model('YoutubeInput', {
     'useCache': fields.Boolean(required=False, default=True, description='Cache verwenden (default: True)')
 })
 
-# Model für Video-Requests
+# Model für Video-Requests (für JSON-Anfragen)
 video_request = video_ns.model('VideoRequest', {
     'url': fields.String(required=False, description='URL des Videos'),
-    'file': fields.Raw(required=False, description='Hochgeladene Video-Datei'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache für die Transkription'),
     'source_language': fields.String(required=False, default='auto', description='Quellsprache (auto für automatische Erkennung)'),
     'template': fields.String(required=False, description='Optional Template für die Verarbeitung'),
@@ -91,129 +148,156 @@ video_request = video_ns.model('VideoRequest', {
 # Helper-Funktionen zum Abrufen der Prozessoren
 def get_video_processor(process_id: Optional[str] = None) -> VideoProcessor:
     """Get or create video processor instance with process ID"""
-    # Erstelle eine neue process_id, wenn keine angegeben wurde
     if not process_id:
         process_id = str(uuid.uuid4())
-    
-    # Prüfe, ob ein passender Prozessor im Cache ist
-    if process_id in _processor_cache['video']:
-        logger.debug(f"Verwende gecachten Video-Processor für {process_id}")
-        return _processor_cache['video'][process_id]
-    
-    # Andernfalls erstelle einen neuen Prozessor
-    processor = VideoProcessor(resource_calculator, process_id=process_id)
-    
-    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
-    if len(_processor_cache['video']) >= _max_cache_size:
-        # Hole den ältesten Schlüssel (first in)
-        oldest_key = next(iter(_processor_cache['video']))
-        del _processor_cache['video'][oldest_key]
-    
-    # Speichere den neuen Prozessor im Cache
-    _processor_cache['video'][process_id] = processor
-    return processor
+    return VideoProcessor(resource_calculator, process_id=process_id)
 
 def get_youtube_processor(process_id: Optional[str] = None) -> YoutubeProcessor:
     """Get or create youtube processor instance with process ID"""
-    # Erstelle eine neue process_id, wenn keine angegeben wurde
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    return YoutubeProcessor(resource_calculator, process_id=process_id)
+
+# Hilfsfunktion für die YouTube-Verarbeitung
+async def process_youtube(url: str, source_language: str = 'auto', target_language: str = 'de', 
+                          template: str = 'youtube', use_cache: bool = True, process_id: Optional[str] = None) -> YoutubeResponse:
+    """
+    Verarbeitet eine YouTube-URL und extrahiert den Audio-Inhalt.
+    
+    Args:
+        url: Die YouTube-URL
+        source_language: Die Quellsprache des Videos (auto für automatische Erkennung)
+        target_language: Die Zielsprache für die Transkription
+        template: Das zu verwendende Template
+        use_cache: Ob der Cache verwendet werden soll
+        process_id: Optional eine eindeutige Prozess-ID
+        
+    Returns:
+        YoutubeResponse mit den Verarbeitungsergebnissen
+    """
     if not process_id:
         process_id = str(uuid.uuid4())
     
-    # Prüfe, ob ein passender Prozessor im Cache ist
-    if process_id in _processor_cache['youtube']:
-        logger.debug(f"Verwende gecachten YouTube-Processor für {process_id}")
-        return _processor_cache['youtube'][process_id]
+    youtube_processor = get_youtube_processor(process_id)
+    logger.info(f"Verarbeite YouTube-URL: {url} mit Prozess-ID: {process_id}")
     
-    # Andernfalls erstelle einen neuen Prozessor
-    processor = YoutubeProcessor(resource_calculator, process_id=process_id)
+    result = await youtube_processor.process(
+        file_path=url,
+        source_language=source_language,
+        target_language=target_language,
+        template=template,
+        use_cache=use_cache
+    )
     
-    # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
-    if len(_processor_cache['youtube']) >= _max_cache_size:
-        # Hole den ältesten Schlüssel (first in)
-        oldest_key = next(iter(_processor_cache['youtube']))
-        del _processor_cache['youtube'][oldest_key]
-    
-    # Speichere den neuen Prozessor im Cache
-    _processor_cache['youtube'][process_id] = processor
-    return processor
+    return result
 
-# YouTube-Endpunkt - exakt wie in der alten routes.py
+# Hilfsfunktion für die Video-Verarbeitung
+async def process_video(source: VideoSource, binary_data: Optional[bytes] = None, source_language: str = 'auto', target_language: str = 'de',
+                       template: Optional[str] = None, use_cache: bool = True, 
+                       force_refresh: bool = False, process_id: Optional[str] = None) -> VideoResponse:
+    """
+    Verarbeitet ein Video und extrahiert den Audio-Inhalt.
+    
+    Args:
+        source: Die VideoSource (URL oder Datei)
+        binary_data: Die Binärdaten des Videos (optional)
+        source_language: Die Quellsprache des Videos (auto für automatische Erkennung)
+        target_language: Die Zielsprache für die Transkription
+        template: Das zu verwendende Template (optional)
+        use_cache: Ob der Cache verwendet werden soll
+        force_refresh: Ob der Cache ignoriert und die Verarbeitung erzwungen werden soll
+        process_id: Optional eine eindeutige Prozess-ID
+        
+    Returns:
+        VideoResponse mit den Verarbeitungsergebnissen
+    """
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    
+    processor: VideoProcessor = get_video_processor(process_id)
+    logger.info(f"Starte Video-Verarbeitung mit Prozess-ID: {process_id}")
+    
+    # Video verarbeiten mit den vom Benutzer angegebenen Cache-Einstellungen
+    result: VideoResponse = await processor.process(
+        source=source,
+        binary_data=binary_data,
+        target_language=target_language,
+        source_language=source_language,
+        template=template,
+        use_cache=use_cache
+    )
+    
+    # Wenn force_refresh aktiviert ist, sollte die Prozessorlogik dies bereits berücksichtigt haben
+    # In Zukunft kann hier zusätzliche Logik für force_refresh hinzugefügt werden, wenn der Prozessor dies unterstützt
+    
+    return result
+
+# YouTube-Endpunkt
 @video_ns.route('/youtube')
 class YoutubeEndpoint(Resource):
-    @video_ns.expect(youtube_input)
+    @video_ns.expect(youtube_form_parser)
     @video_ns.response(200, 'Erfolg', youtube_response)
     @video_ns.response(400, 'Validierungsfehler', error_model)
-    @video_ns.doc(description='Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
+    @video_ns.doc(id='process_youtube',
+                 description='Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt. Unterstützt sowohl JSON als auch Formular-Anfragen.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
-        """Verarbeitet ein Youtube-Video"""
-        # Startzeit des Requests messen
-        start_time = time.time()
+        """
+        Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt.
         
-        process_id = str(uuid.uuid4())
-        logger.info(f"YouTube API Request gestartet: {process_id}")
+        Benötigt eine gültige YouTube-URL und unterstützt verschiedene Parameter zur Steuerung der Verarbeitung.
+        Die Verarbeitung umfasst das Herunterladen des Videos, die Extraktion der Audio-Spur und die Transkription des Inhalts.
         
-        # Zeit nach Initialisierung
-        init_time = time.time()
-        logger.info(f"Initialisierungszeit: {(init_time - start_time) * 1000:.2f} ms")
-        
-        tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
-        
-        # Zeit nach Tracker-Initialisierung
-        tracker_time = time.time()
-        logger.info(f"Tracker-Initialisierungszeit: {(tracker_time - init_time) * 1000:.2f} ms")
-        
-        # Processor-Erstellung messen
-        processor_start = time.time()
-        youtube_processor: YoutubeProcessor = get_youtube_processor(process_id)
-        processor_end = time.time()
-        logger.info(f"Processor-Erstellungszeit: {(processor_end - processor_start) * 1000:.2f} ms")
-        
+        Die Anfrage kann entweder als JSON oder als Formular (multipart/form-data) gesendet werden.
+        """
         try:
-            # Parameterverarbeitung messen
-            param_start = time.time()
-            data = request.get_json()
-            if not data:
-                raise ProcessingError("Keine Daten erhalten")
-                
-            url = data.get('url')
-            source_language = data.get('source_language', 'auto')
-            target_language = data.get('target_language', 'de')
-            template = data.get('template')
-            use_cache = data.get('useCache', True)
+            # Prozess-ID für die Verarbeitung
+            process_id = str(uuid.uuid4())
+            tracker = get_performance_tracker() or get_performance_tracker(process_id)
+            
+            # Parameter verarbeiten
+            url = None
+            source_language = 'auto'
+            target_language = 'de'
+            template = 'youtube'
+            use_cache = True
+            
+            # Prüfe, ob die Anfrage als Formular oder als JSON gesendet wurde
+            if request.form and 'url' in request.form:
+                # Formular-Anfrage
+                url = request.form.get('url')
+                source_language = request.form.get('source_language', 'auto')
+                target_language = request.form.get('target_language', 'de')
+                template = request.form.get('template', 'youtube')
+                use_cache_str = request.form.get('useCache', 'true')
+                use_cache = use_cache_str.lower() == 'true'
+            else:
+                # JSON-Anfrage
+                args = youtube_parser.parse_args()
+                url = args.get('url')
+                source_language = args.get('source_language', 'auto')
+                target_language = args.get('target_language', 'de')
+                template = args.get('template', 'youtube')
+                use_cache = args.get('useCache', True)
 
             if not url:
                 raise ProcessingError("Youtube-URL ist erforderlich")
-                
-            param_end = time.time()
-            logger.info(f"Parameterverarbeitungszeit: {(param_end - param_start) * 1000:.2f} ms")
-
-            # Processor-Ausführung messen
-            process_start = time.time()
-            result: YoutubeResponse = asyncio.run(youtube_processor.process(
-                file_path=url,
+            
+            # Verarbeite YouTube-Video mit der Hilfsfunktion
+            result = asyncio.run(process_youtube(
+                url=url,
                 source_language=source_language,
                 target_language=target_language,
                 template=template,
-                use_cache=use_cache
+                use_cache=use_cache,
+                process_id=process_id
             ))
-            process_end = time.time()
-            logger.info(f"Processor-Ausführungszeit: {(process_end - process_start) * 1000:.2f} ms")
             
-            # Response-Erstellung messen
-            response_start = time.time()
             # Füge Ressourcenverbrauch zum Tracker hinzu
             if tracker and hasattr(tracker, 'eval_result'):
                 tracker.eval_result(result)
             
-            response = result.to_dict()
-            response_end = time.time()
-            logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
-            
-            # Gesamtzeit
-            total_time = time.time() - start_time
-            logger.info(f"Gesamte Verarbeitungszeit: {total_time * 1000:.2f} ms")
-            
-            return response
+            # Konvertiere Ergebnis in Dict und gib es zurück
+            return result.to_dict()
             
         except ValueError as ve:
             logger.error("Validierungsfehler",
@@ -258,38 +342,50 @@ class YoutubeEndpoint(Resource):
                     }
                 }
             }, 400
-        finally:
-            if youtube_processor and youtube_processor.logger:
-                youtube_processor.logger.info("Youtube-Verarbeitung beendet")
 
-# Video-Verarbeitungs-Endpunkt - exakt wie in der alten routes.py
+# Video-Verarbeitungs-Endpunkt
 @video_ns.route('/process')
 class VideoProcessEndpoint(Resource):
-    @video_ns.expect(video_request)
-    @video_ns.response(200, 'Erfolg', youtube_response)
+    @video_ns.doc(id='process_video', 
+                 description='Verarbeitet ein Video und extrahiert den Audio-Inhalt. Unterstützt sowohl URLs als auch Datei-Uploads über Formular-Anfragen.')
+    @video_ns.response(200, 'Erfolg', video_response)
     @video_ns.response(400, 'Validierungsfehler', error_model)
-    @video_ns.doc(description='Verarbeitet ein Video und extrahiert den Audio-Inhalt. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
+    @video_ns.expect(video_upload_parser)
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """
         Verarbeitet ein Video und extrahiert den Audio-Inhalt.
         Unterstützt sowohl URLs als auch Datei-Uploads.
+        
+        Für Datei-Uploads verwende multipart/form-data mit dem Parameter 'file'.
+        Für URL-basierte Verarbeitung kann entweder multipart/form-data mit dem Parameter 'url' 
+        oder eine JSON-Anfrage mit dem Parameter 'url' verwendet werden.
         """
         try:
             # Initialisiere Variablen
-            source: VideoSource
+            source: VideoSource = None
+            binary_data: Optional[bytes] = None
             target_language: str = 'de'
             source_language: str = 'auto'
             template: Optional[str] = None
             use_cache: bool = True
+            force_refresh: bool = False
+            process_id = str(uuid.uuid4())
 
             # Prüfe ob Datei oder URL
-            if request.files and 'file' in request.files:
+            if request.files and 'file' in request.files and request.files['file'].filename:
                 # File Upload
                 uploaded_file: FileStorage = request.files['file']
-                file_content = uploaded_file.read()
+                # Lese binäre Daten, aber speichere sie NICHT in der VideoSource
+                binary_data = uploaded_file.read()
+                # Größe der Datei bestimmen
+                file_size = len(binary_data)
+                # Aktueller Zeitstempel
+                upload_timestamp = datetime.now().isoformat()
+                # Erstelle VideoSource mit zusätzlichen Identifikationsmerkmalen
                 source = VideoSource(
-                    file=file_content,
-                    file_name=uploaded_file.filename
+                    file_name=uploaded_file.filename,
+                    file_size=file_size,
+                    upload_timestamp=upload_timestamp
                 )
                 # Parameter aus form-data
                 target_language = request.form.get('target_language', 'de')
@@ -297,34 +393,63 @@ class VideoProcessEndpoint(Resource):
                 template = request.form.get('template')
                 use_cache_str = request.form.get('useCache', 'true')
                 use_cache = use_cache_str.lower() == 'true'
+                force_refresh_str = request.form.get('force_refresh', 'false')
+                force_refresh = force_refresh_str.lower() == 'true'
+                
+                logger.info(f"Verarbeite hochgeladene Datei: {uploaded_file.filename}")
+            elif request.form and 'url' in request.form and request.form['url']:
+                # URL aus form-data
+                url = request.form.get('url')
+                source = VideoSource(url=url)
+                
+                # Parameter aus form-data
+                target_language = request.form.get('target_language', 'de')
+                source_language = request.form.get('source_language', 'auto')
+                template = request.form.get('template')
+                use_cache_str = request.form.get('useCache', 'true')
+                use_cache = use_cache_str.lower() == 'true'
+                force_refresh_str = request.form.get('force_refresh', 'false')
+                force_refresh = force_refresh_str.lower() == 'true'
+                
+                logger.info(f"Verarbeite Video-URL aus form-data: {url}")
             else:
                 # JSON Request
                 data = request.get_json()
                 if not data or 'url' not in data:
                     raise ProcessingError("Entweder URL oder Datei muss angegeben werden")
-                source = VideoSource(url=data['url'])
+                
+                url = data.get('url')
+                source = VideoSource(url=url)
+                
                 # Parameter aus JSON
                 target_language = data.get('target_language', 'de')
                 source_language = data.get('source_language', 'auto')
                 template = data.get('template')
                 use_cache = data.get('useCache', True)
+                force_refresh = data.get('force_refresh', False)
+                
+                logger.info(f"Verarbeite Video-URL aus JSON: {url}")
 
-            # Initialisiere Prozessor
-            process_id = str(uuid.uuid4())
-            processor = VideoProcessor(resource_calculator, process_id)
+            if not source:
+                raise ProcessingError("Keine gültige Video-Quelle gefunden")
 
-            # Verarbeite Video
-            result: VideoResponse = asyncio.run(processor.process(
+            # Verarbeite Video mit Hilfsfunktion
+            result: VideoResponse = asyncio.run(process_video(
                 source=source,
-                target_language=target_language,
+                binary_data=binary_data,  # Übergebe die Binärdaten separat
                 source_language=source_language,
+                target_language=target_language,
                 template=template,
-                use_cache=use_cache
+                use_cache=use_cache,
+                force_refresh=force_refresh,
+                process_id=process_id
             ))
-
+            
+            # Konvertiere Ergebnis in Dict und gib es zurück
             return result.to_dict()
 
         except ProcessingError as e:
+            logger.error(f"Verarbeitungsfehler: {str(e)}", exc_info=True)
             return {
                 'status': 'error',
                 'error': {

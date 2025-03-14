@@ -80,15 +80,13 @@ class ImageOCRProcessingResult:
     metadata: ImageOCRMetadata
     extracted_text: Optional[str] = None
     process_id: Optional[str] = None
-    is_from_cache: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
             'metadata': self.metadata.to_dict(),
             'extracted_text': self.extracted_text,
-            'process_id': self.process_id,
-            'is_from_cache': self.is_from_cache
+            'process_id': self.process_id
         }
     
     @classmethod
@@ -116,8 +114,7 @@ class ImageOCRProcessingResult:
         return cls(
             metadata=metadata,
             extracted_text=cast(Optional[str], data.get('extracted_text')),
-            process_id=cast(Optional[str], data.get('process_id')),
-            is_from_cache=bool(data.get('is_from_cache', False))
+            process_id=cast(Optional[str], data.get('process_id'))
         )
 
 @dataclass(frozen=True)
@@ -261,12 +258,32 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             if cache_hit and cached_result:
                 self.logger.info(f"Cache-Hit für OCR-Verarbeitung: {cache_key[:8]}...")
                 
-                # Response aus dem Cache erstellen
-                return self._create_response_from_cached_result(
-                    cached_result=cached_result,
-                    file_path=file_path,
-                    template=template,
-                    context=context
+                # Resource-Tracking für den Cache-Hit
+                try:
+                    # Expliziter cast zu Any für den Resource Calculator
+                    resource_calculator_any = cast(Any, self.resource_calculator)
+                    resource_calculator_any.add_resource_usage(
+                        processor_type="imageocr",
+                        resource_type="cache_hit",
+                        duration_ms=0,
+                        tokens=0,
+                        cost=0
+                    )
+                except AttributeError:
+                    self.logger.debug("ResourceCalculator hat keine add_resource_usage Methode")
+                
+                # Direkte Verwendung von ResponseFactory für Cache-Treffer
+                return ResponseFactory.create_response(
+                    processor_name="imageocr",
+                    result=cached_result,
+                    request_info={
+                        "file_path": str(file_path),
+                        "template": template,
+                        "context": context
+                    },
+                    response_class=ImageOCRResponse,
+                    llm_info=None,
+                    from_cache=True
                 )
         
             # Initialisiere Variablen
@@ -430,7 +447,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                         "context": context
                     },
                     response_class=ImageOCRResponse,
-                    llm_info=None
+                    llm_info=None,
+                    from_cache=False
                 )
                 
         except Exception as e:
@@ -468,7 +486,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                 },
                 response_class=ImageOCRResponse,
                 error=error_info,
-                llm_info=None
+                llm_info=None,
+                from_cache=False
             )
 
     def check_file_size(self, file_path: Path) -> None:
@@ -583,9 +602,6 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
         # ImageOCRProcessingResult aus Dictionary erstellen
         result = ImageOCRProcessingResult.from_dict(result_data)
         
-        # Setze is_from_cache auf True
-        result.is_from_cache = True
-        
         return result
     
     def _create_specialized_indexes(self, collection: Any) -> None:
@@ -616,49 +632,6 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
         except Exception as e:
             self.logger.warning(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
             
-    def _create_response_from_cached_result(self, 
-                                           cached_result: ImageOCRProcessingResult,
-                                           file_path: Union[str, Path],
-                                           template: Optional[str] = None,
-                                           context: Optional[Dict[str, Any]] = None) -> ImageOCRResponse:
-        """
-        Erstellt eine ImageOCRResponse aus einem gecachten Ergebnis.
-        
-        Args:
-            cached_result: Das gecachte ImageOCRProcessingResult
-            file_path: Der ursprüngliche Dateipfad
-            template: Optional, das verwendete Template
-            context: Optional, der Kontext für die Verarbeitung
-            
-        Returns:
-            ImageOCRResponse: Die Response mit dem gecachten Ergebnis
-        """
-        # Resource-Tracking für den Cache-Hit
-        try:
-            self.resource_calculator.add_resource_usage(  # type: ignore
-                processor_type="imageocr",
-                resource_type="cache_hit",
-                duration_ms=0,
-                tokens=0,
-                cost=0
-            )
-        except AttributeError:
-            # Ignoriere Fehler, falls die Methode nicht existiert
-            self.logger.debug("ResourceCalculator hat keine add_resource_usage Methode")
-        
-        # Response erstellen
-        return ResponseFactory.create_response(
-            processor_name="imageocr",
-            result=cached_result,
-            request_info={
-                "file_path": str(file_path),
-                "template": template,
-                "context": context
-            },
-            response_class=ImageOCRResponse,
-            llm_info=None
-        ) 
-
     def cleanup_old_files(self, max_age_hours: int = 24) -> int:
         """
         Bereinigt alte Dateien im Working-Verzeichnis.

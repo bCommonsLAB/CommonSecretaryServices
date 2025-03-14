@@ -54,6 +54,3 @@ class HomeEndpoint(Resource):
         """API Willkommensseite"""
         return {'message': 'Welcome to the Processing Service API!'}
 
-# In der Übergangsphase: Direkt die alte routes.py importieren
-# Später werden hier die einzelnen Namespaces importiert und registriert
-# TODO: Durch die individuellen Module ersetzen, sobald sie implementiert sind 

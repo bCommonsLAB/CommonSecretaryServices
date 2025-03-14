@@ -600,7 +600,8 @@ class TrackProcessor(BaseProcessor):
                 result=track_data,
                 request_info=request_info,
                 response_class=TrackResponse,
-                llm_info=llm_info
+                llm_info=llm_info,
+                from_cache=False
             )
             
             # Im Cache immer speichern, unabhängig vom Parameter use_cache
@@ -633,7 +634,8 @@ class TrackProcessor(BaseProcessor):
                     "target_language": target_language
                 },
                 response_class=TrackResponse,
-                error=error_info
+                error=error_info,
+                from_cache=False
             )
     
     def _merge_event_markdowns(self, events: List[EventData]) -> str:

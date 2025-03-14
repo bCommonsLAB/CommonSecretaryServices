@@ -63,7 +63,6 @@ imageocr_response = imageocr_ns.model('ImageOCRResponse', {  # type: ignore
         })),
         'extracted_text': fields.String(description='Via OCR extrahierter Text'),
         'formatted_text': fields.String(description='Formatierter Text (falls Template verwendet)'),
-        'is_from_cache': fields.Boolean(description='Aus dem Cache geladen'),
         'process_id': fields.String(description='Prozess-ID'),
         'model': fields.String(description='Verwendetes OCR-Modell')
     })),

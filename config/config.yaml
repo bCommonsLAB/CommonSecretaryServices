@@ -59,7 +59,7 @@ processors:
   audio:
     batch_size: 5
     export_format: mp3
-    max_file_size: 120000000
+    max_file_size: 140000000
     max_segments: 100
     segment_duration: 300
     cache_dir: cache/audio
