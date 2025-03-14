@@ -522,9 +522,49 @@ class SessionOutput:  # bisher EventOutput
     target_group: Optional[str] = None  # Die primäre Zielgruppe
 ```
 
+## Schlussfolgerung
+
+Mit diesem erweiterten Ansatz wird das Storytelling-Feature zu einem vollständig konfigurierbaren System, das dynamisch auf unterschiedliche Zielgruppen und deren spezifische Themenbereiche eingehen kann. Die Verlagerung der Konfiguration in MongoDB ermöglicht eine flexible Verwaltung über das Frontend und eine einfache Anpassung an neue Anforderungen ohne Code-Änderungen. Die präzise Unterscheidung zwischen Events, Tracks und Sessions bleibt erhalten, während die zielgruppenspezifische Themenklassifizierung für maßgeschneiderte Inhalte sorgt. Dieser Ansatz schafft die Grundlage für ein skalierbares System, das kontinuierlich erweitert werden kann.
+
+## Code-Umbenennungen als erster Schritt
+
+Bevor mit der eigentlichen Implementierung begonnen wird, ist es wichtig, die Terminologie im Code konsistent zu halten. Folgende Umbenennungen müssen als allererster Schritt durchgeführt werden:
+
+### 1. Dateinamen
+- `src/processors/event_processor.py` → `src/processors/session_processor.py`
+- `templates/Event.md` → `templates/Session.md`
+
+### 2. Klassen- und Funktionsnamen
+- `EventProcessor` → `SessionProcessor`
+- `process_event` → `process_session`
+- `EventResponse` → `SessionResponse`
+- `EventOutput` → `SessionOutput`
+- `EventData` → `SessionData`
+- `EventInput` → `SessionInput`
+
+### 3. Variablen und Parameter
+- In allen Funktionen, wo `event` als Parameter für einzelne Vorträge verwendet wird, umbenennen zu `session`
+- Den Parameter `event` stattdessen nur für die übergeordnete Veranstaltung verwenden (z.B. "FOSDEM")
+
+### 4. Datenbankreferenzen
+- Collection-Referenzen in der MongoDB von `events` auf `sessions` aktualisieren (wo zutreffend)
+- Sicherstellen, dass die übergeordnete Event-Hierarchie korrekt abgebildet wird
+
+### 5. API-Endpunkte
+- URLs von `/api/events/...` zu `/api/sessions/...` aktualisieren (wo für einzelne Vorträge verwendet)
+- Neue Endpunkte für Event-Hierarchie (Veranstaltung > Thema > Session) einführen
+
+Diese Umbenennungen sind entscheidend, um Verwirrung in der Terminologie zu vermeiden und die klare Hierarchie abzubilden:
+- **Event**: Eine übergeordnete Veranstaltung (z.B. eine Konferenz wie FOSDEM)
+- **Track**: Eine thematische Gruppierung innerhalb eines Events
+- **Session**: Ein einzelner Vortrag, eine Präsentation mit zugehörigen Medien
+
 ## Implementierungsplan
 
-### Phase 1: MongoDB-Setup und Datenmodelle
+### Phase 1: Code-Umbenennungen und MongoDB-Setup
+- **Durchführung aller Datei-, Klassen- und Funktionsumbenennungen** (wie oben beschrieben)
+- Anpassung aller Referenzen im Code, um die neue Terminologie konsistent zu verwenden
+- Erstellung von Unit-Tests zur Überprüfung der korrekten Funktionalität nach Umbenennung
 - Einrichtung der MongoDB-Collections für die Storytelling-Konfiguration
 - Entwicklung der Basisklassen für den Zugriff auf die Konfiguration
 - Erstellung initialer Datensätze für Zielgruppen und Themenbereiche
@@ -553,7 +593,3 @@ class SessionOutput:  # bisher EventOutput
 - Entwicklung der Obsidian-kompatiblen Struktur
 - Integration in das Dashboard
 - Finale Tests und Optimierungen
-
-## Schlussfolgerung
-
-Mit diesem erweiterten Ansatz wird das Storytelling-Feature zu einem vollständig konfigurierbaren System, das dynamisch auf unterschiedliche Zielgruppen und deren spezifische Themenbereiche eingehen kann. Die Verlagerung der Konfiguration in MongoDB ermöglicht eine flexible Verwaltung über das Frontend und eine einfache Anpassung an neue Anforderungen ohne Code-Änderungen. Die präzise Unterscheidung zwischen Events, Tracks und Sessions bleibt erhalten, während die zielgruppenspezifische Themenklassifizierung für maßgeschneiderte Inhalte sorgt. Dieser Ansatz schafft die Grundlage für ein skalierbares System, das kontinuierlich erweitert werden kann.

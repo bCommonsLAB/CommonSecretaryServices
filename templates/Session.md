@@ -1,15 +1,16 @@
 ---
-tags: {{tags|Was sind die max. 10 wichtigsten Schlüsselwörter aus dem Text? Bitte Kommagetrennt ausgeben.}}
-Sprecher: {{speakers|Welche Sprecher werden im Text erwähnt? Kommagetrennt ausgeben.}}
-Datum: {{day|Das Datum im Format yyyy-mm-dd ausgeben.}}
-Ort: {{ort|Welcher Ort wird im Text erwähnt oder gezeigt?}}
+tags: {{tags|Was sind die max. 10 wichtigsten Schlüsselwörter aus dem Text? Leerstellen durch Bindestriche ersetzen, damit es gültige Tags sind. Bitte Kommagetrennt ausgeben.}}
+title: {{title|einen treffenden Titel der Session - Nur Text ohne Sonderzeichen, Doppelpunkt, Rufezeichen, etc.}}
+speaker: {{speakers|Welche Sprecher werden im Text erwähnt? Mit Komma und leerstelle getrennt ausgeben.}}
+date: {{day|Das Datum im Format yyyy-mm-dd ausgeben.}}
+place: {{ort|Welcher Ort wird im Text erwähnt oder gezeigt?}}
 track: {{track|Welcher Track wird im Text erwähnt?}}
 event: {{event|Zu welchem übergeordneten Event gehört diese Session?}}
-Kategorie: {{category|Welcher Kategorie wird im Text erwähnt?}}
-Type: Session-Zusammenfassung
-Themenbereich: {{topic|Zu welchem Themenbereich kann man die Session zuordnen? Wähle aus "Community: Kultur, Lizenzen, Politik}}" oder "Systeme: Betriebssysteme, Kernel, Distributionen" oder "Cloud: Container, Virtualisierung, Orchestrierung" oder  "DevOps: Continuous, Integration, Delivery" oder "Sprachen: Compiler, Frameworks, Programmiersprachen" oder "Daten: KI, HPC, Analysen" oder "Hardware: Embedded, IoT, Robotik" 
+topic: {{topic|Zu welchem Themenbereich kann man die Session zuordnen? Wähle entweder Community, Systeme, Cloud, DevOps, Programmiersprachen, Daten oder Hardware}}
+relevance: {{relevance|Welche Wichtigkeit hat diese Session für einen Open-Source Entwickler auf einer Skala von 0-10}}
+category: {{category|Welcher Kategorie wird im Text erwähnt?}}
 ---
-# {{title|einen treffenden Titel des Session}}
+# {{title|einen treffenden Titel der Session}}
 
 > [! hinweis]-
 > Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.
@@ -24,4 +25,3 @@ Quelle: [{{url}}]({{url}})
 
 ## Links
 {{attachment_links|Liste aller Links aus attachment_text erstellen, formatiert als markdown links mit Beschreibung und Beistrich getrennt.}}
-

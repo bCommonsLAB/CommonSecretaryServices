@@ -17,12 +17,11 @@ from src.core.models.llm import LLMInfo, LLMRequest
 from src.core.models.response_factory import ResponseFactory
 from src.core.models.track import TrackInput, TrackOutput, TrackData, TrackResponse
 from src.core.models.transformer import TransformerResponse
-from src.core.models.event import EventData, EventInput, EventOutput
+from src.core.models.session import SessionData, SessionInput, SessionOutput
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.processor_cache import ProcessorCache
 from .base_processor import BaseProcessor
 from .transformer_processor import TransformerProcessor
-
 
 class CacheableTrackResponse(TrackResponse):
     """
@@ -102,46 +101,46 @@ class CacheableTrackResponse(TrackResponse):
                 structured_data=output_dict.get('structured_data', {})
             )
             
-            # Events
-            events_list: List[EventData] = []
-            for event_dict in data_dict.get('events', []):
-                event_input_dict = event_dict.get('input', {})
-                event_input = EventInput(
-                    event=event_input_dict.get('event', ''),
-                    session=event_input_dict.get('session', ''),
-                    url=event_input_dict.get('url', ''),
-                    filename=event_input_dict.get('filename', ''),
-                    track=event_input_dict.get('track', ''),
-                    day=event_input_dict.get('day'),
-                    starttime=event_input_dict.get('starttime'),
-                    endtime=event_input_dict.get('endtime'),
-                    speakers=event_input_dict.get('speakers', []),
-                    video_url=event_input_dict.get('video_url'),
-                    attachments_url=event_input_dict.get('attachments_url'),
-                    source_language=event_input_dict.get('source_language', 'en'),
-                    target_language=event_input_dict.get('target_language', 'de')
+            # Sessions (vorher Events)
+            sessions_list: List[SessionData] = []
+            for session_dict in data_dict.get('sessions', []):
+                session_input_dict = session_dict.get('input', {})
+                session_input = SessionInput(
+                    event=session_input_dict.get('event', ''),
+                    session=session_input_dict.get('session', ''),
+                    url=session_input_dict.get('url', ''),
+                    filename=session_input_dict.get('filename', ''),
+                    track=session_input_dict.get('track', ''),
+                    day=session_input_dict.get('day'),
+                    starttime=session_input_dict.get('starttime'),
+                    endtime=session_input_dict.get('endtime'),
+                    speakers=session_input_dict.get('speakers', []),
+                    video_url=session_input_dict.get('video_url'),
+                    attachments_url=session_input_dict.get('attachments_url'),
+                    source_language=session_input_dict.get('source_language', 'en'),
+                    target_language=session_input_dict.get('target_language', 'de')
                 )
                 
-                event_output_dict = event_dict.get('output', {})
-                event_output = EventOutput(
-                    web_text=event_output_dict.get('web_text', ''),
-                    video_transcript=event_output_dict.get('video_transcript', ''),
-                    context=event_output_dict.get('context', {}),
-                    markdown_file=event_output_dict.get('markdown_file', ''),
-                    markdown_content=event_output_dict.get('markdown_content', ''),
-                    video_file=event_output_dict.get('video_file'),
-                    attachments_url=event_output_dict.get('attachments_url'),
-                    attachments=event_output_dict.get('attachments', []),
-                    metadata=event_output_dict.get('metadata', {})
+                session_output_dict = session_dict.get('output', {})
+                session_output = SessionOutput(
+                    web_text=session_output_dict.get('web_text', ''),
+                    video_transcript=session_output_dict.get('video_transcript', ''),
+                    context=session_output_dict.get('context', {}),
+                    markdown_file=session_output_dict.get('markdown_file', ''),
+                    markdown_content=session_output_dict.get('markdown_content', ''),
+                    video_file=session_output_dict.get('video_file'),
+                    attachments_url=session_output_dict.get('attachments_url'),
+                    attachments=session_output_dict.get('attachments', []),
+                    attachments_text=session_output_dict.get('attachments_text', '')
                 )
                 
-                events_list.append(EventData(input=event_input, output=event_output))
+                sessions_list.append(SessionData(input=session_input, output=session_output))
             
             track_data = TrackData(
                 input=track_input,
                 output=track_output,
-                events=events_list,
-                event_count=len(events_list),
+                sessions=sessions_list,
+                session_count=len(sessions_list),
                 query=data_dict.get('query', ''),
                 context=data_dict.get('context', {})
             )
@@ -170,7 +169,7 @@ class CacheableTrackResponse(TrackResponse):
 class TrackProcessor(BaseProcessor):
     """
     Prozessor für die Verarbeitung von Event-Tracks.
-    Erstellt eine Zusammenfassung für einen Track basierend auf den zugehörigen Events.
+    Erstellt eine Zusammenfassung für einen Track basierend auf den zugehörigen Sessions.
     """
     
     def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
@@ -193,9 +192,9 @@ class TrackProcessor(BaseProcessor):
             # Initialisiere Sub-Prozessoren
             self.transformer_processor = TransformerProcessor(resource_calculator, process_id)
             
-            # Basis-Verzeichnis für Events
+            # Basis-Verzeichnis für Sessions (vorher Events)
             app_config = Config()
-            self.base_dir = Path(app_config.get('events', {}).get('base_dir', './events'))
+            self.base_dir = Path(app_config.get('sessions', {}).get('base_dir', './sessions'))
             self.base_dir.mkdir(parents=True, exist_ok=True)
             
             # Initialisiere Cache
@@ -224,39 +223,39 @@ class TrackProcessor(BaseProcessor):
         
         self.client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
         self.db: Database[Dict[str, Any]] = self.client[db_name]
-        self.event_jobs: Collection[Dict[str, Any]] = self.db.event_jobs
+        self.session_jobs: Collection[Dict[str, Any]] = self.db.session_jobs
         
         self.logger.debug("MongoDB-Verbindung initialisiert",
                         uri=mongo_uri,
                         database=db_name)
     
-    async def get_track_events(self, track_name: str) -> List[EventData]:
+    async def get_track_sessions(self, track_name: str) -> List[SessionData]:
         """
-        Holt alle Events eines Tracks aus der Datenbank.
+        Holt alle Sessions eines Tracks aus der Datenbank.
         
         Args:
             track_name: Name des Tracks
             
         Returns:
-            List[EventData]: Liste aller Event-Daten für den Track
+            List[SessionData]: Liste aller Session-Daten für den Track
         """
-        self.logger.info(f"Hole Events für Track: {track_name}")
+        self.logger.info(f"Hole Sessions für Track: {track_name}")
         
-        # Events aus der Datenbank holen
+        # Sessions aus der Datenbank holen
         # Sortiere nach completed_at absteigend (neueste zuerst)
-        event_docs = list(self.event_jobs.find(
+        session_docs = list(self.session_jobs.find(
             {"parameters.track": track_name, "status": "completed"}
         ).sort("completed_at", -1))
         
-        if not event_docs:
-            self.logger.warning(f"Keine Events für Track '{track_name}' gefunden")
+        if not session_docs:
+            self.logger.warning(f"Keine Sessions für Track '{track_name}' gefunden")
             return []
         
-        # Event-Dokumente in EventData-Objekte umwandeln
-        events: List[EventData] = []
+        # Session-Dokumente in SessionData-Objekte umwandeln
+        sessions: List[SessionData] = []
         processed_job_names: set[str] = set()  # Set zum Speichern bereits verarbeiteter job_names
         
-        for doc in event_docs:
+        for doc in session_docs:
             # _id entfernen (nicht serialisierbar)
             if '_id' in doc:
                 del doc['_id']
@@ -285,8 +284,8 @@ class TrackProcessor(BaseProcessor):
                 parameters = doc.get('parameters', {})
                 results = doc.get('results', {})
                 
-                # EventInput-Objekt erstellen
-                event_input = EventInput(
+                # SessionInput-Objekt erstellen
+                session_input = SessionInput(
                     event=parameters.get('event', ''),
                     session=parameters.get('session', ''),
                     url=parameters.get('url', ''),
@@ -302,8 +301,8 @@ class TrackProcessor(BaseProcessor):
                     target_language=parameters.get('target_language', 'de')
                 )
                 
-                # EventOutput-Objekt erstellen
-                event_output = EventOutput(
+                # SessionOutput-Objekt erstellen
+                session_output = SessionOutput(
                     web_text=results.get('web_text', ''),
                     video_transcript=results.get('video_transcript', ''),
                     context=results.get('context', {}),
@@ -312,21 +311,21 @@ class TrackProcessor(BaseProcessor):
                     video_file=results.get('video_file'),
                     attachments_url=results.get('attachments_url'),
                     attachments=results.get('assets', []),
-                    metadata=results.get('metadata', {})
+                    attachments_text=results.get('attachments_text', '')
                 )
                 
-                # EventData aus EventInput und EventOutput erstellen
-                event = EventData(
-                    input=event_input,
-                    output=event_output
+                # SessionData aus SessionInput und SessionOutput erstellen
+                session = SessionData(
+                    input=session_input,
+                    output=session_output
                 )
-                events.append(event)
+                sessions.append(session)
             except Exception as e:
-                self.logger.error(f"Fehler beim Konvertieren eines Event-Dokuments: {str(e)}")
+                self.logger.error(f"Fehler beim Konvertieren eines Session-Dokuments: {str(e)}")
                 continue
         
-        self.logger.info(f"{len(events)} Events für Track '{track_name}' gefunden")
-        return events
+        self.logger.info(f"{len(sessions)} Sessions für Track '{track_name}' gefunden")
+        return sessions
     
     def _get_track_directory(self, event_name: str, track_name: str) -> Path:
         """
@@ -514,20 +513,20 @@ class TrackProcessor(BaseProcessor):
                 "target_language": target_language
             }
             
-            # Events holen
-            events: List[EventData] = await self.get_track_events(track_name)
+            # Sessions holen (vorher Events)
+            sessions: List[SessionData] = await self.get_track_sessions(track_name)
             
-            if not events:
-                raise ValidationError(f"Keine Events für Track '{track_name}' gefunden")
+            if not sessions:
+                raise ValidationError(f"Keine Sessions für Track '{track_name}' gefunden")
             
-            # Event-Name aus dem ersten Event extrahieren
-            event_name = events[0].input.event if events else "Unknown Event"
+            # Event-Name aus der ersten Session extrahieren
+            event_name = sessions[0].input.event if sessions else "Unknown Event"
             
-            # Markdown-Inhalte der Events zusammenführen
-            all_markdown = self._merge_event_markdowns(events)
+            # Markdown-Inhalte der Sessions zusammenführen
+            all_markdown = self._merge_session_markdowns(sessions)
             
-            # Kontext aus allen Events erstellen
-            context = self._create_context_from_events(events)
+            # Kontext aus allen Sessions erstellen
+            context = self._create_context_from_sessions(sessions)
             
             # Template-Transformation durchführen
             transform_result: TransformerResponse = self.transformer_processor.transformByTemplate(
@@ -562,7 +561,7 @@ class TrackProcessor(BaseProcessor):
             metadata = {
                 "track": track_name,
                 "event": event_name,
-                "events_count": len(events),
+                "sessions_count": len(sessions),
                 "generated_at": datetime.now().isoformat(),
                 "template": template,
                 "language": target_language,
@@ -582,14 +581,14 @@ class TrackProcessor(BaseProcessor):
                 structured_data=structured_data
             )
             
-            # Optimierte Events-Liste erstellen (ohne große Textinhalte)
-            optimized_events = self._create_optimized_events(events)
+            # Optimierte Sessions-Liste erstellen (ohne große Textinhalte)
+            optimized_sessions = self._create_optimized_sessions(sessions)
             
             track_data = TrackData(
                 input=track_input,
                 output=track_output,
-                events=optimized_events,
-                event_count=len(events),
+                sessions=optimized_sessions,
+                session_count=len(sessions),
                 query=all_markdown,
                 context=context
             )
@@ -638,129 +637,125 @@ class TrackProcessor(BaseProcessor):
                 from_cache=False
             )
     
-    def _merge_event_markdowns(self, events: List[EventData]) -> str:
+    def _merge_session_markdowns(self, sessions: List[SessionData]) -> str:
         """
-        Führt die Markdown-Inhalte aller Events zu einem einzigen Markdown-String zusammen.
+        Führt die Markdown-Inhalte aller Sessions zu einem einzigen Markdown-String zusammen.
         
         Args:
-            events (List[EventData]): Liste der Event-Daten
+            sessions (List[SessionData]): Liste der Session-Daten
             
         Returns:
             str: Zusammengeführter Markdown-Inhalt
         """
         merged_content: List[str] = []
         
-        for i, event in enumerate(events):
+        for i, session in enumerate(sessions):
             try:
-                # Markdown-Inhalt aus dem Event extrahieren
-                event_markdown = event.output.markdown_content or ""
+                # Markdown-Inhalt aus der Session extrahieren
+                session_markdown = session.output.markdown_content or ""
                 
                 # Transkription entfernen (nur die Variante "\n## Transkription\n")
                 transkription_header = "\n## Transkription\n"
-                original_length = len(event_markdown)
+                original_length = len(session_markdown)
                 
-                if transkription_header in event_markdown:
-                    parts = event_markdown.split(transkription_header)
+                if transkription_header in session_markdown:
+                    parts = session_markdown.split(transkription_header)
                     # Nur den Teil vor der Transkription behalten
-                    event_markdown = parts[0].strip()
-                    self.logger.debug(f"Transkription aus Event '{event.input.session}' entfernt. Größenreduktion: {original_length - len(event_markdown)} Zeichen")
+                    session_markdown = parts[0].strip()
+                    self.logger.debug(f"Transkription aus Session '{session.input.session}' entfernt. Größenreduktion: {original_length - len(session_markdown)} Zeichen")
                 
                 # Zum zusammengeführten Inhalt hinzufügen (nur den Markdown-Inhalt)
-                # Füge Trenner hinzu, außer beim letzten Event
-                if i < len(events) - 1:
-                    merged_content.append(event_markdown + "\n\n\n---\n\n\n")
+                # Füge Trenner hinzu, außer bei der letzten Session
+                if i < len(sessions) - 1:
+                    merged_content.append(session_markdown + "\n\n\n---\n\n\n")
                 else:
-                    merged_content.append(event_markdown)
+                    merged_content.append(session_markdown)
                 
             except Exception as e:
-                self.logger.warning(f"Fehler beim Extrahieren von Markdown aus Event: {str(e)}")
+                self.logger.warning(f"Fehler beim Extrahieren von Markdown aus Session: {str(e)}")
                 continue
         
         return "\n".join(merged_content)
     
-    def _create_context_from_events(self, events: List[EventData]) -> Dict[str, Any]:
+    def _create_context_from_sessions(self, sessions: List[SessionData]) -> Dict[str, Any]:
         """
-        Erstellt einen Kontext aus den Event-Daten für die Template-Verarbeitung.
+        Erstellt einen Kontext aus den Session-Daten für die Template-Verarbeitung.
         
         Args:
-            events (List[EventData]): Liste der Event-Daten
+            sessions (List[SessionData]): Liste der Session-Daten
             
         Returns:
             Dict[str, Any]: Kontext für die Template-Verarbeitung
         """
         context: Dict[str, Any] = {
-            "events": []
+            "sessions": []
         }
         
-        for event in events:
-            event_context: Dict[str, Any] = {
-                "title": event.input.session,
-                "filename": event.input.filename,
-                "obsidian_link": f"[{event.input.session}]({event.input.filename})",
-                "track": event.input.track,
-                "url": event.input.url,
-                "date": event.input.day or "",
-                "speakers": event.input.speakers or []
+        for session in sessions:
+            session_context: Dict[str, Any] = {
+                "title": session.input.session,
+                "filename": session.input.filename,
+                "obsidian_link": f"[{session.input.session}]({session.input.filename})",
+                "track": session.input.track,
+                "url": session.input.url,
+                "date": session.input.day or "",
+                "speakers": session.input.speakers or []
             }
             
-            # Metadaten hinzufügen, falls vorhanden
-            if event.output.metadata:
-                event_context.update(event.output.metadata)
-            
-            context["events"].append(event_context)
+            context["sessions"].append(session_context)
         
         # Allgemeine Track-Informationen
-        if events:
-            context["track_name"] = events[0].input.track
-            context["event_name"] = events[0].input.event
+        if sessions:
+            context["track_name"] = sessions[0].input.track
+            context["event_name"] = sessions[0].input.event
         
         return context
     
-    def _create_optimized_events(self, events: List[EventData]) -> List[EventData]:
+    def _create_optimized_sessions(self, sessions: List[SessionData]) -> List[SessionData]:
         """
-        Erstellt eine optimierte Liste von Events, die weniger Speicherplatz benötigt.
+        Erstellt eine optimierte Liste von Sessions, die weniger Speicherplatz benötigt.
         Entfernt große Textinhalte wie Transkripte und Web-Text.
         
         Args:
-            events: Liste der vollständigen Event-Daten
+            sessions: Liste der vollständigen Session-Daten
             
         Returns:
-            List[EventData]: Liste der optimierten Event-Daten
+            List[SessionData]: Liste der optimierten Session-Daten
         """
-        optimized_events: List[EventData] = []
+        optimized_sessions: List[SessionData] = []
         
-        for event in events:
+        for session in sessions:
             # Input-Daten beibehalten
-            event_input = event.input
+            session_input = session.input
             
             # Output-Daten optimieren
-            # Erstelle ein neues EventOutput-Objekt mit reduzierten Daten
-            optimized_output = EventOutput(
+            # Erstelle ein neues SessionOutput-Objekt mit reduzierten Daten
+            optimized_output = SessionOutput(
                 # Behalte nur die wichtigsten Metadaten
                 web_text="",  # Entferne den Web-Text
                 video_transcript="",  # Entferne das Transkript
-                context=self._optimize_context(event.output.context),  # Optimiere den Kontext
-                markdown_file=event.output.markdown_file,
+                attachments_text="",
+                context=self._optimize_context(session.output.context),  # Optimiere den Kontext
+                markdown_file=session.output.markdown_file,
                 markdown_content="",  # Entferne den Markdown-Inhalt
-                video_file=event.output.video_file,
-                attachments_url=event.output.attachments_url,
-                attachments=event.output.attachments,
-                metadata=event.output.metadata
+                video_file=session.output.video_file,
+                attachments_url=session.output.attachments_url,
+                attachments=session.output.attachments
             )
             
-            # Erstelle ein neues EventData-Objekt mit den optimierten Daten
-            optimized_event = EventData(
-                input=event_input,
+            # Erstelle ein neues SessionData-Objekt mit den optimierten Daten
+            optimized_session = SessionData(
+                input=session_input,
                 output=optimized_output
             )
             
-            optimized_events.append(optimized_event)
+            optimized_sessions.append(optimized_session)
         
-        return optimized_events
+        return optimized_sessions
     
     def _optimize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Optimiert den Kontext eines Events, indem große Textinhalte entfernt werden.
+        Optimiert den Kontext einer Session, indem große Textinhalte entfernt werden.
         
         Args:
             context: Der vollständige Kontext

@@ -143,6 +143,7 @@ class JobResults:
     assets: List[str] = field(default_factory=list)
     web_text: Optional[str] = None
     video_transcript: Optional[str] = None
+    attachments_text: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     attachments_url: Optional[str] = None
     def to_dict(self) -> Dict[str, Any]:
@@ -159,6 +160,7 @@ class JobResults:
             assets=data.get("assets", []),
             web_text=data.get("web_text"),
             video_transcript=data.get("video_transcript"),
+            attachments_text=data.get("attachments_text"),
             context=data.get("context"),
             attachments_url=data.get("attachments_url")
         )

@@ -35,8 +35,8 @@ pdf_upload_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text)')
 pdf_upload_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -64,8 +64,8 @@ pdf_url_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text)')
 pdf_url_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -109,6 +109,10 @@ pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
             'preview_paths': fields.List(fields.String, description='Pfade zu Vorschaubildern'),
             'preview_zip': fields.String(description='Pfad zur ZIP-Datei mit Vorschaubildern'),
             'text_paths': fields.List(fields.String, description='Pfade zu extrahierten Textdateien'),
+            'text_contents': fields.List(fields.Nested(pdf_ns.model('PDFTextContent', {  # type: ignore
+                'page': fields.Integer(description='Seitennummer'),
+                'content': fields.String(description='Textinhalt der Seite')
+            })), description='Extrahierte Textinhalte mit Seitennummern'),
             'extraction_method': fields.String(description='Verwendete Extraktionsmethode')
         })),
         'extracted_text': fields.String(description='Extrahierter Text'),
@@ -152,7 +156,7 @@ class PDFEndpoint(Resource):
     @pdf_ns.expect(pdf_upload_parser)  # type: ignore
     @pdf_ns.response(200, 'Erfolg', pdf_response)  # type: ignore
     @pdf_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
-    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR) oder both (beides). Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
+    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
@@ -237,7 +241,7 @@ class PDFUrlEndpoint(Resource):
     @pdf_ns.expect(pdf_url_parser)  # type: ignore
     @pdf_ns.response(200, 'Erfolg', pdf_response)  # type: ignore
     @pdf_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
-    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei von einer URL und extrahiert Informationen. Unterstützt HTTP/HTTPS URLs, die auf PDF- oder PowerPoint-Dateien (.pdf, .ppt, .pptx) verweisen. PowerPoint-Dateien werden automatisch zu PDF konvertiert. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides) oder preview (Vorschaubilder). Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
+    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei von einer URL und extrahiert Informationen. Unterstützt HTTP/HTTPS URLs, die auf PDF- oder PowerPoint-Dateien (.pdf, .ppt, .pptx) verweisen. PowerPoint-Dateien werden automatisch zu PDF konvertiert. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Die Antwort enthält text_contents mit dem tatsächlichen Textinhalt jeder Seite. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei von einer URL (HTTP/HTTPS)"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
@@ -302,4 +306,44 @@ class PDFUrlEndpoint(Resource):
                 }, 400
         
         # Führe die asynchrone Verarbeitung aus
-        return asyncio.run(process_request()) 
+        return asyncio.run(process_request())
+
+@pdf_ns.route('/text-content/<path:file_path>')  # type: ignore
+class PDFTextContentEndpoint(Resource):
+    @pdf_ns.doc(description='Ruft den Inhalt einer Textdatei ab, die durch den PDF-Prozessor erstellt wurde.')  # type: ignore
+    def get(self, file_path: str) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Ruft den Inhalt einer Textdatei ab"""
+        try:
+            # Sicherheitsüberprüfung: Stelle sicher, dass nur auf Dateien im Cache-Verzeichnis zugegriffen wird
+            # Normalisiere den Pfad, indem Backslashes durch Vorwärtsschrägstriche ersetzt werden
+            normalized_path = file_path.replace('\\', '/')
+            
+            # Überprüfe, ob der Pfad im Cache-Verzeichnis beginnt
+            if not normalized_path.startswith('cache/'):
+                return {'error': 'Zugriff verweigert: Ungültiger Pfad'}, 403
+            
+            # Konstruiere den vollständigen Pfad
+            full_path = Path(normalized_path)
+            
+            # Überprüfe, ob die Datei existiert
+            if not full_path.exists():
+                return {'error': f'Datei nicht gefunden: {file_path}'}, 404
+            
+            # Überprüfe, ob es sich um eine Textdatei handelt
+            if not full_path.is_file() or full_path.suffix.lower() != '.txt':
+                return {'error': 'Ungültiger Dateityp: Nur Textdateien sind erlaubt'}, 400
+            
+            # Lese den Inhalt der Datei
+            content = full_path.read_text(encoding='utf-8')
+            
+            # Gib den Inhalt zurück
+            return {
+                'file_path': str(file_path),
+                'content': content
+            }
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Textinhalts: {str(e)}")
+            return {
+                'error': str(e)
+            }, 500 

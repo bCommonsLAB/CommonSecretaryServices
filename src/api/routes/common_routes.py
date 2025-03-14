@@ -2,15 +2,19 @@
 Allgemeine API-Routen.
 Enthält grundlegende Endpoints wie Home und Beispieldateien.
 """
-from flask import Response, send_file
-from flask_restx import Namespace, Resource  # type: ignore
-from typing import Dict, Any, Union, TypeVar, Callable, Type
+from flask import Response, send_file, request
+from flask_restx import Namespace, Resource, fields, Model  # type: ignore
+from typing import Dict, Any, Union, TypeVar, Callable, Type, Optional, cast
 import os
 import traceback
 import mimetypes
 from pathlib import Path
 import sys
+import asyncio
 
+from src.processors.session_processor import SessionProcessor
+from src.core.exceptions import ProcessingError
+from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from utils.logger import ProcessingLogger
 
@@ -21,12 +25,96 @@ T = TypeVar('T')
 RouteDecorator = Callable[[Type[Resource]], Type[Resource]]
 DocDecorator = Callable[[Callable[..., Any]], Callable[..., Any]]
 ResponseDecorator = Callable[[Callable[..., Any]], Callable[..., Any]]
+ModelType = TypeVar('ModelType', bound=Union[Model, Model])
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="common-api")
 
+# Initialisiere Resource Calculator für Notion-Verarbeitung
+resource_calculator = ResourceCalculator()
+
 # Erstelle Namespace
 common_ns = Namespace('common', description='Allgemeine Operationen')
+
+# Models für Notion-Verarbeitung
+notion_request_model = cast(ModelType, common_ns.model('NotionRequest', {  # type: ignore
+    'blocks': fields.List(fields.Raw(description='Notion Block Struktur'))
+}))
+
+# Verwende type: ignore für die verschachtelten Modelle
+notion_response_model = cast(ModelType, common_ns.model('NotionResponse', {  # type: ignore
+    'status': fields.String(description='Status der Verarbeitung (success/error)'),
+    'request': fields.Nested(cast(ModelType, common_ns.model('NotionRequestInfo', {  # type: ignore
+        'processor': fields.String(description='Name des Prozessors'),
+        'timestamp': fields.String(description='Zeitstempel der Anfrage'),
+        'parameters': fields.Raw(description='Anfrageparameter')
+    }))),
+    'process': fields.Nested(cast(ModelType, common_ns.model('NotionProcessInfo', {  # type: ignore
+        'id': fields.String(description='Eindeutige Prozess-ID'),
+        'main_processor': fields.String(description='Hauptprozessor'),
+        'started': fields.String(description='Startzeitpunkt'),
+        'completed': fields.String(description='Endzeitpunkt'),
+        'duration': fields.Float(description='Verarbeitungsdauer in Millisekunden'),
+        'llm_info': fields.Raw(description='LLM-Nutzungsinformationen')
+    }))),
+    'data': fields.Nested(cast(ModelType, common_ns.model('NotionData', {  # type: ignore
+        'input': fields.List(fields.Raw(description='Notion Blocks')),
+        'output': fields.Nested(cast(ModelType, common_ns.model('Newsfeed', {  # type: ignore
+            'id': fields.String(description='Eindeutige Newsfeed-ID (parent_id des ersten Blocks)'),
+            'title_DE': fields.String(description='Deutscher Titel'),
+            'intro_DE': fields.String(description='Deutsche Einleitung'),
+            'title_IT': fields.String(description='Italienischer Titel'),
+            'intro_IT': fields.String(description='Italienische Einleitung'),
+            'image': fields.String(description='Bild-URL'),
+            'content_DE': fields.String(description='Deutscher Inhalt'),
+            'content_IT': fields.String(description='Italienischer Inhalt')
+        })))
+    }))),
+    'error': fields.Nested(cast(ModelType, common_ns.model('NotionError', {  # type: ignore
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Detaillierte Fehlerinformationen')
+    })))
+}))
+
+# Error-Modell
+error_model = cast(ModelType, common_ns.model('Error', {  # type: ignore
+    'error': fields.String(description='Fehlermeldung')
+}))
+
+# Helper-Funktion zum Abrufen des Session-Processors
+def get_session_processor(process_id: Optional[str] = None) -> SessionProcessor:
+    """Gibt einen Session-Processor mit dem angegebenen Process-ID zurück oder erstellt einen neuen."""
+    return SessionProcessor(resource_calculator, process_id)
+
+# Helper-Funktion für die Fehlerbehandlung
+def handle_processing_error(error: Exception) -> tuple[Dict[str, Any], int]:
+    """Standardisierte Fehlerbehandlung für Verarbeitungsfehler"""
+    if isinstance(error, ProcessingError):
+        return {
+            'status': 'error',
+            'error': {
+                'code': 'PROCESSING_ERROR',
+                'message': str(error),
+                'details': getattr(error, 'details', {})
+            }
+        }, 400
+    else:
+        logger.error("Verarbeitungsfehler",
+                    error=error,
+                    error_type=type(error).__name__,
+                    stack_trace=traceback.format_exc())
+        return {
+            'status': 'error',
+            'error': {
+                'code': type(error).__name__,
+                'message': str(error),
+                'details': {
+                    'error_type': type(error).__name__,
+                    'traceback': traceback.format_exc()
+                }
+            }
+        }, 400
 
 # Home-Endpoint
 @common_ns.route('/')  # type: ignore
@@ -35,6 +123,41 @@ class HomeEndpoint(Resource):
     def get(self) -> Dict[str, str]:
         """API Willkommensseite"""
         return {'message': 'Welcome to the Processing Service API!'}
+
+# Notion-Block-Verarbeitung
+@common_ns.route('/notion')  # type: ignore
+class NotionEndpoint(Resource):
+    @common_ns.expect(notion_request_model)  # type: ignore
+    @common_ns.doc(description='Verarbeitet Notion Blocks und erstellt einen mehrsprachigen Newsfeed-Eintrag')  # type: ignore
+    @common_ns.response(200, 'Erfolg', notion_response_model)  # type: ignore
+    @common_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet Notion Blocks und erstellt einen mehrsprachigen Newsfeed-Eintrag"""
+        
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                # Parse Request
+                data = request.get_json()
+                if not data or 'blocks' not in data:
+                    return {'error': 'Keine Blocks gefunden'}, 400
+                
+                blocks_raw = data['blocks']
+                if not isinstance(blocks_raw, list):
+                    return {'error': 'Blocks müssen als Liste übergeben werden'}, 400
+                
+                # TODO: Die Notion-Block-Verarbeitung muss im SessionProcessor implementiert werden
+                # Diese Funktionalität fehlt aktuell nach der Umbenennung von EventProcessor zu SessionProcessor
+                return {'error': 'NotionBlock-Verarbeitung nicht implementiert im SessionProcessor'}, 501
+                
+                # Alte Implementierung mit EventProcessor:
+                # processor: SessionProcessor = get_session_processor()
+                # result: NotionResponse = await processor.process_notion_blocks(blocks)
+                # return result.to_dict()
+                
+            except Exception as e:
+                return handle_processing_error(e)
+        
+        return asyncio.run(process_request())
 
 # Samples-Endpoints
 @common_ns.route('/samples')  # type: ignore

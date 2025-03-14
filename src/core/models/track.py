@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any
 
 from .base import BaseResponse
-from .event import EventData
+from .session import SessionData
 
 @dataclass(frozen=True)
 class TrackInput:
@@ -70,15 +70,15 @@ class TrackData:
     Attributes:
         input: Eingabedaten
         output: Ausgabedaten
-        events: Liste der Event-Daten
-        event_count: Anzahl der Events
+        sessions: Liste der Session-Daten
+        session_count: Anzahl der Sessions
         query: Der an das LLM gesendete Text
         context: Der an das LLM gesendete Kontext
     """
     input: TrackInput
     output: TrackOutput
-    events: List[EventData]
-    event_count: int = 0
+    sessions: List[SessionData]
+    session_count: int = 0
     query: str = ""
     context: Dict[str, Any] = field(default_factory=dict)
     
@@ -87,8 +87,8 @@ class TrackData:
         return {
             "input": self.input.to_dict(),
             "output": self.output.to_dict(),
-            "events": [event.to_dict() for event in self.events],
-            "event_count": self.event_count,
+            "sessions": [session.to_dict() for session in self.sessions],
+            "session_count": self.session_count,
             "query": self.query,
             "context": self.context
         }

@@ -424,9 +424,9 @@ class TemplateTransformEndpoint(Resource):
                         'context': data.get('context', {})
                     },
                     'output': {
-                        'text': result.data.output.text if not result.error else None,
-                        'language': result.data.output.language if not result.error else None,
-                        'structured_data': result.data.output.structured_data if hasattr(result.data.output, 'structured_data') and not result.error else {}
+                        'text': result.data.output.text if hasattr(result.data, 'output') and not result.error else None,
+                        'language': result.data.output.language if hasattr(result.data, 'output') and not result.error else None,
+                        'structured_data': result.data.output.structured_data if hasattr(result.data, 'output') and hasattr(result.data.output, 'structured_data') and not result.error else {}
                     }
                 }
             }

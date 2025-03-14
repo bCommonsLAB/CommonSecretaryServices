@@ -31,6 +31,7 @@ class ProcessorType(str, Enum):
     METADATA = "metadata"
     TRANSFORMER = "transformer"
     EVENT = "event"
+    SESSION = "session"
     YOUTUBE = "youtube"
 
 class ProcessingStatus(str, Enum):

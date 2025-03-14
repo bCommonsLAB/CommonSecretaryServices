@@ -3,9 +3,9 @@ Datenmodelle für die PDF-Verarbeitung.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)  # Geändert auf nicht gefrorene Dataclass, um Aktualisierungen zu ermöglichen
 class PDFMetadata:
     """Metadaten einer verarbeiteten PDF-Datei.
     
@@ -19,6 +19,7 @@ class PDFMetadata:
         preview_paths: Liste der generierten Vorschaubilder
         preview_zip: Pfad zur ZIP-Datei mit Vorschaubildern
         text_paths: Liste der extrahierten Textdateien
+        text_contents: Liste von (Seitennummer, Inhalt)-Tupeln mit den tatsächlichen Textinhalten
         extraction_method: Verwendete Extraktionsmethode
     """
     file_name: str
@@ -30,6 +31,7 @@ class PDFMetadata:
     preview_paths: List[str] = field(default_factory=list)
     preview_zip: Optional[str] = None
     text_paths: List[str] = field(default_factory=list)
+    text_contents: List[Tuple[int, str]] = field(default_factory=list)
     extraction_method: str = "native"
     
     def to_dict(self) -> Dict[str, Any]:
@@ -44,5 +46,6 @@ class PDFMetadata:
             'preview_paths': self.preview_paths,
             'preview_zip': self.preview_zip,
             'text_paths': self.text_paths,
+            'text_contents': [{'page': page, 'content': content} for page, content in self.text_contents],
             'extraction_method': self.extraction_method
         } 

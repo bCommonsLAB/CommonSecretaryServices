@@ -1,6 +1,6 @@
 """
-MongoDB-Repository für Event-Jobs.
-Verwaltet die Speicherung und Abfrage von Event-Jobs in der MongoDB.
+MongoDB-Repository für Session-Jobs.
+Verwaltet die Speicherung und Abfrage von Session-Jobs in der MongoDB.
 """
 
 from pymongo import ASCENDING, DESCENDING
@@ -19,9 +19,9 @@ from .connection import get_mongodb_database
 # Logger initialisieren
 logger = logging.getLogger(__name__)
 
-class EventJobRepository:
+class SessionJobRepository:
     """
-    Repository für die Verwaltung von Event-Jobs in MongoDB.
+    Repository für die Verwaltung von Session-Jobs in MongoDB.
     Verwendet typisierte Dataclasses für die Datenmodellierung.
     """
     
@@ -33,13 +33,13 @@ class EventJobRepository:
             db_name: Optional, Name der Datenbank. Wenn nicht angegeben, wird der Name aus der Konfiguration verwendet.
         """
         self.db: Database[Any] = get_mongodb_database(db_name)
-        self.jobs: Collection[Any] = self.db.event_jobs
-        self.batches: Collection[Any] = self.db.event_batches
+        self.jobs: Collection[Any] = self.db.session_jobs
+        self.batches: Collection[Any] = self.db.session_batches
         
         # Indizes erstellen
         self._create_indexes()
         
-        logger.info("EventJobRepository initialisiert")
+        logger.info("SessionJobRepository initialisiert")
     
     def _create_indexes(self) -> None:
         """

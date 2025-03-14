@@ -1,6 +1,6 @@
 """
-Datenmodelle für den Event-Processor.
-Verarbeitet und speichert Event-Informationen mit zugehörigen Medien.
+Datenmodelle für den Session-Processor.
+Verarbeitet und speichert Session-Informationen mit zugehörigen Medien.
 """
 
 from dataclasses import dataclass, field
@@ -12,14 +12,14 @@ from .base import (
 )
 
 @dataclass(frozen=True)
-class EventInput:
+class SessionInput:
     """
-    Eingabedaten für den Event-Processor.
+    Eingabedaten für den Session-Processor.
     
     Pflichtfelder:
         event: Name der Veranstaltung (z.B. "FOSDEM 2025")
         session: Name der Session (z.B. "Welcome to FOSDEM 2025")
-        url: URL zur Event-Seite
+        url: URL zur Session-Seite
         filename: Zieldateiname für die Markdown-Datei
         track: Track/Kategorie der Session
 
@@ -32,6 +32,7 @@ class EventInput:
         attachments_url: URL zu Anhängen
         source_language: Quellsprache (Standardmäßig Englisch)
         target_language: Zielsprache (Standardmäßig Deutsch)
+        template: Name des Templates für die Markdown-Generierung (Standardmäßig "Session")
     """
     # Pflichtfelder
     event: str
@@ -49,6 +50,7 @@ class EventInput:
     attachments_url: Optional[str] = None
     source_language: str = "en"  # Standardmäßig Englisch
     target_language: str = "de"  # Standardmäßig Deutsch
+    template: str = "Session"  # Standardmäßig "Session" Template
 
     def __post_init__(self) -> None:
         """Validiert die Eingabedaten."""
@@ -58,7 +60,7 @@ class EventInput:
         if not self.session.strip():
             raise ValueError("Session-Name darf nicht leer sein")
         if not self.url.strip():
-            raise ValueError("Event-URL darf nicht leer sein")
+            raise ValueError("Session-URL darf nicht leer sein")
         if not self.filename.strip():
             raise ValueError("Dateiname darf nicht leer sein")
         if not self.track.strip():
@@ -87,73 +89,74 @@ class EventInput:
             "video_url": self.video_url,
             "attachments_url": self.attachments_url,
             "source_language": self.source_language,
-            "target_language": self.target_language
+            "target_language": self.target_language,
+            "template": self.template
         }
 
 @dataclass(frozen=True)
-class EventOutput:
+class SessionOutput:
     """
-    Ausgabedaten des Event-Processors.
+    Ausgabedaten des Session-Processors.
     
     Attributes:
         markdown_file: Pfad zur generierten Markdown-Datei
         markdown_content: Der generierte Markdown-Inhalt
         video_file: Optional, Pfad zur heruntergeladenen Videodatei
         attachments: Liste der heruntergeladenen Anhänge
-        metadata: Zusätzliche Metadaten zum Event
+        metadata: Zusätzliche Metadaten zur Session
     """
     web_text: str
     video_transcript: str
+    attachments_text: str
     context: Dict[str, Any]
     markdown_file: str
     markdown_content: str
     video_file: Optional[str] = None
     attachments_url: Optional[str] = None
     attachments: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
         return {
             "web_text": self.web_text,
             "video_transcript": self.video_transcript,
+            "attachments_text": self.attachments_text,
             "context": self.context,
             "markdown_file": self.markdown_file,
             "markdown_content": self.markdown_content,
             "video_file": self.video_file,
             "attachments_url": self.attachments_url,
-            "attachments": self.attachments,
-            "metadata": self.metadata
+            "attachments": self.attachments
         }
 
 @dataclass(frozen=True)
-class EventData:
+class SessionData:
     """
-    Container für Ein- und Ausgabedaten des Event-Processors.
+    Container für Ein- und Ausgabedaten des Session-Processors.
     
     Attributes:
         input: Eingabedaten
         output: Ausgabedaten
     """
-    input: EventInput
-    output: EventOutput
+    input: SessionInput
+    output: SessionOutput
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert die Event-Daten in ein Dictionary."""
+        """Konvertiert die Session-Daten in ein Dictionary."""
         return {
             "input": self.input.to_dict(),
             "output": self.output.to_dict()
         }
 
 @dataclass(frozen=True)
-class EventResponse(BaseResponse):
+class SessionResponse(BaseResponse):
     """
-    API-Response für den Event-Processor.
+    API-Response für den Session-Processor.
     
     Attributes:
-        data: Event-spezifische Daten
+        data: Session-spezifische Daten
     """
-    data: EventData
+    data: SessionData
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
@@ -162,30 +165,30 @@ class EventResponse(BaseResponse):
         return base_dict
 
 @dataclass(frozen=True)
-class BatchEventInput:
+class BatchSessionInput:
     """
-    Eingabedaten für die Batch-Verarbeitung von Events.
+    Eingabedaten für die Batch-Verarbeitung von Sessions.
     
     Attributes:
-        events: Liste von Event-Eingabedaten
+        sessions: Liste von Session-Eingabedaten
     """
-    events: List[Dict[str, Any]]
+    sessions: List[Dict[str, Any]]
 
     def __post_init__(self) -> None:
         """Validiert die Batch-Eingabedaten."""
-        if not self.events:
-            raise ValueError("Events list must not be empty")
+        if not self.sessions:
+            raise ValueError("Sessions list must not be empty")
 
 @dataclass(frozen=True)
-class BatchEventOutput:
+class BatchSessionOutput:
     """
-    Ausgabedaten der Batch-Event-Verarbeitung.
+    Ausgabedaten der Batch-Session-Verarbeitung.
     
     Attributes:
-        results: Liste der Event-Verarbeitungsergebnisse
+        results: Liste der Session-Verarbeitungsergebnisse
         summary: Zusammenfassung der Verarbeitung
     """
-    results: List[EventOutput]
+    results: List[SessionOutput]
     summary: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -193,26 +196,26 @@ class BatchEventOutput:
         # Aktualisiere die Summary
         object.__setattr__(self, 'summary', {
             **self.summary,
-            'total_events': len(self.results),
+            'total_sessions': len(self.results),
             'processed_at': datetime.now().isoformat()
         })
 
 @dataclass(frozen=True)
-class BatchEventData:
+class BatchSessionData:
     """
-    Container für Ein- und Ausgabedaten der Batch-Event-Verarbeitung.
+    Container für Ein- und Ausgabedaten der Batch-Session-Verarbeitung.
     
     Attributes:
         input: Batch-Eingabedaten
         output: Batch-Ausgabedaten
     """
-    input: BatchEventInput
-    output: BatchEventOutput
+    input: BatchSessionInput
+    output: BatchSessionOutput
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Batch-Daten in ein Dictionary."""
         return {
-            "input": {"events": self.input.events},
+            "input": {"sessions": self.input.sessions},
             "output": {
                 "results": [result.to_dict() for result in self.output.results],
                 "summary": self.output.summary
@@ -220,14 +223,14 @@ class BatchEventData:
         }
 
 @dataclass(frozen=True)
-class BatchEventResponse(BaseResponse):
+class BatchSessionResponse(BaseResponse):
     """
-    API-Response für die Batch-Event-Verarbeitung.
+    API-Response für die Batch-Session-Verarbeitung.
     
     Attributes:
-        data: Batch-Event-spezifische Daten
+        data: Batch-Session-spezifische Daten
     """
-    data: Optional[BatchEventData] = None
+    data: Optional[BatchSessionData] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
@@ -238,20 +241,20 @@ class BatchEventResponse(BaseResponse):
 @dataclass(frozen=True)
 class WebhookConfig:
     """
-    Konfiguration für Webhook-Callbacks nach der Event-Verarbeitung.
+    Konfiguration für Webhook-Callbacks nach der Session-Verarbeitung.
     
     Attributes:
         url: Die URL, an die der Webhook-Callback gesendet wird
         headers: Optionale HTTP-Header für den Webhook-Request
         include_markdown: Ob der Markdown-Inhalt im Callback enthalten sein soll
         include_metadata: Ob die Metadaten im Callback enthalten sein soll
-        event_id: Eine eindeutige ID für das Event (wird vom Aufrufer bereitgestellt)
+        session_id: Eine eindeutige ID für die Session (wird vom Aufrufer bereitgestellt)
     """
     url: str
     headers: Dict[str, str] = field(default_factory=dict)
     include_markdown: bool = True
     include_metadata: bool = True
-    event_id: Optional[str] = None
+    session_id: Optional[str] = None
     
     def __post_init__(self) -> None:
         """Validiert die Webhook-Konfiguration."""
@@ -269,13 +272,13 @@ class WebhookConfig:
             "headers": self.headers,
             "include_markdown": self.include_markdown,
             "include_metadata": self.include_metadata,
-            "event_id": self.event_id
+            "session_id": self.session_id
         }
 
 @dataclass(frozen=True)
-class AsyncEventInput(EventInput):
+class AsyncSessionInput(SessionInput):
     """
-    Erweiterte Eingabedaten für die asynchrone Event-Verarbeitung.
+    Erweiterte Eingabedaten für die asynchrone Session-Verarbeitung.
     
     Attributes:
         webhook: Konfiguration für den Webhook-Callback nach der Verarbeitung
@@ -292,9 +295,9 @@ class AsyncEventInput(EventInput):
         return base_dict
 
 @dataclass(frozen=True)
-class AsyncBatchEventInput(BatchEventInput):
+class AsyncBatchSessionInput(BatchSessionInput):
     """
-    Erweiterte Eingabedaten für die asynchrone Batch-Event-Verarbeitung.
+    Erweiterte Eingabedaten für die asynchrone Batch-Session-Verarbeitung.
     
     Attributes:
         webhook: Konfiguration für den Webhook-Callback nach der Verarbeitung
@@ -304,6 +307,6 @@ class AsyncBatchEventInput(BatchEventInput):
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die asynchronen Batch-Eingabedaten in ein Dictionary."""
         return {
-            "events": self.events,
+            "sessions": self.sessions,
             "webhook": self.webhook.to_dict() if self.webhook else None
         } 
