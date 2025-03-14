@@ -13,6 +13,7 @@ from flask import Flask
 from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
 from src.core.mongodb import get_worker_manager, close_mongodb_connection
+from src.core.mongodb.cache_setup import setup_mongodb_caching
 from utils.logger import ProcessingLogger
 
 from .routes.config_routes import config
@@ -40,6 +41,8 @@ app.register_blueprint(api_blueprint, url_prefix='/api')
 _first_request = True
 # Worker-Manager-Instanz
 _worker_manager = None
+# Cache-Setup durchgeführt
+_cache_setup_done = False
 
 def signal_handler(sig: int, frame: Optional[FrameType]) -> NoReturn:
     """Handler für System-Signale (SIGINT, SIGTERM)
@@ -49,12 +52,16 @@ def signal_handler(sig: int, frame: Optional[FrameType]) -> NoReturn:
         frame: Stack-Frame (wird nicht verwendet)
     """
     if not os.environ.get('WERKZEUG_RUN_MAIN'):
-        logger.info(f"Anwendung wird beendet durch Signal {sig}")
+        logger.info(f"Signal {sig} empfangen, beende Anwendung...")
         
-        # Worker-Manager stoppen
-        if _worker_manager:
-            logger.info("Worker-Manager wird gestoppt...")
-            _worker_manager.stop()
+        # Worker-Manager beenden
+        global _worker_manager
+        if _worker_manager is not None:
+            try:
+                _worker_manager.stop()
+                logger.info("Worker-Manager beendet")
+            except Exception as e:
+                logger.error(f"Fehler beim Beenden des Worker-Managers: {str(e)}")
         
         # MongoDB-Verbindung schließen
         close_mongodb_connection()
@@ -64,10 +71,19 @@ def signal_handler(sig: int, frame: Optional[FrameType]) -> NoReturn:
 @app.before_request
 def before_request() -> None:
     """Wird vor jedem Request ausgeführt"""
-    global _first_request, _worker_manager
+    global _first_request, _worker_manager, _cache_setup_done
     
     if _first_request and not os.environ.get('WERKZEUG_RUN_MAIN'):
         logger.info("Erste Anfrage an die Anwendung")
+        
+        # MongoDB-Cache-Collections einrichten
+        if not _cache_setup_done:
+            try:
+                setup_mongodb_caching(force_recreate=False)
+                logger.info("MongoDB-Cache-Collections eingerichtet")
+                _cache_setup_done = True
+            except Exception as e:
+                logger.error(f"Fehler beim Einrichten der Cache-Collections: {str(e)}")
         
         # Worker-Manager starten
         try:

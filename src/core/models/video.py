@@ -2,7 +2,7 @@
 Video-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Protocol
 
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .audio import TranscriptionResult
@@ -36,15 +36,17 @@ class VideoProcessingError(ProcessingError):
 class VideoSource:
     """Quelle eines Videos (URL oder Datei)"""
     url: Optional[str] = None
-    file: Optional[bytes] = None
     file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    upload_timestamp: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert zu Dict"""
         return {
             'url': self.url,
-            'file_name': self.file_name
-            # file wird nicht serialisiert
+            'file_name': self.file_name,
+            'file_size': self.file_size,
+            'upload_timestamp': self.upload_timestamp
         }
 
     @classmethod
@@ -52,8 +54,25 @@ class VideoSource:
         """Erstellt aus Dict"""
         return cls(
             url=data.get('url'),
-            file_name=data.get('file_name')
+            file_name=data.get('file_name'),
+            file_size=data.get('file_size'),
+            upload_timestamp=data.get('upload_timestamp')
         )
+
+class VideoMetadataProtocol(Protocol):
+    """Protocol für die VideoMetadata-Klasse und ihre dynamischen Attribute."""
+    title: str
+    duration: int
+    duration_formatted: str
+    file_size: Optional[int]
+    process_dir: Optional[str]
+    audio_file: Optional[str]
+    source: 'VideoSource'
+    
+    # Dynamische Attribute, die zur Laufzeit hinzugefügt werden können
+    source_language: Optional[str]
+    target_language: Optional[str]
+    template: Optional[str]
 
 @dataclass
 class VideoMetadata:
@@ -103,7 +122,6 @@ class VideoProcessingResult:
         audio_result (Optional[AudioProcessingResult]): Ergebnis der Audio-Verarbeitung
         process_id (str): ID des Verarbeitungsprozesses
         transcription (Optional[TranscriptionResult]): Transkriptionsergebnis
-        is_from_cache (bool): Gibt an, ob das Ergebnis aus dem Cache geladen wurde
     """
     
     def __init__(
@@ -112,14 +130,12 @@ class VideoProcessingResult:
         process_id: str,
         audio_result: Optional[Any] = None,
         transcription: Optional[Any] = None,
-        is_from_cache: bool = False
     ):
         """Initialisiert das VideoProcessingResult."""
         self.metadata = metadata
         self.process_id = process_id
         self.audio_result = audio_result
         self.transcription = transcription
-        self.is_from_cache = is_from_cache
         
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -128,7 +144,6 @@ class VideoProcessingResult:
             'process_id': self.process_id,
             'audio_result': self.audio_result.to_dict() if self.audio_result and hasattr(self.audio_result, 'to_dict') else self.audio_result,
             'transcription': self.transcription.to_dict() if self.transcription and hasattr(self.transcription, 'to_dict') else self.transcription,
-            'is_from_cache': self.is_from_cache
         }
         
     @classmethod
@@ -171,8 +186,7 @@ class VideoProcessingResult:
             metadata=metadata,
             process_id=data.get('process_id', ''),
             audio_result=audio_result,
-            transcription=transcription,
-            is_from_cache=data.get('is_from_cache', False)
+            transcription=transcription
         )
 
 @dataclass(frozen=True, init=False)

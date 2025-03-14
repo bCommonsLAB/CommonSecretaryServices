@@ -23,7 +23,6 @@ class YoutubeConfig(TypedDict):
     """YouTube-Prozessor Konfiguration."""
     max_file_size: int
     max_duration: int
-    temp_dir: str
     cache_dir: str
     ydl_opts: Dict[str, Any]
 
@@ -31,7 +30,6 @@ class AudioConfig(TypedDict):
     """Audio-Prozessor Konfiguration."""
     max_file_size: int
     segment_duration: int
-    temp_dir: str
     cache_dir: str
     export_format: str
 
@@ -91,19 +89,17 @@ class Config:
         },
         'processors': {
             'youtube': {
-                'max_file_size': 120000000,  # 120 MB
+                'max_file_size': 140000000,  # 120 MB
                 'max_duration': 3600,        # 1 Stunde
-                'temp_dir': 'cache/video/temp',  # Neuer Pfad
-                'cache_dir': 'cache/video/processed',  # Neuer Cache-Pfad
+                'cache_dir': 'cache/youtube',  # Vereinheitlichter Cache-Pfad
                 'ydl_opts': {
                     'format': 'bestaudio/best'
                 }
             },
             'audio': {
-                'max_file_size': 120000000,  # 120 MB
+                'max_file_size': 140000000,  # 120 MB
                 'segment_duration': 300,      # 5 Minuten
-                'temp_dir': 'cache/audio/temp',  # Neuer Pfad
-                'cache_dir': 'cache/audio/processed',  # Neuer Cache-Pfad
+                'cache_dir': 'cache/audio',  # Vereinheitlichter Cache-Pfad
                 'export_format': 'mp3'
             }
         },

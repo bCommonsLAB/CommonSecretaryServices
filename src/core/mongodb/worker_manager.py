@@ -111,7 +111,6 @@ class EventWorkerManager:
         Überwachungsschleife für Jobs.
         Prüft regelmäßig, ob neue Jobs vorhanden sind und startet Worker für sie.
         """
-        last_log_time = 0
         self.last_stalled_job_check = time.time()
         
         while not self.stop_flag:

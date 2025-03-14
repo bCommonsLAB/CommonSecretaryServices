@@ -24,6 +24,9 @@ from .event_routes import event_ns
 from .common_routes import common_ns, SamplesEndpoint, SampleFileEndpoint
 from .transformer_routes import transformer_ns
 from .event_job_routes import event_job_ns
+from .track_routes import track_ns
+from .pdf_routes import pdf_ns
+from .imageocr_routes import imageocr_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -32,6 +35,9 @@ api.add_namespace(event_ns, path='/event')  # type: ignore
 api.add_namespace(common_ns, path='/common')  # type: ignore
 api.add_namespace(transformer_ns, path='/transformer')  # type: ignore
 api.add_namespace(event_job_ns, path='/event-job')  # type: ignore
+api.add_namespace(track_ns, path='/tracks')  # type: ignore
+api.add_namespace(pdf_ns, path='/pdf')  # type: ignore
+api.add_namespace(imageocr_ns, path='/imageocr')  # type: ignore
 
 # Root-Namespace für die API-Root-Seite
 root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ignore
@@ -48,6 +54,3 @@ class HomeEndpoint(Resource):
         """API Willkommensseite"""
         return {'message': 'Welcome to the Processing Service API!'}
 
-# In der Übergangsphase: Direkt die alte routes.py importieren
-# Später werden hier die einzelnen Namespaces importiert und registriert
-# TODO: Durch die individuellen Module ersetzen, sobald sie implementiert sind 

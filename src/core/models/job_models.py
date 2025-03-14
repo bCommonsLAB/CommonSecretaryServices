@@ -238,7 +238,7 @@ class Job:
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert den Job in ein Dictionary für MongoDB."""
-        job_dict = {
+        job_dict: Dict[str, Any] = {
             "job_id": self.job_id,
             "job_type": self.job_type,
             "status": self.status.value,

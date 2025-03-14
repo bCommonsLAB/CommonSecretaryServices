@@ -2,52 +2,170 @@ cache:
   base_dir: ./cache
   cleanup_interval: 24
   max_age_days: 7
+  mongo_uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
+  mongodb:
+    enabled: true
+    ttl_days: 30
+
 event_worker:
   active: true
   max_concurrent: 5
   poll_interval_sec: 5
+
 logging:
   backup_count: 5
   file: logs/dev_detailed.log
   level: DEBUG
   max_log_entries: 1000
   max_size: 120000000
+
 mongodb:
   connect_timeout_ms: 5000
   db_name: common-secretary-service
   max_pool_size: 50
   uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
+
 processors:
   pdf:
     max_file_size: 150000000
     max_pages: 300
+    cache_dir: cache/pdf
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: pdf_cache
+    # Bildkonfiguration für PDF-Seiten
+    images:
+      # Hauptbilder
+      main:
+        max_size: 1280
+        format: jpg
+        quality: 80
+      # Vorschaubilder (Thumbnails)
+      preview:
+        max_size: 360
+        format: jpg
+        quality: 80
+
+  imageocr:
+    max_file_size: 10485760
+    max_resolution: 4096
+    cache_dir: cache/imageocr
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: ocr_cache
+
   audio:
     batch_size: 5
     export_format: mp3
-    max_file_size: 120000000
+    max_file_size: 140000000
     max_segments: 100
     segment_duration: 300
-    temp_dir: temp-processing/audio
+    cache_dir: cache/audio
     temp_file_suffix: .mp3
-  event:
-    base_dir: events
-    max_concurrent_tasks: 5
-    temp_dir: temp-processing/event
-  transformer:
-    model: gpt-4o
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: audio_cache
+
+  video:
+    cache_dir: cache/video
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: video_cache
+
   youtube:
-    max_duration: 15000
-    max_file_size: 120000000
-    output_template: '%(title)s.%(ext)s'
-    temp_dir: temp-processing/video
+    max_duration: 15000  # Maximale Videolänge in Sekunden
+    max_file_size: 120000000  # 120 MB
+    cache_dir: cache/youtube
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: youtube_cache
+    # Minimale yt-dlp Optionen - sinnvolle Standardwerte werden im Code gesetzt
     ydl_opts:
-      format: worstaudio/worst
+      format: bestaudio/best
       postprocessors:
       - key: FFmpegExtractAudio
         preferredcodec: mp3
+
+  transformer:
+    # Modellkonfiguration 
+    model: gpt-4o
+    temperature: 0.7
+    max_tokens: 4000
+    # Cache-Konfiguration
+    cache_dir: cache/transformer
+    cache:
+      enabled: true
+      ttl_days: 14
+      collection_name: transformer_cache
+    # Performance-Einstellungen
+    max_concurrent_requests: 10
+    timeout_seconds: 120
+    # Templates-Verzeichnis
+    templates_dir: resources/templates
+
+  metadata:
+    # Cache-Konfiguration
+    cache_dir: cache/metadata
+    cache:
+      enabled: true
+      ttl_days: 30
+      collection_name: metadata_cache
+    # Dateiverarbeitung
+    max_file_size: 50000000  # 50 MB
+    supported_files:
+      - image: [jpg, jpeg, png, gif, bmp, webp, tiff]
+      - document: [pdf, docx, doc, xlsx, xls, pptx, ppt, txt, md]
+      - audio: [mp3, wav, ogg, m4a, flac]
+      - video: [mp4, webm, avi, mov, mkv]
+    # Performance-Einstellungen
+    timeout_seconds: 30
+    extract_advanced_metadata: true
+
+  event:
+    base_dir: events
+    max_concurrent_tasks: 5
+    cache_dir: cache/event
+    # Maximale Größe für Video-Downloads (in MB)
+    max_video_size: 1000
+    # Maximale Größe für Anhänge (in MB)
+    max_attachment_size: 100
+    # Timeout für HTTP-Requests (in Sekunden)
+    request_timeout: 30
+    # Markdown-Template für Event-Dokumentation
+    markdown_template: |
+      # {event} - {session}
+      
+      ## Details
+      - **Track**: {track}
+      - **Datum**: {day}
+      - **Zeit**: {starttime} - {endtime}
+      - **Vortragende**: {speakers}
+      
+      ## Links
+      - [Event-Seite]({url})
+      - [Video]({video_url})
+      - [Folien]({attachments_url})
+      
+      ## Zusammenfassung
+      {web_text}
+      
+      ## Video-Transkript
+      {video_transcript}
+    # LLM-Konfiguration
+    llm:
+      model: "gpt-4"
+      temperature: 0.7
+      max_tokens: 4000
+
 rate_limiting:
   enabled: true
   requests_per_minute: 60
+
 server:
   api_base_url: http://localhost:5001
   debug: true

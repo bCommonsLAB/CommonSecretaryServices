@@ -4,10 +4,12 @@ Sprecher: {{speakers|Welche Sprecher werden im Text erwähnt? Kommagetrennt ausg
 Datum: {{day|Das Datum im Format yyyy-mm-dd ausgeben.}}
 Ort: {{ort|Welcher Ort wird im Text erwähnt oder gezeigt?}}
 track: {{track|Welcher Track wird im Text erwähnt?}}
+event: {{event|Zu welchem übergeordneten Event gehört diese Session?}}
 Kategorie: {{category|Welcher Kategorie wird im Text erwähnt?}}
-Type: Event-Zusammenfassung
+Type: Session-Zusammenfassung
+Themenbereich: {{topic|Zu welchem Themenbereich kann man die Session zuordnen? Wähle aus "Community: Kultur, Lizenzen, Politik}}" oder "Systeme: Betriebssysteme, Kernel, Distributionen" oder "Cloud: Container, Virtualisierung, Orchestrierung" oder  "DevOps: Continuous, Integration, Delivery" oder "Sprachen: Compiler, Frameworks, Programmiersprachen" oder "Daten: KI, HPC, Analysen" oder "Hardware: Embedded, IoT, Robotik" 
 ---
-# {{title|Der Titel des Session}}
+# {{title|einen treffenden Titel des Session}}
 
 > [! hinweis]-
 > Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.

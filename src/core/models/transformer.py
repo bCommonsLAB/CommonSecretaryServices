@@ -89,26 +89,68 @@ class TranslationResult:
             "requests": [req.to_dict() for req in self.requests] if self.requests else []
         }
 
-@dataclass(frozen=True)
+@dataclass
 class TransformationResult:
-    """Ergebnis einer Zusammenfassung"""
+    """
+    Ergebnis einer Transformation.
+    
+    Attributes:
+        text: Der transformierte Text
+        target_language: Die Zielsprache
+        structured_data: Optionale strukturierte Daten
+        requests: Liste der LLM-Requests (nur bei direkter Verarbeitung, nicht bei Cache-Treffern)
+        llms: Liste der verwendeten LLM-Modelle (nur bei direkter Verarbeitung)
+        llm_info: LLM-Informationen für die Transformation (nur bei direkter Verarbeitung)
+    """
     text: str
     target_language: str
     structured_data: Optional[Any] = None
     requests: Optional[List[LLMRequest]] = None
     llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
     llm_info: Optional[LLMInfo] = None  # LLM-Informationen für die Transformation
-
+    
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
-        return {
+        # Nur die für den Cache relevanten Daten speichern
+        result = {
             "text": self.text,
             "target_language": self.target_language,
-            "structured_data": self.structured_data,
-            "requests": [req.to_dict() for req in self.requests] if self.requests else None,
-            "llms": [llm.to_dict() for llm in self.llms] if self.llms else [],
-            "llm_info": self.llm_info.to_dict() if self.llm_info else None
+            "structured_data": self.structured_data
         }
+        
+        # LLM-Informationen nur hinzufügen, wenn vorhanden (bei direkter Verarbeitung)
+        if self.requests:
+            result["requests"] = [r.to_dict() for r in self.requests]
+            
+        if self.llms:
+            result["llms"] = [l.to_dict() for l in self.llms]
+            
+        if self.llm_info:
+            result["llm_info"] = self.llm_info.to_dict()
+            
+        return result
+    
+    @classmethod
+    def from_cache(cls, data: Dict[str, Any]) -> 'TransformationResult':
+        """
+        Erstellt ein TransformationResult aus Cache-Daten.
+        Bei Cache-Treffern gibt es keine LLM-Informationen.
+        
+        Args:
+            data: Die serialisierten Daten aus dem Cache
+            
+        Returns:
+            TransformationResult: Das deserialisierte Ergebnis
+        """
+        if not data:
+            return cls(text="", target_language="unknown")
+            
+        return cls(
+            text=data.get("text", ""),
+            target_language=data.get("target_language", "unknown"),
+            structured_data=data.get("structured_data"),
+            # Keine LLM-Informationen bei Cache-Treffern
+        )
 
 @dataclass(frozen=True, init=False)
 class TransformerResponse(BaseResponse):

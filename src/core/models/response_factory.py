@@ -19,6 +19,7 @@ class ResponseFactory:
         result: Any,
         request_info: Dict[str, Any],
         response_class: Type[T],
+        from_cache: bool,  # Neuer Pflichtparameter für Cache-Status
         llm_info: Optional[LLMInfo] = None,
         error: Optional[ErrorInfo] = None
     ) -> T:
@@ -30,6 +31,7 @@ class ResponseFactory:
             result: Das Ergebnis der Verarbeitung
             request_info: Request-Parameter
             response_class: Die zu erstellende Response-Klasse
+            from_cache: Flag, das anzeigt, ob das Ergebnis aus dem Cache stammt
             llm_info: Optional, LLM-Nutzungsinformationen
             error: Optional, Fehlerinformationen
             
@@ -40,7 +42,8 @@ class ResponseFactory:
         process_info = ProcessInfo(
             id=processor_name,  # ID wird vom Processor gesetzt
             main_processor=processor_name,
-            started=datetime.now().isoformat()
+            started=datetime.now().isoformat(),
+            is_from_cache=from_cache  # Cache-Status setzen
         )
 
         # Füge LLM-Info hinzu wenn vorhanden

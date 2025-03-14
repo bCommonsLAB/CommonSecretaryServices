@@ -106,23 +106,22 @@ class EventJobRepository:
         Aktualisiert den Status eines Jobs.
         
         Args:
-            job_id: ID des Jobs
-            status: Neuer Status (pending, processing, completed, failed)
-            progress: Optionaler Fortschritt (als Dictionary oder JobProgress-Objekt)
-            results: Optionale Ergebnisse (als Dictionary oder JobResults-Objekt)
-            error: Optionaler Fehler (als Dictionary oder JobError-Objekt)
-            
+            job_id: Die ID des Jobs
+            status: Der neue Status
+            progress: Optional, Fortschrittsinformationen
+            results: Optional, Ergebnisse
+            error: Optional, Fehlerinformationen
+        
         Returns:
-            bool: True, wenn die Aktualisierung erfolgreich war, sonst False
+            bool: True bei Erfolg, False bei Fehler
         """
-        # Status konvertieren, falls als String übergeben
-        if isinstance(status, str):
-            status = JobStatus(status)
+        # Status in String-Form für MongoDB umwandeln
+        status_value = status.value if isinstance(status, JobStatus) else JobStatus(status).value
         
         # Aktualisierungs-Dictionary erstellen
         now = datetime.datetime.now(datetime.UTC)
         update_dict: Dict[str, Any] = {
-            "status": status.value,
+            "status": status_value,
             "updated_at": now
         }
         
@@ -164,7 +163,7 @@ class EventJobRepository:
         success = result.modified_count > 0
         
         if success:
-            logger.info(f"Job-Status aktualisiert: {job_id} -> {status.value}")
+            logger.info(f"Job-Status aktualisiert: {job_id} -> {status_value}")
             
             # Wenn der Job Teil eines Batches ist, aktualisiere auch den Batch-Fortschritt
             job_data = self.get_job(job_id)
@@ -910,26 +909,26 @@ class EventJobRepository:
     
     def reset_stalled_jobs(self, max_processing_time_minutes: int = 10) -> int:
         """
-        Findet und setzt Jobs zurück, die im processing-Status hängengeblieben sind.
-        Ein Job gilt als hängengeblieben, wenn er länger als die angegebene Zeit im processing-Status ist.
+        Setzt "hängengebliebene" Jobs zurück, die sich länger als die angegebene Zeit im Status PROCESSING befinden.
         
         Args:
-            max_processing_time_minutes: Maximale Verarbeitungszeit in Minuten, nach der ein Job als hängengeblieben gilt
+            max_processing_time_minutes: Maximale Zeit in Minuten, die ein Job im Status PROCESSING sein darf
             
         Returns:
             int: Anzahl der zurückgesetzten Jobs
         """
-        # Berechne das Zeitlimit
-        now = datetime.datetime.now(datetime.UTC)
-        time_limit = now - datetime.timedelta(minutes=max_processing_time_minutes)
+        now = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
         
-        # Finde Jobs, die im processing-Status hängengeblieben sind
+        # Berechne den Zeitpunkt, ab dem Jobs als "hängengeblieben" gelten
+        cutoff_time = now - datetime.timedelta(minutes=max_processing_time_minutes)
+        
+        # Suche Jobs, die sich im Status PROCESSING befinden und seit längerem keine Aktualisierung hatten
         query = {
             "status": JobStatus.PROCESSING.value,
-            "processing_started_at": {"$lt": time_limit}
+            "processing_started_at": {"$lt": cutoff_time}
         }
         
-        # Aktualisiere die Jobs auf failed-Status mit einer Fehlermeldung
+        # Aktualisierung, um den Status auf FAILED zu setzen und eine Fehlermeldung hinzuzufügen
         update = {
             "$set": {
                 "status": JobStatus.FAILED.value,
@@ -955,7 +954,7 @@ class EventJobRepository:
                 logger.info(f"{reset_count} hängengebliebene Jobs zurückgesetzt (Timeout: {max_processing_time_minutes} min)")
                 
                 # Aktualisiere die Batch-Fortschritte für betroffene Batches
-                affected_batches = set()
+                affected_batches: set[str] = set()
                 stalled_jobs = self.jobs.find({"status": JobStatus.FAILED.value, "error.code": "PROCESSING_TIMEOUT"})
                 
                 for job in stalled_jobs:

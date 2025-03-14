@@ -2,7 +2,7 @@
 Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Protocol
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLMRequest, LLModel, LLMInfo
 from .enums import ProcessingStatus
@@ -162,6 +162,26 @@ class Chapter:
         if self.end <= self.start:
             raise ValueError("End muss größer als Start sein")
 
+class AudioMetadataProtocol(Protocol):
+    """Protocol für die AudioMetadata-Klasse und ihre dynamischen Attribute."""
+    duration: float
+    duration_formatted: str
+    file_size: int
+    sample_rate: int
+    channels: int
+    bits_per_sample: int
+    format: str
+    codec: str
+    
+    # Dynamische Attribute, die zur Laufzeit hinzugefügt werden können
+    source_path: Optional[str]
+    source_language: Optional[str]
+    target_language: Optional[str]
+    template: Optional[str]
+    original_filename: Optional[str]
+    video_id: Optional[str]
+    filename: Optional[str]
+
 @dataclass
 class AudioMetadata:
     """Metadaten einer Audio-Datei"""
@@ -272,7 +292,6 @@ class AudioProcessingResult:
         metadata (AudioMetadata): Metadaten zur Audio-Datei
         process_id (str): ID des Verarbeitungsprozesses
         transformation_result (Optional[Dict[str, Any]]): Optionales Transformationsergebnis
-        is_from_cache (bool): Gibt an, ob das Ergebnis aus dem Cache geladen wurde
     """
     
     def __init__(
@@ -281,14 +300,12 @@ class AudioProcessingResult:
         metadata: AudioMetadata,
         process_id: str,
         transformation_result: Optional[Dict[str, Any]] = None,
-        is_from_cache: bool = False
     ):
         """Initialisiert das AudioProcessingResult."""
         self.transcription = transcription
         self.metadata = metadata
         self.process_id = process_id
         self.transformation_result = transformation_result
-        self.is_from_cache = is_from_cache
         
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -297,7 +314,6 @@ class AudioProcessingResult:
             'metadata': self.metadata.to_dict() if self.metadata else None,
             'process_id': self.process_id,
             'transformation_result': self.transformation_result,
-            'is_from_cache': self.is_from_cache
         }
         
     @classmethod
@@ -308,7 +324,6 @@ class AudioProcessingResult:
             metadata=AudioMetadata.from_dict(data.get('metadata', {})) if data.get('metadata') else AudioMetadata(duration=0.0, process_dir="", format="unknown", channels=0),
             process_id=data.get('process_id', ''),
             transformation_result=data.get('transformation_result'),
-            is_from_cache=data.get('is_from_cache', False)
         )
 
 @dataclass(frozen=True, init=False)
@@ -476,3 +491,24 @@ class AudioTranscriptionParams:
         if self.language:
             params["language"] = self.language
         return params 
+
+@dataclass
+class AudioProcessingRequest:
+    """Request-Daten für die Audio-Verarbeitung."""
+    source: str
+    source_language: Optional[str] = None
+    target_language: Optional[str] = None
+    template: Optional[str] = None
+    original_filename: Optional[str] = None
+    video_id: Optional[str] = None
+    
+    def __post_init__(self) -> None:
+        """Validiert die Request-Daten."""
+        if not self.source:
+            raise ValueError("Source darf nicht leer sein")
+
+@dataclass
+class AudioProcessingProcess:
+    """Process-Daten für die Audio-Verarbeitung."""
+    elapsed_time: int  # in Millisekunden
+    llm_info: Optional[LLMInfo] = None
