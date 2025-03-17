@@ -1,12 +1,11 @@
 """
 Video-spezifische Typen und Modelle.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Protocol
 
-from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
+from .base import BaseResponse, ProcessingStatus, ProcessInfo, ErrorInfo
 from .audio import TranscriptionResult
-from .llm import LLMInfo
 from ..exceptions import ProcessingError
 from src.processors.cacheable_processor import CacheableResult
 
@@ -189,59 +188,58 @@ class VideoProcessingResult(CacheableResult):
 @dataclass(frozen=True, init=False)
 class VideoResponse(BaseResponse):
     """Standardisierte API-Response für Video-Verarbeitung."""
-    # Keine explizite Deklaration von data, da es in __init__ gesetzt wird
+    data: Optional[VideoProcessingResult] = field(default=None)
 
     def __init__(
         self,
-        request: RequestInfo,
-        process: ProcessInfo,
         data: VideoProcessingResult,
-        status: ProcessingStatus = ProcessingStatus.PENDING,
-        error: Optional[ErrorInfo] = None
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
     ) -> None:
         """Initialisiert die VideoResponse."""
-        super().__init__(request=request, process=process, status=status, error=error)
+        super().__init__(**kwargs)
         object.__setattr__(self, 'data', data)
-
-    @classmethod
-    def create(cls, request: RequestInfo, process: ProcessInfo, data: VideoProcessingResult,
-               llm_info: Optional[LLMInfo] = None) -> 'VideoResponse':
-        """Erstellt eine erfolgreiche Response."""
-        if llm_info:
-            process.llm_info = llm_info
-        return cls(
-            data=data,
-            request=request,
-            process=process,
-            status=ProcessingStatus.SUCCESS
-        )
-
-    @classmethod
-    def create_error(cls, request: RequestInfo, process: ProcessInfo, error: ErrorInfo) -> 'VideoResponse':
-        """Erstellt eine Fehler-Response."""
-        dummy_source = VideoSource(url="")
-        dummy_metadata = VideoMetadata(
-            title="",
-            source=dummy_source,
-            duration=0,
-            duration_formatted="00:00:00",
-            process_dir=""
-        )
-        dummy_result = VideoProcessingResult(
-            metadata=dummy_metadata,
-            transcription=None,
-            process_id=""
-        )
-        return cls(
-            data=dummy_result,
-            request=request,
-            process=process,
-            error=error,
-            status=ProcessingStatus.ERROR
-        )
+        if process:
+            object.__setattr__(self, 'process', process)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
         base_dict = super().to_dict()
         base_dict['data'] = self.data.to_dict() if self.data else None
-        return base_dict 
+        return base_dict
+
+    @classmethod
+    def create(
+        cls,
+        data: Optional[VideoProcessingResult] = None,
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> 'VideoResponse':
+        """Erstellt eine erfolgreiche Response."""
+        if data is None:
+            raise ValueError("data must not be None")
+        response = cls(data=data, process=process, **kwargs)
+        object.__setattr__(response, 'status', ProcessingStatus.SUCCESS)
+        return response
+
+    @classmethod
+    def create_error(
+        cls,
+        error: ErrorInfo,
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> 'VideoResponse':
+        """Erstellt eine Error-Response."""
+        empty_result = VideoProcessingResult(
+            metadata=VideoMetadata(
+                title="",
+                source=VideoSource(),
+                duration=0,
+                duration_formatted="00:00:00"
+            ),
+            process_id=""
+        )
+        response = cls(data=empty_result, process=process, **kwargs)
+        object.__setattr__(response, 'status', ProcessingStatus.ERROR)
+        object.__setattr__(response, 'error', error)
+        return response 
