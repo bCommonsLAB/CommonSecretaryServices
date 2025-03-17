@@ -9,7 +9,7 @@ import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Optional, Protocol, Tuple, Union, cast, TypeVar
+from typing import Any, BinaryIO, Dict, List, Optional, Protocol, Union, cast, TypeVar
 
 import fitz  # type: ignore
 from pydub import AudioSegment  # type: ignore
@@ -23,8 +23,6 @@ from src.core.models.transformer import TransformerResponse
 from src.processors.base_processor import BaseProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from src.core.resource_tracking import ResourceCalculator
-from src.core.models.llm import LLMInfo
-from src.core.models.response_factory import ResponseFactory
 
 T = TypeVar('T', bound=AudioSegment)
 from_file = AudioSegment.from_file  # type: ignore
@@ -48,7 +46,7 @@ class MetadataFeatures:
     technical_enabled: bool = True
     content_enabled: bool = True
 
-class MetadataProcessor(BaseProcessor):
+class MetadataProcessor(BaseProcessor[ContentMetadata]):
     """Prozessor für die Extraktion von Metadaten aus verschiedenen Medientypen."""
     
     def __init__(
@@ -79,7 +77,11 @@ class MetadataProcessor(BaseProcessor):
             }))
             
             # Transformer für Content-Analyse
-            self.transformer = TransformerProcessor(resource_calculator, process_id)
+            self.transformer = TransformerProcessor(
+                resource_calculator, 
+                process_id,
+                parent_process_info=self.process_info
+            )
             
             self.logger.info(
                 "MetadataProcessor initialisiert",
@@ -135,7 +137,6 @@ class MetadataProcessor(BaseProcessor):
             MetadataResponse: Antwort mit extrahierten Metadaten oder Fehlerinformationen
         """
         start_time: datetime = datetime.now(timezone.utc)
-        llm_info = LLMInfo(model=self.transformer.model, purpose="metadata-extraction")
         cache_hit = False
         
         try:
@@ -156,10 +157,8 @@ class MetadataProcessor(BaseProcessor):
             content_metadata = None
             if content is not None and self.features.content_enabled:
                 try:
-                    content_llm_info, content_metadata = await self.extract_content_metadata(content, context, use_cache)
-                    if content_llm_info and content_llm_info.requests:
-                        llm_info.add_request(content_llm_info.requests)
-                        
+                    content_metadata     = await self.extract_content_metadata(content, context, use_cache)
+
                 except Exception as e:
                     if self.logger:
                         self.logger.error("Fehler bei der Content-Metadaten-Extraktion", error=e)
@@ -183,7 +182,7 @@ class MetadataProcessor(BaseProcessor):
             self.logger.info(f"Metadaten-Extraktion abgeschlossen (Cache-Hit: {cache_hit})",
                            duration_ms=float((end_time - start_time).total_seconds() * 1000))
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name="metadata",
                 result=MetadataData(
                     technical=technical_metadata,
@@ -191,8 +190,8 @@ class MetadataProcessor(BaseProcessor):
                 ),
                 request_info=request_info,
                 response_class=MetadataResponse,
-                llm_info=llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
         except Exception as e:
@@ -214,7 +213,7 @@ class MetadataProcessor(BaseProcessor):
             
             # Error-Response mit ResponseFactory
             end_time = datetime.now(timezone.utc)
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name="metadata",
                 result=MetadataData(
                     technical=TechnicalMetadata(
@@ -236,8 +235,8 @@ class MetadataProcessor(BaseProcessor):
                 },
                 response_class=MetadataResponse,
                 error=error_info,
-                llm_info=llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
     async def extract_technical_metadata(self, file_path: Union[str, Path, FileStorage, BinaryIO]) -> TechnicalMetadata:
@@ -440,7 +439,7 @@ class MetadataProcessor(BaseProcessor):
         content: str,
         context: Optional[Dict[str, Any]] = None,
         use_cache: bool = True
-    ) -> Tuple[LLMInfo, ContentMetadata]:
+    ) -> ContentMetadata:
         """Extrahiert inhaltliche Metadaten aus einem Text.
         
         Args:
@@ -449,21 +448,16 @@ class MetadataProcessor(BaseProcessor):
             use_cache: Ob der Cache verwendet werden soll (Standard: True)
             
         Returns:
-            Tuple[LLMInfo, ContentMetadata]: LLM-Nutzungsinformationen und extrahierte Metadaten
+            ContentMetadata: Die extrahierten Metadaten
         """
         if not content:
-            return LLMInfo(model=self.transformer.model, purpose="content-metadata-extraction"), ContentMetadata()
+            return ContentMetadata()
             
         try:
             self.logger.info("Starte inhaltliche Metadaten-Extraktion",
                            content_length=len(content),
                            context_keys=list(context.keys()) if context else None)
             
-            # LLMInfo für Content-Analyse initialisieren
-            llm_info = LLMInfo(
-                model=self.transformer.model,
-                purpose="content-metadata-extraction"
-            )
             
             # Template-Transformation mit Metadaten-Template durchführen
             self.logger.info(f"Führe Template-Transformation durch (use_cache={use_cache})")
@@ -477,26 +471,10 @@ class MetadataProcessor(BaseProcessor):
                 use_cache=use_cache
             )
 
-            # Cache-Status prüfen und loggen
-            cache_hit = False
-            # Prüfe, ob llm_info leer ist (ein Indikator für Cache-Hit)
-            if transform_result.process and transform_result.process.llm_info:
-                if not transform_result.process.llm_info.requests:
-                    cache_hit = True
-                    self.logger.info("Cache-Hit: Metadaten erfolgreich aus Cache geladen")
-            else:
-                # Wenn keine LLM-Info vorhanden ist, nehmen wir an, dass es ein Cache-Hit ist
-                cache_hit = True
-                self.logger.info("Cache-Hit: Metadaten erfolgreich aus Cache geladen")
-
             if transform_result.error:
                 raise ContentExtractionError(
                     f"Fehler bei der Template-Transformation: {transform_result.error.message if transform_result.error else 'Unbekannter Fehler'}"
                 )
-
-            # LLM-Info aus der Transformation übernehmen
-            if transform_result.process and transform_result.process.llm_info:
-                llm_info.add_request(transform_result.process.llm_info.requests)
 
             # Strukturierte Daten aus der Transformation verwenden
             # Es wird immer eine TransformerResponse zurückgegeben, auch bei Cache-Hits
@@ -529,12 +507,7 @@ class MetadataProcessor(BaseProcessor):
                 modified=datetime.now(timezone.utc).isoformat()
             )
             
-            self.logger.info(f"Content-Metadaten erfolgreich extrahiert (Cache-Hit: {cache_hit})",
-                           llm_requests=len(llm_info.requests),
-                           total_tokens=llm_info.total_tokens,
-                           total_duration=llm_info.total_duration)
-            
-            return llm_info, content_metadata
+            return content_metadata
             
         except Exception as e:
             error_msg = f"Fehler bei der inhaltlichen Metadaten-Extraktion: {str(e)}"

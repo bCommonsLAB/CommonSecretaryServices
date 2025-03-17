@@ -2,18 +2,25 @@
 Transformer-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Protocol
 
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus, OutputFormat
 from .llm import LLMInfo, LLMRequest, LLModel
 
+class CacheableResult(Protocol):
+    """Protokoll für Cache-fähige Ergebnisse."""
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        ...
 
 @dataclass(frozen=True)
 class TemplateField:
     """Definiert die Felder eines Templates"""
     description: str
     max_length: int = 5000
+    isFrontmatter: bool = False
     default: Optional[str] = None
 
 @dataclass(frozen=True)
@@ -90,7 +97,7 @@ class TranslationResult:
         }
 
 @dataclass
-class TransformationResult:
+class TransformationResult(CacheableResult):
     """
     Ergebnis einer Transformation.
     
@@ -98,16 +105,21 @@ class TransformationResult:
         text: Der transformierte Text
         target_language: Die Zielsprache
         structured_data: Optionale strukturierte Daten
-        requests: Liste der LLM-Requests (nur bei direkter Verarbeitung, nicht bei Cache-Treffern)
-        llms: Liste der verwendeten LLM-Modelle (nur bei direkter Verarbeitung)
-        llm_info: LLM-Informationen für die Transformation (nur bei direkter Verarbeitung)
+        requests: Liste der LLM-Requests
+        llms: Liste der verwendeten LLM-Modelle
+        is_from_cache: Ob das Ergebnis aus dem Cache stammt
     """
     text: str
     target_language: str
     structured_data: Optional[Any] = None
     requests: Optional[List[LLMRequest]] = None
-    llms: List[LLModel] = field(default_factory=list)  # Liste der verwendeten LLM-Modelle
-    llm_info: Optional[LLMInfo] = None  # LLM-Informationen für die Transformation
+    llms: List[LLModel] = field(default_factory=list)
+    is_from_cache: bool = False
+    
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.text else ProcessingStatus.ERROR
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -124,9 +136,6 @@ class TransformationResult:
             
         if self.llms:
             result["llms"] = [l.to_dict() for l in self.llms]
-            
-        if self.llm_info:
-            result["llm_info"] = self.llm_info.to_dict()
             
         return result
     

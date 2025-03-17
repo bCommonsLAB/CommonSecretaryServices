@@ -49,6 +49,7 @@ session_input = cast(ModelType, session_ns.model('SessionInput', {  # type: igno
     'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
     'source_language': fields.String(required=False, default='en', description='Quellsprache'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache'),
+    'target': fields.String(required=False, description='Zielgruppe der Session'),
     'template': fields.String(required=False, default='Session', description='Name des Templates für die Markdown-Generierung')
 }))
 
@@ -138,6 +139,7 @@ class SessionProcessEndpoint(Resource):
             attachments_url = data.get('attachments_url')
             source_language = data.get('source_language', 'en')
             target_language = data.get('target_language', 'de')
+            target = data.get('target') 
             template = data.get('template', 'Session')
             use_cache = data.get('use_cache', True)
             
@@ -160,6 +162,7 @@ class SessionProcessEndpoint(Resource):
                 attachments_url=attachments_url,
                 source_language=source_language,
                 target_language=target_language,
+                target=target,
                 template=template,
                 use_cache=use_cache
             ))

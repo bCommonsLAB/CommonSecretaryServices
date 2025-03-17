@@ -7,9 +7,9 @@ cache:
     enabled: true
     ttl_days: 30
 
-event_worker:
+session_worker:
   active: true
-  max_concurrent: 5
+  max_concurrent: 1
   poll_interval_sec: 5
 
 logging:

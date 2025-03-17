@@ -4,173 +4,244 @@ Track-Prozessor für die Verarbeitung von Event-Tracks.
 from datetime import datetime
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, cast, TypeVar
+import traceback
+from contextlib import nullcontext
+import time
 
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
 from src.core.config import Config
-from src.core.exceptions import ValidationError
+from src.core.exceptions import ProcessingError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
-from src.core.models.llm import LLMInfo, LLMRequest
-from src.core.models.response_factory import ResponseFactory
 from src.core.models.track import TrackInput, TrackOutput, TrackData, TrackResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.session import SessionData, SessionInput, SessionOutput
+from src.core.models.enums import ProcessingStatus
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.processor_cache import ProcessorCache
-from .base_processor import BaseProcessor
+from src.utils.performance_tracker import get_performance_tracker
 from .transformer_processor import TransformerProcessor
+from .cacheable_processor import CacheableProcessor
 
-class CacheableTrackResponse(TrackResponse):
+# Typ-Variablen für Dictionary-Zugriffe
+T = TypeVar('T')
+
+def safe_get(d: Dict[str, Any], key: str, default: T) -> T:
+    """Sicherer Dictionary-Zugriff mit Typ-Konvertierung."""
+    value = d.get(key, default)
+    return cast(T, value)
+
+# Konstanten für ProcessorType
+PROCESSOR_TYPE_TRACK = "track"
+
+# Typ-Definitionen für Dictionary-Zugriffe
+class SessionInputDict(TypedDict, total=False):
+    event: str
+    session: str
+    url: str
+    filename: str
+    track: str
+    day: Optional[str]
+    starttime: Optional[str]
+    endtime: Optional[str]
+    speakers: List[str]
+    video_url: Optional[str]
+    attachments_url: Optional[str]
+    source_language: str
+    target_language: str
+    target: Optional[str]
+    template: str
+
+class SessionOutputDict(TypedDict, total=False):
+    target_dir: str
+    web_text: str
+    video_transcript: str
+    attachments_text: str
+    markdown_file: str
+    markdown_content: str
+    video_file: Optional[str]
+    attachments_url: Optional[str]
+    attachments: List[str]
+    structured_data: Dict[str, Any]
+
+class SessionDict(TypedDict, total=False):
+    input: SessionInputDict
+    output: SessionOutputDict
+
+class TrackProcessingResult:
     """
-    Eine cacheable Version der TrackResponse, die das CacheableResult-Protokoll implementiert.
+    Ergebnisstruktur für die Track-Verarbeitung.
+    Wird für Caching verwendet.
     """
     
+    def __init__(
+        self,
+        track_name: str,
+        template: str,
+        target_language: str,
+        summary: str,
+        metadata: Dict[str, Any],
+        structured_data: Dict[str, Any],
+        sessions: List[SessionData],
+        process_id: Optional[str] = None
+    ):
+        self.track_name = track_name
+        self.template = template
+        self.target_language = target_language
+        self.summary = summary
+        self.metadata = metadata
+        self.structured_data = structured_data
+        self.sessions = sessions
+        self.process_id = process_id
+        
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.summary else ProcessingStatus.ERROR
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Ergebnis in ein Dictionary."""
+        return {
+            "track_name": self.track_name,
+            "template": self.template,
+            "target_language": self.target_language,
+            "summary": self.summary,
+            "metadata": self.metadata,
+            "structured_data": self.structured_data,
+            "sessions": [s.to_dict() for s in self.sessions],
+            "process_id": self.process_id
+        }
+    
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CacheableTrackResponse':
-        """
-        Erstellt eine CacheableTrackResponse aus einem Dictionary.
+    def from_dict(cls, data: Dict[str, Any]) -> 'TrackProcessingResult':
+        """Erstellt ein TrackProcessingResult aus einem Dictionary."""
+        sessions_data: List[Dict[str, Any]] = safe_get(data, "sessions", cast(List[Dict[str, Any]], []))
+        sessions: List[SessionData] = []
         
-        Args:
-            data: Dictionary mit den Daten
+        for session_dict in sessions_data:
+            # Extrahiere und validiere Input-Daten
+            input_data: Dict[str, Any] = safe_get(session_dict, "input", cast(Dict[str, Any], {}))
+            session_input = SessionInput(
+                event=str(safe_get(input_data, "event", "")),
+                session=str(safe_get(input_data, "session", "")),
+                url=str(safe_get(input_data, "url", "")),
+                filename=str(safe_get(input_data, "filename", "")),
+                track=str(safe_get(input_data, "track", "")),
+                day=str(safe_get(input_data, "day", "")) if safe_get(input_data, "day", None) else None,
+                starttime=str(safe_get(input_data, "starttime", "")) if safe_get(input_data, "starttime", None) else None,
+                endtime=str(safe_get(input_data, "endtime", "")) if safe_get(input_data, "endtime", None) else None,
+                speakers=list(safe_get(input_data, "speakers", [])),  # type: ignore
+                video_url=str(safe_get(input_data, "video_url", "")) if safe_get(input_data, "video_url", None) else None,
+                attachments_url=str(safe_get(input_data, "attachments_url", "")) if safe_get(input_data, "attachments_url", None) else None,
+                source_language=str(safe_get(input_data, "source_language", "en")),
+                target_language=str(safe_get(input_data, "target_language", "de")),
+                target=str(safe_get(input_data, "target", "")) if safe_get(input_data, "target", None) else None,
+                template=str(safe_get(input_data, "template", "Session"))
+            )
             
+            # Extrahiere und validiere Output-Daten
+            output_data: SessionOutputDict = safe_get(session_dict, "output", cast(SessionOutputDict, {}))  # type: ignore
+            session_output = SessionOutput(
+                input_data=session_input,
+                target_dir=str(safe_get(output_data, "target_dir", "")),  # type: ignore
+                web_text=str(safe_get(output_data, "web_text", "")),  # type: ignore
+                video_transcript=str(safe_get(output_data, "video_transcript", "")),  # type: ignore
+                attachments_text=str(safe_get(output_data, "attachments_text", "")),  # type: ignore
+                markdown_file=str(safe_get(output_data, "markdown_file", "")),  # type: ignore
+                markdown_content=str(safe_get(output_data, "markdown_content", "")),  # type: ignore
+                video_file=str(safe_get(output_data, "video_file", "")) if safe_get(output_data, "video_file", None) else None,  # type: ignore
+                attachments_url=str(safe_get(output_data, "attachments_url", "")) if safe_get(output_data, "attachments_url", None) else None,  # type: ignore
+                attachments=list(safe_get(output_data, "attachments", [])),  # type: ignore
+                structured_data=dict(safe_get(output_data, "structured_data", {}))  # type: ignore
+            )
+            
+            sessions.append(SessionData(input=session_input, output=session_output))
+        
+        return cls(
+            track_name=str(safe_get(data, "track_name", "")),
+            template=str(safe_get(data, "template", "")),
+            target_language=str(safe_get(data, "target_language", "")),
+            summary=str(safe_get(data, "summary", "")),
+            metadata=dict(safe_get(data, "metadata", {})), # type: ignore
+            structured_data=dict(safe_get(data, "structured_data", {})), # type: ignore
+            sessions=sessions,
+            process_id=str(safe_get(data, "process_id", "")) if safe_get(data, "process_id", None) else None
+        )
+    
+    def to_track_response(self) -> TrackResponse:
+        """
+        Konvertiert das Ergebnis in eine TrackResponse.
+        
         Returns:
-            CacheableTrackResponse: Die erstellte Response
+            TrackResponse: Die generierte Response
         """
-        # Erstelle RequestInfo
-        request_data = data.get('request', {})
+        # Track-Input erstellen
+        track_input = TrackInput(
+            track_name=self.track_name,
+            template=self.template,
+            target_language=self.target_language
+        )
+        
+        # Track-Output erstellen
+        track_output = TrackOutput(
+            summary=self.summary,
+            metadata=self.metadata,
+            structured_data=self.structured_data
+        )
+        
+        # Track-Data erstellen
+        track_data = TrackData(
+            input=track_input,
+            output=track_output,
+            sessions=self.sessions,
+            session_count=len(self.sessions),
+            query="",  # Wird nicht im Cache gespeichert
+            context={}  # Wird nicht im Cache gespeichert
+        )
+        
+        # Request-Info erstellen
         request = RequestInfo(
-            processor=request_data.get('processor', ''),
-            timestamp=request_data.get('timestamp', ''),
-            parameters=request_data.get('parameters', {})
+            processor=PROCESSOR_TYPE_TRACK,
+            timestamp=datetime.now().isoformat(),
+            parameters={
+                "track_name": self.track_name,
+                "template": self.template,
+                "target_language": self.target_language
+            }
         )
         
-        # Erstelle ProcessInfo
-        process_data = data.get('process', {})
+        # Process-Info erstellen
         process = ProcessInfo(
-            id=process_data.get('id', ''),
-            main_processor=process_data.get('main_processor', ''),
-            started=process_data.get('started', ''),
-            sub_processors=process_data.get('sub_processors', []),
-            completed=process_data.get('completed'),
-            duration=process_data.get('duration')
+            id=self.process_id or "",
+            main_processor=PROCESSOR_TYPE_TRACK,
+            started=datetime.now().isoformat(),
+            sub_processors=[],
+            completed=None,
+            duration=None
         )
         
-        # LLM-Info hinzufügen, falls vorhanden
-        llm_info_data = process_data.get('llm_info')
-        if llm_info_data:
-            # Erstelle LLM-Requests
-            llm_requests: List[LLMRequest] = []
-            if 'requests' in llm_info_data:
-                for req_data in llm_info_data.get('requests', []):
-                    llm_requests.append(LLMRequest(
-                        model=req_data.get('model', ''),
-                        purpose=req_data.get('purpose', ''),
-                        tokens=req_data.get('tokens', 1),
-                        duration=req_data.get('duration', 0)
-                    ))
-            
-            # Erstelle LLM-Info mit Requests
-            llm_info = LLMInfo(
-                model=llm_info_data.get('model', ''),
-                purpose=llm_info_data.get('purpose', ''),
-                requests=llm_requests
-            )
-            process.llm_info = llm_info
-        
-        # Erstelle TrackData, falls vorhanden
-        track_data = None
-        if 'data' in data and data['data']:
-            data_dict = data['data']
-            
-            # Input
-            input_dict = data_dict.get('input', {})
-            track_input = TrackInput(
-                track_name=input_dict.get('track_name', ''),
-                template=input_dict.get('template', ''),
-                target_language=input_dict.get('target_language', '')
-            )
-            
-            # Output
-            output_dict = data_dict.get('output', {})
-            track_output = TrackOutput(
-                summary=output_dict.get('summary', ''),
-                metadata=output_dict.get('metadata', {}),
-                structured_data=output_dict.get('structured_data', {})
-            )
-            
-            # Sessions (vorher Events)
-            sessions_list: List[SessionData] = []
-            for session_dict in data_dict.get('sessions', []):
-                session_input_dict = session_dict.get('input', {})
-                session_input = SessionInput(
-                    event=session_input_dict.get('event', ''),
-                    session=session_input_dict.get('session', ''),
-                    url=session_input_dict.get('url', ''),
-                    filename=session_input_dict.get('filename', ''),
-                    track=session_input_dict.get('track', ''),
-                    day=session_input_dict.get('day'),
-                    starttime=session_input_dict.get('starttime'),
-                    endtime=session_input_dict.get('endtime'),
-                    speakers=session_input_dict.get('speakers', []),
-                    video_url=session_input_dict.get('video_url'),
-                    attachments_url=session_input_dict.get('attachments_url'),
-                    source_language=session_input_dict.get('source_language', 'en'),
-                    target_language=session_input_dict.get('target_language', 'de')
-                )
-                
-                session_output_dict = session_dict.get('output', {})
-                session_output = SessionOutput(
-                    web_text=session_output_dict.get('web_text', ''),
-                    video_transcript=session_output_dict.get('video_transcript', ''),
-                    context=session_output_dict.get('context', {}),
-                    markdown_file=session_output_dict.get('markdown_file', ''),
-                    markdown_content=session_output_dict.get('markdown_content', ''),
-                    video_file=session_output_dict.get('video_file'),
-                    attachments_url=session_output_dict.get('attachments_url'),
-                    attachments=session_output_dict.get('attachments', []),
-                    attachments_text=session_output_dict.get('attachments_text', '')
-                )
-                
-                sessions_list.append(SessionData(input=session_input, output=session_output))
-            
-            track_data = TrackData(
-                input=track_input,
-                output=track_output,
-                sessions=sessions_list,
-                session_count=len(sessions_list),
-                query=data_dict.get('query', ''),
-                context=data_dict.get('context', {})
-            )
-        
-        # Erstelle Error, falls vorhanden
-        error = None
-        if 'error' in data and data['error']:
-            error_dict = data['error']
-            error = ErrorInfo(
-                code=error_dict.get('code', ''),
-                message=error_dict.get('message', ''),
-                details=error_dict.get('details', {})
-            )
-        
-        # Erstelle die Response
-        response = cls.__new__(cls)
-        object.__setattr__(response, 'request', request)
-        object.__setattr__(response, 'process', process)
-        object.__setattr__(response, 'status', data.get('status', 'success'))
-        object.__setattr__(response, 'error', error)
-        object.__setattr__(response, 'data', track_data)
+        # Response erstellen
+        response = TrackResponse(
+            request=request,
+            process=process,
+            status=ProcessingStatus.SUCCESS,
+            error=None,
+            data=track_data
+        )
         
         return response
 
-
-class TrackProcessor(BaseProcessor):
+class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
     """
     Prozessor für die Verarbeitung von Event-Tracks.
     Erstellt eine Zusammenfassung für einen Track basierend auf den zugehörigen Sessions.
     """
+    
+    # Name der Cache-Collection für MongoDB
+    cache_collection_name = "track_cache"
     
     def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
         """
@@ -190,7 +261,11 @@ class TrackProcessor(BaseProcessor):
             self._init_mongodb(track_config)
             
             # Initialisiere Sub-Prozessoren
-            self.transformer_processor = TransformerProcessor(resource_calculator, process_id)
+            self.transformer_processor = TransformerProcessor(
+                resource_calculator, 
+                process_id,
+                parent_process_info=self.process_info
+            )
             
             # Basis-Verzeichnis für Sessions (vorher Events)
             app_config = Config()
@@ -198,7 +273,7 @@ class TrackProcessor(BaseProcessor):
             self.base_dir.mkdir(parents=True, exist_ok=True)
             
             # Initialisiere Cache
-            self.cache = ProcessorCache[CacheableTrackResponse]("track")
+            self.cache = ProcessorCache[TrackProcessingResult](str(self.cache_collection_name))
             
             self.logger.info("Track Processor initialisiert")
             
@@ -303,15 +378,15 @@ class TrackProcessor(BaseProcessor):
                 
                 # SessionOutput-Objekt erstellen
                 session_output = SessionOutput(
+                    input_data=session_input,
+                    target_dir=str(results.get('target_dir', '')),  # type: ignore
                     web_text=results.get('web_text', ''),
                     video_transcript=results.get('video_transcript', ''),
-                    context=results.get('context', {}),
                     markdown_file=results.get('markdown_file', ''),
                     markdown_content=results.get('markdown_content', ''),
                     video_file=results.get('video_file'),
                     attachments_url=results.get('attachments_url'),
-                    attachments=results.get('assets', []),
-                    attachments_text=results.get('attachments_text', '')
+                    attachments=results.get('assets', [])
                 )
                 
                 # SessionData aus SessionInput und SessionOutput erstellen
@@ -399,7 +474,7 @@ class TrackProcessor(BaseProcessor):
     def _check_cache(
         self,
         cache_key: str
-    ) -> Optional[Tuple[TrackResponse, Dict[str, Any]]]:
+    ) -> Optional[Tuple[TrackProcessingResult, Dict[str, Any]]]:
         """
         Prüft, ob ein Cache-Eintrag für die Track-Verarbeitung existiert.
         
@@ -407,13 +482,13 @@ class TrackProcessor(BaseProcessor):
             cache_key: Der Cache-Schlüssel
             
         Returns:
-            Optional[Tuple[TrackResponse, Dict[str, Any]]]: 
+            Optional[Tuple[TrackProcessingResult, Dict[str, Any]]]: 
                 Das geladene Ergebnis und Metadaten oder None
         """
         # Prüfe Cache
         cache_result = self.cache.load_cache_with_key(
             cache_key=cache_key,
-            result_class=CacheableTrackResponse
+            result_class=TrackProcessingResult
         )
         
         if cache_result:
@@ -426,7 +501,7 @@ class TrackProcessor(BaseProcessor):
     def _save_to_cache(
         self,
         cache_key: str,
-        response: TrackResponse,
+        result: TrackProcessingResult,
         track_name: str,
         template: str,
         target_language: str
@@ -436,7 +511,7 @@ class TrackProcessor(BaseProcessor):
         
         Args:
             cache_key: Der Cache-Schlüssel
-            response: Die zu speichernde Response
+            result: Das zu speichernde Ergebnis
             track_name: Name des Tracks
             template: Name des Templates
             target_language: Zielsprache
@@ -449,13 +524,10 @@ class TrackProcessor(BaseProcessor):
             'process_id': self.process_id
         }
         
-        # Konvertiere zu CacheableTrackResponse
-        cacheable_response = cast(CacheableTrackResponse, response)
-        
         # Speichere im Cache
         self.cache.save_cache_with_key(
             cache_key=cache_key,
-            result=cacheable_response,
+            result=result,
             metadata=metadata
         )
         
@@ -481,151 +553,183 @@ class TrackProcessor(BaseProcessor):
         Returns:
             TrackResponse: Die Zusammenfassung des Tracks
         """
+        # Performance Tracking initialisieren
+        tracker = get_performance_tracker()
+        start_time = time.time()
+        
         try:
-            # Eingabedaten validieren
-            track_name = self.validate_text(track_name, "track_name")
-            template = self.validate_text(template, "template")
-            target_language = self.validate_language_code(target_language, "target_language")
-            
-            # Cache-Key generieren
-            cache_key = self._generate_cache_key(
-                track_name=track_name,
-                template=template,
-                target_language=target_language
-            )
-            
-            # Cache prüfen, wenn aktiviert
-            if use_cache:
-                cache_result = self._check_cache(cache_key)
-                if cache_result:
-                    response, _ = cache_result
-                    self.logger.info("Track-Zusammenfassung aus Cache geladen", 
-                                   track_name=track_name)
-                    return response
-            
-            # LLM-Tracking initialisieren
-            llm_info = LLMInfo(model="gpt-4", purpose="track-summary")
-            
-            # Request-Info erstellen
-            request_info = {
-                "track_name": track_name,
-                "template": template,
-                "target_language": target_language
-            }
-            
-            # Sessions holen (vorher Events)
-            sessions: List[SessionData] = await self.get_track_sessions(track_name)
-            
-            if not sessions:
-                raise ValidationError(f"Keine Sessions für Track '{track_name}' gefunden")
-            
-            # Event-Name aus der ersten Session extrahieren
-            event_name = sessions[0].input.event if sessions else "Unknown Event"
-            
-            # Markdown-Inhalte der Sessions zusammenführen
-            all_markdown = self._merge_session_markdowns(sessions)
-            
-            # Kontext aus allen Sessions erstellen
-            context = self._create_context_from_sessions(sessions)
-            
-            # Template-Transformation durchführen
-            transform_result: TransformerResponse = self.transformer_processor.transformByTemplate(
-                source_text=all_markdown,
-                source_language=target_language,  # Wir nehmen an, dass die Markdown-Dateien bereits in Zielsprache sind
-                target_language=target_language,
-                template=template,
-                context=context
-            )
-            
-            # LLM-Informationen hinzufügen
-            if transform_result.process and transform_result.process.llm_info:
-                llm_info.add_request(transform_result.process.llm_info.requests)
-            
-            # Ausgabedaten erstellen
-            summary = ""
-            structured_data: Dict[str, Any] = {}
-            
-            if transform_result.data and transform_result.data.output:
-                summary = getattr(transform_result.data.output, 'text', "")
-                if hasattr(transform_result.data.output, 'structured_data'):
-                    structured_data = transform_result.data.output.structured_data or {}
-            
-            # Stelle sicher, dass summary ein String ist
-            if summary is None:
+            with tracker.measure_operation('create_track_summary', 'track') if tracker else nullcontext():
+                self.logger.info("Starte Track-Zusammenfassung", 
+                               track_name=track_name,
+                               template=template,
+                               target_language=target_language)
+                
+                # Eingabedaten validieren
+                track_name = self.validate_text(track_name, "track_name")
+                template = self.validate_text(template, "template")
+                target_language = self.validate_language_code(target_language, "target_language")
+                
+                # Cache-Key generieren
+                cache_key = self._generate_cache_key(
+                    track_name=track_name,
+                    template=template,
+                    target_language=target_language
+                )
+                
+                # Cache prüfen, wenn aktiviert
+                if use_cache:
+                    cache_result = self._check_cache(cache_key)
+                    if cache_result:
+                        result, _ = cache_result
+                        self.logger.info("Track-Zusammenfassung aus Cache geladen", 
+                                       track_name=track_name,
+                                       cache_key=cache_key,
+                                       processing_time=time.time() - start_time)
+                        return result.to_track_response()
+                
+                # Request-Info erstellen
+                request_info = {
+                    "track_name": track_name,
+                    "template": template,
+                    "target_language": target_language
+                }
+                
+                # Sessions holen (vorher Events)
+                with tracker.measure_operation('get_track_sessions', 'track') if tracker else nullcontext():
+                    sessions: List[SessionData] = await self.get_track_sessions(track_name)
+                
+                if not sessions:
+                    raise ProcessingError(f"Keine Sessions für Track '{track_name}' gefunden")
+                
+                # Event-Name aus der ersten Session extrahieren
+                event_name = sessions[0].input.event if sessions else "Unknown Event"
+                
+                # Markdown-Inhalte der Sessions zusammenführen
+                with tracker.measure_operation('merge_session_markdowns', 'track') if tracker else nullcontext():
+                    all_markdown = self._merge_session_markdowns(sessions)
+                
+                # Kontext aus allen Sessions erstellen
+                with tracker.measure_operation('create_context', 'track') if tracker else nullcontext():
+                    context = self._create_context_from_sessions(sessions)
+                
+                # Template-Transformation durchführen
+                with tracker.measure_operation('transform_template', 'track') if tracker else nullcontext():
+                    transform_result: TransformerResponse = self.transformer_processor.transformByTemplate(
+                        source_text=all_markdown,
+                        source_language=target_language,  # Wir nehmen an, dass die Markdown-Dateien bereits in Zielsprache sind
+                        target_language=target_language,
+                        template=template,
+                        context=context
+                    )
+                
+                # Ausgabedaten erstellen
                 summary = ""
-            
-            # Zusammenfassung in Datei speichern
-            summary_file_path = self._save_track_summary(event_name, track_name, summary)
-            
-            # Metadaten erstellen
-            metadata = {
-                "track": track_name,
-                "event": event_name,
-                "sessions_count": len(sessions),
-                "generated_at": datetime.now().isoformat(),
-                "template": template,
-                "language": target_language,
-                "summary_file": summary_file_path
-            }
-            
-            # TrackData erstellen
-            track_input = TrackInput(
-                track_name=track_name,
-                template=template,
-                target_language=target_language
-            )
-            
-            track_output = TrackOutput(
-                summary=summary,
-                metadata=metadata,
-                structured_data=structured_data
-            )
-            
-            # Optimierte Sessions-Liste erstellen (ohne große Textinhalte)
-            optimized_sessions = self._create_optimized_sessions(sessions)
-            
-            track_data = TrackData(
-                input=track_input,
-                output=track_output,
-                sessions=optimized_sessions,
-                session_count=len(sessions),
-                query=all_markdown,
-                context=context
-            )
-            
-            # Response erstellen
-            response: TrackResponse = ResponseFactory.create_response(
-                processor_name="track",
-                result=track_data,
-                request_info=request_info,
-                response_class=TrackResponse,
-                llm_info=llm_info,
-                from_cache=False
-            )
-            
-            # Im Cache immer speichern, unabhängig vom Parameter use_cache
-            self._save_to_cache(
-                cache_key=cache_key,
-                response=response,
-                track_name=track_name,
-                template=template,
-                target_language=target_language
-            )
-            
-            return response
-            
+                structured_data: Dict[str, Any] = {}
+                
+                if transform_result.data and transform_result.data.output:
+                    summary = getattr(transform_result.data.output, 'text', "")
+                    if hasattr(transform_result.data.output, 'structured_data'):
+                        structured_data = transform_result.data.output.structured_data or {}
+                
+                # Stelle sicher, dass summary ein String ist
+                if summary is None:
+                    summary = ""
+                
+                # Zusammenfassung in Datei speichern
+                with tracker.measure_operation('save_summary', 'track') if tracker else nullcontext():
+                    summary_file_path = self._save_track_summary(event_name, track_name, summary)
+                
+                # Metadaten erstellen
+                metadata = {
+                    "track": track_name,
+                    "event": event_name,
+                    "sessions_count": len(sessions),
+                    "generated_at": datetime.now().isoformat(),
+                    "template": template,
+                    "language": target_language,
+                    "summary_file": summary_file_path
+                }
+                
+                # Optimierte Sessions-Liste erstellen (ohne große Textinhalte)
+                with tracker.measure_operation('optimize_sessions', 'track') if tracker else nullcontext():
+                    optimized_sessions = self._create_optimized_sessions(sessions)
+                
+                # TrackData erstellen
+                track_input = TrackInput(
+                    track_name=track_name,
+                    template=template,
+                    target_language=target_language
+                )
+                
+                track_output = TrackOutput(
+                    summary=summary,
+                    metadata=metadata,
+                    structured_data=structured_data
+                )
+                
+                track_data = TrackData(
+                    input=track_input,
+                    output=track_output,
+                    sessions=optimized_sessions,
+                    session_count=len(sessions),
+                    query=all_markdown,
+                    context=context
+                )
+                
+                # Response erstellen
+                response: TrackResponse = self.create_response(
+                    processor_name=PROCESSOR_TYPE_TRACK,
+                    result=track_data,
+                    request_info=request_info,
+                    response_class=TrackResponse,
+                    from_cache=False,
+                    cache_key=cache_key
+                )
+                
+                # Im Cache speichern
+                self._save_to_cache(
+                    cache_key=cache_key,
+                    result=TrackProcessingResult(
+                        track_name=track_name,
+                        template=template,
+                        target_language=target_language,
+                        summary=summary,
+                        metadata=metadata,
+                        structured_data=structured_data,
+                        sessions=optimized_sessions,
+                        process_id=self.process_id
+                    ),
+                    track_name=track_name,
+                    template=template,
+                    target_language=target_language
+                )
+                
+                processing_time = time.time() - start_time
+                self.logger.info("Track-Zusammenfassung erstellt",
+                               track_name=track_name,
+                               processing_time=processing_time,
+                               sessions_count=len(sessions))
+                
+                return response
+                
         except Exception as e:
-            self.logger.error(f"Fehler bei der Track-Verarbeitung: {str(e)}")
-            
-            # Fehler-Response erstellen
             error_info = ErrorInfo(
-                code="track_processing_error",
-                message=f"Fehler bei der Verarbeitung des Tracks: {str(e)}",
-                details={"track_name": track_name}
+                code=type(e).__name__,
+                message=str(e),
+                details={
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc(),
+                    "track_name": track_name
+                }
             )
             
-            return ResponseFactory.create_response(
-                processor_name="track",
+            self.logger.error("Fehler bei der Track-Verarbeitung",
+                            error=e,
+                            track_name=track_name,
+                            traceback=traceback.format_exc())
+            
+            return self.create_response(
+                processor_name=PROCESSOR_TYPE_TRACK,
                 result=None,
                 request_info={
                     "track_name": track_name,
@@ -634,7 +738,8 @@ class TrackProcessor(BaseProcessor):
                 },
                 response_class=TrackResponse,
                 error=error_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
     
     def _merge_session_markdowns(self, sessions: List[SessionData]) -> str:
@@ -713,70 +818,181 @@ class TrackProcessor(BaseProcessor):
     
     def _create_optimized_sessions(self, sessions: List[SessionData]) -> List[SessionData]:
         """
-        Erstellt eine optimierte Liste von Sessions, die weniger Speicherplatz benötigt.
-        Entfernt große Textinhalte wie Transkripte und Web-Text.
+        Erstellt eine optimierte Version der Sessions-Liste.
+        Entfernt große Textinhalte, behält aber Metadaten.
         
         Args:
-            sessions: Liste der vollständigen Session-Daten
+            sessions: Die ursprüngliche Sessions-Liste
             
         Returns:
-            List[SessionData]: Liste der optimierten Session-Daten
+            List[SessionData]: Die optimierte Sessions-Liste
         """
         optimized_sessions: List[SessionData] = []
         
         for session in sessions:
-            # Input-Daten beibehalten
+            # Input-Daten bleiben unverändert
             session_input = session.input
             
             # Output-Daten optimieren
             # Erstelle ein neues SessionOutput-Objekt mit reduzierten Daten
             optimized_output = SessionOutput(
-                # Behalte nur die wichtigsten Metadaten
+                input_data=session_input,
+                target_dir=session.output.target_dir,
                 web_text="",  # Entferne den Web-Text
                 video_transcript="",  # Entferne das Transkript
-                attachments_text="",
-                context=self._optimize_context(session.output.context),  # Optimiere den Kontext
                 markdown_file=session.output.markdown_file,
                 markdown_content="",  # Entferne den Markdown-Inhalt
                 video_file=session.output.video_file,
                 attachments_url=session.output.attachments_url,
-                attachments=session.output.attachments
+                attachments=session.output.attachments,
+                structured_data=session.output.structured_data
             )
             
             # Erstelle ein neues SessionData-Objekt mit den optimierten Daten
-            optimized_session = SessionData(
-                input=session_input,
-                output=optimized_output
-            )
-            
-            optimized_sessions.append(optimized_session)
+            optimized_sessions.append(SessionData(input=session_input, output=optimized_output))
         
         return optimized_sessions
     
-    def _optimize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_specialized_indexes(self, collection: Any) -> None:
         """
-        Optimiert den Kontext einer Session, indem große Textinhalte entfernt werden.
+        Erstellt spezielle Indizes für die Track-Cache-Collection.
         
         Args:
-            context: Der vollständige Kontext
+            collection: Die MongoDB-Collection
+        """
+        try:
+            # Vorhandene Indizes abrufen
+            index_info = collection.index_information()
+            
+            # Indizes für häufige Suchfelder
+            index_fields = [
+                ("track_name", 1),
+                ("template", 1),
+                ("target_language", 1),
+                ("processed_at", 1),
+                ("event", 1)
+            ]
+            
+            # Indizes erstellen, wenn sie noch nicht existieren
+            for field, direction in index_fields:
+                index_name = f"{field}_{direction}"
+                if index_name not in index_info:
+                    collection.create_index([(field, direction)])
+                    self.logger.debug(f"{field}-Index erstellt")
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
+
+    def serialize_for_cache(self, result: TrackProcessingResult) -> Dict[str, Any]:
+        """
+        Serialisiert das TrackProcessingResult für die Speicherung im Cache.
+        
+        Args:
+            result: Das TrackProcessingResult
             
         Returns:
-            Dict[str, Any]: Der optimierte Kontext
+            Dict[str, Any]: Die serialisierten Daten
         """
-        if not context:
-            return {}
+        # Hauptdaten speichern
+        cache_data = {
+            "result": result.to_dict(),
+            "processed_at": datetime.now().isoformat(),
+            "track_name": result.track_name,
+            "template": result.template,
+            "target_language": result.target_language,
+            "sessions_count": len(result.sessions),
+            "metadata": {
+                "event": result.metadata.get("event", ""),
+                "track": result.metadata.get("track", ""),
+                "generated_at": result.metadata.get("generated_at", ""),
+                "summary_file": result.metadata.get("summary_file", "")
+            },
+            "structured_data": {
+                "topic": result.structured_data.get("topic", ""),
+                "relevance": result.structured_data.get("relevance", ""),
+                "keywords": result.structured_data.get("keywords", [])
+            }
+        }
+        return cache_data
+
+    def deserialize_cached_data(self, cached_data: Dict[str, Any]) -> TrackProcessingResult:
+        """
+        Deserialisiert die Cache-Daten zurück in ein TrackProcessingResult.
         
-        # Erstelle eine Kopie des Kontexts
-        optimized_context = context.copy()
+        Args:
+            cached_data: Die gespeicherten Cache-Daten
+            
+        Returns:
+            TrackProcessingResult: Das rekonstruierte Ergebnis
+        """
+        result_data = cached_data.get("result", {})
         
-        # Entferne große Textinhalte
-        if 'web_text' in optimized_context:
-            optimized_context['web_text'] = ""
+        # Validiere und konvertiere die Daten
+        track_name = str(safe_get(result_data, "track_name", ""))  # type: ignore
+        template = str(safe_get(result_data, "template", ""))  # type: ignore
+        target_language = str(safe_get(result_data, "target_language", ""))  # type: ignore
+        summary = str(safe_get(result_data, "summary", ""))  # type: ignore
         
-        if 'video_transcript' in optimized_context:
-            optimized_context['video_transcript'] = ""
+        # Explizite Typ-Definitionen für Dictionaries
+        metadata_dict: Dict[str, Any] = safe_get(result_data, "metadata", {})  # type: ignore
+        structured_data_dict: Dict[str, Any] = safe_get(result_data, "structured_data", {})  # type: ignore
         
-        if 'attachment_text' in optimized_context:
-            optimized_context['attachment_text'] = ""
+        # Sessions rekonstruieren
+        sessions: List[SessionData] = []
+        for session_dict in result_data.get("sessions", []):  # type: ignore
+            if isinstance(session_dict, dict):
+                try:
+                    # Input-Daten extrahieren und validieren
+                    input_dict = session_dict.get("input", {})  # type: ignore
+                    session_input = SessionInput(
+                        event=str(input_dict.get("event", "")),  # type: ignore
+                        session=str(input_dict.get("session", "")),  # type: ignore
+                        url=str(input_dict.get("url", "")),  # type: ignore
+                        filename=str(input_dict.get("filename", "")),  # type: ignore
+                        track=str(input_dict.get("track", "")),  # type: ignore
+                        day=str(input_dict.get("day", "")) if input_dict.get("day") else None,  # type: ignore
+                        starttime=str(input_dict.get("starttime", "")) if input_dict.get("starttime") else None,  # type: ignore
+                        endtime=str(input_dict.get("endtime", "")) if input_dict.get("endtime") else None,  # type: ignore
+                        speakers=list(input_dict.get("speakers", [])),  # type: ignore
+                        video_url=str(input_dict.get("video_url", "")) if input_dict.get("video_url") else None,  # type: ignore
+                        attachments_url=str(input_dict.get("attachments_url", "")) if input_dict.get("attachments_url") else None,  # type: ignore
+                        source_language=str(input_dict.get("source_language", "en")),  # type: ignore
+                        target_language=str(input_dict.get("target_language", "de")),  # type: ignore
+                        target=str(input_dict.get("target", "")) if input_dict.get("target") else None,  # type: ignore
+                        template=str(input_dict.get("template", "Session"))  # type: ignore
+                    )
+                    
+                    # Output-Daten extrahieren und validieren
+                    output_dict = session_dict.get("output", {})  # type: ignore
+                    session_output = SessionOutput(
+                        input_data=session_input,
+                        target_dir=str(output_dict.get("target_dir", "")),  # type: ignore
+                        web_text=str(output_dict.get("web_text", "")),  # type: ignore
+                        video_transcript=str(output_dict.get("video_transcript", "")),  # type: ignore
+                        attachments_text=str(output_dict.get("attachments_text", "")),  # type: ignore
+                        markdown_file=str(output_dict.get("markdown_file", "")),  # type: ignore
+                        markdown_content=str(output_dict.get("markdown_content", "")),  # type: ignore
+                        video_file=str(output_dict.get("video_file", "")) if output_dict.get("video_file") else None,  # type: ignore
+                        attachments_url=str(output_dict.get("attachments_url", "")) if output_dict.get("attachments_url") else None,  # type: ignore
+                        attachments=list(output_dict.get("attachments", [])),  # type: ignore
+                        structured_data=dict(output_dict.get("structured_data", {}))  # type: ignore
+                    )
+                    
+                    sessions.append(SessionData(input=session_input, output=session_output))
+                    
+                except Exception as e:
+                    self.logger.warning(f"Fehler beim Deserialisieren einer Session: {str(e)}")
+                    continue
         
-        return optimized_context 
+        process_id = str(safe_get(result_data, "process_id", "")) if safe_get(result_data, "process_id", None) else None  # type: ignore
+        
+        return TrackProcessingResult(
+            track_name=track_name,
+            template=template,
+            target_language=target_language,
+            summary=summary,
+            metadata=metadata_dict,
+            structured_data=structured_data_dict,
+            sessions=sessions,
+            process_id=process_id
+        )

@@ -4,9 +4,9 @@ Modelle für die Youtube-Verarbeitung.
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 
-from .base import BaseResponse, ProcessInfo, RequestInfo, ErrorInfo
-from .enums import ProcessingStatus
+from .base import BaseResponse, ProcessInfo, RequestInfo, ErrorInfo, ProcessingStatus
 from .audio import TranscriptionResult
+from src.processors.cacheable_processor import CacheableResult
 
 @dataclass(frozen=True)
 class YoutubeMetadata:
@@ -76,10 +76,9 @@ class YoutubeMetadata:
             'webpage_url': self.webpage_url
         }
 
-@dataclass(frozen=True)
-class YoutubeProcessingResult:
-    """
-    Ergebnis der Youtube-Verarbeitung.
+@dataclass
+class YoutubeProcessingResult(CacheableResult):
+    """Ergebnis der Youtube-Verarbeitung.
     
     Attributes:
         metadata: Metadaten des Videos
@@ -89,6 +88,11 @@ class YoutubeProcessingResult:
     metadata: YoutubeMetadata
     transcription: Optional[TranscriptionResult] = None
     process_id: Optional[str] = None
+
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.transcription else ProcessingStatus.ERROR
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""

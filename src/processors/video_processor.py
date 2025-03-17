@@ -43,7 +43,6 @@ from src.core.models.audio import AudioResponse
 from src.core.config import Config
 from src.core.models.base import ErrorInfo
 from src.core.models.enums import ProcessorType
-from src.core.models.llm import LLMInfo
 from src.core.models.video import (
     VideoSource,
     VideoMetadata,
@@ -52,8 +51,7 @@ from src.core.models.video import (
 )
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
-from src.core.models.response_factory import ResponseFactory
-
+from src.core.models.base import ProcessInfo
 from .cacheable_processor import CacheableProcessor
 from .transformer_processor import TransformerProcessor
 from .audio_processor import AudioProcessor
@@ -72,15 +70,16 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "video_cache"
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
         """
         Initialisiert den VideoProcessor.
         
         Args:
             resource_calculator: Calculator für Ressourcenverbrauch
             process_id: Process-ID für Tracking
+            parent_process_info: Optional ProcessInfo vom übergeordneten Prozessor
         """
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         # Lade Konfiguration
         config = Config()
@@ -97,7 +96,11 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                          cache_dir=str(self.cache_dir))
         
         # Initialisiere Prozessoren
-        self.transformer = TransformerProcessor(resource_calculator, process_id)
+        self.transformer = TransformerProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         
         # Initialisiere den Transcriber mit Video-spezifischen Konfigurationen
         transcriber_config = {
@@ -109,7 +112,11 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         }
         self.transcriber = WhisperTranscriber(transcriber_config)
         
-        self.audio_processor = AudioProcessor(resource_calculator, process_id)
+        self.audio_processor = AudioProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         
         # Download-Optionen
         self.ydl_opts = {
@@ -320,12 +327,6 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         audio_path: Optional[Path] = None
         temp_video_path: Optional[Path] = None  # Pfad für temporär gespeicherte Binärdaten
         
-        # Initialisiere LLM-Info
-        llm_info = LLMInfo(
-            model="video-processing",
-            purpose="video-processing"
-        )
-        
         try:
             # 1. Quelle validieren und Video-ID generieren
             if isinstance(source, str):
@@ -345,7 +346,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                     self.logger.info(f"Cache-Hit für Video: {cached_result.metadata.title}")
                     
                     # Response aus Cache erstellen
-                    response = ResponseFactory.create_response(
+                    response = self.create_response(
                         processor_name=ProcessorType.VIDEO.value,
                         result=cached_result,
                         request_info={
@@ -356,7 +357,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                         },
                         response_class=VideoResponse,
                         from_cache=True,  # Explizit True, da wir aus dem Cache lesen
-                        llm_info=None  # Keine LLM-Info bei Cache-Hit
+                        cache_key=cache_key
                     )
                     return response
                 
@@ -492,11 +493,6 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                                    audio_response_status=audio_response.status,
                                    error=audio_response.error.message if audio_response.error else "Kein Fehler")
             
-            # LLM-Requests aus Audio-Verarbeitung übernehmen
-            if audio_response.process.llm_info:
-                # Übernehme die LLM-Requests direkt
-                llm_info.add_request(audio_response.process.llm_info.requests)
-            
             # Erkannte Quellsprache aktualisieren
             if audio_response.data and audio_response.data.transcription:
                 if source_language == 'auto':
@@ -549,10 +545,8 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 )
                 self.logger.debug(f"Video-Ergebnis im MongoDB-Cache gespeichert: {cache_key}")
             
-            # 12. Response erstellen
-            self.logger.info(f"Verarbeitung abgeschlossen - Requests: {llm_info.requests_count}, Tokens: {llm_info.total_tokens}")
             
-            response: VideoResponse = ResponseFactory.create_response(
+            response: VideoResponse = self.create_response(
                 processor_name=ProcessorType.VIDEO.value,
                 result=result,
                 request_info={
@@ -565,8 +559,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 },
                 response_class=VideoResponse,
                 from_cache=False,  # Neue Berechnung, nicht aus dem Cache
-                llm_info=llm_info if llm_info.requests else None
-            )
+                cache_key=cache_key            )
             
             # Überprüfe die Response auf Vollständigkeit
             response_dict = response.to_dict()
@@ -613,7 +606,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             )
             
             # Fehler-Response erstellen
-            response: VideoResponse = ResponseFactory.create_response(
+            response: VideoResponse = self.create_response(
                 processor_name=ProcessorType.VIDEO.value,
                 result=result,
                 request_info={
@@ -624,7 +617,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 },
                 response_class=VideoResponse,
                 from_cache=False,  # Lese is_from_cache vom Ergebnisobjekt
-                llm_info=llm_info if llm_info.requests else None,
+                cache_key="",
                 error=error_info
             )
             return response

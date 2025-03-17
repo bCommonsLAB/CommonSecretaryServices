@@ -98,11 +98,10 @@ from src.core.models.audio import (
     AudioSegmentInfo,
     Chapter
 )
-from src.core.models.llm import LLModel, LLMRequest
-from src.core.models.response_factory import ResponseFactory
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.models.enums import ProcessorType
-from src.core.models.base import ProcessInfo, ProcessingLogger
+from src.core.models.base import ProcessInfo
+from src.utils.logger import ProcessingLogger
 from src.core.config import Config, ApplicationConfig
 
 try:
@@ -156,7 +155,6 @@ class WhisperTranscriberProtocol(Protocol):
 class TransformerProcessorProtocol(Protocol):
     """Protocol für TransformerProcessor."""
     model: str
-    llms: List[LLModel]
     
     def transform(
         self,
@@ -192,22 +190,20 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         temp_file_suffix (str): Suffix für temporäre Dateien
         temp_dir (Path): Verzeichnis für temporäre Dateien
         cache_dir (Path): Verzeichnis für den Cache
-        logger (ProcessingLogger): Logger für die Verarbeitung
     """
     
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "audio_cache"
     
-    logger: ProcessingLogger  # Explizite Typ-Annotation für logger
     temp_dir: Path  # Explizite Typ-Annotation für temp_dir
     cache_dir: Path  # Explizite Typ-Annotation für cache_dir
     start_time: Optional[datetime] = None  # Startzeit des Verarbeitungsprozesses
     end_time: Optional[datetime] = None  # Endzeit des Verarbeitungsprozesses
-    duration: Optional[float] = None  # Dauer des Verarbeitungsprozesses in Sekunden
+    duration: Optional[float] = None
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """Initialisiert den AudioProcessor."""
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         # Konfiguration laden
         config = Config()
@@ -235,7 +231,12 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         
         # Initialisiere Sub-Prozessoren
         self.transformer_processor: TransformerProcessorProtocol = cast(TransformerProcessorProtocol,
-            TransformerProcessor(resource_calculator, process_id))
+            TransformerProcessor(
+                resource_calculator, 
+                process_id,
+                parent_process_info=self.process_info
+            )
+        )
         
         # Initialisiere den Transcriber mit Audio-spezifischen Konfigurationen
         transcriber_config = {
@@ -253,17 +254,6 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         
         self.transcriber: WhisperTranscriberProtocol = cast(WhisperTranscriberProtocol,
                                                            WhisperTranscriber(transcriber_config))
-
-    @property
-    def process_info(self) -> ProcessInfo:
-        """Gibt die Prozess-Informationen zurück."""
-        return ProcessInfo(
-            id=self.process_id,
-            main_processor="audio",
-            started=self.start_time.isoformat() if self.start_time else datetime.now().isoformat(),
-            duration=self.duration if self.duration else None,
-            completed=self.end_time.isoformat() if self.end_time else None
-        )
 
     def measure_operation(self, operation_name: str):
         """Context Manager für die Zeitmessung von Operationen."""
@@ -801,12 +791,6 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         Returns:
             AudioResponse: Das Verarbeitungsergebnis
         """
-        # Initialisiere LLMInfo für den gesamten Prozess
-        llm_info = LLMInfo(
-            model=self.transformer_processor.model if self.transformer_processor else "none",
-            purpose="audio-processing",
-            requests=[]  # Explizit leere Liste
-        )
         start_time = datetime.now()
         
         try:
@@ -850,7 +834,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         },
                         elapsed_time=0.0,
                         llm_info=None,  # Keine LLM-Info bei Cache-Hit
-                        from_cache=True
+                        from_cache=True,
+                        cache_key=cache_key
                     )
                     return response
             
@@ -887,25 +872,6 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 if not transcription_result:
                     raise ProcessingError("Keine Transkription erstellt")
 
-                # Füge Whisper-Requests hinzu
-                if transcription_result.requests:
-                    self.logger.info(f"Füge {len(transcription_result.requests)} Whisper-Requests hinzu")
-                    llm_info.add_request(transcription_result.requests)
-                elif transcription_result.llms:  # Fallback auf llms wenn requests leer
-                    self.logger.info(f"Füge {len(transcription_result.llms)} Whisper-LLMs als Requests hinzu")
-                    # Konvertiere LLModels zu LLMRequests
-                    llm_requests: List[LLMRequest] = [
-                        LLMRequest(
-                            model=llm.model,
-                            purpose="transcription",
-                            tokens=llm.tokens,
-                            duration=int(llm.duration),  # Konvertiere zu int für Millisekunden
-                            timestamp=llm.timestamp
-                        )
-                        for llm in transcription_result.llms
-                    ]
-                    llm_info.add_request(llm_requests)
-
                 original_text: str = transcription_result.text
 
                 # Template-Transformation oder Übersetzung durchführen
@@ -919,11 +885,6 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         template=template,
                         context=source_info
                     )
-                    
-                    # Füge Template-Transformation Requests hinzu
-                    if transformer_response.process and transformer_response.process.llm_info:
-                        self.logger.info(f"Füge {len(transformer_response.process.llm_info.requests)} Template-Transformation-Requests hinzu")
-                        llm_info.add_request(transformer_response.process.llm_info.requests)
                     
                     if transformer_response and transformer_response.data and transformer_response.data.output:
                         transcription_result = TranscriptionResult(
@@ -973,8 +934,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         'template': template
                     },
                     elapsed_time=0.0,
-                    llm_info=llm_info if llm_info.requests else None,
-                    from_cache=False
+                    from_cache=False,
+                    cache_key=cache_key
                 )
                 
                 return response
@@ -1022,7 +983,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                     },
                     elapsed_time=0.0,
                     llm_info=None,
-                    from_cache=False
+                    from_cache=False,
+                    cache_key=cache_key
                 )
 
         except Exception as e:
@@ -1059,7 +1021,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 },
                 elapsed_time=0.0,
                 llm_info=None,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
     def _create_temp_file(self, audio_data: bytes) -> Path:
@@ -1120,7 +1083,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         )
 
     def _create_response(self, result: AudioProcessingResult, request: Dict[str, Any], 
-                        elapsed_time: float, from_cache: bool = False, llm_info: Optional[LLMInfo] = None) -> AudioResponse:
+                        elapsed_time: float, from_cache: bool = False, cache_key: str="", llm_info: Optional[LLMInfo] = None) -> AudioResponse:
         """Erstellt eine API-Response aus dem Verarbeitungsergebnis.
         
         Args:
@@ -1133,13 +1096,13 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             AudioResponse: Die API-Response
         """
         # Response erstellen
-        response: AudioResponse = ResponseFactory.create_response(
+        response: AudioResponse = self.create_response(
             processor_name=ProcessorType.AUDIO.value,
             result=result,
             request_info=request,
             response_class=AudioResponse,
             from_cache=from_cache,
-            llm_info=llm_info if llm_info and getattr(llm_info, "requests", None) else None,
+            cache_key=cache_key
         )
         
         return response 

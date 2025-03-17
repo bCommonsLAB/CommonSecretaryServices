@@ -51,7 +51,7 @@ Beispiel Response:
 """
 
 import hashlib
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, cast, TYPE_CHECKING
 from datetime import datetime
 import traceback
 import uuid
@@ -62,9 +62,17 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup as BS, ResultSet, Tag
 from bs4.element import NavigableString, PageElement
 from openai import OpenAI
+from openai.types.chat.chat_completion import ChatCompletion
 
-from src.core.models.transformer import TranslationResult, TransformationResult
-from src.core.exceptions import ProcessingError  # Korrigierter Import
+if TYPE_CHECKING:
+    from src.core.resource_tracking import ResourceCalculator
+else:
+    from src.core.resource_tracking import ResourceCalculator
+
+from src.core.models.transformer import (
+    TransformationResult
+)
+from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
 from src.core.models.llm import LLMInfo, LLMRequest
 from src.core.models.base import RequestInfo, ProcessInfo, ErrorInfo
@@ -72,9 +80,8 @@ from src.core.models.transformer import (
     TransformerResponse, TransformerInput, TransformerOutput, 
     TransformerData
 )
-from src.core.models.enums import ProcessorType, OutputFormat, ProcessingStatus
+from src.core.models.enums import ProcessorType, OutputFormat
 from src.core.config_keys import ConfigKeys
-from src.core.models.response_factory import ResponseFactory
 from .cacheable_processor import CacheableProcessor
 from src.core.config import Config
 
@@ -93,19 +100,21 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "transformer_cache"
     
-    def __init__(self, resource_calculator: Any, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
         """
         Initialisiert den TransformerProcessor.
         
         Args:
             resource_calculator: Calculator für Ressourcenverbrauch
-            process_id (str, optional): Die zu verwendende Process-ID vom API-Layer
+            process_id: Process-ID für Tracking
+            parent_process_info: Optional ProcessInfo vom übergeordneten Prozessor
         """
+        # Zeit für Gesamtinitialisierung starten
         init_start = time.time()
         
         # Zeit für Superklasse-Initialisierung messen
         super_init_start = time.time()
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         super_init_end = time.time()
         
         try:
@@ -159,6 +168,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                             timeout_seconds=self.timeout_seconds,
                             templates_dir=self.templates_dir)
                             
+            # Zeit für Gesamtinitialisierung beenden
             init_end = time.time()
             
             # Log alle Zeitmessungen
@@ -290,7 +300,8 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
         process_start = time.time()
         self.logger.info(f"Transformer Process-Methode gestartet")
         
-        llm_info: LLMInfo = LLMInfo(model=self.model, purpose="text_transformation")
+        # Initialisiere leere LLMInfo
+        llm_info = LLMInfo()
         
         try:
             # Setze Standardwerte
@@ -334,7 +345,8 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                         source_language=source_language,
                         target_language=target_language,
                         summarize=summarize,
-                        target_format=target_format
+                        target_format=target_format,
+                        cache_key=cache_key
                     )
                     response_end = time.time()
                     self.logger.info(f"Zeit für Response-Erstellung aus Cache: {(response_end - response_start) * 1000:.2f} ms")
@@ -362,7 +374,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             
             # Text transformieren mit OpenAI
             llm_call_start = time.time()
-            completion = self.client.chat.completions.create(
+            completion: ChatCompletion = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_message},
@@ -381,15 +393,20 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             usage_tracking_start = time.time()
             usage = completion.usage
             if usage:
-                # Erstelle ein LLMRequest-Objekt
-                request = LLMRequest(
-                    model=self.model,
+                # Erstelle ein LLMRequest-Objekt über die zentrale Methode
+                request: LLMRequest = self.transcriber.create_llm_request(
                     purpose="text_transformation",
                     tokens=usage.total_tokens,
-                    duration=int(llm_duration * 1000)  # Millisekunden
+                    duration=llm_duration * 1000,  # Millisekunden als float
+                    model=self.model,
+                    system_prompt=system_message,
+                    user_prompt=source_text,
+                    response=completion,
+                    logger=self.logger,
+                    processor=self.__class__.__name__
                 )
-                # Füge den Request hinzu
-                llm_info.add_request([request])
+                llm_info.add_request(request)
+                
             usage_tracking_end = time.time()
             self.logger.info(f"Zeit für LLM-Tracking: {(usage_tracking_end - usage_tracking_start) * 1000:.2f} ms")
             
@@ -416,7 +433,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             
             # Erstelle Response
             response_creation_start = time.time()
-            response = ResponseFactory.create_response(
+            response = self.create_response(
                 processor_name="transformer",
                 result=result,
                 request_info={
@@ -428,7 +445,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                 },
                 response_class=TransformerResponse,
                 from_cache=False,
-                llm_info=llm_info if llm_info.requests else None
+                cache_key=cache_key
             )
             response_creation_end = time.time()
             self.logger.info(f"Zeit für Response-Erstellung: {(response_creation_end - response_creation_start) * 1000:.2f} ms")
@@ -457,7 +474,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             )
             
             # Erstelle Error-Response
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name="transformer",
                 result=TransformationResult(
                     text="",
@@ -473,7 +490,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                 },
                 response_class=TransformerResponse,
                 from_cache=False,
-                llm_info=None,
+                cache_key="",
                 error=error_info
             )
 
@@ -550,6 +567,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                                            source_language: str,
                                            target_language: str,
                                            summarize: bool,
+                                           cache_key: str,
                                            target_format: Optional[OutputFormat]) -> TransformerResponse:
         """
         Erstellt eine TransformerResponse aus einem gecachten Ergebnis.
@@ -568,10 +586,14 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
         # Deserialisiere das gecachte Ergebnis je nach Typ
         transformation_result: TransformationResult
         if isinstance(cached_result, dict):
+            text = cast(str, cached_result.get("text", "")) # type: ignore
+            target_lang = cast(str, cached_result.get("target_language", target_language)) # type: ignore
+            struct_data = cast(Dict[str, Any], cached_result.get("structured_data", {})) # type: ignore
+            
             transformation_result = TransformationResult(
-                text=cached_result.get("text", ""),
-                target_language=cached_result.get("target_language", target_language),
-                structured_data=cached_result.get("structured_data", {})
+                text=text,
+                target_language=target_lang,
+                structured_data=struct_data
             )
         else:
             # Es ist bereits ein TransformationResult
@@ -601,11 +623,8 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             )
         )
         
-        # Erstelle eine leere LLMInfo, da wir aus dem Cache laden
-        llm_info = LLMInfo(model=self.model, purpose="text_transformation_cached")
-        
         # Erstelle Response mit ResponseFactory, explizit from_cache=True setzen
-        return ResponseFactory.create_response(
+        return self.create_response(
             processor_name="transformer",
             result=transformer_data,
             request_info={
@@ -617,7 +636,7 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             },
             response_class=TransformerResponse,
             from_cache=True,  # Explizit True, da es sich um ein Ergebnis aus dem Cache handelt
-            llm_info=llm_info
+            cache_key=cache_key
         )
 
     def transformByTemplate(
@@ -627,317 +646,59 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
         target_language: str,
         context: Optional[Dict[str, Any]] = None,
         template: Optional[str] = None,
+        additional_field_descriptions: Optional[Dict[str, str]] = None,
         use_cache: bool = True
     ) -> TransformerResponse:
         """
-        Transformiert Text basierend auf einem vordefinierten Markdown-Template.
-        Die Templates befinden sich im ./templates-Ordner und enthalten Anweisungen in geschweiften Klammern
-        für strukturierte Ausgaben vom LLM Modell.
-
+        Transformiert einen Text anhand eines Templates.
+        
         Args:
-            source_text (str): Der zu transformierende Text
-            source_language (str): Sprachcode (ISO 639-1) für die Quellsprache
-            target_language (str): Sprachcode (ISO 639-1) für die Zielsprache
-            context (Dict[str, Any], optional): Dictionary mit Kontext-Informationen für Template-Variablen
-            template (str, optional): Name des Templates (ohne .md Endung)
-            use_cache (bool, optional): Ob der Cache verwendet werden soll, standardmäßig True
-
+            source_text: Der zu transformierende Text
+            source_language: Die Quellsprache des Texts
+            target_language: Die Zielsprache für die Transformation
+            context: Optionaler zusätzlicher Kontext für das Template
+            template: Optional, Name des zu verwendenden Templates
+            additional_field_descriptions: Zusätzliche Feldbeschreibungen für das Template
+            use_cache: Optional, ob die Ergebnisse zwischengespeichert werden sollen
+            
         Returns:
-            TransformerResponse: Das validierte Transformationsergebnis mit Prozess-Informationen
+            TransformerResponse mit dem transformierten Text
         """
-        # Cache-Schlüssel generieren und Cache prüfen
-        cache_key = None
-        if use_cache and self.is_cache_enabled() and template:
-            cache_key = self._create_cache_key(
-                source_text=source_text,
-                source_language=source_language,
-                target_language=target_language,
-                template=template
-            )
-            
-            # Prüfen, ob im Cache vorhanden
-            cache_hit, cached_result = self.get_from_cache(cache_key)
-            
-            if cache_hit and cached_result:
-                self.logger.info(f"Cache-Hit für Template-Transformation: {cache_key[:8]}...")
-                
-                # Response aus dem Cache erstellen
-                return self._create_response_from_cached_result(
-                    cached_result=cached_result,
-                    source_text=source_text,
-                    source_language=source_language,
-                    target_language=target_language,
-                    summarize=False,  # Standard-Wert, da bei Template nicht relevant
-                    target_format=self.target_format
-                )
-        
-        # Initialisiere Request- und Process-Info
-        request_info = {
-            "source_language": source_language,
-            "target_language": target_language,
-            "template": template,
-            "context": context
-        }
-        
         try:
-            # Validiere Eingaben
-            validated_source_text = self.validate_text(source_text, "source_text")
-            source_language = self.validate_language_code(source_language, "source_language")
-            target_language = self.validate_language_code(target_language, "target_language")
-            validated_template = None
-            if template is not None:
-                validated_template = self.validate_text(template, "template")
-            validated_context: Dict[str, Any] | None = self.validate_context(context)
-
-            llm_info = LLMInfo(model=self.model, purpose="transform-text-by-template")
-
-            self.logger.info(f"Starte Template-Transformation: {source_language} -> {target_language}")
+            # Hole den Template-Prozessor
+            template_processor: WhisperTranscriber = self.get_template_processor()
             
-            # Zuerst den Quelltext übersetzen
-            result_text: str = validated_source_text
-            
-            # Speichert, ob die Transformation erfolgreich war
-            transformation_successful = False
-            # Für die Fehlerbehandlung
-            error_info: Optional[ErrorInfo] = None
-
-            # Template-Transformation durchführen
-            has_transformed_content = False
-            transformed_content_data = None
-            if validated_template is not None:
-                self.logger.info("Führe Template-Transformation durch")
-
-                # Template-Transformation durchführen
-                try:
-                    transformed_content: TransformationResult = self.transcriber.transform_by_template(
-                        text=result_text,
-                        target_language=target_language,
-                        template=validated_template,
-                        context=context,
-                        logger=self.logger
-                    )
-                    
-                    # Prüfe, ob Transformation erfolgreich war
-                    if not transformed_content or not transformed_content.text:
-                        error_info = ErrorInfo(
-                            code="EMPTY_TRANSFORMATION",
-                            message="Die Template-Transformation lieferte keinen Inhalt zurück",
-                            details={
-                                "template": validated_template,
-                                "source_language": source_language,
-                                "target_language": target_language
-                            }
-                        )
-                        self.logger.warning(f"Die Template-Transformation lieferte leeren Text zurück: {validated_template}")
-                        transformation_successful = False
-                    elif "No such file or directory" in transformed_content.text:
-                        # Fehlerfall: Template nicht gefunden
-                        error_message = transformed_content.text.strip()
-                        error_info = ErrorInfo(
-                            code="TEMPLATE_NOT_FOUND",
-                            message=f"Das Template konnte nicht gefunden werden: {validated_template}",
-                            details={
-                                "template": validated_template,
-                                "error_message": error_message
-                            }
-                        )
-                        self.logger.warning(f"Template nicht gefunden: {validated_template}")
-                        transformation_successful = False
-                    elif "Error:" in transformed_content.text:
-                        # Allgemeiner Fehlerfall
-                        error_message = transformed_content.text.strip()
-                        error_info = ErrorInfo(
-                            code="TRANSFORMATION_ERROR",
-                            message="Fehler bei der Template-Transformation",
-                            details={
-                                "template": validated_template,
-                                "error_message": error_message
-                            }
-                        )
-                        self.logger.warning(f"Fehler bei der Template-Transformation: {error_message[:100]}")
-                        transformation_successful = False
-                    else:
-                        # Erfolgreicher Fall
-                        result_text = transformed_content.text
-                        transformed_content_data = getattr(transformed_content, 'structured_data', None)
-                        has_transformed_content = True
-                        transformation_successful = True
-                    
-                    if transformed_content and transformed_content.requests and len(transformed_content.requests) > 0:
-                        llm_info.add_request(transformed_content.requests)
-                        
-                except Exception as transform_error:
-                    error_info = ErrorInfo(
-                        code="TRANSFORM_EXCEPTION",
-                        message=str(transform_error),
-                        details={
-                            "error_type": type(transform_error).__name__,
-                            "traceback": traceback.format_exc()
-                        }
-                    )
-                    self.logger.error(f"Exception bei der Template-Transformation: {str(transform_error)}")
-                    transformation_successful = False
-                    result_text = ""  # Bei Ausnahmen leeren Text zurückgeben
-
-                # Erstelle TransformerData mit korrekter Struktur
-                actual_format = self.target_format or OutputFormat.TEXT  # Verwende TEXT als Standardformat, wenn None
-                
-                transformer_data = TransformerData(
-                    input=TransformerInput(
-                        text=validated_source_text,
-                        language=source_language,
-                        format=actual_format,
-                        translated_text=None,
-                        summarize=False
-                    ),
-                    output=TransformerOutput(
-                        text=result_text if transformation_successful else "",
-                        language=target_language,
-                        format=actual_format,
-                        summarized=False,
-                        structured_data=transformed_content_data if transformation_successful else None
-                    )
-                )
-                
-                # Erstelle Response mit ResponseFactory - mit oder ohne Fehler
-                response: TransformerResponse = ResponseFactory.create_response(
-                    processor_name=str(ProcessorType.TRANSFORMER.value),
-                    result=transformer_data,
-                    request_info=request_info,
-                    response_class=TransformerResponse,
-                    from_cache=False,
-                    llm_info=llm_info,
-                    error=error_info  # Hier wird der Fehler korrekt übergeben, wenn vorhanden
-                )
-
-            elif source_language != target_language:
-                self.logger.info("Übersetze Quelltext")
-                    
-                try:
-                    translation_result: TranslationResult = self.transcriber.translate_text(
-                        text=validated_source_text,
-                        source_language=source_language,
-                        target_language=target_language,
-                        logger=self.logger
-                    )
-                    
-                    if not translation_result or not translation_result.text:
-                        error_info = ErrorInfo(
-                            code="EMPTY_TRANSLATION",
-                            message="Die Übersetzung lieferte keinen Inhalt zurück",
-                            details={
-                                "source_language": source_language,
-                                "target_language": target_language
-                            }
-                        )
-                        self.logger.warning("Die Übersetzung lieferte leeren Text zurück")
-                        transformation_successful = False
-                        result_text = ""
-                    else:
-                        result_text = translation_result.text
-                        transformation_successful = True
-
-                    if translation_result and translation_result.requests and len(translation_result.requests) > 0:
-                        llm_info.add_request(translation_result.requests)
-                    
-                except Exception as translate_error:
-                    error_info = ErrorInfo(
-                        code="TRANSLATION_ERROR",
-                        message=str(translate_error),
-                        details={
-                            "error_type": type(translate_error).__name__,
-                            "traceback": traceback.format_exc()
-                        }
-                    )
-                    self.logger.error(f"Fehler bei der Übersetzung: {str(translate_error)}")
-                    transformation_successful = False
-                    result_text = ""
-
-                # Erstelle TransformerData mit korrekter Struktur
-                actual_format = self.target_format or OutputFormat.TEXT  # Verwende TEXT als Standardformat, wenn None
-                
-                transformer_data = TransformerData(
-                    input=TransformerInput(
-                        text=validated_source_text,
-                        language=source_language,
-                        format=actual_format,
-                        translated_text=result_text if transformation_successful else "",
-                        summarize=False
-                    ),
-                    output=TransformerOutput(
-                        text=result_text if transformation_successful else "",
-                        language=target_language,
-                        format=actual_format,
-                        summarized=False
-                    )
-                )
-                
-                # Erstelle Response mit ResponseFactory - mit oder ohne Fehler
-                response = ResponseFactory.create_response(
-                    processor_name=str(ProcessorType.TRANSFORMER.value),
-                    result=transformer_data,
-                    request_info=request_info,
-                    response_class=TransformerResponse,
-                    from_cache=False,
-                    llm_info=llm_info,
-                    error=error_info
-                )
-            else:
-                # Wenn weder Template noch Übersetzung benötigt werden
-                # Erstelle TransformerData mit korrekter Struktur
-                actual_format = self.target_format or OutputFormat.TEXT  # Verwende TEXT als Standardformat, wenn None
-                
-                transformer_data = TransformerData(
-                    input=TransformerInput(
-                        text=validated_source_text,
-                        language=source_language,
-                        format=actual_format,
-                        translated_text=None,
-                        summarize=False
-                    ),
-                    output=TransformerOutput(
-                        text=result_text,
-                        language=target_language,
-                        format=actual_format,
-                        summarized=False
-                    )
-                )
-                
-                # Da keine Transformation notwendig war, ist immer erfolgreich
-                transformation_successful = True
-                
-                # Erstelle Response mit ResponseFactory
-                response = ResponseFactory.create_response(
-                    processor_name=str(ProcessorType.TRANSFORMER.value),
-                    result=transformer_data,
-                    request_info=request_info,
-                    response_class=TransformerResponse,
-                    from_cache=False,
-                    llm_info=llm_info
-                )
-
-            # Debug Output
-            self.transcriber.saveDebugOutput(
-                text=result_text if transformation_successful else "",
-                context=validated_context,
+            # Transformiere den Text
+            result: TransformationResult = template_processor.transform_by_template(
+                text=source_text,
+                target_language=target_language,
+                template=template or "default",
+                context=context,
+                additional_field_descriptions=additional_field_descriptions,
                 logger=self.logger
             )
+            
 
-            # Speichere im Cache, wenn aktiviert UND die Transformation erfolgreich war
-            if use_cache and self.is_cache_enabled() and cache_key and transformation_successful:
-                self.logger.debug(f"Speichere erfolgreiche Transformation im Cache: {cache_key[:8]}...")
-                final_result = TransformationResult(
-                    text=result_text,
-                    target_language=target_language,
-                    structured_data=transformed_content_data if has_transformed_content else None,
-                    requests=[],  # Alle Requests sind bereits im llm_info-Objekt aggregiert
-                    llm_info=llm_info
-                )
-                self.save_to_cache(cache_key, final_result)
-            elif not transformation_successful:
-                self.logger.info("Transformation war nicht erfolgreich, Ergebnis wird NICHT im Cache gespeichert.")
-                if error_info:
-                    self.logger.info(f"Fehlergrund: {error_info.code} - {error_info.message}")
+            if result.requests:
+                # Füge die LLM-Informationen zur Prozessinfo hinzu
+                self.add_llm_requests(result.requests)
+
+
+            # Erstelle Response
+            response: TransformerResponse = self.create_response(
+                processor_name="transformer",
+                result=result,
+                request_info={
+                    'source_text': source_text[:100] + "..." if len(source_text) > 100 else source_text,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': False,
+                    'target_format': self.target_format.value if self.target_format else None
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key=""
+            )
             
             return response
 
@@ -971,13 +732,19 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 )
             )
             
-            return ResponseFactory.create_response(
-                processor_name=str(ProcessorType.TRANSFORMER.value),
+            return self.create_response(
+                processor_name="transformer",
                 result=transformer_data,
-                request_info=request_info,
+                request_info={
+                    'source_text': source_text[:100] + "..." if len(source_text) > 100 else source_text,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': False,
+                    'target_format': self.target_format.value if self.target_format else None
+                },
                 response_class=TransformerResponse,
                 from_cache=False,
-                llm_info=None,
+                cache_key="",
                 error=error_info
             )
 
@@ -1085,8 +852,6 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 if row_count == 0:
                     row_count = None
 
-            llm_info = LLMInfo(model=self.model, purpose="transform-html-table")
-            
             self.logger.info("Starte HTML-Tabellen Transformation")
             
             # Verwende requests für das Abrufen der Webseite
@@ -1206,17 +971,10 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 "table_count": len(all_tables),
                 "tables": all_tables
             }
-            
-            # Response vervollständigen
-            response = TransformerResponse(
-                request=response.request,
-                process=ProcessInfo(
-                    id=response.process.id,
-                    main_processor=response.process.main_processor,
-                    started=response.process.started,
-                    completed=datetime.now().isoformat()
-                ),
-                data=TransformerData(
+
+            response: TransformerResponse = self.create_response(
+                processor_name=response.process.main_processor,
+                result=TransformerData(
                     input=response.data.input,
                     output=TransformerOutput(
                         text="",
@@ -1225,10 +983,13 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                         structured_data=result
                     )
                 ),
-                llm_info=llm_info,
-                status=ProcessingStatus.SUCCESS,
+                request_info=response.request.parameters,
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
                 error=None
             )
+
             return response
 
         except Exception as e:
@@ -1242,12 +1003,16 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             )
             self.logger.error(f"Fehler bei der HTML-Tabellen Transformation: {str(e)}")
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=response.process.main_processor,
                 result=response.data,
                 request_info=response.request.parameters,
                 response_class=TransformerResponse,
                 from_cache=False,
-                llm_info=None,
+                cache_key="",
                 error=error_info
             ) 
+
+    def get_template_processor(self) -> WhisperTranscriber:
+        """Gibt den Template-Prozessor zurück."""
+        return self.transcriber 

@@ -3,12 +3,14 @@ Audio-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union, Protocol
+from pathlib import Path
+import io
+from datetime import datetime
+
 from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, ErrorInfo
 from .llm import LLMRequest, LLModel, LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError
-from pathlib import Path
-import io
 
 class AudioProcessingError(ProcessingError):
     """Audio-spezifische Fehler."""
@@ -282,31 +284,26 @@ class AudioMetadata:
             chapters=chapters
         )
 
-@dataclass
+@dataclass(frozen=True)
 class AudioProcessingResult:
-    """
-    Ergebnis der Audio-Verarbeitung.
+    """Ergebnis der Audio-Verarbeitung."""
+    transcription: TranscriptionResult
+    metadata: AudioMetadata
+    process_id: Optional[str] = None
+    transformation_result: Optional[Any] = None
     
-    Attributes:
-        transcription (TranscriptionResult): Das Transkriptionsergebnis
-        metadata (AudioMetadata): Metadaten zur Audio-Datei
-        process_id (str): ID des Verarbeitungsprozesses
-        transformation_result (Optional[Dict[str, Any]]): Optionales Transformationsergebnis
-    """
-    
-    def __init__(
-        self,
-        transcription: TranscriptionResult,
-        metadata: AudioMetadata,
-        process_id: str,
-        transformation_result: Optional[Dict[str, Any]] = None,
-    ):
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.transcription and self.transcription.text else ProcessingStatus.ERROR
+
+    def __post_init__(self) -> None:
         """Initialisiert das AudioProcessingResult."""
-        self.transcription = transcription
-        self.metadata = metadata
-        self.process_id = process_id
-        self.transformation_result = transformation_result
-        
+        if not self.transcription:
+            raise ValueError("Transcription darf nicht None sein")
+        if not self.metadata:
+            raise ValueError("Metadata darf nicht None sein")
+
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
@@ -314,6 +311,7 @@ class AudioProcessingResult:
             'metadata': self.metadata.to_dict() if self.metadata else None,
             'process_id': self.process_id,
             'transformation_result': self.transformation_result,
+            'status': self.status.value
         }
         
     @classmethod
@@ -322,7 +320,7 @@ class AudioProcessingResult:
         return cls(
             transcription=TranscriptionResult.from_dict(data.get('transcription', {})) if data.get('transcription') else TranscriptionResult(text="", source_language="unknown", segments=[], requests=[], llms=[]),
             metadata=AudioMetadata.from_dict(data.get('metadata', {})) if data.get('metadata') else AudioMetadata(duration=0.0, process_dir="", format="unknown", channels=0),
-            process_id=data.get('process_id', ''),
+            process_id=data.get('process_id'),
             transformation_result=data.get('transformation_result'),
         )
 

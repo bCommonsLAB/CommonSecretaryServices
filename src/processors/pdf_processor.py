@@ -44,11 +44,10 @@ from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.core.config import Config
-from src.core.models.base import ErrorInfo, BaseResponse
-from src.core.models.llm import LLMInfo, LLMRequest
-from src.core.models.response_factory import ResponseFactory
+from src.core.models.base import ErrorInfo, BaseResponse, ProcessInfo
 from src.core.models.pdf import PDFMetadata
 from src.processors.transformer_processor import TransformerProcessor
+from src.core.models.enums import ProcessingStatus
 
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_PDF = "pdf"
@@ -79,6 +78,11 @@ class PDFProcessingResult:
     extracted_text: Optional[str]
     ocr_text: Optional[str] = None
     process_id: Optional[str] = None
+    
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.extracted_text or self.ocr_text else ProcessingStatus.ERROR
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -161,9 +165,16 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
     # Name der MongoDB-Cache-Collection
     cache_collection_name = "pdf_cache"
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
-        """Initialisiert den PDFProcessor."""
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
+        """
+        Initialisiert den PDFProcessor.
+        
+        Args:
+            resource_calculator: Calculator für Ressourcenverbrauch
+            process_id: Process-ID für Tracking
+            parent_process_info: Optional ProcessInfo vom übergeordneten Prozessor
+        """
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         # Lade Konfiguration
         config = Config()
@@ -191,7 +202,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                          preview_image_format=self.preview_image_format)
         
         # Initialisiere Transformer
-        self.transformer = TransformerProcessor(resource_calculator, process_id)
+        self.transformer = TransformerProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
         """
@@ -506,50 +521,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         except Exception as e:
             self.logger.warning(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
             
-    def _create_response_from_cached_result(self, 
-                                           cached_result: PDFProcessingResult,
-                                           file_path: Union[str, Path],
-                                           template: Optional[str] = None,
-                                           context: Optional[Dict[str, Any]] = None,
-                                           extraction_method: str = EXTRACTION_NATIVE,
-                                           file_hash: Optional[str] = None) -> PDFResponse:
-        """
-        Erstellt eine PDFResponse aus einem gecachten Ergebnis.
-        
-        Args:
-            cached_result: Das gecachte PDFProcessingResult
-            file_path: Der ursprüngliche Dateipfad
-            template: Optional, das verwendete Template
-            context: Optional, der Kontext für die Verarbeitung
-            extraction_method: Die verwendete Extraktionsmethode
-            file_hash: Optional, ein vorberechneter Hash der Datei
-            
-        Returns:
-            PDFResponse: Die Response mit dem gecachten Ergebnis
-        """
-        # Resource-Tracking für den Cache-Hit
-        # Tracking der Cache-Hit-Zeit (praktisch 0)
-        if hasattr(self.resource_calculator, 'add_processing_time'):
-            self.resource_calculator.add_processing_time("pdf_cache_hit", 0.0)
-        
-        # Tracking des Cache-Zugriffs
-        if hasattr(self.resource_calculator, 'add_api_call'):
-            self.resource_calculator.add_api_call("pdf_cache_retrieval")
-        
-        # Response erstellen
-        return ResponseFactory.create_response(
-            processor_name="pdf",
-            result=cached_result,
-            request_info={
-                "file_path": str(file_path),
-                "template": template,
-                "extraction_method": extraction_method,
-                "context": context
-            },
-            response_class=PDFResponse,
-            llm_info=None,
-            from_cache=True
-        )
 
     async def process(
         self,
@@ -590,19 +561,15 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         working_dir = Path(self.temp_dir) / "pdf" / file_key
         
         # Voller Cache-Key für die Ergebniscachierung (beinhaltet alle Parameter)
-                cache_key = self._create_cache_key(
-                    file_path=file_path,
-                    template=template,
-                    context=context,
+        cache_key = self._create_cache_key(
+            file_path=file_path,
+            template=template,
+            context=context,
             extraction_method="_".join(methods_list),  # Kombinierte Methoden als Teil des Cache-Keys
-                    file_hash=file_hash
-                )
+            file_hash=file_hash
+        )
                 
         # Initialisiere LLM-Info außerhalb des try-blocks
-        llm_info = LLMInfo(
-            model="pdf-processing",
-            purpose="pdf-processing"
-        )
         
         try:
             # Cache-Prüfung, wenn aktiviert
@@ -627,7 +594,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         self.logger.debug("ResourceCalculator hat keine add_resource_usage Methode")
                     
                     # Direkte Verwendung von ResponseFactory für Cache-Treffer
-                    return ResponseFactory.create_response(
+                    return self.create_response(
                         processor_name="pdf",
                         result=cached_result,
                         request_info={
@@ -637,8 +604,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             "extraction_method": extraction_method
                         },
                         response_class=PDFResponse,
-                        llm_info=None,
-                        from_cache=True  # Hier auf True gesetzt, da aus dem Cache
+                        from_cache=True,  # Hier auf True gesetzt, da aus dem Cache
+                        cache_key=cache_key
                     )
 
             # Validiere alle Extraktionsmethoden
@@ -649,7 +616,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
             if not working_dir.exists():
-            working_dir.mkdir(parents=True, exist_ok=True)
+                working_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.debug(f"Arbeitsverzeichnis angelegt: {str(working_dir)}")
             
             # Prüfe ob es sich um eine URL handelt
@@ -720,7 +687,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 
                 # Text extrahieren und OCR durchführen
                 self.logger.debug(f"Starte Extraktion (Methoden: {methods_list})")
-                start_time = datetime.now()
                 full_text = ""
                 ocr_text = ""
                 metadata = PDFMetadata(
@@ -900,27 +866,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     extraction_method=metadata.extraction_method
                 )
                 
-                # LLM-Tracking für OCR berechnen, wenn OCR verwendet wurde
-                if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list:
-                    try:
-                        # Einfaches Tracking für OCR-Kosten
-                        # Wir gehen von einem symbolischen Wert aus, der später angepasst werden kann
-                        ocr_token_estimate = len(ocr_text.split()) * 1.5  # Grobe Schätzung
-                        ocr_duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-                        
-                        # Erstelle ein LLMRequest-Objekt mit den richtigen Parametern
-                        llm_request = LLMRequest(
-                            model="tesseract",
-                            purpose="ocr_extraction",
-                            tokens=int(ocr_token_estimate),
-                            duration=int(ocr_duration_ms)
-                        )
-                        
-                        # Füge das Objekt zur LLMInfo hinzu
-                        llm_info.add_request([llm_request])
-                    except Exception as e:
-                        self.logger.warning(f"Fehler beim LLM-Tracking für OCR: {str(e)}")
-                
                 # Template-Transformation, falls Template angegeben
                 result_text = full_text
                 if template and (full_text or ocr_text):
@@ -950,15 +895,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 if transformed_data and hasattr(transformed_data, 'transformed_text'):
                                     result_text = getattr(transformed_data, 'transformed_text', result_text)
                                 
-                                # LLM-Tracking für Template-Transformation
-                                process_info = getattr(transformation_result, 'process', None)  # type: ignore
-                                if process_info and hasattr(process_info, 'llm_info'):
-                                    transform_llm_info = getattr(process_info, 'llm_info', None)
-                                    if transform_llm_info and hasattr(transform_llm_info, 'requests'):
-                                        transform_requests = getattr(transform_llm_info, 'requests', [])
-                                        if transform_requests:
-                                            # Die Requests direkt hinzufügen, wenn es LLMRequest-Objekte sind
-                                            llm_info.add_request(transform_requests)
                     except Exception as e:
                         self.logger.warning(f"Fehler bei der Template-Transformation: {str(e)}")
                 
@@ -983,7 +919,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     self.save_to_cache(cache_key, result)  # type: ignore
                 
                 # Erstelle und gib Response zurück
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=PROCESSOR_TYPE_PDF,
                     result=result,
                 request_info={
@@ -993,8 +929,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         'extraction_method': "_".join(methods_list)  # Korrekter kombinierter String
                 },
                 response_class=PDFResponse,
-                llm_info=llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=cache_key
             )
 
         except Exception as e:
@@ -1020,7 +956,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 process_id=self.process_id
             )
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=PROCESSOR_TYPE_PDF,
                 result=dummy_result,
                 request_info={
@@ -1031,8 +967,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 },
                 response_class=PDFResponse,
                 error=error_info,
-                llm_info=llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=cache_key
             )
 
     def check_file_size(self, file_path: Path) -> None:

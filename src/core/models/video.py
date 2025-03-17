@@ -8,6 +8,7 @@ from .base import BaseResponse, ProcessingStatus, RequestInfo, ProcessInfo, Erro
 from .audio import TranscriptionResult
 from .llm import LLMInfo
 from ..exceptions import ProcessingError
+from src.processors.cacheable_processor import CacheableResult
 
 class VideoProcessingError(ProcessingError):
     """Video-spezifische Fehler."""
@@ -114,28 +115,24 @@ class VideoMetadata:
         )
 
 @dataclass
-class VideoProcessingResult:
+class VideoProcessingResult(CacheableResult):
     """Ergebnis der Video-Verarbeitung.
     
     Attributes:
         metadata (VideoMetadata): Metadaten zum Video
-        audio_result (Optional[AudioProcessingResult]): Ergebnis der Audio-Verarbeitung
         process_id (str): ID des Verarbeitungsprozesses
-        transcription (Optional[TranscriptionResult]): Transkriptionsergebnis
+        audio_result (Optional[Any]): Ergebnis der Audio-Verarbeitung
+        transcription (Optional[Any]): Transkriptionsergebnis
     """
+    metadata: VideoMetadata
+    process_id: str
+    audio_result: Optional[Any] = None
+    transcription: Optional[Any] = None
     
-    def __init__(
-        self,
-        metadata: VideoMetadata,
-        process_id: str,
-        audio_result: Optional[Any] = None,
-        transcription: Optional[Any] = None,
-    ):
-        """Initialisiert das VideoProcessingResult."""
-        self.metadata = metadata
-        self.process_id = process_id
-        self.audio_result = audio_result
-        self.transcription = transcription
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.transcription else ProcessingStatus.ERROR
         
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""

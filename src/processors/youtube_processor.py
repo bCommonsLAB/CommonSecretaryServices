@@ -45,17 +45,14 @@ from src.core.models.base import (
     ErrorInfo
 )
 from src.core.models.enums import ProcessingStatus, ProcessorType
-from src.core.models.llm import (
-    LLMInfo
-)
 from src.core.models.youtube import YoutubeMetadata, YoutubeProcessingResult, YoutubeResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
-from src.core.models.response_factory import ResponseFactory
 
 from .cacheable_processor import CacheableProcessor
 from .transformer_processor import TransformerProcessor
 from .audio_processor import AudioProcessor
+from src.core.models.base import ProcessInfo
 
 # Typ-Alias für YouTube Info Dictionary und YoutubeDL
 class YoutubeDLInfo(TypedDict, total=False):
@@ -134,7 +131,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
     end_time: Optional[datetime]
     duration: Optional[float]
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
         """
         Initialisiert den YoutubeProcessor.
         
@@ -209,7 +206,11 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
         
         # Initialisiere Prozessoren
         processor_init_start = time.time()
-        self.transformer = TransformerProcessor(resource_calculator, process_id)
+        self.transformer = TransformerProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         
         # Initialisiere den Transcriber mit YouTube-spezifischen Konfigurationen
         transcriber_config = {
@@ -221,7 +222,11 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
         }
         self.transcriber = WhisperTranscriber(transcriber_config)
         
-        self.audio_processor = AudioProcessor(resource_calculator, process_id)
+        self.audio_processor = AudioProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         processor_init_end = time.time()
             
         # Erstelle Cache-Verzeichnis
@@ -546,7 +551,6 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
         process_method_start = time.time()
         self.logger.info(f"YouTube Processor process-Methode gestartet")
 
-        llm_info: LLMInfo = LLMInfo(model="youtube-processing", purpose="youtube-processing")
         url: str = file_path
         working_dir = None
         video_info: Any = None
@@ -593,7 +597,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                     
                     # Response aus Cache erstellen
                     response_start = time.time()
-                    response = ResponseFactory.create_response(
+                    response = self.create_response(
                         processor_name=ProcessorType.YOUTUBE.value,
                         result=cached_result,
                         request_info={
@@ -603,8 +607,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                             'template': template
                         },
                         response_class=YoutubeResponse,
-                        llm_info=None,  # Keine LLM-Info bei Cache-Hit
-                        from_cache=True
+                        from_cache=True,
+                        cache_key=cache_key
                     )
                     response_end = time.time()
                     self.logger.info(f"Zeit für Response-Erstellung aus Cache: {(response_end - response_start) * 1000:.2f} ms")
@@ -745,7 +749,11 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 
                 # Erstelle Audio-Processor
                 audio_proc_start = time.time()
-                audio_processor = AudioProcessor(self.resource_calculator, self.process_id)
+                audio_processor = AudioProcessor(
+                    self.resource_calculator, 
+                    self.process_id,
+                    parent_process_info=self.process_info
+                )
                 audio_proc_end = time.time()
                 self.logger.info(f"Zeit für Audio-Processor Erstellung: {(audio_proc_end - audio_proc_start) * 1000:.2f} ms")
                 
@@ -778,7 +786,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                         message="Fehler bei der Audio-Verarbeitung",
                         details={}
                     )
-                    response: YoutubeResponse = ResponseFactory.create_response(
+                    response: YoutubeResponse = self.create_response(
                         processor_name=ProcessorType.YOUTUBE.value,
                         result=YoutubeProcessingResult(
                             metadata=metadata,
@@ -792,16 +800,11 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                             'template': template
                         },
                         response_class=YoutubeResponse,
-                        llm_info=llm_info,
                         error=error_info,
-                        from_cache=False
+                        from_cache=False,
+                        cache_key=cache_key
                     )
                     return response
-                
-                # Extrahiere LLM-Requests aus der Audio-Response
-                if audio_response.process.llm_info:
-                    # Übernehme die LLM-Requests direkt
-                    llm_info.add_request(audio_response.process.llm_info.requests)
                 
                 # Konvertiere AudioResponse zu TranscriptionResult
                 if audio_response.data and audio_response.data.transcription:
@@ -836,7 +839,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
 
             # 13. Erstelle die Response
             response_creation_start = time.time()
-            response = ResponseFactory.create_response(
+            response = self.create_response(
                 processor_name=ProcessorType.YOUTUBE.value,
                 result=result,
                 request_info={
@@ -846,8 +849,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                     'template': template
                 },
                 response_class=YoutubeResponse,
-                llm_info=llm_info if llm_info.requests else None,
-                from_cache=False
+                from_cache=False,
+                cache_key=cache_key
             )
             response_creation_end = time.time()
             self.logger.info(f"Zeit für Response-Erstellung: {(response_creation_end - response_creation_start) * 1000:.2f} ms")
@@ -894,7 +897,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 details=error_context
             )
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.YOUTUBE.value,
                 result=YoutubeProcessingResult(
                     metadata=YoutubeMetadata(
@@ -914,7 +917,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                     'template': template
                 },
                 response_class=YoutubeResponse,
-                llm_info=llm_info,
                 error=error_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )

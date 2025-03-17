@@ -33,19 +33,19 @@ import json
 import shutil
 
 from src.processors.pdf_processor import PDFResponse
-from src.core.models.transformer import TransformerResponse
+from src.core.models.transformer import (
+    TransformerResponse, TransformationResult
+)
 from src.core.models.video import VideoResponse
 from src.core.models.session import (
     SessionInput, SessionOutput, SessionData, SessionResponse, BatchSessionResponse, BatchSessionOutput, BatchSessionData, BatchSessionInput,
     WebhookConfig, AsyncBatchSessionInput
 )
 from src.core.models.base import (
-     ErrorInfo
+     ErrorInfo, ProcessInfo
 )
-from src.core.models.llm import LLMInfo
-from src.core.models.enums import ProcessorType
+from src.core.models.enums import ProcessorType, ProcessingStatus
 from src.core.exceptions import ProcessingError
-from src.core.models.response_factory import ResponseFactory
 from src.core.config import Config
 from src.processors.video_processor import VideoProcessor
 from src.processors.transformer_processor import TransformerProcessor
@@ -67,29 +67,44 @@ class SessionProcessingResult:
         self,
         web_text: str,
         video_transcript: str,
-        attachments_text: str,
+        attachment_paths: List[str],
+        page_texts: List[str],
+        target_dir: str,
         markdown_content: str,
         markdown_file: str,
+        structured_data: Dict[str, Any],
         process_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
+        input_data: Optional[SessionInput] = None
     ):
         self.web_text = web_text
         self.video_transcript = video_transcript
-        self.attachments_text = attachments_text
+        self.attachment_paths = attachment_paths
+        self.page_texts = page_texts
+        self.target_dir = target_dir
         self.markdown_content = markdown_content
         self.markdown_file = markdown_file
         self.process_id = process_id
-        self.context = context
+        self.input_data = input_data
+        self.structured_data = structured_data
+        
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.markdown_content else ProcessingStatus.ERROR
+    
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         return {
             "web_text": self.web_text,
             "video_transcript": self.video_transcript,
-            "attachments_text": self.attachments_text,
+            "attachment_paths": self.attachment_paths,
+            "page_texts": self.page_texts,
+            "target_dir": self.target_dir,
             "markdown_content": self.markdown_content,
             "markdown_file": self.markdown_file,
             "process_id": self.process_id,
-            "context": self.context
+            "input_data": self.input_data.to_dict() if self.input_data else {},
+            "structured_data": self.structured_data
         }
     
     @classmethod
@@ -98,11 +113,14 @@ class SessionProcessingResult:
         return cls(
             web_text=data.get("web_text", ""),
             video_transcript=data.get("video_transcript", ""),
-            attachments_text=data.get("attachments_text", ""),
+            attachment_paths=data.get("attachment_paths", []),
+            page_texts=data.get("page_texts", []),
+            target_dir=data.get("target_dir", ""),
             markdown_content=data.get("markdown_content", ""),
             markdown_file=data.get("markdown_file", ""),
             process_id=data.get("process_id"),
-            context=data.get("context")
+            input_data=SessionInput.from_dict(data.get("input_data", {})),
+            structured_data=data.get("structured_data", {})
         )
 
 class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
@@ -122,7 +140,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "session_cache"
     
-    def __init__(self, resource_calculator: Any, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: Any, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """
         Initialisiert den Session-Processor.
         
@@ -131,6 +149,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             process_id: Optionale eindeutige ID für diesen Verarbeitungsprozess
         """
         super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        
         
         try:
             # Konfiguration laden
@@ -144,9 +163,21 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 self.base_dir.mkdir(parents=True)
                 
             # Initialisiere Sub-Prozessoren
-            self.video_processor: VideoProcessor = VideoProcessor(resource_calculator, process_id)
-            self.transformer_processor: TransformerProcessor = TransformerProcessor(resource_calculator, process_id)
-            self.pdf_processor: PDFProcessor = PDFProcessor(resource_calculator, process_id)
+            self.video_processor: VideoProcessor = VideoProcessor(
+                resource_calculator=self.resource_calculator, 
+                process_id=process_id,
+                parent_process_info=self.process_info
+            )
+            self.transformer_processor: TransformerProcessor = TransformerProcessor(
+                resource_calculator=self.resource_calculator, 
+                process_id=process_id,
+                parent_process_info=self.process_info
+            )
+            self.pdf_processor: PDFProcessor = PDFProcessor(
+                resource_calculator=self.resource_calculator, 
+                process_id=process_id,
+                parent_process_info=self.process_info
+            )
             
             # Konfigurationswerte mit Typ-Annotationen
             max_concurrent_tasks: int = session_config.get('max_concurrent_tasks', 5)
@@ -211,7 +242,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                              traceback=traceback.format_exc())
             raise ProcessingError(f"Fehler beim Abrufen der Session-Seite: {str(e)}")
 
-    async def _process_video(self, video_url: str, source_language: str, target_language: str, use_cache: bool = True) -> Tuple[str, Optional[LLMInfo]]:
+    async def _process_video(self, video_url: str, source_language: str, target_language: str, use_cache: bool = True) -> str:
         """
         Lädt das Video herunter und extrahiert die Audio-Transkription.
         
@@ -254,7 +285,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                                 processing_time=processing_time,
                                 transcription_length=len(transcription))
                 
-                return transcription, result.process.llm_info
+                return transcription
                 
         except Exception as e:
             self.logger.error("Fehler bei der Video-Verarbeitung", 
@@ -267,11 +298,13 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         self,
         web_text: str,
         video_transcript: str,
-        attachments_text: str,
+        page_texts: List[str],
         session_data: SessionInput,
         target_dir: Path,
+        filename: str,
+        template: str,
         context: Optional[Dict[str, Any]] = None
-    ) -> Tuple[Path, str, Optional[LLMInfo]]:
+    ) -> Tuple[Path, str, Any]:
         """
         Generiert die Markdown-Datei mit allen Informationen.
         
@@ -282,53 +315,101 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             session_data: Session-Metadaten
             target_dir: Zielverzeichnis für die erzeugte Markdown-Datei
             context: Optionaler zusätzlicher Kontext für das Template
+            additional_field_descriptions: Zusätzliche Feldbeschreibungen für Seitenzusammenfassungen
             
         Returns:
-            Tuple aus Markdown-Datei-Pfad, generiertem Markdown-Text und LLM-Info
+            Tuple aus Markdown-Datei-Pfad, generiertem Markdown-Text, LLM-Info und strukturierten Daten
         """
         start_time: float = time.time()
         tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
             with tracker.measure_operation('generate_markdown', 'session') if tracker else nullcontext():
+
+                # Generiere zusätzliche Feldbeschreibungen für Seitenzusammenfassungen
+                additional_field_descriptions: Dict[str, str] = {}
+                for i, page_text in enumerate(page_texts, 1):
+                    field_name = f"attachment_page_{i}_summary"
+                    description = (
+                        f"Können wir den Beschreibenden Text der Folie {i} kurz zusammenfassen? "
+                        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: "
+                        f"{page_text}"
+                    )
+                    additional_field_descriptions[field_name] = description
+
+
                 self.logger.info("Generiere Markdown")
                 
                 # Template-Transformation in Quellsprache durchführen
                 result: TransformerResponse = self.transformer_processor.transformByTemplate(
-                    source_text="Webtext:\n" + web_text + "\n\n-----\n\nVideotranscript:\n" + video_transcript + "\n\n-----\n\nAttachments:\n" + attachments_text,
+                    source_text="Webtext:\n" + web_text + "\n\n-----\n\nVideotranscript:\n" + video_transcript,
                     source_language=session_data.source_language, 
                     target_language=session_data.target_language,  
-                    template=session_data.template,
+                    template=template,
                     context=context,
+                    additional_field_descriptions=additional_field_descriptions,
                     use_cache=False
                 )
                 
                 # Markdown-Inhalt extrahieren
                 markdown_content: str = ""
                 
-                if result.data and hasattr(result.data, 'output') and hasattr(result.data.output, 'text'):
-                    markdown_content = result.data.output.text
+                if result.data and isinstance(result.data, TransformationResult):
+                    markdown_content = result.data.text
                 else:
                     self.logger.warning(
                         "Unerwartete Struktur der Transformer-Antwort, verwende leeren Markdown-Inhalt",
                         data_type=type(result.data).__name__ if result.data else "None"
                     )
                 
-                # Anhänge hinzufügen falls vorhanden
-                if session_data.attachments_url:
-                    markdown_content += "\n## Presentation:\n" 
-                    markdown_content += f"[{(session_data.attachments_url.split('/')[-1])}]({session_data.attachments_url})\n\n"
-                    # Einzelne Bilder aus der Gallery einfügen, falls vorhanden
-                    if context and "gallery" in context and context["gallery"]:
-                        # Bilder einzeln einfügen
-                        for image_path in context["gallery"]:
-                            # Normalisierten Pfad erstellen (falls nicht bereits normalisiert)
-                            normalized_path = image_path.replace("\\", "/")
-                            # Bild im Markdown-Format einfügen
-                            markdown_content += f"![Vorschaubild|300]({normalized_path}) "
+                # Extrahiere strukturierte Daten aus dem Transformer-Ergebnis
+                # Verwende ein leeres Dict als Standardwert
+                structured_data: Dict[str, Any] = {}
                 
+                # Versuche, die strukturierten Daten zu extrahieren, falls vorhanden
+                try:
+                    if result.data and isinstance(result.data, TransformationResult):
+                        structured_data = dict(result.data.structured_data or {})
+                except (AttributeError, TypeError):
+                    self.logger.warning("Konnte strukturierte Daten nicht aus Transformer-Ergebnis extrahieren")
+
+                # Slides mit Beschreibungen hinzufügen falls vorhanden
+                slides: str = "" 
+                if session_data.attachments_url and context and isinstance(context.get("attachment_paths"), list):
+                    slides += "\n## Slides:\n"
+                    slides += "|  |  | \n"
+                    slides += "| --- | --- | \n"
+                    # Prüfe ob context und attachment_paths existieren und stelle sicher, dass es eine Liste von Strings ist
+                    attachment_paths: List[str] = []
+                    if context and isinstance(context.get("attachment_paths"), list):
+                        attachment_paths = [str(path) for path in context["attachment_paths"] if path]
+                    
+                    # Für jedes Bild eine Tabellenzeile erstellen
+                    for i, image_path in enumerate(attachment_paths, 1):
+                        # Normalisierten Pfad erstellen
+                        normalized_path = image_path.replace("\\", "/")
+                        
+                        # Bild und Beschreibung in Tabelle einfügen
+                        slides += f"| ![[{normalized_path}\\|300]] | "
+                        
+                        # Beschreibungstext aus dem Template-Kontext holen
+                        description_key = f"attachment_page_{i}_summary"
+                        description = structured_data.get(description_key, "") if structured_data else ""
+                        
+                        if description:
+                            # Beschreibung einfügen
+                            description = description.replace("\n", "")
+                            slides += f"{description} \n"
+                        else:
+                            slides += "|\n"
+                        
+                else:
+                    self.logger.warning("Keine Anhänge vorhanden, keine Slides generiert")
+
+                markdown_content = markdown_content.replace("{slides}", slides)
+
                 # Markdown-Datei im Session-Verzeichnis speichern
-                markdown_file: Path = target_dir / session_data.filename
+                markdown_file: Path = target_dir / filename
                 markdown_file.write_text(markdown_content, encoding='utf-8')
                 
                 processing_time = time.time() - start_time
@@ -336,7 +417,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                                 processing_time=processing_time,
                                 markdown_length=len(markdown_content))
                     
-                return markdown_file, markdown_content, result.process.llm_info
+                return markdown_file, markdown_content, structured_data
                 
         except Exception as e:
             self.logger.error("Fehler bei der Markdown-Generierung", 
@@ -350,7 +431,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         attachments_url: str,
         session_data: SessionInput,
         target_dir: Path
-    ) -> Tuple[List[str], str, Optional[LLMInfo]]:
+    ) -> Tuple[List[str], List[str]]:
         """
         Verarbeitet die Anhänge einer Session.
         
@@ -360,7 +441,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             target_dir: Zielverzeichnis für die verarbeiteten Dateien
             
         Returns:
-            Tuple aus (Liste der Bildpfade, extrahierter Text, LLM-Info)
+            Tuple aus (Liste der Bildpfade, Liste der Seitentexte, LLM-Info)
             
         Raises:
             ProcessingError: Bei Fehlern in der Verarbeitung
@@ -475,21 +556,22 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     # Logge die generierten Pfade
                     self.logger.info(f"Generierte Gallery-Pfade: {len(gallery_paths)} Einträge")
                 
-                # Extrahiere Text
-                extracted_text = pdf_result.data.extracted_text if pdf_result.data else ""
+                # Extrahiere Seitentexte aus text_contents
+                page_texts: List[str] = []
+                if pdf_result.data and pdf_result.data.metadata.text_contents:
+                    # text_contents ist eine Liste von Tupeln (Seitennummer, Text)
+                    # Wir extrahieren nur die Texte in der richtigen Reihenfolge
+                    page_texts = [text for _, text in sorted(pdf_result.data.metadata.text_contents)]
+                    self.logger.info(f"Extrahierte Texte von {len(page_texts)} Seiten")
                 
-                # Kombiniere LLM-Info
-                combined_llm_info = LLMInfo(model="pdf-processing", purpose="pdf-processing")
-                if pdf_result.process and pdf_result.process.llm_info:
-                    combined_llm_info.add_request(pdf_result.process.llm_info.requests)
                 
                 processing_time = time.time() - start_time
                 self.logger.debug("Anhänge verarbeitet",
                                 processing_time=processing_time,
                                 gallery_count=len(gallery_paths),
-                                text_length=len(extracted_text or ""))
+                                page_count=len(page_texts))
                 
-                return gallery_paths, extracted_text or "", combined_llm_info
+                return gallery_paths, page_texts
                 
         except Exception as e:
             self.logger.error("Fehler bei der Anhang-Verarbeitung", 
@@ -520,6 +602,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         attachments_url: Optional[str] = None,
         source_language: str = "en",
         target_language: str = "de",
+        target: Optional[str] = None,
         template: str = "Session",
         use_cache: bool = True
     ) -> SessionResponse:
@@ -540,6 +623,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             attachments_url: Optional, URL zu Anhängen
             source_language: Optional, Quellsprache (Standard: en)
             target_language: Optional, Zielsprache (Standard: de)
+            target: Optional, Zielgruppe der Session
             template: Optional, Name des Templates für die Markdown-Generierung (Standard: Session)
             use_cache: Optional, ob die Ergebnisse zwischengespeichert werden sollen
             
@@ -547,8 +631,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             SessionResponse mit Metadaten und erzeugtem Markdown
         """
         # Hol den Performance-Tracker
-        tracker = get_performance_tracker()
-        
+        tracker: PerformanceTracker | None = get_performance_tracker()
+
         try:
             # Beginn der Zeitmessung für die Gesamtverarbeitung
             with tracker.measure_operation('process_session', 'session') if tracker else nullcontext():
@@ -567,11 +651,10 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     attachments_url=attachments_url,
                     source_language=source_language,
                     target_language=target_language,
+                    target=target,
                     template=template
                 )
-                
-                # LLM-Tracking initialisieren
-                llm_info = LLMInfo(model="session-processor", purpose="process-session")
+                cache_key = self._create_cache_key(input_data)
                 
                 self.logger.info(f"Starte Verarbeitung von Session: {session}")
                 
@@ -585,38 +668,34 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 if not target_dir.exists():
                     target_dir.mkdir(parents=True)
                 
+                if source_language != target_language:
+                    self.logger.warning("Quell- und Zielsprache unterscheiden sich, verwende Quellsprache für Transkription")
+                    filename = filename.replace(".md", "_" + target_language + ".md")
+
+                template += "_" + target_language 
                 # 1. Session-Seite abrufen
                 web_text = await self._fetch_session_page(url)
                 
                 # 2. Video verarbeiten falls vorhanden
                 video_transcript = ""
                 if video_url:
-                    video_transcript, video_llm_info = await self._process_video(
+                    video_transcript = await self._process_video(
                         video_url=video_url,
                         source_language=source_language,
                         target_language=source_language, # transcript bleibt aus performancegründen immer in originalsprache
                         use_cache=use_cache
                     )
-                    
-                    # LLM-Tracking: Video-Prozessor LLM-Nutzung hinzufügen
-                    if video_llm_info:
-                        llm_info.requests.extend(video_llm_info.requests)
                 
                 # 3. Anhänge verarbeiten falls vorhanden
                 attachment_paths = []
-                attachments_text = ""
-                attachment_llm_info = None
+                page_texts: List[str] = []
                 
                 if attachments_url:
-                    attachment_paths, attachments_text, attachment_llm_info = await self._process_attachments(
+                    attachment_paths, page_texts = await self._process_attachments(
                         attachments_url=attachments_url,
                         session_data=input_data,
                         target_dir=target_dir
                     )
-                    
-                    # LLM-Tracking: PDF-Prozessor LLM-Nutzung hinzufügen
-                    if attachment_llm_info:
-                        llm_info.requests.extend(attachment_llm_info.requests)
                 
                 # 4. Markdown generieren
                 template_context = {
@@ -631,30 +710,33 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     "video_mp4_url": video_url.replace('.webm', '.mp4') if video_url else None,
                     "attachments_url": attachments_url,
                     "attachment_paths": attachment_paths,
-                    "gallery": attachment_paths  # Für die Bildergalerie
+                    "page_count": len(page_texts),  # Anzahl der Seiten
+                    "cache_key": cache_key
                 }
 
-                markdown_file, markdown_content, transformer_llm_info = await self._generate_markdown(
+               
+                markdown_file, markdown_content, structured_data = await self._generate_markdown(
                     web_text=web_text,
                     video_transcript=video_transcript,
-                    attachments_text=attachments_text,
                     session_data=input_data,
                     target_dir=target_dir,
-                    context=template_context
+                    filename=filename,
+                    template=template,
+                    context=template_context,
+                    page_texts=page_texts
                 )
-                
-                # LLM-Tracking: Transformer-Prozessor LLM-Nutzung hinzufügen
-                if transformer_llm_info:
-                    llm_info.requests.extend(transformer_llm_info.requests)
                 
                 # 5. Erstelle Output-Daten
                 output_data = SessionOutput(
                     web_text=web_text,
                     video_transcript=video_transcript,
-                    attachments_text=attachments_text,
-                    context=template_context,
+                    attachments=attachment_paths,
+                    page_texts=page_texts,
+                    input_data=input_data,
+                    target_dir=str(target_dir),
                     markdown_file=str(markdown_file),
                     markdown_content=markdown_content,
+                    structured_data=structured_data
                 )
                 
                 # 6. Ergebnis im Cache speichern (wenn aktiviert)
@@ -662,15 +744,17 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     result = SessionProcessingResult(
                         web_text=web_text,
                         video_transcript=video_transcript,
-                        attachments_text=attachments_text,
-                        markdown_content=markdown_content,
+                        attachment_paths=attachment_paths,
+                        page_texts=page_texts,
+                        input_data=input_data,
+                        target_dir=str(target_dir),
                         markdown_file=str(markdown_file),
+                        markdown_content=markdown_content,
                         process_id=self.process_id,
-                        context=template_context
+                        structured_data=structured_data
                     )
                     
                     # Im Cache speichern
-                    cache_key = self._create_cache_key(input_data)
                     self.save_to_cache(
                         cache_key=cache_key,
                         result=result
@@ -678,7 +762,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     self.logger.debug(f"Session-Ergebnis im Cache gespeichert: {cache_key}")
                 
                 # 7. Response erstellen
-                return ResponseFactory.create_response(
+                return self.create_response(
                     processor_name=ProcessorType.SESSION.value,
                     result=SessionData(
                         input=input_data,
@@ -691,8 +775,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                         "track": track
                     },
                     response_class=SessionResponse,
-                    llm_info=llm_info,
-                    from_cache=False
+                    from_cache=False,
+                    cache_key=cache_key
                 )
                 
         except Exception as e:
@@ -709,7 +793,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                              session=session,
                              traceback=traceback.format_exc())
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.SESSION.value,
                 result=None,
                 request_info={
@@ -720,8 +804,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 },
                 response_class=SessionResponse,
                 error=error_info,
-                llm_info=None,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
     async def process_many_sessions(
@@ -743,13 +827,12 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             # Initialisiere Listen für Ergebnisse und Fehler
             successful_outputs: List[SessionOutput] = []
             errors: List[Dict[str, Any]] = []
-            llm_infos: List[LLMInfo] = []
             
             # Verarbeite Sessions sequentiell
             for i, session_data in enumerate(sessions):
                 try:
                     # Verarbeite einzelne Session
-                    result = await self.process_session(
+                    result: SessionResponse = await self.process_session(
                         event=session_data.get("event", ""),
                         session=session_data.get("session", ""),
                         url=session_data.get("url", ""),
@@ -769,8 +852,6 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     # Sammle erfolgreiche Ergebnisse
                     if result.data and result.data.output:
                         successful_outputs.append(result.data.output)
-                    if result.process.llm_info:
-                        llm_infos.append(result.process.llm_info)
                         
                 except Exception as e:
                     # Protokolliere Fehler, aber setze Verarbeitung fort
@@ -803,15 +884,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 output=batch_output
             )
             
-            # Kombiniere alle LLM-Infos
-            combined_llm_info = None
-            if llm_infos:
-                combined_llm_info = llm_infos[0]
-                for info in llm_infos[1:]:
-                    combined_llm_info = combined_llm_info.merge(info)
-            
             # Erstelle Response
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.SESSION.value,
                 result=batch_data,
                 request_info={
@@ -820,8 +894,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     "failed": len(errors)
                 },
                 response_class=BatchSessionResponse,
-                llm_info=combined_llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
             
         except Exception as e:
@@ -834,7 +908,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 }
             )
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.SESSION.value,
                 result=None,
                 request_info={
@@ -842,8 +916,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 },
                 response_class=BatchSessionResponse,
                 error=error_info,
-                llm_info=None,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
     async def process_sessions_async(
@@ -912,7 +986,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             self.logger.info(f"BATCH-DEBUG: MongoDB-Batch-Task gestartet und im Hintergrund gespeichert. Aktive Tasks: {len(self._background_tasks)}")
             
             # Erstelle eine sofortige Antwort
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.SESSION.value,
                 result=BatchSessionData(
                     input=BatchSessionInput(sessions=sessions),
@@ -936,8 +1010,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     "processing_type": "mongodb"
                 },
                 response_class=BatchSessionResponse,
-                llm_info=None,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
             
         except Exception as e:
@@ -951,7 +1025,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             )
             self.logger.error(f"Fehler bei der asynchronen Batch-Session-Verarbeitung: {str(e)}")
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=ProcessorType.SESSION.value,
                 result=None,
                 request_info={
@@ -962,8 +1036,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 },
                 response_class=BatchSessionResponse,
                 error=error_info,
-                llm_info=None,
-                from_cache=False
+                from_cache=False,
+                cache_key=""
             )
 
     def _create_empty_session_output(self) -> SessionOutput:
@@ -971,8 +1045,14 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         return SessionOutput(
             web_text="",
             video_transcript="",
-            attachments_text="",
-            context={},
+            input_data=SessionInput(
+                event="",
+                session="",
+                url="",
+                filename="",
+                track=""
+            ),
+            target_dir="",
             markdown_file="",
             markdown_content=""
         )
@@ -1126,17 +1206,24 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         Returns:
             Dict[str, Any]: Die serialisierten Daten
         """
+        _result: Dict[str, Any] = result.to_dict()
+        _input_data: Dict[str, Any] = _result.get("input_data", {})
+        _structured_data: Dict[str, Any] = _result.get("structured_data", {})
         # Hauptdaten speichern
         cache_data = {
-            "result": result.to_dict(),
+            "result": _result,
             "processed_at": datetime.now().isoformat(),
             # Da SessionProcessingResult kein metadata-Attribut hat, können wir hier keine weiteren Metadaten hinzufügen
-            "event": "",
-            "session": "",
-            "track": "",
-            "target_language": ""
+            "target": _input_data.get("target", ""),
+            "event": _input_data.get("event", ""),
+            "session": _input_data.get("session", ""),
+            "track": _input_data.get("track", ""),
+            "target_language": _input_data.get("target_language", ""),
+            "target": _input_data.get("target", ""),
+            "template": _input_data.get("template", ""),
+            "topic": _structured_data.get("topic", ""),
+            "relevance": _structured_data.get("relevance", "")
         }
-        
         return cache_data
 
     def deserialize_cached_data(self, cached_data: Dict[str, Any]) -> SessionProcessingResult:

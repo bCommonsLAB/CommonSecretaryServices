@@ -2,10 +2,10 @@
 Basis-Typen und Interfaces für die Common Secretary Services.
 """
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from .enums import ProcessingStatus
-from .llm import LLMInfo, LLMRequest
+from .llm import LLMInfo
 
 @dataclass
 class ProcessingLogger:
@@ -68,8 +68,9 @@ class ProcessInfo:
     sub_processors: List[str] = field(default_factory=list)
     completed: Optional[str] = None
     duration: Optional[float] = None
-    llm_info: Optional[LLMInfo] = None
-    is_from_cache: bool = False  # Flag, das anzeigt, ob das Ergebnis aus dem Cache stammt
+    llm_info: Optional[LLMInfo] = field(default_factory=lambda: LLMInfo())
+    is_from_cache: bool = False
+    cache_key: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validiert die Felder nach der Initialisierung."""
@@ -86,38 +87,22 @@ class ProcessInfo:
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Process-Info in ein Dictionary."""
-        return {
+        # Explizit typisiertes Dictionary
+        result: Dict[str, Any] = {
             'id': self.id,
             'main_processor': self.main_processor,
             'started': self.started,
             'sub_processors': self.sub_processors,
             'completed': self.completed,
             'duration': self.duration,
-            'llm_info': self.llm_info.to_dict() if self.llm_info else None,
-            'is_from_cache': self.is_from_cache
+            'is_from_cache': self.is_from_cache,
+            'cache_key': self.cache_key
         }
-
-    def add_llm_requests(self, requests: Union[List[LLMRequest], LLMInfo]) -> None:
-        """
-        Fügt LLM-Requests hinzu.
         
-        Args:
-            requests: Liste von LLMRequests oder ein LLMInfo Objekt
-        """
-        # Initialisiere llm_info wenn nicht vorhanden
-        if self.llm_info is None:
-            object.__setattr__(self, 'llm_info', LLMInfo(
-                model="multi-model",
-                purpose="multi-purpose",
-                requests=[]
-            ))
-        
-        # Füge Requests hinzu
-        if self.llm_info is not None:  # Für Type-Checker
-            if isinstance(requests, list):
-                self.llm_info.add_request(requests)
-            else:
-                self.llm_info.add_request(requests.requests)
+        if self.llm_info:
+            result['llm_info'] = self.llm_info.to_dict()
+            
+        return result
 
 @dataclass(frozen=True)
 class BaseResponse:
@@ -126,7 +111,7 @@ class BaseResponse:
     process: ProcessInfo
     status: ProcessingStatus = ProcessingStatus.PENDING
     error: Optional[ErrorInfo] = None
-    data: Any = None  # Hinzugefügt für spezifische Response-Daten
+    data: Any = None
 
     def __post_init__(self) -> None:
         """Validiert die Basis-Response."""
@@ -134,10 +119,14 @@ class BaseResponse:
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
+        process_dict = self.process.to_dict() if self.process else None
+        if process_dict and self.process.llm_info:
+            process_dict['llm_info'] = self.process.llm_info.to_dict()
+            
         return {
             'status': self.status.value,
             'request': self.request.to_dict() if self.request else None,
-            'process': self.process.to_dict() if self.process else None,
+            'process': process_dict,
             'error': self.error.to_dict() if self.error else None,
             'data': self.data.to_dict() if hasattr(self.data, 'to_dict') else self.data
         }
@@ -150,13 +139,4 @@ class BaseResponse:
     def set_error(self, error: ErrorInfo) -> None:
         """Setzt die Fehlerinformation."""
         object.__setattr__(self, 'error', error)
-        object.__setattr__(self, 'status', ProcessingStatus.ERROR)
-
-    def add_llm_requests(self, requests: Union[List[LLMRequest], LLMInfo]) -> None:
-        """
-        Fügt LLM-Requests zum Prozess hinzu.
-        
-        Args:
-            requests: Liste von LLMRequests oder ein LLMInfo Objekt
-        """
-        self.process.add_llm_requests(requests) 
+        object.__setattr__(self, 'status', ProcessingStatus.ERROR) 

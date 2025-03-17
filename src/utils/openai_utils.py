@@ -1,7 +1,7 @@
 """
 OpenAI-spezifische Hilfsfunktionen.
 """
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, Optional, TypeVar 
 import json
 
 from openai import OpenAI
@@ -11,6 +11,8 @@ from pydantic import BaseModel, create_model, Field
 from src.utils.logger import ProcessingLogger
 from src.core.models.transformer import TemplateFields
 from src.core.models.llm import LLMRequest
+from src.utils.transcription_utils import WhisperTranscriber
+from src.core.config import Config
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -21,7 +23,8 @@ def get_structured_gpt(
     system_prompt: str,
     user_prompt: str,
     model: str = "gpt-4",
-    logger: Optional[ProcessingLogger] = None
+    logger: Optional[ProcessingLogger] = None,
+    processor: Optional[str] = None
 ) -> tuple[BaseModel, Dict[str, Any], LLMRequest]:
     """Erstellt ein Pydantic Model und führt GPT-Anfrage durch.
     
@@ -33,6 +36,7 @@ def get_structured_gpt(
         user_prompt: User-Prompt für GPT
         model: GPT Modell (default: gpt-4)
         logger: Optional, Logger für Debug-Ausgaben
+        processor: Optional, Name des aufrufenden Processors für LLM-Tracking
         
     Returns:
         Tuple aus:
@@ -92,12 +96,19 @@ def get_structured_gpt(
     # String in ein Python-Dict umwandeln
     result_json: Dict[str, Any] = json.loads(result_json_str)
 
-    # LLM-Nutzung tracken
-    llm_usage: LLMRequest = LLMRequest(
-        model=model,
+    # LLM-Nutzung zentral tracken
+    config = Config()
+    transcriber = WhisperTranscriber(config.get('processors', {}).get('transcription', {}))
+    llm_usage: LLMRequest = transcriber.create_llm_request(
         purpose="template_transformation",
         tokens=response.usage.total_tokens if response.usage else 0,
-        duration=duration
+        duration=duration,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response=response,
+        logger=logger,
+        processor=processor or "openai_utils"
     )
 
     return template_model_result, result_json, llm_usage 

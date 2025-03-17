@@ -63,10 +63,6 @@ def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]
             IndexModel([("cache_key", ASCENDING)], unique=True),
             IndexModel([("target_language", ASCENDING)])
         ],
-        "event_cache": [
-            IndexModel([("cache_key", ASCENDING)], unique=True),
-            IndexModel([("event_id", ASCENDING)])
-        ],
         "track_cache": [
             IndexModel([("cache_key", ASCENDING)], unique=True),
             IndexModel([("track_id", ASCENDING)])
@@ -202,7 +198,6 @@ def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
         "video_cache",
         "audio_cache",
         "transformer_cache",
-        "event_cache",
         "track_cache",
         "notion_cache",
         "metadata_cache",

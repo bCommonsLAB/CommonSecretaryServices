@@ -5,99 +5,25 @@ import uuid
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Dict, Optional, BinaryIO, Tuple
+from typing import Any, ContextManager, Dict, Optional, BinaryIO, Tuple, TypeVar, Type, Generic, List, Union
 import os
 
 import yaml
 
 from src.core.exceptions import ValidationError
-from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
+from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo, LLMInfo, BaseResponse
+from src.core.models.llm import LLMRequest
+from src.core.models.enums import ProcessingStatus
 from src.core.config import Config
 from src.utils.logger import ProcessingLogger, get_logger
 from src.utils.performance_tracker import get_performance_tracker
 from src.core.resource_tracking import ResourceCalculator
 
-
-class BaseProcessorResponse:
-    """Basis-Klasse für alle Processor-Responses."""
-    
-    def __init__(self, processor_name: str) -> None:
-        """
-        Initialisiert die Basis-Response.
-        
-        Args:
-            processor_name (str): Name des Processors
-        """
-        self.request: RequestInfo = RequestInfo(
-            processor=processor_name,
-            timestamp=datetime.now().isoformat(),
-            parameters={}
-        )
-        
-        self.process: ProcessInfo = ProcessInfo(
-            id=str(uuid.uuid4()),
-            main_processor=processor_name,
-            sub_processors=[],
-            started=datetime.now().isoformat()
-        )
-        
-        self.error: Optional[ErrorInfo] = None
-    
-    def add_parameter(self, name: str, value: Any) -> None:
-        """
-        Fügt einen Parameter zur Request hinzu.
-        
-        Args:
-            name (str): Name des Parameters
-            value (Any): Wert des Parameters
-        """
-        self.request.parameters[name] = value
-    
-    def add_sub_processor(self, processor_name: str) -> None:
-        """
-        Fügt einen Sub-Processor zur Prozessinfo hinzu.
-        
-        Args:
-            processor_name (str): Name des Sub-Processors
-        """
-        if processor_name not in self.process.sub_processors:
-            self.process.sub_processors.append(processor_name)
-    
-    def add_llm_info(self, model: str, prompt_template: str, tokens: int, duration: float) -> None:
-        """
-        Fügt LLM-Informationen zur Prozessinfo hinzu.
-        
-        Args:
-            model (str): Verwendetes LLM-Modell
-            prompt_template (str): Name des verwendeten Prompt-Templates
-            tokens (int): Anzahl der verwendeten Tokens
-            duration (float): Dauer des LLM-Aufrufs in Sekunden
-        """
-        if not hasattr(self.process, 'llm_info'):
-            self.process.llm_info = []  # type: ignore
-        
-        self.process.llm_info.append({  # type: ignore
-            'model': model,
-            'prompt_template': prompt_template,
-            'tokens': tokens,
-            'duration': duration
-        })
-    
-    def set_error(self, error: ErrorInfo) -> None:
-        """
-        Setzt eine Fehlermeldung.
-        
-        Args:
-            error (ErrorInfo): Fehlerinformation
-        """
-        self.error = error
-    
-    def set_completed(self) -> None:
-        """Markiert den Prozess als abgeschlossen."""
-        self.process.completed = datetime.now().isoformat()
+T = TypeVar('T')
+R = TypeVar('R', bound=BaseResponse)
 
 
-class BaseProcessor:
+class BaseProcessor(Generic[T]):
     """
     Basis-Klasse für alle Prozessoren.
     Definiert gemeinsame Funktionalität und Schnittstellen.
@@ -107,13 +33,14 @@ class BaseProcessor:
         temp_dir (Path): Temporäres Verzeichnis für Verarbeitungsdateien
         logger (ProcessingLogger): Logger-Instanz für den Processor
         resource_calculator (ResourceCalculator): Calculator für Ressourcenverbrauch
+        process_info (ProcessInfo): Informationen über den Verarbeitungsprozess und LLM-Aufrufen
     """
     
     # Konstanten für Validierung
     SUPPORTED_LANGUAGES = {'de', 'en', 'fr', 'es', 'it'}  # Beispiel, sollte aus Config kommen
     SUPPORTED_FORMATS = {'text', 'html', 'markdown'}
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """
         Initialisiert den BaseProcessor.
         
@@ -122,11 +49,26 @@ class BaseProcessor:
             process_id (str, optional): Die zu verwendende Process-ID. 
                                       Wenn None, wird eine neue UUID generiert.
                                       Im Normalfall sollte diese ID vom API-Layer kommen.
+            parent_process_info (ProcessInfo, optional): ProcessInfo des aufrufenden Prozessors
+                                                       für hierarchisches LLM-Tracking
         """
         self.process_id = process_id or str(uuid.uuid4())
-        self.resource_calculator = resource_calculator
-        self.logger = self.init_logger()
+        self.resource_calculator: ResourceCalculator = resource_calculator
+        self.logger: ProcessingLogger = self.init_logger()
         
+        if parent_process_info:
+            self.process_info: ProcessInfo = parent_process_info
+            if self.__class__.__name__ not in self.process_info.sub_processors:
+                self.process_info.sub_processors.append(self.__class__.__name__)
+        else:
+            self.process_info: ProcessInfo = ProcessInfo(
+                id=self.process_id,
+                main_processor=self.__class__.__name__,
+                started=datetime.now().isoformat(),
+                sub_processors=[],
+                llm_info=LLMInfo()  # Initialisiere llm_info
+            )
+
         # Verwende Prozessor-spezifische Konfiguration für Cache
         processor_name = self.__class__.__name__.lower().replace('processor', '')
         processor_config = self.load_processor_config(processor_name)
@@ -411,4 +353,74 @@ class BaseProcessor:
                     error=e,
                     processor=processor_name
                 )
-            return {} 
+            return {}
+
+    def create_response(
+        self,
+        processor_name: str,
+        result: Any,
+        request_info: Dict[str, Any],
+        response_class: Type[R],
+        from_cache: bool,
+        cache_key: str,
+        error: Optional[ErrorInfo] = None
+    ) -> R:
+        """
+        Erstellt eine standardisierte Response mit hierarchischem LLM-Tracking.
+        
+        Args:
+            processor_name: Name des Processors
+            result: Das Ergebnis der Verarbeitung
+            request_info: Request-Parameter
+            response_class: Die zu erstellende Response-Klasse
+            from_cache: Flag, das anzeigt, ob das Ergebnis aus dem Cache stammt
+            cache_key: Der Cache-Schlüssel für das Ergebnis
+            error: Optional, Fehlerinformationen
+            
+        Returns:
+            R: Die standardisierte Response vom angegebenen Typ
+        """
+        
+        self.process_info.is_from_cache = from_cache
+        self.process_info.cache_key = cache_key
+            
+        # Erstelle die Response
+        response = response_class(
+            request=RequestInfo(
+                processor=processor_name,
+                timestamp=datetime.now().isoformat(),
+                parameters=request_info
+            ),
+            process=self.process_info,
+            status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
+            error=error,
+            data=result
+        )
+            
+        return response
+    
+    def add_llm_requests(self, requests: Union[List[LLMRequest], LLMInfo]) -> None:
+        """
+        Fügt LLM-Requests zur ProcessInfo hinzu.
+        
+        Args:
+            requests: Liste von LLMRequests oder LLMInfo Objekt
+        """
+            
+        # Konvertiere LLMInfo zu Liste von Requests wenn nötig
+        if isinstance(requests, LLMInfo):
+            if self.process_info.llm_info is None:
+                self.process_info.llm_info = requests
+            else:
+                self.process_info.llm_info = self.process_info.llm_info.merge(requests)
+        else:
+            if self.process_info.llm_info is None:
+                self.process_info.llm_info = LLMInfo(requests=[requests] if isinstance(requests, LLMRequest) else requests)
+            else:
+                self.process_info.llm_info = self.process_info.llm_info.add_request(requests)
+        
+        # Log für Debugging
+        if hasattr(self, 'logger'):
+            num_requests = len(requests.requests) if isinstance(requests, LLMInfo) else len(requests)
+            self.logger.debug(f"{num_requests} LLM-Requests hinzugefügt")
+    

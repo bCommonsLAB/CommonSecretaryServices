@@ -33,8 +33,8 @@ class SessionJobRepository:
             db_name: Optional, Name der Datenbank. Wenn nicht angegeben, wird der Name aus der Konfiguration verwendet.
         """
         self.db: Database[Any] = get_mongodb_database(db_name)
-        self.jobs: Collection[Any] = self.db.session_jobs
-        self.batches: Collection[Any] = self.db.session_batches
+        self.jobs: Collection[Any] = self.db.event_jobs
+        self.batches: Collection[Any] = self.db.event_batches
         
         # Indizes erstellen
         self._create_indexes()
@@ -968,4 +968,84 @@ class SessionJobRepository:
             
         except Exception as e:
             logger.error(f"Fehler beim Zurücksetzen hängengebliebener Jobs: {str(e)}", exc_info=True)
-            return 0 
+            return 0
+    
+    def update_batch_status(self, batch_id: str, status: Union[str, JobStatus]) -> bool:
+        """
+        Aktualisiert den Status eines Batches.
+        
+        Args:
+            batch_id: Die ID des Batches
+            status: Der neue Status
+            
+        Returns:
+            bool: True bei Erfolg, False bei Fehler
+        """
+        # Status in String-Form für MongoDB umwandeln
+        status_value = status.value if isinstance(status, JobStatus) else JobStatus(status).value
+        
+        # Aktualisierungs-Dictionary erstellen
+        now = datetime.datetime.now(datetime.UTC)
+        update_dict: Dict[str, Any] = {
+            "status": status_value,
+            "updated_at": now
+        }
+        
+        # Wenn Status auf "completed" oder "failed" gesetzt wird, setze completed_at
+        if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+            update_dict["completed_at"] = now
+        
+        # Batch in der Datenbank aktualisieren
+        result = self.batches.update_one(
+            {"batch_id": batch_id},
+            {"$set": update_dict}
+        )
+        
+        success = result.modified_count > 0
+        
+        if success:
+            logger.info(f"Batch-Status aktualisiert: {batch_id} -> {status_value}")
+        else:
+            logger.warning(f"Batch-Status konnte nicht aktualisiert werden: {batch_id}")
+            
+        return success
+    
+    def update_jobs_status_by_batch(self, batch_id: str, status: Union[str, JobStatus]) -> int:
+        """
+        Aktualisiert den Status aller Jobs eines Batches.
+        
+        Args:
+            batch_id: Die ID des Batches
+            status: Der neue Status
+            
+        Returns:
+            int: Anzahl der aktualisierten Jobs
+        """
+        # Status in String-Form für MongoDB umwandeln
+        status_value = status.value if isinstance(status, JobStatus) else JobStatus(status).value
+        
+        # Aktualisierungs-Dictionary erstellen
+        now = datetime.datetime.now(datetime.UTC)
+        update_dict: Dict[str, Any] = {
+            "status": status_value,
+            "updated_at": now
+        }
+        
+        # Wenn Status auf "completed" oder "failed" gesetzt wird, setze completed_at
+        if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+            update_dict["completed_at"] = now
+        
+        # Alle Jobs des Batches aktualisieren
+        result = self.jobs.update_many(
+            {"batch_id": batch_id},
+            {"$set": update_dict}
+        )
+        
+        modified_count = result.modified_count
+        
+        if modified_count > 0:
+            logger.info(f"{modified_count} Jobs für Batch {batch_id} auf Status {status_value} gesetzt")
+        else:
+            logger.warning(f"Keine Jobs für Batch {batch_id} gefunden oder aktualisiert")
+            
+        return modified_count 

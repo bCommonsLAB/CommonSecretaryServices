@@ -16,9 +16,12 @@ def resource_calculator() -> ResourceCalculator:
     return Mock(spec=ResourceCalculator)
 
 @pytest.fixture
-def transformer_processor(resource_calculator: ResourceCalculator) -> TransformerProcessor:
+def transformer_processor(resource_calculator: ResourceCalculator, parent_process_info: ProcessInfo) -> TransformerProcessor:
     """Fixture für den TransformerProcessor."""
-    processor = TransformerProcessor(resource_calculator=resource_calculator)
+    processor = TransformerProcessor(
+        resource_calculator=resource_calculator, 
+        process_id="test_transformer_processor"
+    )
     return processor
 
 def test_transform_basic(transformer_processor: TransformerProcessor) -> None:
