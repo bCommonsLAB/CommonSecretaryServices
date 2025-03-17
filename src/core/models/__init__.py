@@ -30,7 +30,7 @@ from .llm import LLModel, LLMRequest, LLMInfo
 from .metadata import ContentMetadata, TechnicalMetadata
 
 # Transformer-Modelle
-from .transformer import TransformerInput, TransformerOutput, TransformerData, TransformerResponse
+from .transformer import TransformerInput, TransformerData, TransformerResponse
 
 # Audio-Modelle
 from .audio import (
@@ -81,7 +81,6 @@ __all__ = [
     
     # Transformer-Modelle
     "TransformerInput",
-    "TransformerOutput",
     "TransformerData",
     "TransformerResponse",
     

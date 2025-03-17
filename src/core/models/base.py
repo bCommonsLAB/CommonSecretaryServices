@@ -107,8 +107,11 @@ class ProcessInfo:
 @dataclass(frozen=True)
 class BaseResponse:
     """Basis-Klasse für alle API-Responses"""
-    request: RequestInfo
-    process: ProcessInfo
+    request: RequestInfo = field(default_factory=lambda: RequestInfo(
+        processor="base",
+        timestamp=datetime.now().isoformat()
+    ))
+    process: Optional[ProcessInfo] = None  # Wird automatisch vom BaseProcessor gesetzt
     status: ProcessingStatus = ProcessingStatus.PENDING
     error: Optional[ErrorInfo] = None
     data: Any = None
@@ -116,12 +119,21 @@ class BaseResponse:
     def __post_init__(self) -> None:
         """Validiert die Basis-Response."""
         pass
+    
+    @classmethod
+    def create(cls, data: Any = None, **kwargs: Any) -> 'BaseResponse':
+        """Erstellt eine neue Response mit automatischer ProcessInfo-Übertragung."""
+        # Hole die ProcessInfo vom aktuellen BaseProcessor
+        from src.processors.base_processor import BaseProcessor
+        if not kwargs.get('process') and hasattr(BaseProcessor, 'get_current_process_info'):
+            kwargs['process'] = BaseProcessor.get_current_process_info()
+        if data is not None:
+            kwargs['data'] = data
+        return cls(**kwargs)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""
         process_dict = self.process.to_dict() if self.process else None
-        if process_dict and self.process.llm_info:
-            process_dict['llm_info'] = self.process.llm_info.to_dict()
             
         return {
             'status': self.status.value,
@@ -133,7 +145,8 @@ class BaseResponse:
 
     def set_completed(self) -> None:
         """Markiert den Prozess als abgeschlossen."""
-        object.__setattr__(self.process, 'completed', datetime.now().isoformat())
+        if self.process:
+            object.__setattr__(self.process, 'completed', datetime.now().isoformat())
         object.__setattr__(self, 'status', ProcessingStatus.SUCCESS)
 
     def set_error(self, error: ErrorInfo) -> None:

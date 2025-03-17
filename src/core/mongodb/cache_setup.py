@@ -148,6 +148,79 @@ def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]
     logger.info(f"=== CACHE SETUP: Cache-Collections-Setup abgeschlossen: {len(results)} Collections eingerichtet ===")
     return results
 
+def create_ttl_index(collection, field: str, expire_after_seconds: int, max_retries: int = 3) -> bool:
+    """
+    Erstellt einen TTL-Index mit Retry-Logik.
+    
+    Args:
+        collection: MongoDB Collection
+        field: Feld für den TTL-Index
+        expire_after_seconds: TTL in Sekunden
+        max_retries: Maximale Anzahl von Versuchen
+        
+    Returns:
+        bool: True wenn erfolgreich, False wenn fehlgeschlagen
+    """
+    import time
+    from pymongo.errors import OperationFailure
+    
+    for attempt in range(max_retries):
+        try:
+            # Prüfe ob Collection existiert
+            if collection.name not in collection.database.list_collection_names():
+                logger.warning(f"Collection {collection.name} existiert nicht")
+                return False
+                
+            # Hole existierende Indizes
+            index_info = collection.index_information()
+            
+            # Lösche existierende TTL-Indizes
+            for idx_name in list(index_info.keys()):
+                if idx_name.startswith("ttl_") or idx_name == f"{field}_1":
+                    try:
+                        logger.info(f"Lösche existierenden Index {idx_name}")
+                        collection.drop_index(idx_name)
+                    except Exception as e:
+                        logger.warning(f"Fehler beim Löschen von Index {idx_name}: {str(e)}")
+            
+            # Warte kurz zwischen Versuchen
+            if attempt > 0:
+                time.sleep(1)
+            
+            # Erstelle neuen TTL-Index
+            index_name = f"ttl_{field}_{expire_after_seconds}s"
+            logger.info(f"Erstelle TTL-Index {index_name} (Versuch {attempt + 1}/{max_retries})")
+            
+            collection.create_index(
+                [(field, ASCENDING)],
+                expireAfterSeconds=expire_after_seconds,
+                name=index_name,
+                background=True  # Erlaubt andere Operationen während des Index-Builds
+            )
+            
+            # Verifiziere Index-Erstellung
+            new_indexes = collection.index_information()
+            if index_name in new_indexes:
+                logger.info(f"TTL-Index {index_name} erfolgreich erstellt")
+                return True
+            else:
+                logger.warning(f"Index {index_name} wurde nicht erstellt")
+                
+        except OperationFailure as e:
+            logger.warning(f"OperationFailure beim Versuch {attempt + 1}: {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            else:
+                logger.error(f"TTL-Index-Erstellung nach {max_retries} Versuchen fehlgeschlagen")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Unerwarteter Fehler bei TTL-Index-Erstellung: {str(e)}")
+            return False
+            
+    return False
+
 def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
     """
     Erstellt TTL-Indizes für die Cache-Collections.
@@ -211,41 +284,11 @@ def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
     for coll_name in cache_collections:
         logger.info(f"Verarbeite TTL-Index für Collection: {coll_name}")
         try:
-            existing_collections = db.list_collection_names()
-            if coll_name in existing_collections:
-                collection = db[coll_name]
-                
-                # Prüfen, ob bereits ein TTL-Index existiert und diesen löschen
-                try:
-                    index_info = collection.index_information()
-                    logger.info(f"Vorhandene Indizes für '{coll_name}': {list(index_info.keys())}")
-                    
-                    # Lösche alle TTL-Indizes und den created_at-Index
-                    for idx_name in list(index_info.keys()):
-                        if idx_name.startswith("ttl_") or idx_name == "created_at_1":
-                            try:
-                                logger.info(f"Lösche Index '{idx_name}' für '{coll_name}'")
-                                collection.drop_index(idx_name)
-                                logger.info(f"Index '{idx_name}' für '{coll_name}' erfolgreich gelöscht")
-                            except Exception as e:
-                                logger.warning(f"Fehler beim Löschen des Index '{idx_name}' für '{coll_name}': {str(e)}")
-                except Exception as e:
-                    logger.warning(f"Fehler beim Abrufen der Index-Informationen für '{coll_name}': {str(e)}")
-                
-                try:
-                    # TTL-Index auf created_at erstellen mit eindeutigem Namen
-                    ttl_index_name = f"ttl_created_at_{ttl_days}d"
-                    logger.info(f"Erstelle TTL-Index '{ttl_index_name}' für '{coll_name}' mit {ttl_days} Tagen")
-                    collection.create_index(
-                        [("created_at", ASCENDING)],
-                        expireAfterSeconds=ttl_seconds,
-                        name=ttl_index_name
-                    )
-                    logger.info(f"TTL-Index '{ttl_index_name}' für '{coll_name}' erfolgreich erstellt (TTL: {ttl_days} Tage)")
-                except Exception as e:
-                    logger.error(f"CACHE SETUP ERROR: Fehler beim Erstellen des TTL-Index für '{coll_name}': {str(e)}")
+            collection = db[coll_name]
+            if create_ttl_index(collection, "created_at", ttl_seconds):
+                logger.info(f"TTL-Index für {coll_name} erfolgreich erstellt")
             else:
-                logger.warning(f"Collection '{coll_name}' existiert nicht, überspringe TTL-Index")
+                logger.error(f"TTL-Index für {coll_name} konnte nicht erstellt werden")
         except Exception as e:
             logger.error(f"CACHE SETUP ERROR: Unerwarteter Fehler bei TTL-Index für '{coll_name}': {str(e)}")
 

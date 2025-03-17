@@ -42,6 +42,7 @@ from src.core.models.audio import (
     AudioSegmentInfo, Chapter, TranscriptionResult, TranscriptionSegment
 )
 from src.core.exceptions import ProcessingError
+from src.processors.base_processor import BaseProcessor
 
 # Type-Definitionen
 FieldType = tuple[Union[type[str], type[None]], Field]
@@ -76,14 +77,16 @@ class TemplateFieldDefinition:
 class WhisperTranscriber:
     """Klasse für die Interaktion mit GPT-4."""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], processor: BaseProcessor[Any]) -> None:
         """
         Initialisiert den WhisperTranscriber.
         
         Args:
             config: Konfiguration für den Transcriber
+            processor: BaseProcessor für LLM-Request Tracking
         """
         self.config: Dict[str, Any] = config
+        self.processor: BaseProcessor[Any] = processor
         
         # Verwende konfigurierte Verzeichnisse oder Fallback zu processor-spezifischen Verzeichnissen
         # Anmerkung: In der config.yaml sollten für jeden Prozessor temp_dir und debug_dir definiert sein
@@ -160,6 +163,9 @@ class WhisperTranscriber:
             processor=processor or self.__class__.__name__
         )
 
+        # Tracking im BaseProcessor 
+        self.processor.add_llm_requests([request])
+
         # Debug-Logging der LLM-Interaktion
         if logger:
             logger.debug(f"LLM Request erstellt",
@@ -217,7 +223,8 @@ class WhisperTranscriber:
         text: str,
         source_language: str,
         target_language: str,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TranslationResult:
         """
         Übersetzt Text in die Zielsprache mit GPT-4.
@@ -262,7 +269,7 @@ class WhisperTranscriber:
             translated_text: str = message.content or ""
 
             # LLM-Nutzung zentral tracken
-            llm_request: LLMRequest = self.create_llm_request(
+            self.create_llm_request(
                 purpose="translation",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration,
@@ -270,20 +277,18 @@ class WhisperTranscriber:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response=response,
-                logger=logger
+                logger=logger,
+                processor=processor
             )
-            
+
             result = TranslationResult(
                 text=translated_text,
                 source_language=source_language,
-                target_language=target_language,
-                requests=[llm_request]
+                target_language=target_language
             )
 
             if logger:
-                logger.info("Übersetzung abgeschlossen",
-                    tokens=llm_request.tokens,
-                    duration_ms=duration)
+                logger.info("Übersetzung abgeschlossen", duration_ms=duration)
             
             return result
             
@@ -297,7 +302,8 @@ class WhisperTranscriber:
         text: str,
         target_language: str,
         max_words: Optional[int] = None,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TransformationResult:
         """
         Fasst Text zusammen.
@@ -349,7 +355,7 @@ class WhisperTranscriber:
             summary = summary.strip()
 
             # LLM-Nutzung zentral tracken
-            llm_request: LLMRequest = self.create_llm_request(
+            self.create_llm_request(
                 purpose="summarization",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration,
@@ -357,19 +363,17 @@ class WhisperTranscriber:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response=response,
-                logger=logger
+                logger=logger,
+                processor=processor
             )
-            
+
             result = TransformationResult(
                 text=summary,
-                target_language=target_language,
-                requests=[llm_request]
+                target_language=target_language
             )
 
             if logger:
-                logger.info("Zusammenfassung abgeschlossen",
-                    tokens=llm_request.tokens,
-                    duration_ms=duration)
+                logger.info("Zusammenfassung abgeschlossen", duration_ms=duration)
             
             return result
             
@@ -404,18 +408,9 @@ class WhisperTranscriber:
         # TODO: Implementierung der Formatierung
         formatted = f"[Formatted as {format.value}]: {text}"
         
-        # Dummy LLM Info für die Formatierung
-        llm_usage = self.create_llm_request(
-            purpose="formatting",
-            tokens=len(text.split()),
-            duration=1,
-            model=self.model
-        )
-        
         return TransformationResult(
             text=formatted,
-            target_language=target_language,
-            requests=[llm_usage]
+            target_language=target_language
         )
 
     def saveDebugOutput(
@@ -461,7 +456,9 @@ class WhisperTranscriber:
         template: str, 
         context: Dict[str, Any] | None = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None,
+        use_cache: bool = True
     ) -> TransformationResult:
         """
         Transformiert einen Text anhand eines Templates.
@@ -481,6 +478,9 @@ class WhisperTranscriber:
             if logger:
                 logger.info(f"Starte Template-Transformation: {template}")
 
+            if not template:
+                raise ValueError("Template ist nicht definiert")
+
             # 1. Template-Datei lesen
             template_content: str = self._read_template_file(template, logger)
             
@@ -494,8 +494,7 @@ class WhisperTranscriber:
                 # Wenn keine strukturierten Variablen gefunden wurden, erstellen wir eine einfache Response
                 return TransformationResult(
                     text=text,
-                    target_language=target_language,
-                    requests=[]
+                    target_language=target_language
                 )
 
             # 4. GPT-4 Prompts erstellen
@@ -591,7 +590,7 @@ class WhisperTranscriber:
                 }
 
             # LLM-Nutzung tracken mit zentraler Methode
-            llm_request: LLMRequest = self.create_llm_request(
+            self.create_llm_request(
                 purpose="template_transform",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration,
@@ -599,7 +598,8 @@ class WhisperTranscriber:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response=response,
-                logger=logger
+                logger=logger,
+                processor=processor
             )
 
             # Template mit extrahierten Daten füllen
@@ -620,7 +620,6 @@ class WhisperTranscriber:
 
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
-                    tokens=llm_request.tokens,
                     duration_ms=duration,
                     model=self.model)
 
@@ -628,7 +627,6 @@ class WhisperTranscriber:
             return TransformationResult(
                 text=template_content,
                 target_language=target_language,
-                requests=[llm_request],
                 structured_data=result_json
             )
 
@@ -639,7 +637,6 @@ class WhisperTranscriber:
             error_result = TransformationResult(
                 text=f"Fehler bei der Template-Transformation: {str(e)}",
                 target_language=target_language,
-                requests=[],
                 structured_data={"error": str(e)}
             )
             return error_result
@@ -794,7 +791,8 @@ class WhisperTranscriber:
         segment_id: Optional[int] = None,
         segment_title: Optional[str] = None,
         source_language: str = "de",
-        target_language: str = "de"
+        target_language: str = "de",
+        processor: Optional[str] = None
     ) -> TranscriptionResult:
         """Transkribiert ein einzelnes Audio-Segment.
         
@@ -970,18 +968,17 @@ class WhisperTranscriber:
                 duration = (time.time() - start_time) * 1000
                 
                 # LLM-Nutzung tracken mit zentraler Methode
-                whisper_request: LLMRequest = self.create_llm_request(
+                self.create_llm_request(
                     purpose="transcription_failed",
                     tokens=0,
                     duration=duration,
                     model="whisper-1"
                 )
-                
+
                 return TranscriptionResult(
                     text="",
                     source_language=source_language,
-                    segments=[segment],
-                    requests=[whisper_request]
+                    segments=[segment]
                 )
             
             # Zeitmessung beenden
@@ -992,13 +989,14 @@ class WhisperTranscriber:
             tokens = getattr(response, 'usage', {}).get('total_tokens', int(estimated_tokens))
             
             # LLM-Nutzung tracken mit zentraler Methode
-            whisper_request = self.create_llm_request(
+            self.create_llm_request(
+                processor=processor,
                 purpose="transcription",
                 tokens=tokens,
                 duration=duration,
                 model="whisper-1"  # Explizit Whisper-Modell angeben
             )
-            
+
             if source_language == "auto":
                 # Konvertiere Whisper Sprachcode in ISO 639-1
                 source_language = self._convert_to_iso_code(response.language)
@@ -1024,8 +1022,7 @@ class WhisperTranscriber:
             return TranscriptionResult(
                 text=response.text,
                 source_language=source_language,
-                segments=[segment],  # Nur ein Segment pro Audio-Datei
-                requests=[whisper_request]
+                segments=[segment]  # Nur ein Segment pro Audio-Datei
             )
             
         except Exception as e:
@@ -1052,18 +1049,17 @@ class WhisperTranscriber:
             duration = (time.time() - start_time) * 1000
             
             # LLM-Nutzung tracken mit zentraler Methode für Fehler
-            error_request = self.create_llm_request(
+            self.create_llm_request(
                 purpose="transcription_error",
                 tokens=0,
                 duration=duration,
                 model="whisper-1"
             )
-            
+
             return TranscriptionResult(
                 text=f"[Transkriptionsfehler: {str(e)}]",
                 source_language=source_language,
-                segments=[segment],
-                requests=[error_request]
+                segments=[segment]
             )
 
     def _convert_to_iso_code(self, language: str) -> str:
@@ -1134,7 +1130,8 @@ class WhisperTranscriber:
         segments: Union[List[AudioSegmentInfo], List[Chapter]],
         source_language: str = "de",
         target_language: str = "de",
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TranscriptionResult:
         """Transkribiert mehrere Audio-Segmente parallel (max. 5 gleichzeitig).
         
@@ -1197,14 +1194,15 @@ class WhisperTranscriber:
                     segment_title=segment.title,
                     source_language=source_language,
                     target_language=target_language,
-                    logger=logger
+                    logger=logger,
+                    processor=processor
                 ))
             
             # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse
             try:
                 # Expliziter Typecast für die Ergebnisse
                 results = await asyncio.gather(*segment_tasks)
-                batch_results = results
+                batch_results: List[TranscriptionResult] = results
                 
                 # Verarbeite die Ergebnisse des Batches
                 for i, result in enumerate(batch_results):
@@ -1213,9 +1211,6 @@ class WhisperTranscriber:
                     if logger:
                         logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Verarbeitung abgeschlossen, Textlänge: {len(result.text or '')}")
                     
-                    # Sammle Request-Informationen
-                    if result.requests:
-                        combined_requests.extend(result.requests)
                     
                     # Übersetzung, falls nötig
                     if result.source_language != target_language and result.text.strip():
@@ -1226,14 +1221,12 @@ class WhisperTranscriber:
                             text=result.text,
                             source_language=result.source_language,
                             target_language=target_language,
-                            logger=logger
+                            logger=logger,
+                            processor=processor
                         )
                         
                         if logger:
                             logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Übersetzung abgeschlossen, Textlänge: {len(translation_result.text or '')}")
-                        
-                        if translation_result.requests:
-                            combined_requests.extend(translation_result.requests)
                         
                         # Verwende übersetzten Text
                         if translation_result.text.strip():
@@ -1270,6 +1263,5 @@ class WhisperTranscriber:
         return TranscriptionResult(
             text=result_text,
             source_language=detected_language,
-            segments=[],  # Keine Segmente im Output
-            requests=combined_requests  # Alle einzelnen Requests
+            segments=[]  # Keine Segmente im Output
         )

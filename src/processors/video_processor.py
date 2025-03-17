@@ -110,7 +110,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             "temp_dir": str(self.temp_dir),    # Temporäres Unterverzeichnis
             "debug_dir": str(self.temp_dir / "debug")
         }
-        self.transcriber = WhisperTranscriber(transcriber_config)
+        self.transcriber = WhisperTranscriber(transcriber_config, processor=self)
         
         self.audio_processor = AudioProcessor(
             resource_calculator, 

@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ContextManager, Dict, Optional, BinaryIO, Tuple, TypeVar, Type, Generic, List, Union
 import os
+import time
+from pymongo.collection import Collection
+from pymongo.database import Database
 
 import yaml
 
@@ -40,6 +43,8 @@ class BaseProcessor(Generic[T]):
     SUPPORTED_LANGUAGES = {'de', 'en', 'fr', 'es', 'it'}  # Beispiel, sollte aus Config kommen
     SUPPORTED_FORMATS = {'text', 'html', 'markdown'}
     
+    _current_process_info: Optional[ProcessInfo] = None  # Klassenvariable für die aktuelle ProcessInfo
+
     def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """
         Initialisiert den BaseProcessor.
@@ -68,6 +73,9 @@ class BaseProcessor(Generic[T]):
                 sub_processors=[],
                 llm_info=LLMInfo()  # Initialisiere llm_info
             )
+        
+        # Setze die aktuelle ProcessInfo für die Response-Erstellung
+        BaseProcessor._current_process_info = self.process_info
 
         # Verwende Prozessor-spezifische Konfiguration für Cache
         processor_name = self.__class__.__name__.lower().replace('processor', '')
@@ -76,6 +84,24 @@ class BaseProcessor(Generic[T]):
         # Initialisiere den Cache-Pfad und den Temp-Pfad
         self.cache_dir = self.get_cache_dir(processor_name, processor_config)
         self.temp_dir = self.get_cache_dir(processor_name, processor_config, subdirectory="temp")
+
+        self._db: Optional[Database[Dict[str, Any]]] = None
+
+    @property
+    def db(self) -> Database[Dict[str, Any]]:
+        """MongoDB Datenbank-Instanz."""
+        if self._db is None:
+            raise RuntimeError("Database not initialized")
+        return self._db
+
+    @classmethod
+    def get_current_process_info(cls) -> Optional[ProcessInfo]:
+        """Gibt die aktuelle ProcessInfo zurück."""
+        return cls._current_process_info
+
+    def __del__(self):
+        """Cleanup beim Löschen des Prozessors."""
+        BaseProcessor._current_process_info = None  # Reset der aktuellen ProcessInfo
 
     def validate_text(self, text: Optional[str], field_name: str = "text") -> str:
         """
@@ -394,7 +420,7 @@ class BaseProcessor(Generic[T]):
             process=self.process_info,
             status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
             error=error,
-            data=result
+            data=result.data if result else None
         )
             
         return response
@@ -423,4 +449,65 @@ class BaseProcessor(Generic[T]):
         if hasattr(self, 'logger'):
             num_requests = len(requests.requests) if isinstance(requests, LLMInfo) else len(requests)
             self.logger.debug(f"{num_requests} LLM-Requests hinzugefügt")
+
+    def create_ttl_index(self, collection_name: str, field: str, expire_after_seconds: int) -> None:
+        """
+        Erstellt einen TTL-Index mit Retry-Logik.
+        
+        Args:
+            collection_name: Name der Collection
+            field: Feld für den TTL-Index
+            expire_after_seconds: Zeit bis zum Ablauf in Sekunden
+        """
+        max_retries = 3
+        retry_delay = 1  # Sekunden
+        
+        for attempt in range(max_retries):
+            try:
+                collection: Collection[Dict[str, Any]] = self.db[collection_name]
+                collection.create_index(
+                    [(field, 1)],
+                    expireAfterSeconds=expire_after_seconds,
+                    background=True
+                )
+                self.logger.info(f"TTL-Index erfolgreich erstellt für {collection_name}.{field}")
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self.logger.warning(f"Versuch {attempt + 1}/{max_retries} fehlgeschlagen: {str(e)}")
+                    time.sleep(retry_delay)
+                    continue
+                self.logger.error(f"Fehler beim Erstellen des TTL-Index für {collection_name}: {str(e)}")
+                raise
+
+    def _create_specialized_indexes(self, collection: Any) -> None:
+        """
+        Erstellt spezialisierte Indizes für die Collection.
+        
+        Args:
+            collection: Die MongoDB-Collection
+        """
+        try:
+            # Basis-Indizes
+            collection.create_index("created_at")
+            collection.create_index("updated_at")
+            
+            # TTL-Index für Cache-Einträge
+            self.create_ttl_index(
+                collection_name=collection.name,
+                field="created_at",
+                expire_after_seconds=3600  # 1 Stunde
+            )
+            
+            # Weitere spezifische Indizes je nach Collection
+            if collection.name == "transformer_cache":
+                collection.create_index("source_language")
+                collection.create_index("target_language")
+            elif collection.name == "video_cache":
+                collection.create_index("status")
+                collection.create_index("duration")
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen der spezialisierten Indizes: {str(e)}")
+            raise
     

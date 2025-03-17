@@ -8,7 +8,7 @@ from src.core.models import (  # LLM Models; Base Models; Metadata Models; Trans
     AudioMetadata, AudioProcessingResult, AudioSegmentInfo, Chapter,
     ContentMetadata, ErrorInfo, LLMInfo, LLModel, LLMRequest, ProcessInfo,
     RequestInfo, TechnicalMetadata, TransformerData, TransformerInput,
-    TransformerOutput, TransformerResponse, YoutubeMetadata,
+    TransformerResponse, YoutubeMetadata,
     YoutubeProcessingResult)
 from src.processors import (  # Base Classes; Processors; Response Types
     BaseProcessor, MetadataProcessor, MetadataResponse,
@@ -21,7 +21,7 @@ __all__ = [
     'LLModel', 'LLMRequest', 'LLMInfo',
     'ErrorInfo', 'RequestInfo', 'ProcessInfo',
     'ContentMetadata', 'TechnicalMetadata',
-    'TransformerInput', 'TransformerOutput', 'TransformerData', 'TransformerResponse',
+    'TransformerInput', 'TransformerData', 'TransformerResponse',
     'AudioSegmentInfo', 'Chapter', 'AudioMetadata', 'AudioProcessingResult',
     'YoutubeMetadata', 'YoutubeProcessingResult',
     
