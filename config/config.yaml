@@ -9,7 +9,7 @@ cache:
 
 session_worker:
   active: true
-  max_concurrent: 1
+  max_concurrent: 3
   poll_interval_sec: 5
 
 logging:

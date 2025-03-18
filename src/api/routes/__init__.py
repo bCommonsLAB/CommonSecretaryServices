@@ -27,6 +27,7 @@ from .event_job_routes import event_job_ns
 from .track_routes import track_ns
 from .pdf_routes import pdf_ns
 from .imageocr_routes import imageocr_ns
+from .story_routes import story_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -38,6 +39,7 @@ api.add_namespace(event_job_ns, path='/event-job')  # type: ignore
 api.add_namespace(track_ns, path='/tracks')  # type: ignore
 api.add_namespace(pdf_ns, path='/pdf')  # type: ignore
 api.add_namespace(imageocr_ns, path='/imageocr')  # type: ignore
+api.add_namespace(story_ns, path='/story')  # type: ignore
 
 # Root-Namespace für die API-Root-Seite
 root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ignore

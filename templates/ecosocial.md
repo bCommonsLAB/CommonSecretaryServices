@@ -1,5 +1,3 @@
-​Die FOSDEM 2025 bot zahlreiche Sitzungen und Veranstaltungen, die aus einer ökosozialen Perspektive von Bedeutung sind. Hier sind zehn zentrale Themenbereiche, die auf der Konferenz behandelt wurden:​
-
 Energie: Beschleunigung des Übergangs durch Open Source: Diskussionen über den Einsatz von Open-Source-Technologien zur Förderung erneuerbarer Energien und zur Unterstützung der Energiewende. ​
 
 Regierungskollaboration: Erörterung der Zusammenarbeit zwischen Regierungen und Open-Source-Communities zur Förderung transparenter und partizipativer Regierungsführung. ​
@@ -24,4 +22,3 @@ Freie Java: Diskussion über die Bedeutung von Open-Source-Java-Implementierunge
 Open Research: Förderung von Transparenz und Zusammenarbeit in der wissenschaftlichen Forschung durch offene Praktiken. ​
 fosdem.org
 
-Diese Themen verdeutlichen, wie Open-Source-Technologien und -Gemeinschaften aktiv zur Förderung ökologischer und sozialer Ziele beitragen können.

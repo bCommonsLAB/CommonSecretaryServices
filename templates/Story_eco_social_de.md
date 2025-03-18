@@ -1,21 +1,15 @@
 ---
-tags: {{tags|Welche 10 Schlüsselwörter fassen die Sessions in diesem Track am besten zusammen? Bitte kommagetrennt ausgeben.}}
-Sprecher: {{speakers|Welche Sprecher sind insgesamt in diesem Track aufgetreten? Bitte kommagetrennt ausgeben.}}
-Datum: {{date_range|Welcher Zeitraum wurde durch die Sessions in diesem Track abgedeckt? Format: yyyy-mm-dd bis yyyy-mm-dd.}}
-Ort: {{locations|Welche Orte oder Veranstaltungsräume wurden in den Sessions erwähnt?}}
-track: {{track|Wie lautet der Name des Tracks?}}
-Kategorie: {{category|Welcher thematische Schwerpunkt zieht sich durch die Sessions in diesem Track?}}
-EcoSocialRating: {{EcoSocialRating|Welche Bedeutung haben diese Inhalte für eine eco soziale Anwendung auf einer skala von 0 (unbedeutend) bis 10 (sehr bedeutend) ?}}
-Type: Gesamtübersicht
+tags: {{tags|Welche 10 Schlüsselwörter fassen die Sessions in diesem topic am besten zusammen? Bitte kommagetrennt ausgeben.}}
 ---
-# {{track|Titel des Tracks als Überschrift}}
+# {{topic|Titel des Themas als Überschrift}}
 
 > [! hinweis]-
-> Diese Zusammenfassung basiert auf mehreren Sessions innerhalb dieses Tracks. Sie fasst die wichtigsten Inhalte zusammen und stellt sie in einen ökosozialen Kontext. Die Texte basieren auf Audio/Video-Transkribtion und Text-Transformation - generiert aus dem Inhalt und Links dieser Sessions.
+> Diese Zusammenfassung basiert auf mehreren Sessions innerhalb dieses Themas. Sie fasst die wichtigsten Inhalte zusammen und stellt sie in einen ökosozialen Kontext. Die Texte basieren auf Audio/Video-Transkribtion und Text-Transformation - generiert aus dem Inhalt und Links dieser Sessions.
+
 
 ## Überblick  
 
-{{general_summary|Kurze Einführung in das Thema des Tracks: Welche Themen werden hier behandelt? Wie könnte man diese einfach erklären? Mindestens 150 Worte.}}
+{{general_summary|Kurze Einführung in das Thema des topics: Welche Themen werden hier behandelt? Wie könnte man diese einfach erklären? Mindestens 150 Worte.}}
 
 ## Events
 
@@ -32,6 +26,15 @@ Type: Gesamtübersicht
 ## Herausforderungen & offene Fragen  
 
 {{challenges|Welche technischen, ethischen oder gesellschaftlichen Herausforderungen wurden diskutiert? Wo besteht noch Forschungs- oder Entwicklungsbedarf?}}
+
+{{topic_id}}: Die ID des Themas
+{{topic_display_name}}: Der anzeigefreundliche Name des Themas in der aktuellen Sprache
+{{description}}: Die Beschreibung des Themas in der aktuellen Sprache
+{{event}}: Der Name des Events
+{{target_group}}: Die ID der Zielgruppe
+{{session_count}}: Die Anzahl der verarbeiteten Sessions
+{{sessions}}: Eine Liste aller verarbeiteten Sessions
+{{detail_level}}: Der Detailgrad (1-5)
 
 
 --- systemprompt
