@@ -28,7 +28,7 @@ import json
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, cast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 import requests
 import shutil
@@ -50,7 +50,14 @@ from src.core.models.enums import ProcessingStatus
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_IMAGEOCR = "imageocr"
 
-@dataclass
+# Konstanten für Extraktionsmethoden
+EXTRACTION_OCR = "ocr"           # Standard OCR-Methode
+EXTRACTION_NATIVE = "native"     # Native Bildanalyse (falls verfügbar)
+EXTRACTION_BOTH = "both"         # Kombination von OCR und nativer Analyse
+EXTRACTION_PREVIEW = "preview"   # Nur Vorschaubilder generieren
+EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und native Analyse
+
+@dataclass(frozen=True)
 class ImageOCRMetadata:
     """Metadaten eines verarbeiteten Bildes."""
     file_name: str
@@ -60,6 +67,23 @@ class ImageOCRMetadata:
     color_mode: str
     dpi: Optional[tuple[int, int]] = None
     process_dir: Optional[str] = None
+    extraction_method: str = EXTRACTION_OCR
+    preview_paths: list[str] = field(default_factory=list)
+    
+    def __post_init__(self) -> None:
+        """Validiert die Metadaten nach der Initialisierung."""
+        if not self.file_name:
+            raise ValueError("file_name darf nicht leer sein")
+        if self.file_size < 0:
+            raise ValueError("file_size muss größer oder gleich 0 sein")
+        if not self.dimensions:
+            raise ValueError("dimensions darf nicht leer sein")
+        if not self.format:
+            raise ValueError("format darf nicht leer sein")
+        if not self.color_mode:
+            raise ValueError("color_mode darf nicht leer sein")
+        if not self.extraction_method:
+            raise ValueError("extraction_method darf nicht leer sein")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Metadaten in ein Dictionary."""
@@ -70,15 +94,23 @@ class ImageOCRMetadata:
             'format': self.format,
             'color_mode': self.color_mode,
             'dpi': self.dpi,
-            'process_dir': self.process_dir
+            'process_dir': self.process_dir,
+            'extraction_method': self.extraction_method,
+            'preview_paths': self.preview_paths
         }
 
-@dataclass
+@dataclass(frozen=True)
 class ImageOCRProcessingResult:
     """Ergebnis der Bildverarbeitung mit OCR."""
     metadata: ImageOCRMetadata
     extracted_text: Optional[str] = None
     process_id: Optional[str] = None
+    processed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    
+    def __post_init__(self) -> None:
+        """Validiert das Ergebnis nach der Initialisierung."""
+        if not self.metadata:
+            raise ValueError("metadata darf nicht leer sein")
 
     @property
     def status(self) -> ProcessingStatus:
@@ -91,6 +123,7 @@ class ImageOCRProcessingResult:
             'metadata': self.metadata.to_dict(),
             'extracted_text': self.extracted_text,
             'process_id': self.process_id,
+            'processed_at': self.processed_at,
             'status': self.status.value
         }
     
@@ -112,14 +145,17 @@ class ImageOCRProcessingResult:
             format=str(metadata_dict.get('format', '')),  # type: ignore
             color_mode=str(metadata_dict.get('color_mode', '')),  # type: ignore
             dpi=cast(Optional[tuple[int, int]], metadata_dict.get('dpi')),  # type: ignore
-            process_dir=cast(Optional[str], metadata_dict.get('process_dir'))  # type: ignore
+            process_dir=cast(Optional[str], metadata_dict.get('process_dir')),  # type: ignore
+            extraction_method=str(metadata_dict.get('extraction_method', EXTRACTION_OCR)),  # type: ignore
+            preview_paths=cast(list[str], metadata_dict.get('preview_paths', []))  # type: ignore
         )
         
         # Ergebnis-Objekt erstellen
         return cls(
             metadata=metadata,
             extracted_text=cast(Optional[str], data.get('extracted_text')),
-            process_id=cast(Optional[str], data.get('process_id'))
+            process_id=cast(Optional[str], data.get('process_id')),
+            processed_at=data.get('processed_at', datetime.now(UTC).isoformat())
         )
 
 @dataclass(frozen=True)
@@ -229,6 +265,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
         file_path: Union[str, Path],
         template: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
+        extraction_method: str = EXTRACTION_OCR,
         use_cache: bool = True,
         file_hash: Optional[str] = None
     ) -> ImageOCRResponse:
@@ -239,6 +276,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             file_path: Pfad zur Bilddatei
             template: Optional Template für die Verarbeitung
             context: Optionaler Kontext
+            extraction_method: Extraktionsmethode (OCR, NATIVE, BOTH, PREVIEW)
             use_cache: Ob der Cache verwendet werden soll
             file_hash: Optional, der Hash der Datei (wenn bereits berechnet)
             
@@ -249,6 +287,11 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
         working_dir = self.get_working_dir()
         
         try:
+            # Validiere die Extraktionsmethode
+            valid_methods = [EXTRACTION_OCR, EXTRACTION_NATIVE, EXTRACTION_BOTH, EXTRACTION_PREVIEW, EXTRACTION_PREVIEW_AND_NATIVE]
+            if extraction_method not in valid_methods:
+                raise ProcessingError(f"Ungültige Extraktionsmethode: {extraction_method}")
+            
             # Initialisiere cache_key früh im Code
             cache_key = ""
             
@@ -258,6 +301,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     file_path=file_path,
                     template=template,
                     context=context,
+                    extraction_method=extraction_method,
                     file_hash=file_hash
                 )
             
@@ -288,7 +332,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     request_info={
                         "file_path": str(file_path),
                         "template": template,
-                        "context": context
+                        "context": context,
+                        "extraction_method": extraction_method
                     },
                     response_class=ImageOCRResponse,
                     from_cache=True,
@@ -373,44 +418,104 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     format=img.format or "unknown",
                     color_mode=img.mode,
                     dpi=dpi_tuple,
-                    process_dir=str(working_dir)
+                    process_dir=str(working_dir),
+                    extraction_method=extraction_method
                 )
                 
                 # Text extrahieren
-                self.logger.debug("Starte OCR-Verarbeitung")
-                try:
-                    raw_text = pytesseract.image_to_string(  # type: ignore[attr-defined]
-                        image=img,
-                        lang='deu',  # Deutsche Sprache
-                        config='--psm 3',  # Standard Page Segmentation Mode
-                        output_type=pytesseract.Output.STRING
-                    )
-                except Exception as ocr_error:
-                    self.logger.warning(
-                        "Fehler bei deutscher OCR, versuche Englisch als Fallback",
-                        error=str(ocr_error)
-                    )
-                    # Fallback auf Englisch wenn Deutsch nicht verfügbar
-                    raw_text = pytesseract.image_to_string(  # type: ignore[attr-defined]
-                        image=img,
-                        lang='eng',  # Englisch als Fallback
-                        config='--psm 3',
-                        output_type=pytesseract.Output.STRING
-                    )
-                extracted_text = str(raw_text)  # Explizite Konvertierung zu str
-                
+                self.logger.debug("Starte Bildverarbeitung mit Methode: {extraction_method}")
+
+                # Variablen für Ergebnisse initialisieren
+                extracted_text = ""
+                preview_path = None
+
+                # Vorschaubilder generieren, wenn benötigt
+                if extraction_method in [EXTRACTION_PREVIEW, EXTRACTION_PREVIEW_AND_NATIVE]:
+                    try:
+                        # Erstelle ein Verzeichnis für Vorschaubilder
+                        preview_dir = working_dir / "previews"
+                        preview_dir.mkdir(exist_ok=True)
+                        
+                        # Erzeuge ein kleineres Vorschaubild
+                        preview_size = (300, 300)
+                        preview_img = img.copy()
+                        preview_img.thumbnail(preview_size)
+                        
+                        # Speichere das Vorschaubild
+                        preview_path = str(preview_dir / f"preview_{int(time.time())}.jpg")
+                        preview_img.save(preview_path, "JPEG")
+                        
+                        # Füge den Pfad zu den Metadaten hinzu
+                        metadata = ImageOCRMetadata(
+                            file_name=metadata.file_name,
+                            file_size=metadata.file_size,
+                            dimensions=metadata.dimensions,
+                            format=metadata.format,
+                            color_mode=metadata.color_mode,
+                            dpi=metadata.dpi,
+                            process_dir=metadata.process_dir,
+                            extraction_method=extraction_method,
+                            preview_paths=[preview_path]
+                        )
+                        
+                        self.logger.debug(f"Vorschaubild generiert: {preview_path}")
+                    except Exception as e:
+                        self.logger.warning(f"Fehler beim Generieren des Vorschaubilds: {str(e)}")
+
+                # OCR durchführen, wenn benötigt
+                if extraction_method in [EXTRACTION_OCR, EXTRACTION_BOTH]:
+                    try:
+                        raw_text = pytesseract.image_to_string(  # type: ignore[attr-defined]
+                            image=img,
+                            lang='deu',  # Deutsche Sprache
+                            config='--psm 3',  # Standard Page Segmentation Mode
+                            output_type=pytesseract.Output.STRING
+                        )
+                    except Exception as ocr_error:
+                        self.logger.warning(
+                            "Fehler bei deutscher OCR, versuche Englisch als Fallback",
+                            error=str(ocr_error)
+                        )
+                        # Fallback auf Englisch wenn Deutsch nicht verfügbar
+                        raw_text = pytesseract.image_to_string(  # type: ignore[attr-defined]
+                            image=img,
+                            lang='eng',  # Englisch als Fallback
+                            config='--psm 3',
+                            output_type=pytesseract.Output.STRING
+                        )
+                    extracted_text = str(raw_text)  # Explizite Konvertierung zu str
+                    self.logger.debug(f"OCR-Text extrahiert ({len(extracted_text)} Zeichen)")
+
+                # Native Analyse durchführen, falls benötigt
+                if extraction_method in [EXTRACTION_NATIVE, EXTRACTION_BOTH, EXTRACTION_PREVIEW_AND_NATIVE]:
+                    # Hier könnte in Zukunft eine native Bildanalyse implementiert werden
+                    # Aktuell wird für NATIVE als Fallback OCR verwendet
+                    if not extracted_text and extraction_method != EXTRACTION_BOTH:  # Nur wenn noch kein Text vorhanden ist
+                        try:
+                            raw_text = pytesseract.image_to_string(  # type: ignore[attr-defined]
+                                image=img,
+                                lang='deu',  # Deutsche Sprache
+                                config='--psm 3',  # Standard Page Segmentation Mode
+                                output_type=pytesseract.Output.STRING
+                            )
+                            extracted_text = str(raw_text)
+                            self.logger.debug("Native Analyse durch OCR-Fallback ersetzt")
+                        except Exception as e:
+                            self.logger.warning(f"Fehler bei der nativen Extraktion: {str(e)}")
+
                 # Template-Transformation wenn gewünscht
                 if template and extracted_text:
                     transform_result: TransformerResponse = self.transformer.transformByTemplate(
-                        source_text=extracted_text,
+                        text=extracted_text,
+                        template=template,
                         source_language="de",  # Default Deutsch
                         target_language="de",  # Default Deutsch
-                        template=template,
                         context=context or {}
                     )
                     
-                    if transform_result.data and transform_result.data.output:
-                        extracted_text = str(transform_result.data.output.text)
+                    if transform_result.data and transform_result.data.text:
+                        extracted_text = str(transform_result.data.text)
+                        self.logger.debug("Text durch Template transformiert")
                 
                 # Ergebnis erstellen
                 result = ImageOCRProcessingResult(
@@ -431,7 +536,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     request_info={
                         "file_path": str(file_path),
                         "template": template,
-                        "context": context
+                        "context": context,
+                        "extraction_method": extraction_method
                     },
                     response_class=ImageOCRResponse,
                     from_cache=False,
@@ -457,7 +563,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     dimensions="0x0",
                     format="unknown",
                     color_mode="unknown",
-                    process_dir=str(working_dir)
+                    process_dir=str(working_dir),
+                    extraction_method=extraction_method
                 ),
                 process_id=self.process_id
             )
@@ -469,7 +576,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                 request_info={
                     'file_path': str(file_path),
                     'template': template,
-                    'context': context
+                    'context': context,
+                    'extraction_method': extraction_method
                 },
                 response_class=ImageOCRResponse,
                 error=error_info,
@@ -490,6 +598,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                          file_path: Union[str, Path],
                          template: Optional[str] = None,
                          context: Optional[Dict[str, Any]] = None,
+                         extraction_method: str = EXTRACTION_OCR,
                          file_hash: Optional[str] = None) -> str:
         """
         Erstellt einen Cache-Schlüssel für OCR-Verarbeitung.
@@ -498,6 +607,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             file_path: Pfad zum Bild
             template: Optional, das verwendete Template
             context: Optional, der Kontext für die Verarbeitung
+            extraction_method: Die verwendete Extraktionsmethode
             file_hash: Optional, der Hash der Datei (wenn bereits berechnet)
             
         Returns:
@@ -534,6 +644,9 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             if image_hash:
                 key_parts.append(f"hash_{image_hash[:8]}")
         
+        # Extraktionsmethode hinzufügen
+        key_parts.append(f"method_{extraction_method}")
+        
         # Template hinzufügen, wenn vorhanden
         if template:
             template_hash = hashlib.md5(template.encode()).hexdigest()[:8]
@@ -568,7 +681,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             "file_name": getattr(result.metadata, "file_name", ""),
             "file_size": getattr(result.metadata, "file_size", 0),
             "format": getattr(result.metadata, "format", ""),
-            "dimensions": getattr(result.metadata, "dimensions", "")
+            "dimensions": getattr(result.metadata, "dimensions", ""),
+            "extraction_method": getattr(result.metadata, "extraction_method", EXTRACTION_OCR)
         }
         
         return cache_data

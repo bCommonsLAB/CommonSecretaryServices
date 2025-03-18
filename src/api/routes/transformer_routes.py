@@ -532,9 +532,19 @@ class HtmlTableTransformEndpoint(Resource):
                 tracker.eval_result(result)
             
             # Erstelle Response
-            response = TransformerResponse.create(
-                data=result.data,
-                process=transformer_processor.process_info  # Verwende transformer_processor statt processor
+            response: TransformerResponse = transformer_processor.create_response(
+                processor_name="transformer_table",
+                result=result.data,
+                request_info={
+                    'source_url': data['source_url'],
+                    'output_format': data.get('output_format', 'json'),
+                    'table_index': table_index,
+                    'start_row': start_row,
+                    'row_count': row_count
+                },
+                response_class=TransformerResponse,
+                from_cache=getattr(transformer_processor.process_info, 'is_from_cache', False),
+                cache_key=getattr(transformer_processor.process_info, 'cache_key', "")
             )
             
             return {
@@ -549,7 +559,7 @@ class HtmlTableTransformEndpoint(Resource):
             }
 
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
-            error_response = transformer_processor.create_response(
+            error_response: TransformerResponse = transformer_processor.create_response(
                 processor_name="transformer",
                 result=None,
                 request_info={
@@ -652,7 +662,6 @@ class MetadataEndpoint(Resource):
         
         # Performance Tracking für detaillierte Zeitmessung
         tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
-        processor_start = time.time()
         
         try:
             # Request-Parameter extrahieren
@@ -670,48 +679,25 @@ class MetadataEndpoint(Resource):
                     context = json.loads(context_str)
                 except json.JSONDecodeError:
                     logger.warning(f"Ungültiger JSON-Kontext: {context_str}")
+                    context = {}
             
-            # Erstelle den TransformerProcessor mit der process_id
-            processor = TransformerProcessor(
-                resource_calculator,
-                process_id=process_id,
-                parent_process_info=ProcessInfo(
-                    process_id=process_id,
-                    processor_name=ProcessorType.TRANSFORMER.value,
-                    started_at=start_time.isoformat()
-                )
-            )
+            # MetadataProcessor verwenden
+            processor = get_metadata_processor(process_id)
             
-            # Führe die Transformation durch
-            result = processor.transform(
-                source_text=text,
-                source_language=source_language,
-                target_language=target_language,
-                context=context
-            )
+            # Metadaten extrahieren - mit asyncio.run ausführen, da die Methode asynchron ist
+            result = asyncio.run(processor.process(
+                binary_data=uploaded_file,
+                content=content,
+                context=context,
+                use_cache=use_cache
+            ))
             
-            # Erstelle die Response mit den korrekten Parametern
-            response = TransformerResponse.create(
-                data=result.data,
-                translation=result.translation,
-                process=ProcessInfo(
-                    id=process_id,
-                    main_processor=ProcessorType.TRANSFORMER.value,
-                    started=start_time.isoformat(),
-                    completed=datetime.now().isoformat()
-                ),
-                request=RequestInfo(
-                    processor=ProcessorType.TRANSFORMER.value,
-                    timestamp=start_time.isoformat(),
-                    parameters={
-                        'source_language': source_language,
-                        'target_language': target_language,
-                        'context': context
-                    }
-                )
-            )
-            
-            return response.to_dict()
+            # Response direkt zurückgeben, da die process-Methode bereits eine vollständige
+            # MetadataResponse zurückgibt, die unserem API-Format entspricht
+            if isinstance(result, dict):
+                return result
+            else:
+                return result.to_dict()
                 
         except ProcessingError as e:
             logger.error("Bekannter Verarbeitungsfehler",

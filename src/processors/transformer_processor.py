@@ -73,7 +73,6 @@ from src.core.models.transformer import (
 )
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
-from src.core.models.llm import LLMRequest
 from src.core.models.base import ProcessInfo, ErrorInfo
 from src.core.models.transformer import (
     TransformerResponse,  TransformerData
@@ -436,8 +435,19 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             self.logger.info(f"Zeit für Cache-Speicherung: {(cache_save_end - cache_save_start) * 1000:.2f} ms")
             
             # Erstelle die Response mit der ProcessInfo vom BaseProcessor
-            response = TransformerResponse.create(
-                data=transformer_data
+            response = self.create_response(
+                processor_name="transformer",
+                result=transformer_data,
+                request_info={
+                    "source_text": source_text,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "summarize": summarize,
+                    "target_format": target_format.value if target_format else None
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key=cache_key
             )
             
             process_end = time.time()
@@ -464,7 +474,21 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             )
             
             # Erstelle Error-Response
-            return TransformerResponse.create_error(error=error_info)
+            return self.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    "source_text": source_text[:100] + "..." if len(source_text) > 100 else source_text,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "summarize": summarize,
+                    "target_format": target_format.value if target_format else None
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=error_info
+            )
 
     def _create_system_message(self,
                                source_language: str,
@@ -576,9 +600,19 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
         self.process_info.is_from_cache= True        
 
         # Erstelle Response
-        return TransformerResponse.create(
-            data=transformer_data,
-            process=self.process_info               # Übergabe der ProcessInfo vom BaseProcessor
+        return self.create_response(
+            processor_name="transformer",
+            result=transformer_data,
+            request_info={
+                "source_text": source_text,
+                "source_language": source_language,
+                "target_language": target_language,
+                "summarize": summarize,
+                "target_format": target_format.value if target_format else None
+            },
+            response_class=TransformerResponse,
+            from_cache=True,
+            cache_key=cache_key
         )
 
     def transformByTemplate(
@@ -588,16 +622,18 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
         source_language: str,
         target_language: str,
         context: Optional[Dict[str, Any]] = None,
+        additional_field_descriptions: Optional[Dict[str, str]] = None,
         use_cache: bool = True
     ) -> TransformerResponse:
         """Transformiert Text nach einem Template."""
         try:
             # Template-Transformation durchführen
-            result = self.transcriber.transform_by_template(
+            result: TransformationResult = self.transcriber.transform_by_template(
                 text=text,
                 template=template,
                 target_language=target_language,
                 context=context,
+                additional_field_descriptions=additional_field_descriptions,
                 logger=self.logger,
                 use_cache=use_cache
             )
@@ -606,15 +642,28 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             transformer_data = TransformerData(
                 text=result.text,
                 language=target_language,
-                format=OutputFormat.TEXT
+                format=OutputFormat.TEXT,
+                summarized=False,
+                structured_data=result.structured_data
             )
             
             # Erstelle Response
-            response: TransformerResponse = TransformerResponse.create(
-                data=transformer_data
+            return self.create_response(
+                processor_name="transformer",
+                result=transformer_data,
+                request_info={
+                    "text": text[:100] + "..." if len(text) > 100 else text,
+                    "template": template,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "context": context,
+                    "additional_field_descriptions": additional_field_descriptions,
+                    "use_cache": use_cache
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key=""
             )
-
-            return response
             
         except Exception as e:
             self.logger.error(f"Fehler bei der Template-Transformation: {str(e)}")
@@ -823,17 +872,30 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 "tables": all_tables
             }
  
-            # Erstelle Response
-            response = TransformerResponse.create(
-                data=TransformerData(
-                    text="",
-                    language="json",
-                    format=OutputFormat.JSON,
-                    summarized=False,
-                    structured_data=result
-                )
+            # Erstelle TransformerData aus dem Ergebnis
+            transformer_data = TransformerData(
+                text="",
+                language="json",
+                format=OutputFormat.JSON,
+                summarized=False,
+                structured_data=result
             )
-            return response
+            
+            # Antwort erstellen mit der BaseProcessor-Methode
+            return self.create_response(
+                processor_name="transformer",
+                result=transformer_data,
+                request_info={
+                    "source_url": source_url,
+                    "table_index": table_index,
+                    "start_row": start_row,
+                    "row_count": row_count,
+                    "output_format": output_format
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key=""
+            )
 
         except Exception as e:
             error_info = ErrorInfo(
@@ -846,9 +908,20 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             )
             self.logger.error(f"Fehler bei der HTML-Tabellen Transformation: {str(e)}")
             
-            # Erstelle Response
-            response: TransformerResponse = TransformerResponse.create(
-                data=response.data,
+            # Erstelle Response mit self.create_response statt TransformerResponse.create
+            response = self.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    "source_url": source_url,
+                    "table_index": table_index,
+                    "start_row": start_row,
+                    "row_count": row_count,
+                    "output_format": output_format
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
                 error=error_info
             )
 

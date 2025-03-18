@@ -315,7 +315,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             if isinstance(source, str):
                 video_source = VideoSource(url=source)
             else:
-                video_source = source
+                video_source: VideoSource = source
 
             # Cache-Schlüssel generieren und prüfen
             cache_key = self._create_cache_key(source, target_language, template)
@@ -323,9 +323,19 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 cache_hit, cached_result = self.get_from_cache(cache_key)
                 if cache_hit and cached_result:
                     self.logger.info(f"Cache-Hit für Video: {cached_result.metadata.title}")
-                    return VideoResponse.create(
-                        data=cached_result,
-                        process=self.process_info
+                    return self.create_response(
+                        processor_name="video",
+                        result=cached_result,
+                        request_info={
+                            'source': source.to_dict() if isinstance(source, VideoSource) and hasattr(source, 'to_dict') else str(source),
+                            'source_language': source_language,
+                            'target_language': target_language,
+                            'template': template,
+                            'use_cache': use_cache
+                        },
+                        response_class=VideoResponse,
+                        from_cache=True,
+                        cache_key=cache_key
                     )
 
             # Video-Informationen extrahieren
@@ -414,9 +424,19 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 self.save_to_cache(cache_key=cache_key, result=result)
 
             # Response erstellen
-            return VideoResponse.create(
-                data=result,
-                process=self.process_info
+            return self.create_response(
+                processor_name="video",
+                result=result,
+                request_info={
+                    'source': video_source.to_dict() if hasattr(video_source, 'to_dict') else str(video_source),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'use_cache': use_cache
+                },
+                response_class=VideoResponse,
+                from_cache=False,
+                cache_key=cache_key
             )
 
         except Exception as e:
@@ -424,13 +444,39 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                             error=e,
                             error_type=type(e).__name__)
 
-            return VideoResponse.create_error(
+            # Erstelle eine standardmäßige VideoSource für den Fehlerfall
+            error_source = VideoSource()
+            
+            # Einfache String-Repräsentation des Quellobjekts
+            source_repr = str(source)
+
+            return self.create_response(
+                processor_name="video",
+                result=VideoProcessingResult(
+                    metadata=VideoMetadata(
+                        title="Error",
+                        source=error_source,
+                        duration=0,
+                        duration_formatted="00:00:00"
+                    ),
+                    transcription=None,
+                    process_id=self.process_id
+                ),
+                request_info={
+                    'source': source_repr,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'use_cache': use_cache
+                },
+                response_class=VideoResponse,
+                from_cache=False,
+                cache_key="",
                 error=ErrorInfo(
                     code="VIDEO_PROCESSING_ERROR",
                     message=str(e),
                     details={"error_type": type(e).__name__}
-                ),
-                process=self.process_info
+                )
             )
 
         finally:

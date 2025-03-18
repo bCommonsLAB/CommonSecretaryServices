@@ -171,12 +171,12 @@ class TrackProcessingResult:
             process_id=str(safe_get(data, "process_id", "")) if safe_get(data, "process_id", None) else None
         )
     
-    def to_track_response(self) -> TrackResponse:
+    def to_track_data(self) -> TrackData:
         """
-        Konvertiert das Ergebnis in eine TrackResponse.
+        Konvertiert das Ergebnis in ein TrackData-Objekt.
         
         Returns:
-            TrackResponse: Die generierte Response
+            TrackData: Das TrackData-Objekt für die Response
         """
         # Track-Input erstellen
         track_input = TrackInput(
@@ -201,6 +201,21 @@ class TrackProcessingResult:
             query="",  # Wird nicht im Cache gespeichert
             context={}  # Wird nicht im Cache gespeichert
         )
+        
+        return track_data
+    
+    def to_track_response(self) -> TrackResponse:
+        """
+        Konvertiert das Ergebnis in eine TrackResponse.
+        
+        Returns:
+            TrackResponse: Die generierte Response
+        """
+        # Veraltete Methode, wird nur noch aus Kompatibilitätsgründen beibehalten
+        # Besser self.create_response() des BaseProcessors verwenden
+        
+        # Track-Data erstellen
+        track_data = self.to_track_data()
         
         # Request-Info erstellen
         request = RequestInfo(
@@ -243,15 +258,16 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "track_cache"
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """
         Initialisiert den TrackProcessor.
         
         Args:
             resource_calculator: Calculator für Ressourcenverbrauch
             process_id: Optional, die Process-ID vom API-Layer
+            parent_process_info: Optional, ProcessInfo vom übergeordneten Prozessor
         """
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         try:
             # Konfiguration laden
@@ -585,7 +601,20 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                                        track_name=track_name,
                                        cache_key=cache_key,
                                        processing_time=time.time() - start_time)
-                        return result.to_track_response()
+                        
+                        # Standardisierte Response-Erstellung aus dem Cache-Ergebnis
+                        return self.create_response(
+                            processor_name=PROCESSOR_TYPE_TRACK,
+                            result=result.to_track_data(),
+                            request_info={
+                                "track_name": track_name,
+                                "template": template,
+                                "target_language": target_language
+                            },
+                            response_class=TrackResponse,
+                            from_cache=True,
+                            cache_key=cache_key
+                        )
                 
                 # Request-Info erstellen
                 request_info = {
@@ -615,7 +644,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 # Template-Transformation durchführen
                 with tracker.measure_operation('transform_template', 'track') if tracker else nullcontext():
                     transform_result: TransformerResponse = self.transformer_processor.transformByTemplate(
-                        source_text=all_markdown,
+                        text=all_markdown,
                         source_language=target_language,  # Wir nehmen an, dass die Markdown-Dateien bereits in Zielsprache sind
                         target_language=target_language,
                         template=template,
@@ -626,10 +655,15 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 summary = ""
                 structured_data: Dict[str, Any] = {}
                 
-                if transform_result.data and transform_result.data.output:
-                    summary = getattr(transform_result.data.output, 'text', "")
-                    if hasattr(transform_result.data.output, 'structured_data'):
-                        structured_data = transform_result.data.output.structured_data or {}
+                # Sicher auf die Transformer-Ergebnisse zugreifen
+                if transform_result.data and hasattr(transform_result.data, 'output'):
+                    output = getattr(transform_result.data, 'output', None)
+                    if output and hasattr(output, 'text'):
+                        summary = getattr(output, 'text', "")
+                    if output and hasattr(output, 'structured_data'):
+                        output_structured_data = getattr(output, 'structured_data', None)
+                        if isinstance(output_structured_data, dict):
+                            structured_data = output_structured_data
                 
                 # Stelle sicher, dass summary ein String ist
                 if summary is None:
@@ -650,7 +684,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                     "summary_file": summary_file_path
                 }
                 
-                # Optimierte Sessions-Liste erstellen (ohne große Textinhalte)
+                # Optimierte Sessions-Liste erstellen
                 with tracker.measure_operation('optimize_sessions', 'track') if tracker else nullcontext():
                     optimized_sessions = self._create_optimized_sessions(sessions)
                 
@@ -695,7 +729,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         target_language=target_language,
                         summary=summary,
                         metadata=metadata,
-                        structured_data=structured_data,
+                        structured_data=dict(structured_data) if structured_data else {}, # Stelle sicher, dass es ein Dict ist
                         sessions=optimized_sessions,
                         process_id=self.process_id
                     ),

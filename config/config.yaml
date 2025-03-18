@@ -5,6 +5,7 @@ cache:
   mongodb:
     enabled: true
     ttl_days: 30
+    create_indexes: false
 
 session_worker:
   active: true

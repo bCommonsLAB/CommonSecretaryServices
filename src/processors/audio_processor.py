@@ -745,9 +745,19 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             if use_cache and self.is_cache_enabled():
                 cache_hit, cached_result = self.get_from_cache(cache_key)
                 if cache_hit and cached_result:
-                    return AudioResponse.create(
-                        data=cached_result,
-                        process=self.process_info
+                    return self.create_response(
+                        processor_name="audio",
+                        result=cached_result,
+                        request_info={
+                            "audio_path": str(audio_source),
+                            "source_info": source_info,
+                            "target_language": target_language,
+                            "template": template,
+                            "use_cache": use_cache
+                        },
+                        response_class=AudioResponse,
+                        from_cache=True,
+                        cache_key=cache_key
                     )
             
             # Audio verarbeiten
@@ -801,10 +811,21 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             if use_cache:
                 self.save_to_cache(cache_key, result)
             
-            # Response erstellen
-            return AudioResponse.create(
-                data=result,
-                process=self.process_info
+            # Response erstellen mit request_info
+            return self.create_response(
+                processor_name=ProcessorType.AUDIO.value,
+                result=result,
+                request_info={
+                    'audio_source': str(audio_source),
+                    'source_info': source_info,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'use_cache': use_cache
+                },
+                response_class=AudioResponse,
+                from_cache=False,
+                cache_key=cache_key
             )
             
         except Exception as e:
@@ -812,13 +833,37 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                             error=e,
                             error_type=type(e).__name__)
             
-            return AudioResponse.create_error(
+            # Erstelle eine Fehler-Response mit create_response
+            return self.create_response(
+                processor_name=ProcessorType.AUDIO.value,
+                result=AudioProcessingResult(
+                    transcription=TranscriptionResult(
+                        text="",
+                        source_language=source_language or "unknown"
+                    ),
+                    metadata=AudioMetadata(
+                        duration=0.0,
+                        process_dir="",
+                        format="unknown"
+                    ),
+                    process_id=self.process_id
+                ),
+                request_info={
+                    'audio_source': str(audio_source),
+                    'source_info': source_info or {},
+                    'source_language': source_language or "unknown",
+                    'target_language': target_language or "unknown",
+                    'template': template,
+                    'use_cache': use_cache
+                },
+                response_class=AudioResponse,
+                from_cache=False,
+                cache_key="",
                 error=ErrorInfo(
                     code="AUDIO_PROCESSING_ERROR",
                     message=str(e),
                     details={"error_type": type(e).__name__}
-                ),
-                process=self.process_info
+                )
             )
 
     def _create_temp_file(self, audio_data: bytes) -> Path:

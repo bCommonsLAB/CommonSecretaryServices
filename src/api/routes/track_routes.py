@@ -5,6 +5,7 @@ API-Routen für den Track-Prozessor.
 
 import traceback
 from typing import Dict, Any, Union, cast
+import uuid
 
 # Typ-Ignorierung für Flask-RESTx
 from flask import request
@@ -139,8 +140,14 @@ class TrackSummaryEndpoint(Resource):
             # Konvertiere String zu Boolean
             use_cache: bool = use_cache_str.lower() == 'true' if isinstance(use_cache_str, str) else bool(use_cache_str)
             
+            # Process-ID generieren für Tracking
+            process_id = str(uuid.uuid4())
+            
             # Prozessor initialisieren
-            processor = TrackProcessor(resource_calculator)
+            processor = TrackProcessor(
+                resource_calculator=resource_calculator,
+                process_id=process_id
+            )
             
             # Track-Zusammenfassung erstellen (asynchron)
             import asyncio
@@ -149,7 +156,7 @@ class TrackSummaryEndpoint(Resource):
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # Wenn der Loop bereits läuft, erstelle einen neuen
-                    response = asyncio.run(processor.create_track_summary(
+                    track_response = asyncio.run(processor.create_track_summary(
                         track_name=track_name,
                         template=template,
                         target_language=target_language,
@@ -157,7 +164,7 @@ class TrackSummaryEndpoint(Resource):
                     ))
                 else:
                     # Verwende den bestehenden Loop
-                    response = loop.run_until_complete(processor.create_track_summary(
+                    track_response = loop.run_until_complete(processor.create_track_summary(
                         track_name=track_name,
                         template=template,
                         target_language=target_language,
@@ -165,7 +172,7 @@ class TrackSummaryEndpoint(Resource):
                     ))
             except RuntimeError:
                 # Fallback, wenn kein Event-Loop verfügbar ist
-                response: TrackResponse = asyncio.run(processor.create_track_summary(
+                track_response: TrackResponse = asyncio.run(processor.create_track_summary(
                     track_name=track_name,
                     template=template,
                     target_language=target_language,
@@ -173,7 +180,7 @@ class TrackSummaryEndpoint(Resource):
                 ))
             
             # Response in Dictionary umwandeln
-            return response.to_dict()
+            return track_response.to_dict()
             
         except (ValidationError, ProcessingError) as e:
             # Bei bekannten Fehlern 400 zurückgeben

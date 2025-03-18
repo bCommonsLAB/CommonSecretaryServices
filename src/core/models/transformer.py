@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, Protocol
 from .base import BaseResponse, ErrorInfo
 from .enums import ProcessingStatus, OutputFormat
 from .base import ProcessInfo
+from datetime import datetime, UTC
 
 
 class CacheableResult(Protocol):
@@ -81,7 +82,7 @@ class TranslationResult:
             "target_language": self.target_language
         }
 
-@dataclass
+@dataclass(frozen=True)
 class TransformationResult(CacheableResult):
     """
     Ergebnis einer Transformation.
@@ -90,10 +91,19 @@ class TransformationResult(CacheableResult):
         text: Der transformierte Text
         target_language: Die Zielsprache
         structured_data: Optionale strukturierte Daten
+        processed_at: Zeitstempel der Verarbeitung
     """
     text: str
     target_language: str
     structured_data: Optional[Any] = None
+    processed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    
+    def __post_init__(self) -> None:
+        """Validiert das TransformationResult."""
+        if not self.text:
+            raise ValueError("'text' darf nicht leer sein")
+        if not self.target_language:
+            raise ValueError("'target_language' darf nicht leer sein")
     
     @property
     def status(self) -> ProcessingStatus:
@@ -106,9 +116,31 @@ class TransformationResult(CacheableResult):
         result = {
             "text": self.text,
             "target_language": self.target_language,
-            "structured_data": self.structured_data
+            "structured_data": self.structured_data,
+            "processed_at": self.processed_at
         }
         return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TransformationResult':
+        """
+        Erstellt ein TransformationResult aus serialisierten Daten.
+        
+        Args:
+            data: Die serialisierten Daten
+            
+        Returns:
+            TransformationResult: Das deserialisierte Ergebnis
+        """
+        if not data:
+            return cls(text="", target_language="unknown")
+            
+        return cls(
+            text=data.get("text", ""),
+            target_language=data.get("target_language", "unknown"),
+            structured_data=data.get("structured_data"),
+            processed_at=data.get("processed_at", datetime.now(UTC).isoformat())
+        )
     
     @classmethod
     def from_cache(cls, data: Dict[str, Any]) -> 'TransformationResult':
@@ -122,14 +154,7 @@ class TransformationResult(CacheableResult):
         Returns:
             TransformationResult: Das deserialisierte Ergebnis
         """
-        if not data:
-            return cls(text="", target_language="unknown")
-            
-        return cls(
-            text=data.get("text", ""),
-            target_language=data.get("target_language", "unknown"),
-            structured_data=data.get("structured_data"),
-        )
+        return cls.from_dict(data)
 
 @dataclass(frozen=True, init=False)
 class TransformerResponse(BaseResponse):

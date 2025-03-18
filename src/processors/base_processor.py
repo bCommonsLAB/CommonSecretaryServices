@@ -420,7 +420,7 @@ class BaseProcessor(Generic[T]):
             process=self.process_info,
             status=ProcessingStatus.ERROR if error else ProcessingStatus.SUCCESS,
             error=error,
-            data=result.data if result else None
+            data=result.data if hasattr(result, 'data') and result.data is not None else result
         )
             
         return response

@@ -1,9 +1,11 @@
 """
 Setup-Skript für MongoDB-Cache-Collections und -Indizes.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pymongo import IndexModel, ASCENDING
 from pymongo.errors import CollectionInvalid
+from pymongo.collection import Collection
+from pymongo.database import Database
 
 from src.core.config import Config
 from src.core.mongodb.connection import get_mongodb_database
@@ -14,23 +16,45 @@ logger = get_logger(process_id="cache-setup")
 
 def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]]:
     """
-    Richtet die Cache-Collections und deren Indizes in MongoDB ein.
+    Richtet alle notwendigen Cache-Collections mit Indizes ein.
     
     Args:
-        force_recreate: Ob bestehende Collections gelöscht und neu erstellt werden sollen
+        force_recreate: Wenn True, werden Indizes neu erstellt, selbst wenn sie bereits existieren
         
     Returns:
-        Dictionary mit Collection-Namen und erstellten Indizes
+        Dict[str, List[str]]: Dictionary mit Collection-Namen als Schlüssel und Liste der erstellten Indizes als Werte
     """
-    logger.info("=== CACHE SETUP: Starte Einrichtung der Cache-Collections ===")
-    logger.info(f"Force Recreate: {force_recreate}")
+    logger.info("=== CACHE SETUP: Starte Cache-Collections-Setup ===")
+    
+    # Ergebnis-Objekt
+    results: Dict[str, List[str]] = {}
     
     try:
-        db = get_mongodb_database()
+        # Konfiguration laden
+        config = Config()
+        cache_config = config.get('cache', {})
+        mongodb_config = cache_config.get('mongodb', {})
+    except Exception as e:
+        logger.error(f"CACHE SETUP ERROR: Fehler beim Laden der Konfiguration: {str(e)}")
+        return results
+        
+    # Prüfen, ob MongoDB-Caching aktiviert ist
+    if not mongodb_config.get('enabled', False):
+        logger.info("MongoDB-Caching ist deaktiviert, überspringe Cache-Collections-Setup")
+        return results
+        
+    # Prüfen, ob Index-Erstellung aktiviert ist
+    if not mongodb_config.get('create_indexes', True):
+        logger.info("MongoDB-Index-Erstellung ist deaktiviert, überspringe Cache-Collections-Setup")
+        return results
+    
+    # Versuche, die Datenbank zu verbinden
+    try:
+        db: Database[Dict[str, Any]] = get_mongodb_database()
         logger.info("MongoDB-Verbindung hergestellt")
     except Exception as e:
         logger.error(f"CACHE SETUP ERROR: Konnte keine Verbindung zur MongoDB herstellen: {str(e)}")
-        return {}
+        return results
     
     # Konfiguration laden
     try:
@@ -40,12 +64,12 @@ def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]
         logger.info(f"Cache-Konfiguration geladen: {mongodb_cache_config}")
     except Exception as e:
         logger.error(f"CACHE SETUP ERROR: Fehler beim Laden der Konfiguration: {str(e)}")
-        return {}
+        return results
     
     # Prüfen, ob MongoDB-Caching aktiviert ist
     if not mongodb_cache_config.get('enabled', True):
         logger.info("MongoDB-Caching ist deaktiviert, überspringe Collection-Setup")
-        return {}
+        return results
     
     # Definiere die benötigten Collections mit ihren Indizes
     collections_config = {
@@ -86,9 +110,6 @@ def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]
     }
     
     logger.info(f"Einzurichtende Collections: {list(collections_config.keys())}")
-    
-    # Ergebnisse speichern
-    results: Dict[str, List[str]] = {}
     
     # Collections erstellen und Indizes einrichten
     for coll_name, indices in collections_config.items():
@@ -148,7 +169,7 @@ def setup_cache_collections(force_recreate: bool = False) -> Dict[str, List[str]
     logger.info(f"=== CACHE SETUP: Cache-Collections-Setup abgeschlossen: {len(results)} Collections eingerichtet ===")
     return results
 
-def create_ttl_index(collection, field: str, expire_after_seconds: int, max_retries: int = 3) -> bool:
+def create_ttl_index(collection: Collection[Dict[str, Any]], field: str, expire_after_seconds: int, max_retries: int = 3) -> bool:
     """
     Erstellt einen TTL-Index mit Retry-Logik.
     
@@ -167,7 +188,8 @@ def create_ttl_index(collection, field: str, expire_after_seconds: int, max_retr
     for attempt in range(max_retries):
         try:
             # Prüfe ob Collection existiert
-            if collection.name not in collection.database.list_collection_names():
+            database: Database[Dict[str, Any]] = collection.database  # Explizite Typ-Annotation hinzufügen
+            if collection.name not in database.list_collection_names():
                 logger.warning(f"Collection {collection.name} existiert nicht")
                 return False
                 
@@ -231,7 +253,7 @@ def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
     logger.info("=== CACHE SETUP: Starte Einrichtung der TTL-Indizes ===")
     
     try:
-        db = get_mongodb_database()
+        db: Database[Dict[str, Any]] = get_mongodb_database()
         logger.info("MongoDB-Verbindung für TTL-Indizes hergestellt")
     except Exception as e:
         logger.error(f"CACHE SETUP ERROR: Konnte keine Verbindung zur MongoDB herstellen: {str(e)}")
@@ -248,8 +270,13 @@ def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
         return
     
     # Prüfen, ob MongoDB-Caching aktiviert ist
-    if not mongodb_cache_config.get('enabled', True):
+    if not mongodb_cache_config.get('enabled', False):
         logger.info("MongoDB-Caching ist deaktiviert, überspringe TTL-Index-Setup")
+        return
+        
+    # Prüfen, ob Index-Erstellung aktiviert ist
+    if not mongodb_cache_config.get('create_indexes', True):
+        logger.info("MongoDB-Index-Erstellung ist deaktiviert, überspringe TTL-Index-Setup")
         return
     
     # TTL-Tage aus Konfiguration oder Parameter
@@ -284,7 +311,7 @@ def create_ttl_indexes(ttl_days: Optional[int] = None) -> None:
     for coll_name in cache_collections:
         logger.info(f"Verarbeite TTL-Index für Collection: {coll_name}")
         try:
-            collection = db[coll_name]
+            collection: Collection[Dict[str, Any]] = db[coll_name]
             if create_ttl_index(collection, "created_at", ttl_seconds):
                 logger.info(f"TTL-Index für {coll_name} erfolgreich erstellt")
             else:

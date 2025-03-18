@@ -463,10 +463,10 @@ class MetadataProcessor(BaseProcessor[ContentMetadata]):
             self.logger.info(f"Führe Template-Transformation durch (use_cache={use_cache})")
                     
             transform_result: TransformerResponse = self.transformer.transformByTemplate(
-                source_text=content,
+                text=content,
+                template="metadata",  # Verwendet ein spezielles Metadaten-Template
                 source_language="de",
                 target_language="de",
-                template="metadata",  # Verwendet ein spezielles Metadaten-Template
                 context=context or {},
                 use_cache=use_cache
             )
@@ -481,9 +481,9 @@ class MetadataProcessor(BaseProcessor[ContentMetadata]):
             structured_data = None
             
             # Versuche, strukturierte Daten aus der Response zu extrahieren
-            if hasattr(transform_result, 'data') and transform_result.data:
-                if hasattr(transform_result.data, 'output') and transform_result.data.output:
-                    structured_data = transform_result.data.output.structured_data
+            if transform_result.data:
+                # In der neueren TransformerData-Struktur sind strukturierte Daten direkt im data-Objekt
+                structured_data = transform_result.data.structured_data
             
             # Fallback, wenn keine strukturierten Daten gefunden wurden
             if not structured_data:

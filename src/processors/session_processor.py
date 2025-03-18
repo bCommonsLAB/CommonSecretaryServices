@@ -33,9 +33,7 @@ import json
 import shutil
 
 from src.processors.pdf_processor import PDFResponse
-from src.core.models.transformer import (
-    TransformerResponse, TransformationResult
-)
+from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
 from src.core.models.session import (
     SessionInput, SessionOutput, SessionData, SessionResponse, BatchSessionResponse, BatchSessionOutput, BatchSessionData, BatchSessionInput,
@@ -52,6 +50,7 @@ from src.processors.transformer_processor import TransformerProcessor
 from src.processors.pdf_processor import PDFProcessor
 from src.utils.performance_tracker import get_performance_tracker
 from src.processors.cacheable_processor import CacheableProcessor
+from src.core.resource_tracking import ResourceCalculator
 from utils.performance_tracker import PerformanceTracker
 
 # TypeVar für den Rückgabetyp von Tasks definieren
@@ -140,15 +139,17 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "session_cache"
     
-    def __init__(self, resource_calculator: Any, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None) -> None:
         """
         Initialisiert den Session-Processor.
         
         Args:
             resource_calculator: Berechnet die Ressourcennutzung während der Verarbeitung
             process_id: Optionale eindeutige ID für diesen Verarbeitungsprozess
+            parent_process_info: Optionale Prozessinformationen des übergeordneten Prozessors
         """
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        # Basis-Initialisierung mit dem BaseProcessor
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         
         try:
@@ -162,7 +163,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             if not self.base_dir.exists():
                 self.base_dir.mkdir(parents=True)
                 
-            # Initialisiere Sub-Prozessoren
+            # Initialisiere Sub-Prozessoren mit parent_process_info für hierarchisches Tracking
             self.video_processor: VideoProcessor = VideoProcessor(
                 resource_calculator=self.resource_calculator, 
                 process_id=process_id,
@@ -311,14 +312,15 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         Args:
             web_text: Extrahierter Text der Session-Seite
             video_transcript: Transkription des Videos
-            attachments_text: Extrahierter Text der Anhänge
+            page_texts: Extrahierter Text der Anhänge
             session_data: Session-Metadaten
             target_dir: Zielverzeichnis für die erzeugte Markdown-Datei
+            filename: Dateiname für die Markdown-Datei
+            template: Name des zu verwendenden Templates
             context: Optionaler zusätzlicher Kontext für das Template
-            additional_field_descriptions: Zusätzliche Feldbeschreibungen für Seitenzusammenfassungen
             
         Returns:
-            Tuple aus Markdown-Datei-Pfad, generiertem Markdown-Text, LLM-Info und strukturierten Daten
+            Tuple aus Markdown-Datei-Pfad, generiertem Markdown-Text und strukturierten Daten
         """
         start_time: float = time.time()
         tracker: PerformanceTracker | None = get_performance_tracker()
@@ -332,7 +334,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     field_name = f"attachment_page_{i}_summary"
                     description = (
                         f"Können wir den Beschreibenden Text der Folie {i} kurz zusammenfassen? "
-                        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: "
+                        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
                         f"{page_text}"
                     )
                     additional_field_descriptions[field_name] = description
@@ -340,12 +342,16 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
 
                 self.logger.info("Generiere Markdown")
                 
-                # Template-Transformation in Quellsprache durchführen
+                # Korrigierter Aufruf von transformByTemplate mit korrekten Parameternamen
+                combined_text = f"Webtext:\n{web_text}\n\n-----\n\nVideotranscript:\n{video_transcript}"
+                
+                
+                # Template-Transformation mit korrekten Parametern
                 result: TransformerResponse = self.transformer_processor.transformByTemplate(
-                    source_text="Webtext:\n" + web_text + "\n\n-----\n\nVideotranscript:\n" + video_transcript,
-                    source_language=session_data.source_language, 
-                    target_language=session_data.target_language,  
+                    text=combined_text,
                     template=template,
+                    source_language=session_data.source_language, 
+                    target_language=session_data.target_language,
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
                     use_cache=False
@@ -354,24 +360,28 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 # Markdown-Inhalt extrahieren
                 markdown_content: str = ""
                 
-                if result.data and isinstance(result.data, TransformationResult):
-                    markdown_content = result.data.text
+                # Sicherere Typprüfung und Extraktion von Daten
+                if result.data:
+                    # Prüfe, ob result.data eine TransformerData-Instanz ist und ob es text enthält
+                    if hasattr(result.data, 'text'):
+                        markdown_content = result.data.text
+                    else:
+                        self.logger.warning(
+                            "Unerwartete Struktur der Transformer-Antwort, verwende leeren Markdown-Inhalt",
+                            data_type=type(result.data).__name__
+                        )
                 else:
-                    self.logger.warning(
-                        "Unerwartete Struktur der Transformer-Antwort, verwende leeren Markdown-Inhalt",
-                        data_type=type(result.data).__name__ if result.data else "None"
-                    )
+                    self.logger.warning("Keine Daten in der Transformer-Antwort")
                 
                 # Extrahiere strukturierte Daten aus dem Transformer-Ergebnis
                 # Verwende ein leeres Dict als Standardwert
                 structured_data: Dict[str, Any] = {}
                 
-                # Versuche, die strukturierten Daten zu extrahieren, falls vorhanden
-                try:
-                    if result.data and isinstance(result.data, TransformationResult):
-                        structured_data = dict(result.data.structured_data or {})
-                except (AttributeError, TypeError):
-                    self.logger.warning("Konnte strukturierte Daten nicht aus Transformer-Ergebnis extrahieren")
+                # Sicherere Extraktion der strukturierten Daten
+                if result.data and hasattr(result.data, 'structured_data'):
+                    structured_data_raw = result.data.structured_data
+                    if structured_data_raw is not None:
+                        structured_data = dict(structured_data_raw)
 
                 # Slides mit Beschreibungen hinzufügen falls vorhanden
                 slides: str = "" 
@@ -527,13 +537,13 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                                 time.sleep(0.1)  
                                 
                                 # Zielpath im assets-Verzeichnis
-                                target_path: Path = assets_dir / file_name
+                                retry_target_path: Path = assets_dir / file_name
                                 
                                 # Datei kopieren (zweiter Versuch)
-                                shutil.copy2(source_path, target_path)
+                                shutil.copy2(source_path, retry_target_path)
                                 
                                 # Erneute Verifikation
-                                if target_path.exists():
+                                if retry_target_path.exists():
                                     normalized_path = f"assets/{file_name}"
                                     gallery_paths.append(normalized_path)
                                     successful_copies += 1
@@ -746,11 +756,11 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                         video_transcript=video_transcript,
                         attachment_paths=attachment_paths,
                         page_texts=page_texts,
-                        input_data=input_data,
                         target_dir=str(target_dir),
                         markdown_file=str(markdown_file),
                         markdown_content=markdown_content,
                         process_id=self.process_id,
+                        input_data=input_data,
                         structured_data=structured_data
                     )
                     

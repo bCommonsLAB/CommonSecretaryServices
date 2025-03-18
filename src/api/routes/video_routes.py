@@ -182,7 +182,7 @@ async def process_youtube(url: str, source_language: str = 'auto', target_langua
     logger.info(f"Verarbeite YouTube-URL: {url} mit Prozess-ID: {process_id}")
     
     result = await youtube_processor.process(
-        file_path=url,
+        url=url,
         source_language=source_language,
         target_language=target_language,
         template=template,

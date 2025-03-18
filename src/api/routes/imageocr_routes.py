@@ -15,7 +15,11 @@ from werkzeug.datastructures import FileStorage
 from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
-from src.processors.imageocr_processor import ImageOCRProcessor, ImageOCRResponse
+from src.processors.imageocr_processor import (
+    ImageOCRProcessor, 
+    ImageOCRResponse, 
+    EXTRACTION_OCR  # Nur diese Konstante wird verwendet
+)
 
 # Logger initialisieren
 logger = get_logger(__name__)
@@ -29,6 +33,7 @@ imageocr_upload_parser.add_argument('file', type=FileStorage, location='files', 
 imageocr_upload_parser.add_argument('template', type=str, location='form', required=False, help='Template für die Transformation')  # type: ignore
 imageocr_upload_parser.add_argument('context', type=str, location='form', required=False, help='JSON-Kontext für die Verarbeitung')  # type: ignore
 imageocr_upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')  # type: ignore
+imageocr_upload_parser.add_argument('extraction_method', type=str, location='form', default=EXTRACTION_OCR, help='Extraktionsmethode (ocr, native, both, preview, preview_and_native)')  # type: ignore
 
 # ImageOCR URL Parser
 imageocr_url_parser = imageocr_ns.parser()
@@ -36,6 +41,7 @@ imageocr_url_parser.add_argument('url', type=str, location='form', required=True
 imageocr_url_parser.add_argument('template', type=str, location='form', required=False, help='Template für die Transformation')  # type: ignore
 imageocr_url_parser.add_argument('context', type=str, location='form', required=False, help='JSON-Kontext für die Verarbeitung')  # type: ignore
 imageocr_url_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')  # type: ignore
+imageocr_url_parser.add_argument('extraction_method', type=str, location='form', default=EXTRACTION_OCR, help='Extraktionsmethode (ocr, native, both, preview, preview_and_native)')  # type: ignore
 
 # ImageOCR Antwortmodell
 imageocr_response = imageocr_ns.model('ImageOCRResponse', {  # type: ignore
@@ -140,7 +146,8 @@ class ImageOCREndpoint(Resource):
                             template=template,  # type: ignore
                             context=context,
                             use_cache=use_cache,
-                            file_hash=file_hash
+                            file_hash=file_hash,
+                            extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                         )
                         tracker.eval_result(result)
                 else:
@@ -149,7 +156,8 @@ class ImageOCREndpoint(Resource):
                         template=template,  # type: ignore
                         context=context,
                         use_cache=use_cache,
-                        file_hash=file_hash
+                        file_hash=file_hash,
+                        extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                     )
                 
                 return result.to_dict()
@@ -215,7 +223,8 @@ class ImageOCRUrlEndpoint(Resource):
                             template=template,  # type: ignore
                             context=context,
                             use_cache=use_cache,
-                            file_hash=url_hash
+                            file_hash=url_hash,
+                            extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                         )
                         tracker.eval_result(result)
                 else:
@@ -224,7 +233,8 @@ class ImageOCRUrlEndpoint(Resource):
                         template=template,  # type: ignore
                         context=context,
                         use_cache=use_cache,
-                        file_hash=url_hash
+                        file_hash=url_hash,
+                        extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                     )
                 
                 return result.to_dict()
