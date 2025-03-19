@@ -31,6 +31,8 @@ import uuid
 from contextlib import nullcontext
 import json
 import shutil
+from pymongo.collection import Collection
+from pymongo.cursor import Cursor
 
 from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
@@ -1278,3 +1280,131 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 
         except Exception as e:
             self.logger.error(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
+
+    def get_cache_collection(self) -> Optional[Collection[Dict[str, Any]]]:
+        """
+        Holt die MongoDB Collection für den Session-Cache.
+        
+        Returns:
+            Optional[Collection[Dict[str, Any]]]: Die Cache-Collection oder None bei Fehlern
+        """
+        try:
+            # Stelle sicher, dass die Verbindung existiert
+            if not hasattr(self, 'connection'):
+                from src.core.mongodb.connection import get_mongodb_database
+                self.connection = get_mongodb_database()
+            
+            # Stelle sicher, dass der Collection-Name gesetzt ist
+            if not self.cache_collection_name:
+                self.logger.error("Cache collection name ist nicht gesetzt")
+                return None
+                
+            # Hole die Collection
+            try:
+                collection = self.connection[self.cache_collection_name]
+                return collection
+            except Exception as e:
+                self.logger.error(f"Fehler beim Zugriff auf Collection '{self.cache_collection_name}': {str(e)}")
+                return None
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen der Cache-Collection: {str(e)}")
+            return None
+
+    def get_cached_sessions(self) -> List[Dict[str, Any]]:
+        """
+        Ruft alle Sessions aus dem Cache ab und gibt sie in einer flachen Struktur zurück.
+        
+        Returns:
+            List[Dict[str, Any]]: Liste aller Sessions mit flach strukturierten Daten
+        """
+        try:
+            # Hole die Cache-Collection
+            collection: Optional[Collection[Dict[str, Any]]] = self.get_cache_collection()
+            if collection is None:
+                self.logger.error("Cache-Collection konnte nicht abgerufen werden")
+                return []
+
+            # Hole alle Dokumente aus der Collection
+            cursor: Cursor[Dict[str, Any]] = collection.find({})
+            cached_sessions: List[Dict[str, Any]] = list(cursor)
+            flattened_sessions: List[Dict[str, Any]] = []
+
+            for session in cached_sessions:
+                try:
+                    data = session.get("data", {})
+                    # Basis-Session-Daten
+                    flattened_session: Dict[str, Any] = {
+                        "cache_id": str(session.get("_id", "")),
+                        "processed_at": data.get("processed_at", ""),
+                        "event": data.get("event", ""),
+                        "session": data.get("session", ""),
+                        "track": data.get("track", ""),
+                        "target_language": data.get("target_language", ""),
+                        "target": data.get("target", ""),
+                        "template": data.get("template", ""),
+                        "topic": data.get("topic", ""),
+                        "relevance": data.get("relevance", "")
+                    }
+
+                    # Extrahiere Daten aus dem result-Objekt
+                    result: Dict[str, Any] = session.get("result", {})
+                    if result:
+                        # Füge Basis-Informationen hinzu
+                        flattened_session.update({
+                            "web_text": result.get("web_text", ""),
+                            "video_transcript": result.get("video_transcript", ""),
+                            "target_dir": result.get("target_dir", ""),
+                            "markdown_file": result.get("markdown_file", ""),
+                            "attachment_count": len(result.get("attachment_paths", [])),
+                            "page_count": len(result.get("page_texts", [])),
+                            "process_id": result.get("process_id", "")
+                        })
+
+                        # Extrahiere input_data
+                        input_data: Dict[str, Any] = result.get("input_data", {})
+                        if input_data:
+                            flattened_session.update({
+                                "url": input_data.get("url", ""),
+                                "filename": input_data.get("filename", ""),
+                                "day": input_data.get("day", ""),
+                                "starttime": input_data.get("starttime", ""),
+                                "endtime": input_data.get("endtime", ""),
+                                "speakers": ", ".join(input_data.get("speakers", [])),
+                                "video_url": input_data.get("video_url", ""),
+                                "attachments_url": input_data.get("attachments_url", ""),
+                                "source_language": input_data.get("source_language", "")
+                            })
+
+                        # Extrahiere structured_data
+                        structured_data: Dict[str, Any] = result.get("structured_data", {})
+                        if structured_data:
+                            # Füge alle Schlüssel aus structured_data hinzu
+                            # Prefix mit 'structured_' um Namenskonflikte zu vermeiden
+                            for key, value in structured_data.items():
+                                str_key: str = str(key)
+                                if isinstance(value, (str, int, float, bool)):
+                                    flattened_session[f"structured_{str_key}"] = value
+                                elif isinstance(value, (list, tuple)):
+                                    # Einfache String-Umwandlung ohne Schleife
+                                    value_as_str = [str(x) for x in value]  # type: ignore
+                                    flattened_session[f"structured_{str_key}"] = ", ".join(value_as_str)
+                                elif isinstance(value, dict):
+                                    dict_value: Dict[str, Any] = value
+                                    for sub_key, sub_value in dict_value.items():
+                                        str_sub_key: str = str(sub_key)
+                                        str_sub_value: str = str(sub_value)
+                                        flattened_session[f"structured_{str_key}_{str_sub_key}"] = str_sub_value
+
+                    flattened_sessions.append(flattened_session)
+
+                except Exception as e:
+                    self.logger.warning(f"Fehler beim Verarbeiten einer Session: {str(e)}")
+                    continue
+
+            self.logger.info(f"{len(flattened_sessions)} Sessions aus dem Cache abgerufen")
+            return flattened_sessions
+
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen der gecachten Sessions: {str(e)}")
+            return []

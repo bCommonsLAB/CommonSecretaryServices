@@ -1,7 +1,7 @@
 """
 Track-Prozessor für die Verarbeitung von Event-Tracks.
 """
-from datetime import datetime
+from datetime import datetime, UTC
 import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, cast, TypeVar
@@ -13,6 +13,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
+from core.models.transformer import TransformerData
 from src.core.config import Config
 from src.core.exceptions import ProcessingError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
@@ -312,13 +313,40 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         mongo_uri = mongodb_config.get('uri', 'mongodb://localhost:27017')
         db_name = mongodb_config.get('database', 'common-secretary-service')
         
-        self.client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
-        self.db: Database[Dict[str, Any]] = self.client[db_name]
-        self.session_jobs: Collection[Dict[str, Any]] = self.db.session_jobs
+        # Eindeutige Namen für MongoDB-Instanzen verwenden, um Konflikte zu vermeiden
+        self._mongo_client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
+        self._mongo_db: Database[Dict[str, Any]] = self._mongo_client[db_name]
+        self._event_jobs: Collection[Dict[str, Any]] = self._mongo_db.event_jobs  # Collection für Events
         
         self.logger.debug("MongoDB-Verbindung initialisiert",
                         uri=mongo_uri,
-                        database=db_name)
+                        database=db_name,
+                        collection=self._event_jobs.name) # Zeige den tatsächlichen Collection-Namen
+    
+    @property
+    def client(self) -> MongoClient[Dict[str, Any]]:
+        """MongoDB Client Property."""
+        return self._mongo_client
+
+    @property
+    def db(self) -> Database[Dict[str, Any]]:
+        """MongoDB Database Property."""
+        return self._mongo_db
+
+    @property
+    def session_jobs(self) -> Collection[Dict[str, Any]]:
+        """
+        MongoDB Collection für Session Jobs.
+        
+        Hinweis: Diese Property ist veraltet und wird nur aus Kompatibilitätsgründen beibehalten.
+        Verwende stattdessen event_jobs.
+        """
+        return self._event_jobs  # Verwendet event_jobs collection
+    
+    @property
+    def event_jobs(self) -> Collection[Dict[str, Any]]:
+        """MongoDB Collection für Event Jobs."""
+        return self._event_jobs
     
     async def get_track_sessions(self, track_name: str) -> List[SessionData]:
         """
@@ -332,15 +360,17 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         """
         self.logger.info(f"Hole Sessions für Track: {track_name}")
         
-        # Sessions aus der Datenbank holen
+        # Sessions aus der Datenbank holen (event_jobs Collection)
         # Sortiere nach completed_at absteigend (neueste zuerst)
-        session_docs = list(self.session_jobs.find(
+        session_docs = list(self.event_jobs.find(
             {"parameters.track": track_name, "status": "completed"}
         ).sort("completed_at", -1))
         
         if not session_docs:
             self.logger.warning(f"Keine Sessions für Track '{track_name}' gefunden")
             return []
+        
+        self.logger.info(f"Gefunden: {len(session_docs)} Sessions für Track '{track_name}'")
         
         # Session-Dokumente in SessionData-Objekte umwandeln
         sessions: List[SessionData] = []
@@ -582,7 +612,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 
                 # Eingabedaten validieren
                 track_name = self.validate_text(track_name, "track_name")
-                template = self.validate_text(template, "template")
+                template = self.validate_text(template, "template") +"_" + target_language
                 target_language = self.validate_language_code(target_language, "target_language")
                 
                 # Cache-Key generieren
@@ -651,23 +681,46 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         context=context
                     )
                 
+                # Prüfen, ob ein Fehler zurückgegeben wurde
+                if transform_result.error:
+                    self.logger.error(f"Fehler bei der Template-Transformation: {transform_result.error.message}")
+                    
+                    # Fehler-Informationen übernehmen
+                    error_info = ErrorInfo(
+                        code=transform_result.error.code,
+                        message=f"Template-Transformationsfehler: {transform_result.error.message}",
+                        details={
+                            **transform_result.error.details,
+                            "track_name": track_name,
+                            "template": template
+                        }
+                    )
+                    
+                    # Fehler-Response zurückgeben
+                    return self.create_response(
+                        processor_name=PROCESSOR_TYPE_TRACK,
+                        result=None,
+                        request_info={
+                            "track_name": track_name,
+                            "template": template,
+                            "target_language": target_language
+                        },
+                        response_class=TrackResponse,
+                        from_cache=False,
+                        cache_key="",
+                        error=error_info
+                    )
+                
                 # Ausgabedaten erstellen
-                summary = ""
+                summary: str = ""
                 structured_data: Dict[str, Any] = {}
                 
                 # Sicher auf die Transformer-Ergebnisse zugreifen
-                if transform_result.data and hasattr(transform_result.data, 'output'):
-                    output = getattr(transform_result.data, 'output', None)
-                    if output and hasattr(output, 'text'):
-                        summary = getattr(output, 'text', "")
-                    if output and hasattr(output, 'structured_data'):
-                        output_structured_data = getattr(output, 'structured_data', None)
-                        if isinstance(output_structured_data, dict):
-                            structured_data = output_structured_data
-                
-                # Stelle sicher, dass summary ein String ist
-                if summary is None:
-                    summary = ""
+                if transform_result.data:
+                    data: TransformerData = transform_result.data
+                    summary = data.text
+                    if data.structured_data:
+                        structured_data = data.structured_data  
                 
                 # Zusammenfassung in Datei speichern
                 with tracker.measure_operation('save_summary', 'track') if tracker else nullcontext():
@@ -1030,3 +1083,221 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
             sessions=sessions,
             process_id=process_id
         )
+
+    async def get_available_tracks(self) -> Dict[str, Any]:
+        """
+        Holt alle verfügbaren Tracks und deren Anzahl aus der Datenbank.
+        Testet verschiedene Abfragemethoden für die Datenbank.
+        
+        Returns:
+            Dict[str, Any]: Dictionary mit Track-Informationen
+        """
+        self.logger.info("Teste verschiedene MongoDB-Abfragemethoden")
+        
+        try:
+            # Test 1: Zugriff auf Collection und Dokumente testen
+            collection_name = self.event_jobs.name
+            db_name = self.db.name
+            self.logger.info(f"Verwende Collection '{collection_name}' in Datenbank '{db_name}'")
+            
+            # Test 2: Anzahl der Dokumente in der Collection zählen
+            count = self.event_jobs.count_documents({})
+            self.logger.info(f"Anzahl Dokumente in Collection: {count}")
+            
+            # Test 3: Ein einzelnes Dokument abrufen
+            sample_doc = None
+            if count > 0:
+                sample_doc = self.event_jobs.find_one({})
+                if sample_doc and '_id' in sample_doc:
+                    sample_id = str(sample_doc['_id'])
+                    self.logger.info(f"Beispieldokument gefunden mit ID: {sample_id}")
+                    
+                    # Dokumentstruktur untersuchen
+                    top_level_fields = list(sample_doc.keys())
+                    self.logger.info(f"Felder im Dokument: {top_level_fields}")
+                    
+                    # Prüfen, ob 'parameters' existiert und welche Felder es hat
+                    if 'parameters' in sample_doc:
+                        param_fields = list(sample_doc['parameters'].keys())
+                        self.logger.info(f"Felder in 'parameters': {param_fields}")
+                        
+                        # Prüfen, ob 'track' in parameters vorhanden ist
+                        if 'track' in sample_doc['parameters']:
+                            track_value = sample_doc['parameters']['track']
+                            self.logger.info(f"Wert von 'track': {track_value}")
+            
+            # Test 4: Explizite Abfrage nach Dokumenten mit 'parameters.track'
+            track_docs = list(self.event_jobs.find({"parameters.track": {"$exists": True}}))
+            self.logger.info(f"Dokumente mit 'parameters.track': {len(track_docs)}")
+            
+            # Test 5: Alle einzigartigen Track-Namen direkt abfragen
+            unique_tracks: List[str] = self.event_jobs.distinct("parameters.track")  # type: ignore
+            self.logger.info(f"Einzigartige Track-Namen: {unique_tracks}")
+            
+            # Test 6: Struktur der Collection untersuchen
+            pipeline = [
+                {"$project": {"fieldName": {"$objectToArray": "$$ROOT"}}},
+                {"$unwind": "$fieldName"},
+                {"$group": {"_id": "$fieldName.k", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}}
+            ]
+            field_stats = list(self.event_jobs.aggregate(pipeline))
+            self.logger.info(f"Feldstatistik: {field_stats[:10]}")  # Zeige die häufigsten 10 Felder
+            
+            # Ausgabe basierend auf den Ergebnissen erstellen
+            tracks: List[Dict[str, Any]] = []
+            for track_name in unique_tracks:
+                if track_name:  # Ignoriere None oder leere Strings
+                    # Anzahl der Sessions für diesen Track zählen
+                    session_count = self.event_jobs.count_documents({"parameters.track": track_name})
+                    
+                    # Sessions für diesen Track abrufen
+                    sessions = self.event_jobs.distinct("parameters.session", {"parameters.track": track_name}) # type: ignore
+                    
+                    # Event für diesen Track
+                    event = self.event_jobs.distinct("parameters.event", {"parameters.track": track_name}) # type: ignore
+                    event_name = event[0] if event else "Unbekannt"  # type: ignore
+                    
+                    # Track-Info sammeln
+                    track_info: Dict[str, Any] = {
+                        "track_name": track_name,
+                        "session_count": session_count,
+                        "sessions": sessions,
+                        "event": event_name
+                    }
+                    tracks.append(track_info)
+            
+            # Nach Track-Namen sortieren
+            tracks.sort(key=lambda x: x["track_name"])
+            
+            # Gesamtanzahl berechnen
+            track_count = len(tracks)
+            total_sessions = sum(track["session_count"] for track in tracks)
+            
+            # Antwort erstellen
+            response = {
+                "tracks": tracks,
+                "track_count": track_count,
+                "total_session_count": total_sessions,
+                "collection_info": {
+                    "name": collection_name,
+                    "database": db_name,
+                    "total_documents": count,
+                    "field_stats": field_stats[:5] if field_stats else []
+                },
+                "generated_at": datetime.now(UTC).isoformat()
+            }
+            
+            self.logger.info(f"{track_count} Tracks mit insgesamt {total_sessions} Sessions gefunden")
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Testen der MongoDB-Abfragen: {str(e)}", 
+                           traceback=traceback.format_exc())
+            raise
+
+    async def create_all_track_summaries(
+        self,
+        track_filter: Optional[str] = None,
+        template: str = "track-eco-social-summary",
+        target_language: str = "de",
+        use_cache: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Erstellt Zusammenfassungen für alle verfügbaren Tracks.
+        Optional kann ein Filter für die Track-Namen angegeben werden.
+        
+        Args:
+            track_filter: Optional. Filter für Track-Namen, nur Tracks, die diesen String enthalten, werden verarbeitet
+            template: Name des Templates für die Zusammenfassung
+            target_language: Zielsprache für die Zusammenfassung
+            use_cache: Ob der Cache verwendet werden soll
+            
+        Returns:
+            Dict[str, Any]: Dictionary mit zusammengefassten Tracks und Metadaten
+        """
+        # Performance-Tracking starten
+        start_time = time.time()
+        
+        # Verfügbare Tracks abrufen
+        tracks_data = await self.get_available_tracks()
+        available_tracks = tracks_data["tracks"]
+        
+        # Tracks filtern, falls ein Filter angegeben wurde
+        if track_filter:
+            filtered_tracks = [
+                track for track in available_tracks 
+                if track_filter.lower() in track["track_name"].lower()
+            ]
+        else:
+            filtered_tracks = available_tracks
+            
+        # Ergebnisliste initialisieren
+        successful_tracks: List[Dict[str, Any]] = []
+        failed_tracks: List[Dict[str, Any]] = []
+        
+        # Alle Tracks verarbeiten
+        total_tracks = len(filtered_tracks)
+        self.logger.info(f"{total_tracks} Tracks werden verarbeitet")
+        
+        for idx, track_info in enumerate(filtered_tracks):
+            track_name = track_info["track_name"]
+            try:
+                self.logger.info(f"Verarbeite Track {idx+1}/{total_tracks}: {track_name}")
+                
+                # Zusammenfassung für den Track erstellen
+                track_response = await self.create_track_summary(
+                    track_name=track_name,
+                    template=template,
+                    target_language=target_language,
+                    use_cache=use_cache
+                )
+                
+                # Nur bei erfolgreicher Verarbeitung hinzufügen
+                if track_response.status == ProcessingStatus.SUCCESS:
+                    successful_tracks.append({
+                        "track_name": track_name,
+                        "response": track_response.to_dict()
+                    })
+                else:
+                    failed_tracks.append({
+                        "track_name": track_name,
+                        "error": track_response.error.to_dict() if track_response.error else {"message": "Unbekannter Fehler"},
+                        "response": track_response.to_dict()
+                    })
+            except Exception as e:
+                self.logger.error(f"Fehler bei der Verarbeitung von Track {track_name}: {str(e)}", 
+                               traceback=traceback.format_exc())
+                failed_tracks.append({
+                    "track_name": track_name,
+                    "error": {
+                        "code": e.__class__.__name__,
+                        "message": str(e),
+                        "details": {}
+                    }
+                })
+        
+        # Performance-Tracking beenden
+        end_time = time.time()
+        duration_ms = int((end_time - start_time) * 1000)
+        
+        # Ergebnis zusammenstellen
+        result = {
+            "status": "success" if len(failed_tracks) == 0 else "partial_success",
+            "summary": {
+                "total_tracks": total_tracks,
+                "successful_tracks": len(successful_tracks),
+                "failed_tracks": len(failed_tracks),
+                "duration_ms": duration_ms,
+                "template": template,
+                "target_language": target_language,
+                "use_cache": use_cache,
+                "track_filter": track_filter
+            },
+            "successful_tracks": successful_tracks,
+            "failed_tracks": failed_tracks,
+            "generated_at": datetime.now(UTC).isoformat()
+        }
+        
+        self.logger.info(f"Verarbeitung abgeschlossen: {len(successful_tracks)} erfolgreiche Tracks, {len(failed_tracks)} fehlgeschlagene Tracks")
+        return result

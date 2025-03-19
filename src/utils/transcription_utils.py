@@ -470,6 +470,8 @@ class WhisperTranscriber:
             context: Optionaler Kontext für das Template
             additional_field_descriptions: Zusätzliche Feldbeschreibungen für das Template
             logger: Optional, Logger für Debug-Ausgaben
+            processor: Optional, Name des aufrufenden Prozessors
+            use_cache: Ob der Cache verwendet werden soll
             
         Returns:
             TransformationResult mit dem transformierten Text
@@ -482,12 +484,48 @@ class WhisperTranscriber:
                 raise ValueError("Template ist nicht definiert")
 
             # 1. Template-Datei lesen
-            template_content: str = self._read_template_file(template, logger)
-            
+            try:
+                template_content: str = self._read_template_file(template, logger)
+            except Exception as e:
+                # Spezifischer Fehler für Template-Lesefehler
+                error_msg = f"Template '{template}' konnte nicht gelesen werden: {str(e)}"
+                if logger:
+                    logger.error(error_msg)
+                return TransformationResult(
+                    text="Fehler bei der Template-Transformation: Template konnte nicht gelesen werden",
+                    target_language=target_language,
+                    structured_data={
+                        "error": error_msg,
+                        "error_type": "TemplateReadError",
+                        "template": template,
+                        "exception": str(e)
+                    }
+                )
+
             # 2. Systemprompt extrahieren
             template_content, system_prompt = self._extract_system_prompt(template_content, logger)
 
-            # 3. Strukturierte Variablen extrahieren und Model erstellen
+            # 3. Kontext-Variablen ersetzen
+            try:
+                # Einfache Variablen im Template mit Kontext-Werten ersetzen
+                template_content = self._replace_context_variables(template_content, context, text, logger)
+            except ValueError as ve:
+                # Detaillierter Fehler bei der Kontextersetzung
+                error_msg = str(ve)
+                if logger:
+                    logger.error(f"Fehler bei Kontext-Transformation: {error_msg}")
+                return TransformationResult(
+                    text="Fehler bei der Template-Transformation: Kontextvariablen konnten nicht ersetzt werden",
+                    target_language=target_language,
+                    structured_data={
+                        "error": error_msg,
+                        "error_type": "ContextVariableError",
+                        "template": template,
+                        "context_keys": list(context.keys()) if context else []
+                    }
+                )
+            
+            # 4. Strukturierte Variablen extrahieren und Model erstellen
             field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
             
             if not field_definitions.fields:
@@ -497,7 +535,7 @@ class WhisperTranscriber:
                     target_language=target_language
                 )
 
-            # 4. GPT-4 Prompts erstellen
+            # 5. GPT-4 Prompts erstellen
             context_str: str = (
                 json.dumps(context, indent=2, ensure_ascii=False)
                 if isinstance(context, dict)
@@ -531,10 +569,10 @@ class WhisperTranscriber:
                 f"5. Do not include any text outside the JSON object"
             )
 
-            # 5. OpenAI Anfrage senden
+            # 6. OpenAI Anfrage senden
             if logger:
                 logger.info("Sende Anfrage an OpenAI " + self.model)
-
+            
             # Zeitmessung starten
             start_time: float = time.time()
 
@@ -617,7 +655,7 @@ class WhisperTranscriber:
 
             # Einfache Kontext-Variablen ersetzen
             template_content = self._replace_context_variables(template_content, context, text, logger)
-
+            
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
                     duration_ms=duration,
@@ -629,15 +667,20 @@ class WhisperTranscriber:
                 target_language=target_language,
                 structured_data=result_json
             )
-
+            
         except Exception as e:
             if logger:
                 logger.error("Fehler bei der Template-Transformation", error=e)
-            # Erstelle eine Fehler-Response statt Exception zu werfen
+            # Erstelle eine Fehler-Response mit detaillierten Informationen
             error_result = TransformationResult(
                 text=f"Fehler bei der Template-Transformation: {str(e)}",
                 target_language=target_language,
-                structured_data={"error": str(e)}
+                structured_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "template": template,
+                    "traceback": traceback.format_exc()
+                }
             )
             return error_result
 
@@ -661,21 +704,53 @@ class WhisperTranscriber:
         if not isinstance(context, dict):
             context = {}
         
-        # Füge text als spezielle Variable hinzu
-        if text:
-            # Ersetze {{text}} mit dem tatsächlichen Text
-            template_content = re.sub(r'\{\{text\}\}', text, template_content)
-        
-        # Finde alle einfachen Template-Variablen (ohne Description)
-        simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
-        
-        for key, value in context.items():
-            if value is not None and key in simple_variables:
-                pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
-                str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-                template_content = re.sub(pattern, str_value, template_content)
+        try:
+            # Füge text als spezielle Variable hinzu
+            if text:
+                # Ersetze {{text}} mit dem tatsächlichen Text
+                template_content = re.sub(r'\{\{text\}\}', text, template_content)
+            
+            # Finde alle einfachen Template-Variablen (ohne Description)
+            simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
+            
+            for key, value in context.items():
+                try:
+                    if value is not None and key in simple_variables:
+                        pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
+                        str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                        template_content = re.sub(pattern, str_value, template_content)
+                except Exception as variable_error:
+                    # Detaillierte Fehlerinformationen für eine spezifische Variable
+                    # Bereite eine sichere String-Version des problematischen Werts vor
+                    safe_value = ""
+                    try:
+                        if isinstance(value, (dict, list)):
+                            safe_value = json.dumps(value, ensure_ascii=False)[:100]
+                        else:
+                            safe_value = str(value)[:100]
+                    except:
+                        safe_value = f"<Nicht darstellbarer Wert vom Typ {type(type_cast(object, value)).__name__}>"
+                        
+                    error_msg = f"Fehler beim Ersetzen der Variable '{key}': {str(variable_error)}. Problematischer Wert: {safe_value}"
+                    if logger:
+                        logger.error(error_msg, 
+                                   variable=key, 
+                                   value_type=type(type_cast(object, value)).__name__, 
+                                   error=variable_error)
+                    raise ValueError(error_msg)
 
-        return template_content
+            return template_content
+            
+        except Exception as e:
+            if isinstance(e, ValueError) and "Fehler beim Ersetzen der Variable" in str(e):
+                # Weiterleiten des speziellen Fehlers
+                raise
+            else:
+                # Allgemeiner Fehler beim Ersetzen von Variablen
+                error_msg = f"Fehler beim Ersetzen von Kontext-Variablen: {str(e)}"
+                if logger:
+                    logger.error(error_msg, error=e)
+                raise ValueError(error_msg)
 
     def _extract_structured_variables(self, template_content: str, logger: Optional[ProcessingLogger]) -> TemplateFields:
         """Extrahiert strukturierte Variablen aus dem Template.

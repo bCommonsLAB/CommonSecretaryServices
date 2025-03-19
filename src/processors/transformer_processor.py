@@ -638,6 +638,35 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
                 use_cache=use_cache
             )
             
+            # Prüfe, ob ein Fehler zurückgegeben wurde
+            if result.structured_data and "error" in result.structured_data:
+                # Es handelt sich um eine Fehler-Response vom Transcriber
+                error_info = ErrorInfo(
+                    code="TEMPLATE_ERROR",
+                    message=result.structured_data["error"],  # Spezifische Fehlermeldung aus structured_data
+                    details={
+                        "error_type": result.structured_data.get("error_type", "TemplateError"),
+                        "template": template,
+                        **{k: v for k, v in result.structured_data.items() if k not in ["error", "error_type"]}
+                    }
+                )
+                
+                # Erstelle Fehler-Response
+                return self.create_response(
+                    processor_name="transformer",
+                    result=None,
+                    request_info={
+                        "text": text[:100] + "..." if len(text) > 100 else text,
+                        "template": template,
+                        "source_language": source_language,
+                        "target_language": target_language
+                    },
+                    response_class=TransformerResponse,
+                    from_cache=False,
+                    cache_key="",
+                    error=error_info
+                )
+            
             # Erstelle TransformerData aus dem Ergebnis
             transformer_data = TransformerData(
                 text=result.text,
@@ -667,8 +696,31 @@ Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Me
             
         except Exception as e:
             self.logger.error(f"Fehler bei der Template-Transformation: {str(e)}")
-            raise ProcessingError(
-                message=f"Fehler bei der Template-Transformation: {str(e)}"
+            
+            # Erstelle Fehler-Response mit korrektem ErrorInfo-Objekt
+            error_info = ErrorInfo(
+                code="TEMPLATE_TRANSFORMATION_ERROR",
+                message=f"Fehler bei der Template-Transformation: {str(e)}",
+                details={
+                    "error_type": type(e).__name__,
+                    "template": template,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return self.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    "text": text[:100] + "..." if len(text) > 100 else text,
+                    "template": template,
+                    "source_language": source_language,
+                    "target_language": target_language
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=error_info
             )
 
     def _extract_link_info(self, link: PageElement | Tag, source_url: str) -> Dict[str, str]:

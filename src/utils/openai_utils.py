@@ -98,7 +98,10 @@ def get_structured_gpt(
 
     # LLM-Nutzung zentral tracken
     config = Config()
-    transcriber = WhisperTranscriber(config.get('processors', {}).get('transcription', {}))
+    # Nutze transcriber_config ohne processor, da WhisperTranscriber.create_llm_request
+    # auch ohne processor genutzt werden kann
+    transcriber_config = config.get('processors', {}).get('transcription', {})
+    transcriber = WhisperTranscriber(transcriber_config, processor=None)  # type: ignore
     llm_usage: LLMRequest = transcriber.create_llm_request(
         purpose="template_transformation",
         tokens=response.usage.total_tokens if response.usage else 0,

@@ -7,34 +7,25 @@ tags: {{tags|Welche 10 Schlüsselwörter fassen die Sessions in diesem topic am 
 > Diese Zusammenfassung basiert auf mehreren Sessions innerhalb dieses Themas. Sie fasst die wichtigsten Inhalte zusammen und stellt sie in einen ökosozialen Kontext. Die Texte basieren auf Audio/Video-Transkribtion und Text-Transformation - generiert aus dem Inhalt und Links dieser Sessions.
 
 
-## Überblick  
+## Worum geht es in dem Track? 
 
 {{general_summary|Kurze Einführung in das Thema des topics: Welche Themen werden hier behandelt? Wie könnte man diese einfach erklären? Mindestens 150 Worte.}}
 
-## Events
+## Sessions 
 
 {{event_list|Können wir ALLE Events hier als Liste auflisten mit Titel auf Deutsch in Fett, gefolgt von einem \n und einem Zweizeiler, der den Inhalt des Events kurz erklärt, gefolgt von einem \n und dem Obsidian-Link. Gertrennt durch \n\n}}
 
 ## Bedeutung für eine ökosoziale Transformation  
 
-{{eco_social_relevance|Welche Aspekte dieses Themas können den Wandel hin zu nachhaltigen, gerechten und gemeinschaftlichen Systemen unterstützen? Wie lassen sich technologische Fortschritte mit sozialen und ökologischen Werten verbinden? Bitte in mehreren Absätzen strukturiert ausarbeiten.}}
+{{eco_social_relevance|Welche Aspekte dieses Tracks können den Wandel hin zu nachhaltigen, gerechten und gemeinschaftlichen Systemen unterstützen? Wie lassen sich technologische Fortschritte mit sozialen und ökologischen Werten verbinden? Bitte in mehreren Absätzen strukturiert ausarbeiten.}}
 
 ## Anwendungsmöglichkeiten für Eco-Social Designer  
 
-{{eco_social_applications|Wie können Designer:innen, Entwickler:innen und Initiativen aus dem ökosozialen Bereich diese Erkenntnisse konkret nutzen? Welche Tools, Plattformen oder Ansätze sind besonders vielversprechend? Bitte bis zu 10 konkrete Beispielen ausarbeiten, jedes Beispiel gefolgt mit einem Obsidian-link, in dem das Beispiel vorkommt.}}
+{{eco_social_applications|Wie können Designer, Entwickler und Initiativen aus dem ökosozialen Bereich diese Erkenntnisse konkret nutzen? Welche Tools, Plattformen oder Ansätze sind besonders vielversprechend? Bitte bis zu 7  konkrete Beispielen ausarbeiten, jedes Beispiel gefolgt mit einem Obsidian-link, in dem das Beispiel vorkommt.}}
 
 ## Herausforderungen & offene Fragen  
 
 {{challenges|Welche technischen, ethischen oder gesellschaftlichen Herausforderungen wurden diskutiert? Wo besteht noch Forschungs- oder Entwicklungsbedarf?}}
-
-{{topic_id}}: Die ID des Themas
-{{topic_display_name}}: Der anzeigefreundliche Name des Themas in der aktuellen Sprache
-{{description}}: Die Beschreibung des Themas in der aktuellen Sprache
-{{event}}: Der Name des Events
-{{target_group}}: Die ID der Zielgruppe
-{{session_count}}: Die Anzahl der verarbeiteten Sessions
-{{sessions}}: Eine Liste aller verarbeiteten Sessions
-{{detail_level}}: Der Detailgrad (1-5)
 
 
 --- systemprompt
