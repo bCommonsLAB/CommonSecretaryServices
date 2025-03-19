@@ -2,6 +2,13 @@
 Datenmodelle für die Anwendung.
 """
 
+# Basis-Modelle und Enums
+from .base import ErrorInfo, RequestInfo, ProcessInfo
+from .enums import ProcessingStatus
+
+# Protokolle
+from .protocols import CacheableResult
+
 # Job und Batch Datenmodelle
 from .job_models import (
     JobStatus,
@@ -16,19 +23,55 @@ from .job_models import (
     Batch
 )
 
-# Ältere Modelle für Abwärtskompatibilität
-try:
-    from .llm import LLModel, LLMRequest, LLMInfo
-    from .metadata import ContentMetadata, TechnicalMetadata
-    from .transformer import TransformerInput, TransformerOutput, TransformerData, TransformerResponse
-    from .audio import AudioSegmentInfo, Chapter, AudioMetadata, AudioProcessingResult
-    from .youtube import YoutubeMetadata, YoutubeProcessingResult
-    from .base import ErrorInfo, RequestInfo, ProcessInfo
-except ImportError:
-    # Ältere Module sind optional
-    pass
+# LLM-Modelle
+from .llm import LLModel, LLMRequest, LLMInfo
+
+# Metadaten-Modelle
+from .metadata import ContentMetadata, TechnicalMetadata
+
+# Transformer-Modelle
+from .transformer import TransformerInput, TransformerData, TransformerResponse
+
+# Audio-Modelle
+from .audio import (
+    AudioSegmentInfo,
+    Chapter,
+    AudioMetadata,
+    AudioProcessingResult,
+    TranscriptionResult,
+    TranscriptionSegment
+)
+
+# Video-Modelle
+from .video import VideoMetadata, VideoProcessingResult
+
+# YouTube-Modelle
+from .youtube import YoutubeMetadata, YoutubeProcessingResult
+
+# Story-Modelle
+from .story import (
+    StoryProcessorInput,
+    StoryProcessorOutput,
+    StoryProcessingResult,
+    StoryData,
+    StoryResponse,
+    TopicModel,
+    TargetGroupModel,
+    TopicDict,
+    TargetGroupDict,
+    SessionDict
+)
 
 __all__ = [
+    # Basis-Modelle und Enums
+    "ErrorInfo",
+    "RequestInfo",
+    "ProcessInfo",
+    "ProcessingStatus",
+    
+    # Protokolle
+    "CacheableResult",
+    
     # Job und Batch Modelle
     "JobStatus",
     "AccessVisibility",
@@ -41,23 +84,45 @@ __all__ = [
     "Job",
     "Batch",
     
-    # Ältere Modelle
+    # LLM-Modelle
     "LLModel",
     "LLMRequest",
     "LLMInfo",
-    "ErrorInfo",
-    "RequestInfo",
-    "ProcessInfo",
+    
+    # Metadaten-Modelle
     "ContentMetadata",
     "TechnicalMetadata",
+    
+    # Transformer-Modelle
     "TransformerInput",
-    "TransformerOutput",
     "TransformerData",
     "TransformerResponse",
+    
+    # Audio-Modelle
     "AudioSegmentInfo",
     "Chapter",
     "AudioMetadata",
     "AudioProcessingResult",
+    "TranscriptionResult",
+    "TranscriptionSegment",
+    
+    # Video-Modelle
+    "VideoMetadata",
+    "VideoProcessingResult",
+    
+    # YouTube-Modelle
     "YoutubeMetadata",
-    "YoutubeProcessingResult"
+    "YoutubeProcessingResult",
+    
+    # Story-Modelle
+    "StoryProcessorInput",
+    "StoryProcessorOutput",
+    "StoryProcessingResult",
+    "StoryData",
+    "StoryResponse",
+    "TopicModel",
+    "TargetGroupModel",
+    "TopicDict",
+    "TargetGroupDict",
+    "SessionDict"
 ] 

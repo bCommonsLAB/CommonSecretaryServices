@@ -2,14 +2,14 @@ cache:
   base_dir: ./cache
   cleanup_interval: 24
   max_age_days: 7
-  mongo_uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
   mongodb:
     enabled: true
     ttl_days: 30
+    create_indexes: false
 
-event_worker:
+session_worker:
   active: true
-  max_concurrent: 5
+  max_concurrent: 3
   poll_interval_sec: 5
 
 logging:
@@ -23,7 +23,7 @@ mongodb:
   connect_timeout_ms: 5000
   db_name: common-secretary-service
   max_pool_size: 50
-  uri: mongodb+srv://petervonzuhause:OQUsWxiaosigv9ec@bcommonslab.kh9co.mongodb.net/?retryWrites=true&w=majority&appName=bCommonsLab
+  uri: ${MONGODB_URI}  # Wird aus der .env geladen
 
 processors:
   pdf:

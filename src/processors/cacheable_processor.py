@@ -3,26 +3,37 @@ Erweiterter Prozessor mit MongoDB-Caching-Funktionalität.
 """
 import hashlib
 from datetime import datetime, UTC, timedelta
-from typing import Any, Dict, List, Optional, Tuple, cast, TypeVar, Generic, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, cast, TypeVar, Generic, TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from pymongo.collection import Collection
     from pymongo.database import Database
+    from src.core.resource_tracking import ResourceCalculator
 else:
     from pymongo.collection import Collection
     from pymongo.database import Database
+    from src.core.resource_tracking import ResourceCalculator
 
 from pymongo.results import DeleteResult
 
 from core.config import ApplicationConfig
 from src.core.config import Config
-from src.core.resource_tracking import ResourceCalculator
+from src.core.models.enums import ProcessingStatus
+from src.core.models.base import ProcessInfo
 # Direkten Import entfernen, um zirkuläre Abhängigkeit zu vermeiden
 # from src.core.mongodb.connection import get_mongodb_database
 from .base_processor import BaseProcessor
 
-# TypeVar für generischen Rückgabetyp
-T = TypeVar('T')  # Ergebnistyp für die verschiedenen Prozessoren (AudioProcessingResult, VideoProcessingResult, etc.)
+# Protocol hier direkt definieren, um zyklische Imports zu vermeiden
+@runtime_checkable
+class CacheableResult(Protocol):
+    """Protokoll für Cache-fähige Ergebnisse."""
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        ...
+
+T = TypeVar('T', bound=CacheableResult)  # Ergebnistyp für die verschiedenen Prozessoren
 
 # Verzögerter Import der MongoDB-Funktionen, um zirkuläre Importe zu vermeiden
 def _get_mongodb_database() -> Database[Any]:
@@ -30,7 +41,7 @@ def _get_mongodb_database() -> Database[Any]:
     from src.core.mongodb.connection import get_mongodb_database
     return get_mongodb_database()
 
-class CacheableProcessor(BaseProcessor, Generic[T]):
+class CacheableProcessor(BaseProcessor[T], Generic[T]):
     """
     Basisklasse für Prozessoren mit MongoDB-Caching-Unterstützung.
     
@@ -52,15 +63,16 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
         "_cache_collection": Optional[Collection[Any]]
     }
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
         """
         Initialisiert den CacheableProcessor.
         
         Args:
             resource_calculator: ResourceCalculator-Instanz für Performance-Tracking
             process_id: Optional, ID für den Prozess
+            parent_process_info: Optional ProcessInfo vom übergeordneten Prozessor
         """
-        super().__init__(resource_calculator, process_id)
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         # Cache-Konfiguration
         config = Config()
@@ -91,6 +103,17 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
         # Prüfen, ob ein Collection-Name definiert ist
         if not self.cache_collection_name:
             self.logger.warning("Kein Cache-Collection-Name definiert, Cache wird nicht initialisiert")
+            return
+        
+        # Konfiguration für Index-Erstellung prüfen
+        config = Config()
+        create_indexes = config.get('cache.mongodb.create_indexes', True)
+        
+        if not create_indexes:
+            self.logger.info("MongoDB-Index-Erstellung ist deaktiviert, überspringe Cache-Indices-Setup")
+            # Trotzdem die Collection für die Verwendung speichern
+            from src.core.mongodb.connection import get_mongodb_database
+            self._cache_collection = get_mongodb_database()[self.cache_collection_name]
             return
         
         # Import der MongoDB-Verbindungsfunktionen
@@ -233,7 +256,7 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
         
     def save_to_cache(self, cache_key: str, result: T) -> None:
         """
-        Speichert ein Ergebnis im Cache.
+        Speichert ein Ergebnis im Cache, nur wenn es erfolgreich war.
         
         Args:
             cache_key: Der Cache-Schlüssel
@@ -243,6 +266,12 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
             return
             
         if not self.cache_collection_name:
+            return
+            
+        # Prüfe auf ProcessingStatus
+        status: ProcessingStatus = result.status
+        if status != ProcessingStatus.SUCCESS:
+            self.logger.warning(f"Versuch, Ergebnis mit Status {status} zu cachen wurde verhindert")
             return
             
         try:
@@ -263,7 +292,8 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
                 "cache_key": cache_key,
                 "created_at": now,
                 "last_accessed": now,
-                "data": serialized_data
+                "data": serialized_data,
+                "status": "success"  # Expliziter Status für Cache-Einträge
             }
             
             # Cache-Eintrag speichern oder aktualisieren (Upsert)
@@ -273,7 +303,7 @@ class CacheableProcessor(BaseProcessor, Generic[T]):
                 upsert=True
             )
             
-            self.logger.debug(f"Ergebnis im Cache gespeichert: {cache_key}")
+            self.logger.debug(f"Erfolgreiches Ergebnis im Cache gespeichert: {cache_key}")
         except Exception as e:
             self.logger.error(f"Fehler beim Speichern im Cache: {str(e)}")
             

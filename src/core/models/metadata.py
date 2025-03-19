@@ -2,11 +2,14 @@
 Metadaten-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type, TypeVar
 
 from .base import BaseResponse, RequestInfo, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus
 from .llm import LLMInfo
+
+# Für Type-Safety in den Factory-Methoden
+MR = TypeVar('MR', bound='MetadataResponse')
 
 @dataclass(frozen=True, slots=True)
 class ContentMetadata:
@@ -179,24 +182,80 @@ class MetadataResponse(BaseResponse):
         object.__setattr__(self, 'llm_info', llm_info)
 
     @classmethod
-    def create(cls, request: RequestInfo, process: ProcessInfo, data: MetadataData,
-               llm_info: Optional[LLMInfo] = None) -> 'MetadataResponse':
-        """Erstellt eine erfolgreiche Response."""
-        return cls(
-            request=request,
-            process=process,
+    def create(
+        cls: Type[MR], 
+        data: Optional[MetadataData] = None, 
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> MR:
+        """Erstellt eine erfolgreiche Response mit den angegebenen Daten.
+        
+        Args:
+            data: Die Metadaten
+            process: Optionale Prozess-Informationen
+            **kwargs: Weitere Parameter für die BaseResponse
+            
+        Returns:
+            MetadataResponse: Eine erfolgreiche Antwort
+        """
+        if data is None:
+            data = MetadataData()
+            
+        # Erstelle eine neue Instanz mit den Basis-Parametern
+        response = cls(
+            request=kwargs.get('request', RequestInfo(
+                processor="metadata",
+                timestamp=kwargs.get('timestamp', ''),
+                parameters=kwargs.get('parameters', {})
+            )),
+            process=process or kwargs.get('process', ProcessInfo(
+                id=kwargs.get('id', ''),
+                main_processor="metadata",
+                started=kwargs.get('started', ''),
+                sub_processors=kwargs.get('sub_processors', []),
+                llm_info=kwargs.get('processor_llm_info')
+            )),
             data=data,
-            llm_info=llm_info,
-            status=ProcessingStatus.SUCCESS
+            llm_info=kwargs.get('llm_info'),
+            status=ProcessingStatus.SUCCESS,
+            error=None
         )
+        
+        return response
 
     @classmethod
-    def create_error(cls, request: RequestInfo, process: ProcessInfo, error_info: ErrorInfo) -> 'MetadataResponse':
-        """Erstellt eine Fehler-Response."""
-        return cls(
-            request=request,
-            process=process,
-            data=MetadataData(content=None, technical=None),  # Leere Metadaten bei Fehler
-            error=error_info,
-            status=ProcessingStatus.ERROR
-        ) 
+    def create_error(
+        cls: Type[MR], 
+        error: ErrorInfo,
+        **kwargs: Any
+    ) -> MR:
+        """Erstellt eine Fehler-Response mit den angegebenen Informationen.
+        
+        Args:
+            error: Die Fehlerinformationen
+            **kwargs: Weitere Parameter für die BaseResponse
+            
+        Returns:
+            MetadataResponse: Eine Fehlerantwort
+        """
+        # Erstelle eine neue Instanz mit den Basis-Parametern
+        response = cls(
+            request=kwargs.get('request', RequestInfo(
+                processor="metadata",
+                timestamp=kwargs.get('timestamp', ''),
+                parameters=kwargs.get('parameters', {})
+            )),
+            process=kwargs.get('process', ProcessInfo(
+                id=kwargs.get('id', ''),
+                main_processor="metadata",
+                started=kwargs.get('started', ''),
+                sub_processors=kwargs.get('sub_processors', []),
+                llm_info=kwargs.get('processor_llm_info')
+            )),
+            data=MetadataData(),  # Leere Metadaten bei Fehler
+            llm_info=kwargs.get('llm_info'),
+            status=ProcessingStatus.ERROR,
+            error=error
+        )
+        
+        return response 

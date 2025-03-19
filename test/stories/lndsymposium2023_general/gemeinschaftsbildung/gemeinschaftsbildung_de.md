@@ -1,0 +1,1 @@
+Fehler bei der Template-Transformation: Template 'Story' konnte nicht gelesen werden: [Errno 2] No such file or directory: 'templates\\Story.md'

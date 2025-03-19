@@ -62,7 +62,10 @@ audio_response: Model | OrderedModel = audio_ns.model('AudioResponse', {
 # Helper-Funktion zum Abrufen des Audio-Processors
 def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     """Get or create audio processor instance with process ID"""
-    return AudioProcessor(resource_calculator, process_id=process_id or str(uuid.uuid4()))
+    return AudioProcessor(
+        resource_calculator,
+        process_id=process_id or str(uuid.uuid4())
+    )
 
 # Audio-Verarbeitungs-Funktion
 async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '', use_cache: bool = True) -> Dict[str, Any]:

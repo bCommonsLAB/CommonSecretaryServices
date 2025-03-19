@@ -32,7 +32,7 @@ import hashlib
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, cast, TYPE_CHECKING, List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import subprocess
 import os
 from urllib.parse import urlparse
@@ -44,11 +44,10 @@ from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.core.config import Config
-from src.core.models.base import ErrorInfo, BaseResponse
-from src.core.models.llm import LLMInfo, LLMRequest
-from src.core.models.response_factory import ResponseFactory
+from src.core.models.base import ErrorInfo, BaseResponse, ProcessInfo
 from src.core.models.pdf import PDFMetadata
 from src.processors.transformer_processor import TransformerProcessor
+from src.core.models.enums import ProcessingStatus
 
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_PDF = "pdf"
@@ -72,13 +71,24 @@ if TYPE_CHECKING:
         """Typ-Definitionen für PyMuPDF Pixmap-Objekte."""
         def save(self, filename: str, output: str = "", jpg_quality: int = 80) -> None: ...
 
-@dataclass
+@dataclass(frozen=True)
 class PDFProcessingResult:
     """Ergebnis der PDF-Verarbeitung."""
     metadata: PDFMetadata
     extracted_text: Optional[str]
     ocr_text: Optional[str] = None
     process_id: Optional[str] = None
+    processed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    
+    def __post_init__(self) -> None:
+        """Validiert das Ergebnis nach der Initialisierung."""
+        if not self.metadata:
+            raise ValueError("metadata darf nicht leer sein")
+    
+    @property
+    def status(self) -> ProcessingStatus:
+        """Status des Ergebnisses."""
+        return ProcessingStatus.SUCCESS if self.extracted_text or self.ocr_text else ProcessingStatus.ERROR
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
@@ -86,7 +96,8 @@ class PDFProcessingResult:
             'metadata': self.metadata.to_dict(),
             'extracted_text': self.extracted_text,
             'ocr_text': self.ocr_text,
-            'process_id': self.process_id
+            'process_id': self.process_id,
+            'processed_at': self.processed_at
         }
     
     @classmethod
@@ -97,47 +108,23 @@ class PDFProcessingResult:
         # Metadaten direkt aus dem Dictionary extrahieren
         metadata_dict: Dict[str, Any] = data.get('metadata', {})
         
-        # Vorsichtige Konvertierung für den Linter
-        file_name = str(metadata_dict.get('file_name', ''))  # type: ignore
-        file_size = int(metadata_dict.get('file_size', 0))  # type: ignore
-        page_count = int(metadata_dict.get('page_count', 0))  # type: ignore
-        
-        # Text contents verarbeiten, falls vorhanden
-        text_contents: List[Tuple[int, str]] = []
-        raw_text_contents: List[Any] = metadata_dict.get('text_contents', [])
-        
-        # Hilfsfunktion zur typensicheren Konvertierung
-        def create_typed_content(page: Any, content: Any) -> Tuple[int, str]:
-            """Erstellt ein typensicheres Tuple aus Seitennummer und Inhalt."""
-            return (int(page), str(content))
-        
-        # Verarbeite jedes Element in raw_text_contents
-        for item in raw_text_contents:
-            if isinstance(item, dict) and 'page' in item and 'content' in item:
-                text_contents.append(create_typed_content(item['page'], item['content']))
-            elif isinstance(item, tuple) and len(cast(Tuple[Any, ...], item)) == 2:
-                text_contents.append(create_typed_content(item[0], item[1]))
-        
-        # PDFMetadata erstellen
-        metadata = PDFMetadata(
-            file_name=file_name,
-            file_size=file_size,
-            page_count=page_count,
-            format=str(metadata_dict.get('format', 'pdf')),  # type: ignore
-            process_dir=metadata_dict.get('process_dir'),  # type: ignore
-            image_paths=list(metadata_dict.get('image_paths', [])),  # type: ignore
-            preview_paths=list(metadata_dict.get('preview_paths', [])),  # type: ignore
-            preview_zip=metadata_dict.get('preview_zip'),  # type: ignore
-            text_paths=list(metadata_dict.get('text_paths', [])),  # type: ignore
-            text_contents=text_contents,
-            extraction_method=str(metadata_dict.get('extraction_method', 'native'))  # type: ignore
-        )
+        # PDFMetadata aus Dictionary erstellen
+        if metadata_dict:
+            metadata = PDFMetadata.from_dict(metadata_dict)
+        else:
+            # Minimale Metadaten, falls keine vorhanden sind
+            metadata = PDFMetadata(
+                file_name="Unknown",
+                file_size=0,
+                page_count=0
+            )
         
         return cls(
             metadata=metadata,
             extracted_text=data.get('extracted_text'),
             ocr_text=data.get('ocr_text'),
-            process_id=data.get('process_id')
+            process_id=data.get('process_id'),
+            processed_at=data.get('processed_at', datetime.now(UTC).isoformat())
         )
 
 @dataclass(frozen=True)
@@ -161,9 +148,16 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
     # Name der MongoDB-Cache-Collection
     cache_collection_name = "pdf_cache"
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None):
-        """Initialisiert den PDFProcessor."""
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None, parent_process_info: Optional[ProcessInfo] = None):
+        """
+        Initialisiert den PDFProcessor.
+        
+        Args:
+            resource_calculator: Calculator für Ressourcenverbrauch
+            process_id: Process-ID für Tracking
+            parent_process_info: Optional ProcessInfo vom übergeordneten Prozessor
+        """
+        super().__init__(resource_calculator=resource_calculator, process_id=process_id, parent_process_info=parent_process_info)
         
         # Lade Konfiguration
         config = Config()
@@ -191,7 +185,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                          preview_image_format=self.preview_image_format)
         
         # Initialisiere Transformer
-        self.transformer = TransformerProcessor(resource_calculator, process_id)
+        self.transformer = TransformerProcessor(
+            resource_calculator, 
+            process_id,
+            parent_process_info=self.process_info
+        )
         
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
         """
@@ -506,50 +504,39 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         except Exception as e:
             self.logger.warning(f"Fehler beim Erstellen spezialisierter Indizes: {str(e)}")
             
-    def _create_response_from_cached_result(self, 
-                                           cached_result: PDFProcessingResult,
-                                           file_path: Union[str, Path],
-                                           template: Optional[str] = None,
-                                           context: Optional[Dict[str, Any]] = None,
-                                           extraction_method: str = EXTRACTION_NATIVE,
-                                           file_hash: Optional[str] = None) -> PDFResponse:
-        """
-        Erstellt eine PDFResponse aus einem gecachten Ergebnis.
+    def _validate_file_type(self, path: Path) -> None:
+        """Überprüft, ob die Datei ein gültiges PDF oder PowerPoint-Format ist.
         
         Args:
-            cached_result: Das gecachte PDFProcessingResult
-            file_path: Der ursprüngliche Dateipfad
-            template: Optional, das verwendete Template
-            context: Optional, der Kontext für die Verarbeitung
-            extraction_method: Die verwendete Extraktionsmethode
-            file_hash: Optional, ein vorberechneter Hash der Datei
+            path: Pfad zur Datei
             
-        Returns:
-            PDFResponse: Die Response mit dem gecachten Ergebnis
+        Raises:
+            ProcessingError: Wenn die Datei kein unterstütztes Format hat
         """
-        # Resource-Tracking für den Cache-Hit
-        # Tracking der Cache-Hit-Zeit (praktisch 0)
-        if hasattr(self.resource_calculator, 'add_processing_time'):
-            self.resource_calculator.add_processing_time("pdf_cache_hit", 0.0)
+        # Überprüfe Dateiendung
+        file_extension = path.suffix.lower()
+        valid_extensions = ['.pdf', '.pptx', '.ppt']
         
-        # Tracking des Cache-Zugriffs
-        if hasattr(self.resource_calculator, 'add_api_call'):
-            self.resource_calculator.add_api_call("pdf_cache_retrieval")
+        if file_extension not in valid_extensions:
+            raise ProcessingError(
+                f"Ungültiges Dateiformat: {file_extension} "
+                f"(Unterstützte Formate: {', '.join(valid_extensions)})"
+            )
         
-        # Response erstellen
-        return ResponseFactory.create_response(
-            processor_name="pdf",
-            result=cached_result,
-            request_info={
-                "file_path": str(file_path),
-                "template": template,
-                "extraction_method": extraction_method,
-                "context": context
-            },
-            response_class=PDFResponse,
-            llm_info=None,
-            from_cache=True
-        )
+        # PDF-spezifische Validierung des Dateiinhalts
+        if file_extension == '.pdf':
+            try:
+                with open(path, 'rb') as f:
+                    header = f.read(5)
+                    # PDF-Dateien beginnen mit %PDF-
+                    if header[:4] != b'%PDF':
+                        raise ProcessingError(
+                            f"Die Datei hat keine gültige PDF-Signatur"
+                        )
+            except Exception as e:
+                if isinstance(e, ProcessingError):
+                    raise
+                raise ProcessingError(f"Fehler beim Überprüfen der Datei: {str(e)}")
 
     async def process(
         self,
@@ -590,19 +577,15 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         working_dir = Path(self.temp_dir) / "pdf" / file_key
         
         # Voller Cache-Key für die Ergebniscachierung (beinhaltet alle Parameter)
-                cache_key = self._create_cache_key(
-                    file_path=file_path,
-                    template=template,
-                    context=context,
+        cache_key = self._create_cache_key(
+            file_path=file_path,
+            template=template,
+            context=context,
             extraction_method="_".join(methods_list),  # Kombinierte Methoden als Teil des Cache-Keys
-                    file_hash=file_hash
-                )
+            file_hash=file_hash
+        )
                 
         # Initialisiere LLM-Info außerhalb des try-blocks
-        llm_info = LLMInfo(
-            model="pdf-processing",
-            purpose="pdf-processing"
-        )
         
         try:
             # Cache-Prüfung, wenn aktiviert
@@ -627,7 +610,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         self.logger.debug("ResourceCalculator hat keine add_resource_usage Methode")
                     
                     # Direkte Verwendung von ResponseFactory für Cache-Treffer
-                    return ResponseFactory.create_response(
+                    return self.create_response(
                         processor_name="pdf",
                         result=cached_result,
                         request_info={
@@ -637,8 +620,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             "extraction_method": extraction_method
                         },
                         response_class=PDFResponse,
-                        llm_info=None,
-                        from_cache=True  # Hier auf True gesetzt, da aus dem Cache
+                        from_cache=True,  # Hier auf True gesetzt, da aus dem Cache
+                        cache_key=cache_key
                     )
 
             # Validiere alle Extraktionsmethoden
@@ -649,13 +632,22 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
             if not working_dir.exists():
-            working_dir.mkdir(parents=True, exist_ok=True)
+                working_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.debug(f"Arbeitsverzeichnis angelegt: {str(working_dir)}")
             
             # Prüfe ob es sich um eine URL handelt
             if str(file_path).startswith(('http://', 'https://')):
                 # Extrahiere Dateiendung aus URL
                 file_extension = self._get_file_extension(str(file_path))
+                
+                # Validiere die Dateiendung für URLs
+                valid_extensions = ['.pdf', '.pptx', '.ppt']
+                if file_extension.lower() not in valid_extensions:
+                    raise ProcessingError(
+                        f"Ungültiges Dateiformat: {file_extension} "
+                        f"(Unterstützte Formate: {', '.join(valid_extensions)})"
+                    )
+                    
                 temp_file = working_dir / f"document{file_extension}"
                 
                 # Prüfe, ob die Datei bereits existiert und nicht überschrieben werden soll
@@ -696,8 +688,30 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             # Dateigröße prüfen
             self.check_file_size(path)
             
+            # Dateityp validieren
+            self._validate_file_type(path)
+            
+            # PowerPoint-Konvertierung, falls notwendig
+            original_format = None
+            if path.suffix.lower() in ['.pptx', '.ppt']:
+                self.logger.info(f"PowerPoint-Datei erkannt, konvertiere zu PDF: {path.name}")
+                original_format = path.suffix.lower()[1:]  # Speichere das Originalformat ohne Punkt
+                pdf_path = path.parent / f"{path.stem}.pdf"
+                
+                # Nur konvertieren, wenn die PDF-Datei nicht existiert oder Überschreiben erzwungen wird
+                if not pdf_path.exists() or force_overwrite:
+                    try:
+                        self._convert_pptx_to_pdf(path, pdf_path)
+                        path = pdf_path
+                        self.logger.info(f"PowerPoint erfolgreich in PDF konvertiert: {pdf_path}")
+                    except Exception as e:
+                        raise ProcessingError(f"Fehler bei der PowerPoint-Konvertierung: {str(e)}")
+                else:
+                    # Vorhandene konvertierte Datei verwenden
+                    path = pdf_path
+                    self.logger.info(f"Verwende existierende konvertierte PDF-Datei: {pdf_path}")
+            
             # Extraktionsverzeichnis für diese spezifische Verarbeitung
-            # Unterschiedlich je nach Extraktionsmethode, Template und Kontext
             extraction_subdir_name = f"{'_'.join(methods_list)}"
             if template:
                 # Extraktionen mit Template bekommen einen eigenen Ordner
@@ -720,7 +734,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 
                 # Text extrahieren und OCR durchführen
                 self.logger.debug(f"Starte Extraktion (Methoden: {methods_list})")
-                start_time = datetime.now()
                 full_text = ""
                 ocr_text = ""
                 metadata = PDFMetadata(
@@ -728,7 +741,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     file_size=path.stat().st_size,
                     page_count=page_count,
                     process_dir=str(extraction_dir),  # Hier das Extraktionsverzeichnis verwenden
-                    extraction_method="_".join(methods_list)  # Kombinierte Methoden
+                    extraction_method="_".join(methods_list),  # Kombinierte Methoden
+                    format=original_format or "pdf"  # Speichere das Originalformat in den Metadaten
                 )
                 
                 for page_num in range(page_count):
@@ -743,14 +757,34 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         
                     if EXTRACTION_NATIVE in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
                         # Native Text-Extraktion
-                        page_text = page.get_text()  # type: ignore # PyMuPDF Methode
+                        page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
+                        page_text = cast(str, page_text_raw)
                         full_text += f"\n--- Seite {page_num+1} ---\n{page_text}"
                         
-                        # Speichere den extrahierten Text
-                        text_path = self.save_page_text(page_text, page_num, extraction_dir)  # type: ignore
-                        metadata.text_paths.append(str(text_path))
-                        # Speichere auch den Textinhalt direkt in den Metadaten
-                        metadata.text_contents.append((int(page_num + 1), str(f"{page_text}")))
+                        # Textdaten speichern
+                        text_path = self.save_page_text(text=page_text, page_num=page_num, process_dir=extraction_dir)
+                        
+                        # Da PDFMetadata jetzt unveränderlich ist, sammeln wir die Inhalte in temporären Listen
+                        text_paths_list = list(metadata.text_paths)
+                        text_paths_list.append(str(text_path))
+                        
+                        text_contents_list = list(metadata.text_contents)
+                        text_contents_list.append((int(page_num + 1), str(f"{page_text}")))
+                        
+                        # Neue PDFMetadata-Instanz erstellen mit aktualisierten text_contents und text_paths
+                        metadata = PDFMetadata(
+                            file_name=metadata.file_name,
+                            file_size=metadata.file_size,
+                            page_count=metadata.page_count,
+                            format=metadata.format,
+                            process_dir=metadata.process_dir,
+                            image_paths=metadata.image_paths,
+                            preview_paths=metadata.preview_paths,
+                            preview_zip=metadata.preview_zip,
+                            text_paths=text_paths_list,
+                            text_contents=text_contents_list,
+                            extraction_method=metadata.extraction_method
+                        )
                         
                         # Generiere auch Hauptbilder für die Visualisierung
                         image_path = self._generate_main_image(page, page_num, extraction_dir)
@@ -794,9 +828,28 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             
                             # OCR-Text speichern
                             text_path = self.save_page_text(str(page_ocr), page_num, extraction_dir)
-                            metadata.text_paths.append(str(text_path))
-                            # Speichere auch den OCR-Textinhalt direkt in den Metadaten
-                            metadata.text_contents.append((page_num + 1, str(page_ocr)))
+                            
+                            # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
+                            text_paths_list = list(metadata.text_paths)
+                            text_paths_list.append(str(text_path))
+                            
+                            text_contents_list = list(metadata.text_contents)
+                            text_contents_list.append((page_num + 1, str(page_ocr)))
+                            
+                            metadata = PDFMetadata(
+                                file_name=metadata.file_name,
+                                file_size=metadata.file_size,
+                                page_count=metadata.page_count,
+                                format=metadata.format,
+                                process_dir=metadata.process_dir,
+                                image_paths=metadata.image_paths,
+                                preview_paths=metadata.preview_paths,
+                                preview_zip=metadata.preview_zip,
+                                text_paths=text_paths_list,
+                                text_contents=text_contents_list,
+                                extraction_method=metadata.extraction_method
+                            )
+                            
                             ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
                             
                             # Ressourcen freigeben
@@ -811,12 +864,34 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     if EXTRACTION_BOTH in methods_list:
                         # Beide Extraktionsmethoden (native + OCR)
                         # Native Text-Extraktion
-                        page_text = page.get_text()  # type: ignore # PyMuPDF Methode
+                        page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
+                        page_text = cast(str, page_text_raw)
                         full_text += f"\n--- Seite {page_num+1} ---\n{page_text}"
                         
-                        # Speichere den extrahierten Text
-                        text_path = self.save_page_text(page_text, page_num, extraction_dir)  # type: ignore
-                        metadata.text_paths.append(str(text_path))
+                        # Textdaten speichern
+                        text_path = self.save_page_text(text=page_text, page_num=page_num, process_dir=extraction_dir)
+                        
+                        # Da PDFMetadata jetzt unveränderlich ist, sammeln wir die Inhalte in temporären Listen
+                        text_paths_list = list(metadata.text_paths)
+                        text_paths_list.append(str(text_path))
+                        
+                        text_contents_list = list(metadata.text_contents)
+                        text_contents_list.append((int(page_num + 1), str(f"{page_text}")))
+                        
+                        # Neue PDFMetadata-Instanz erstellen mit aktualisierten text_contents und text_paths
+                        metadata = PDFMetadata(
+                            file_name=metadata.file_name,
+                            file_size=metadata.file_size,
+                            page_count=metadata.page_count,
+                            format=metadata.format,
+                            process_dir=metadata.process_dir,
+                            image_paths=metadata.image_paths,
+                            preview_paths=metadata.preview_paths,
+                            preview_zip=metadata.preview_zip,
+                            text_paths=text_paths_list,
+                            text_contents=text_contents_list,
+                            extraction_method=metadata.extraction_method
+                        )
                         
                         # Generiere auch Hauptbilder mit höherer Auflösung für OCR
                         page_rect = page.rect  # type: ignore
@@ -851,12 +926,29 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 ))
                             
                             # OCR-Text speichern
-                            # Prüfen, ob das Verzeichnis existiert
-                            ocr_dir = extraction_dir / "ocr"
-                            if not ocr_dir.exists():
-                                ocr_dir.mkdir(parents=True)
-                            ocr_text_path = self.save_page_text(str(page_ocr), page_num, ocr_dir)
-                            metadata.text_paths.append(str(ocr_text_path))
+                            text_path = self.save_page_text(str(page_ocr), page_num, extraction_dir)
+                            
+                            # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
+                            text_paths_list = list(metadata.text_paths)
+                            text_paths_list.append(str(text_path))
+                            
+                            text_contents_list = list(metadata.text_contents)
+                            text_contents_list.append((page_num + 1, str(page_ocr)))
+                            
+                            metadata = PDFMetadata(
+                                file_name=metadata.file_name,
+                                file_size=metadata.file_size,
+                                page_count=metadata.page_count,
+                                format=metadata.format,
+                                process_dir=metadata.process_dir,
+                                image_paths=metadata.image_paths,
+                                preview_paths=metadata.preview_paths,
+                                preview_zip=metadata.preview_zip,
+                                text_paths=text_paths_list,
+                                text_contents=text_contents_list,
+                                extraction_method=metadata.extraction_method
+                            )
+                            
                             ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
                             
                             # Ressourcen freigeben
@@ -900,27 +992,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     extraction_method=metadata.extraction_method
                 )
                 
-                # LLM-Tracking für OCR berechnen, wenn OCR verwendet wurde
-                if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list:
-                    try:
-                        # Einfaches Tracking für OCR-Kosten
-                        # Wir gehen von einem symbolischen Wert aus, der später angepasst werden kann
-                        ocr_token_estimate = len(ocr_text.split()) * 1.5  # Grobe Schätzung
-                        ocr_duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-                        
-                        # Erstelle ein LLMRequest-Objekt mit den richtigen Parametern
-                        llm_request = LLMRequest(
-                            model="tesseract",
-                            purpose="ocr_extraction",
-                            tokens=int(ocr_token_estimate),
-                            duration=int(ocr_duration_ms)
-                        )
-                        
-                        # Füge das Objekt zur LLMInfo hinzu
-                        llm_info.add_request([llm_request])
-                    except Exception as e:
-                        self.logger.warning(f"Fehler beim LLM-Tracking für OCR: {str(e)}")
-                
                 # Template-Transformation, falls Template angegeben
                 result_text = full_text
                 if template and (full_text or ocr_text):
@@ -950,15 +1021,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 if transformed_data and hasattr(transformed_data, 'transformed_text'):
                                     result_text = getattr(transformed_data, 'transformed_text', result_text)
                                 
-                                # LLM-Tracking für Template-Transformation
-                                process_info = getattr(transformation_result, 'process', None)  # type: ignore
-                                if process_info and hasattr(process_info, 'llm_info'):
-                                    transform_llm_info = getattr(process_info, 'llm_info', None)
-                                    if transform_llm_info and hasattr(transform_llm_info, 'requests'):
-                                        transform_requests = getattr(transform_llm_info, 'requests', [])
-                                        if transform_requests:
-                                            # Die Requests direkt hinzufügen, wenn es LLMRequest-Objekte sind
-                                            llm_info.add_request(transform_requests)
                     except Exception as e:
                         self.logger.warning(f"Fehler bei der Template-Transformation: {str(e)}")
                 
@@ -967,15 +1029,35 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     metadata=metadata,
                     extracted_text=result_text if EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list else None,
                     ocr_text=ocr_text if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list else None,
-                process_id=self.process_id
-            )
+                    process_id=self.process_id
+                )
             
                 # Konvertiere Dateipfade in URLs für die API-Antwort
                 self._convert_paths_to_urls(result)
                 
                 # Stelle sicher, dass text_contents vorhanden sind - extrahiere sie aus dem extracted_text, falls notwendig
-                if not result.metadata.text_contents and result.extracted_text:
-                    result.metadata.text_contents = self._extract_text_contents_from_full_text(result.extracted_text)
+                if hasattr(result.metadata, 'text_contents') and not result.metadata.text_contents and result.extracted_text:
+                    # Da PDFMetadata unveränderlich ist, erstellen wir eine neue Instanz
+                    new_text_contents = self._extract_text_contents_from_full_text(result.extracted_text)
+                    
+                    # Neue Metadata-Instanz erstellen
+                    updated_metadata = PDFMetadata(
+                        file_name=result.metadata.file_name,
+                        file_size=result.metadata.file_size,
+                        page_count=result.metadata.page_count,
+                        format=result.metadata.format,
+                        process_dir=result.metadata.process_dir,
+                        image_paths=result.metadata.image_paths,
+                        preview_paths=result.metadata.preview_paths,
+                        preview_zip=result.metadata.preview_zip,
+                        text_paths=result.metadata.text_paths,
+                        original_text_paths=result.metadata.original_text_paths,
+                        text_contents=new_text_contents,
+                        extraction_method=result.metadata.extraction_method
+                    )
+                    
+                    # Da wir ein unveränderliches PDFProcessingResult haben, verwenden wir object.__setattr__
+                    object.__setattr__(result, 'metadata', updated_metadata)
                 
                 # Cache-Speicherung, falls aktiviert
                 if use_cache and self.is_cache_enabled():
@@ -983,19 +1065,19 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     self.save_to_cache(cache_key, result)  # type: ignore
                 
                 # Erstelle und gib Response zurück
-            return ResponseFactory.create_response(
-                processor_name=PROCESSOR_TYPE_PDF,
+                return self.create_response(
+                    processor_name=PROCESSOR_TYPE_PDF,
                     result=result,
-                request_info={
-                    'file_path': str(file_path),
-                    'template': template,
-                    'context': context,
+                    request_info={
+                        'file_path': str(file_path),
+                        'template': template,
+                        'context': context,
                         'extraction_method': "_".join(methods_list)  # Korrekter kombinierter String
-                },
-                response_class=PDFResponse,
-                llm_info=llm_info,
-                from_cache=False
-            )
+                    },
+                    response_class=PDFResponse,
+                    from_cache=False,
+                    cache_key=cache_key
+                )
 
         except Exception as e:
             error_info = ErrorInfo(
@@ -1020,7 +1102,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 process_id=self.process_id
             )
             
-            return ResponseFactory.create_response(
+            return self.create_response(
                 processor_name=PROCESSOR_TYPE_PDF,
                 result=dummy_result,
                 request_info={
@@ -1031,8 +1113,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 },
                 response_class=PDFResponse,
                 error=error_info,
-                llm_info=llm_info,
-                from_cache=False
+                from_cache=False,
+                cache_key=cache_key
             )
 
     def check_file_size(self, file_path: Path) -> None:
@@ -1075,20 +1157,62 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         
         # Konvertiere text_paths in URLs für API-Zugriffsrouten
         if hasattr(result.metadata, 'text_paths') and result.metadata.text_paths:
-            for i, path in enumerate(result.metadata.text_paths):
-                # Ersetze backslashes durch forward slashes
+            # Da PDFMetadata unveränderlich ist, erstellen wir neue Listen
+            new_text_paths: List[str] = []
+            original_text_paths = list(result.metadata.original_text_paths)  # Kopie der vorhandenen Liste
+
+            # Konvertiere alle Pfade zu URLs
+            for path in result.metadata.text_paths:
+                # Speichere den originalen Pfad
+                original_text_paths.append(path)
+                
+                # Ersetze backslashes durch forward slashes und erstelle die URL
                 normalized_path = str(path).replace('\\', '/')
-                # Speichere die ursprünglichen Pfade in einem neuen Attribut
-                if not hasattr(result.metadata, 'original_text_paths'):
-                    result.metadata.original_text_paths = []  # type: ignore
-                result.metadata.original_text_paths.append(path)  # type: ignore
-                # Aktualisiere den Pfad zur URL
-                result.metadata.text_paths[i] = f"{base_url}{normalized_path}"
+                new_text_paths.append(f"{base_url}{normalized_path}")
+            
+            # Erstelle eine neue Metadata-Instanz mit den aktualisierten Pfaden
+            updated_metadata = PDFMetadata(
+                file_name=result.metadata.file_name,
+                file_size=result.metadata.file_size,
+                page_count=result.metadata.page_count,
+                format=result.metadata.format,
+                process_dir=result.metadata.process_dir,
+                image_paths=result.metadata.image_paths,
+                preview_paths=result.metadata.preview_paths,
+                preview_zip=result.metadata.preview_zip,
+                text_paths=new_text_paths,
+                original_text_paths=original_text_paths,
+                text_contents=result.metadata.text_contents,
+                extraction_method=result.metadata.extraction_method
+            )
+            
+            # Erstelle eine neue PDFProcessingResult-Instanz mit der aktualisierten Metadata
+            object.__setattr__(result, 'metadata', updated_metadata)
         
         # Wenn text_contents leer ist, aber extracted_text vorhanden ist,
         # extrahiere die text_contents aus dem extracted_text
         if hasattr(result.metadata, 'text_contents') and not result.metadata.text_contents and result.extracted_text:
-            result.metadata.text_contents = self._extract_text_contents_from_full_text(result.extracted_text)
+            # Da PDFMetadata unveränderlich ist, erstellen wir eine neue Instanz
+            new_text_contents = self._extract_text_contents_from_full_text(result.extracted_text)
+            
+            # Neue Metadata-Instanz erstellen
+            updated_metadata = PDFMetadata(
+                file_name=result.metadata.file_name,
+                file_size=result.metadata.file_size,
+                page_count=result.metadata.page_count,
+                format=result.metadata.format,
+                process_dir=result.metadata.process_dir,
+                image_paths=result.metadata.image_paths,
+                preview_paths=result.metadata.preview_paths,
+                preview_zip=result.metadata.preview_zip,
+                text_paths=result.metadata.text_paths,
+                original_text_paths=result.metadata.original_text_paths,
+                text_contents=new_text_contents,
+                extraction_method=result.metadata.extraction_method
+            )
+            
+            # Da wir ein unveränderliches PDFProcessingResult haben, verwenden wir object.__setattr__
+            object.__setattr__(result, 'metadata', updated_metadata)
 
     def _extract_text_contents_from_full_text(self, extracted_text: Optional[str]) -> List[Tuple[int, str]]:
         """

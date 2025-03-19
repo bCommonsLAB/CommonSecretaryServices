@@ -229,7 +229,7 @@ class PerformanceTracker:
                 llm_info: CoreLLMInfo = result.llm_info
                 total_tokens = sum(req.tokens for req in llm_info.requests)
                 # Verwende das erste Modell als Hauptmodell
-                model = llm_info.model
+                model = llm_info.requests[0].model if llm_info.requests else 'unknown'
                 cost = total_tokens * 0.0001  # Standardkosten pro Token
                 self.add_resource_usage(
                     tokens=total_tokens,

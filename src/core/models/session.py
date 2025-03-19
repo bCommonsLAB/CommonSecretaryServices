@@ -32,6 +32,7 @@ class SessionInput:
         attachments_url: URL zu Anhängen
         source_language: Quellsprache (Standardmäßig Englisch)
         target_language: Zielsprache (Standardmäßig Deutsch)
+        target: Zielgruppe der Session
         template: Name des Templates für die Markdown-Generierung (Standardmäßig "Session")
     """
     # Pflichtfelder
@@ -50,6 +51,7 @@ class SessionInput:
     attachments_url: Optional[str] = None
     source_language: str = "en"  # Standardmäßig Englisch
     target_language: str = "de"  # Standardmäßig Deutsch
+    target: Optional[str] = None
     template: str = "Session"  # Standardmäßig "Session" Template
 
     def __post_init__(self) -> None:
@@ -90,8 +92,30 @@ class SessionInput:
             "attachments_url": self.attachments_url,
             "source_language": self.source_language,
             "target_language": self.target_language,
+            "target": self.target,
             "template": self.template
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SessionInput':
+        """Erstellt eine SessionInput-Instanz aus einem Dictionary."""
+        return cls(
+            event=data.get("event", ""),
+            session=data.get("session", ""),
+            url=data.get("url", ""),
+            filename=data.get("filename", ""),
+            track=data.get("track", ""),
+            day=data.get("day"),
+            starttime=data.get("starttime"),
+            endtime=data.get("endtime"),
+            speakers=data.get("speakers", []),
+            video_url=data.get("video_url"),
+            attachments_url=data.get("attachments_url"),
+            source_language=data.get("source_language", "en"),
+            target_language=data.get("target_language", "de"),
+            target=data.get("target"),
+            template=data.get("template", "Session")
+        )
 
 @dataclass(frozen=True)
 class SessionOutput:
@@ -99,6 +123,7 @@ class SessionOutput:
     Ausgabedaten des Session-Processors.
     
     Attributes:
+        target_dir: Zielverzeichnis für die generierten Dateien
         markdown_file: Pfad zur generierten Markdown-Datei
         markdown_content: Der generierte Markdown-Inhalt
         video_file: Optional, Pfad zur heruntergeladenen Videodatei
@@ -107,26 +132,30 @@ class SessionOutput:
     """
     web_text: str
     video_transcript: str
-    attachments_text: str
-    context: Dict[str, Any]
+    input_data: SessionInput
+    target_dir: str
     markdown_file: str
     markdown_content: str
     video_file: Optional[str] = None
     attachments_url: Optional[str] = None
     attachments: List[str] = field(default_factory=list)
+    page_texts: List[str] = field(default_factory=list)
+    structured_data: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
         return {
             "web_text": self.web_text,
             "video_transcript": self.video_transcript,
-            "attachments_text": self.attachments_text,
-            "context": self.context,
+            "input_data": self.input_data.to_dict(),
+            "target_dir": self.target_dir,
             "markdown_file": self.markdown_file,
             "markdown_content": self.markdown_content,
             "video_file": self.video_file,
             "attachments_url": self.attachments_url,
-            "attachments": self.attachments
+            "attachments": self.attachments,
+            "page_texts": self.page_texts,
+            "structured_data": self.structured_data
         }
 
 @dataclass(frozen=True)

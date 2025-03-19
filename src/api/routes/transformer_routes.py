@@ -25,6 +25,12 @@ from src.utils.performance_tracker import get_performance_tracker
 from utils.logger import ProcessingLogger
 from utils.performance_tracker import PerformanceTracker
 from src.core.models.enums import OutputFormat
+from src.core.models.base import (
+    BaseResponse,
+    RequestInfo,
+    ProcessInfo,
+    ErrorInfo
+)
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="transformer-api")
@@ -43,19 +49,18 @@ _processor_cache = {
 _max_cache_size = 10  # Maximale Anzahl der gespeicherten Prozessoren pro Typ
 
 # Helper-Funktion zum Abrufen des Transformer-Processors
-def get_transformer_processor(process_id: Optional[str] = None) -> TransformerProcessor:
-    """Get or create transformer processor instance with process ID"""
-    # Erstelle eine neue process_id, wenn keine angegeben wurde
-    if not process_id:
-        process_id = str(uuid.uuid4())
+def get_transformer_processor() -> TransformerProcessor:
+    """Get or create transformer processor instance"""
+    # Generiere eine neue UUID für den Cache-Schlüssel
+    cache_key = str(uuid.uuid4())
     
     # Prüfe, ob ein passender Prozessor im Cache ist
-    if process_id in _processor_cache['transformer']:
-        logger.debug(f"Verwende gecachten Transformer-Processor für {process_id}")
-        return _processor_cache['transformer'][process_id]
+    if cache_key in _processor_cache['transformer']:
+        logger.debug(f"Verwende gecachten Transformer-Processor für {cache_key}")
+        return _processor_cache['transformer'][cache_key]
     
     # Andernfalls erstelle einen neuen Prozessor
-    processor = TransformerProcessor(resource_calculator, process_id=process_id)
+    processor = TransformerProcessor(resource_calculator)
     
     # Cache-Management: Entferne ältesten Eintrag, wenn der Cache voll ist
     if len(_processor_cache['transformer']) >= _max_cache_size:
@@ -64,7 +69,7 @@ def get_transformer_processor(process_id: Optional[str] = None) -> TransformerPr
         del _processor_cache['transformer'][oldest_key]
     
     # Speichere den neuen Prozessor im Cache
-    _processor_cache['transformer'][process_id] = processor
+    _processor_cache['transformer'][cache_key] = processor
     return processor
 
 # Helper-Funktion zum Abrufen des Metadata-Processors
@@ -227,19 +232,11 @@ class TransformTextEndpoint(Resource):
                     }
                 }, 400
             
-            # Logging
-            logger.info(f"Transformiere Text: {_truncate_text(source_text)}")
-            logger.info(f"Von {source_language} nach {target_language}, Zusammenfassung: {summarize}")
-            
-            # Performance-Tracking starten
-            process_id = str(uuid.uuid4())
-            tracker: PerformanceTracker | None = get_performance_tracker(process_id)
-            start_time = time.time()
-            start_datetime = datetime.now().isoformat()
-            
+            start_time: float = time.time()
+
             # Processor initialisieren und Text transformieren
-            processor = get_transformer_processor(process_id)
-            result = processor.transform(
+            processor: TransformerProcessor = get_transformer_processor()
+            result: TransformerResponse = processor.transform(
                 source_text=source_text,
                 source_language=source_language,
                 target_language=target_language,
@@ -249,76 +246,80 @@ class TransformTextEndpoint(Resource):
                 use_cache=use_cache
             )
             
-            # LLM-Nutzung tracken
-            if hasattr(processor, 'llm_usage') and processor.llm_usage:  # type: ignore
-                model_name = processor.llm_usage.get('model', 'gpt-3.5-turbo')  # type: ignore
-                total_tokens = processor.llm_usage.get('total_tokens', 0)  # type: ignore
-                duration = time.time() - start_time
-                
-                _track_llm_usage(
-                    model=model_name,  # type: ignore
-                    tokens=total_tokens,  # type: ignore
-                    duration=duration,
-                    purpose="transform-text"
-                )
-                
-                # Kosten berechnen
-                cost = _calculate_llm_cost(model_name, total_tokens)  # type: ignore
-                
-                # LLM-Info für Response vorbereiten
-                llm_info = {  # type: ignore
-                    'model': model_name,
-                    'prompt_tokens': processor.llm_usage.get('prompt_tokens', 0),  # type: ignore
-                    'completion_tokens': processor.llm_usage.get('completion_tokens', 0),  # type: ignore
-                    'total_tokens': total_tokens,
-                    'cost': cost
-                }
-            else:
-                llm_info = {}
-            
             # Antwort erstellen
-            end_time = time.time()
+            end_time: float = time.time()
             duration_ms = int((end_time - start_time) * 1000)
-            
-            response_data = {
-                "status": "success",
-                "data": {
-                    "transformed_text": result.data.output.text,
-                    "language": result.data.output.language,
-                    "format": result.data.output.format.value,
-                    "summarized": result.data.output.summarized,
-                    "structured_data": result.data.output.structured_data
-                }
-            }
-            
-            return response_data
+            response: TransformerResponse = processor.create_response(
+                processor_name="transformer",
+                result=result,
+                request_info={
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context,
+                    'duration_ms': duration_ms
+                },
+                response_class=TransformerResponse,
+                from_cache=processor.process_info.is_from_cache,    
+                cache_key=processor.process_info.cache_key
+            )
+
+            return response.to_dict()
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
             # Spezifische Fehlerbehandlung
             logger.error(f"Bekannter Fehler bei der Text-Transformation: {str(e)}")
             
-            return {
-                "status": "error",
-                "error": {
-                    "code": e.__class__.__name__,
-                    "message": str(e),
-                    "details": traceback.format_exc()
-                }
-            }, 400
+            error_response = processor.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code=e.__class__.__name__,
+                    message=str(e),
+                    details=traceback.format_exc()
+                )
+            )
+            return error_response.to_dict(), 400
             
         except Exception as e:
             # Allgemeine Fehlerbehandlung
             logger.error(f"Fehler bei der Text-Transformation: {str(e)}")
             logger.error(traceback.format_exc())
             
-            return {
-                "status": "error",
-                "error": {
-                    "code": "ProcessingError",
-                    "message": f"Fehler bei der Text-Transformation: {str(e)}",
-                    "details": traceback.format_exc()
-                }
-            }, 400
+            error_response = processor.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="ProcessingError",
+                    message=f"Fehler bei der Text-Transformation: {str(e)}",
+                    details=traceback.format_exc()
+                )
+            )
+            return error_response.to_dict(), 400
 
 # Template Transformation Endpunkt
 @transformer_ns.route('/template')  # type: ignore
@@ -361,96 +362,71 @@ class TemplateTransformEndpoint(Resource):
         tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
-            # Zeitmessung für Gesamtprozess starten
-            process_start = time.time()
-            
-            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
+
+            # Parameter extrahieren
+            text = data.get('text', '')
+            source_language = data.get('source_language', 'de')
+            target_language = data.get('target_language', 'de')
+            template = data.get('template', '')
+            context = data.get('context', {})
+            use_cache = data.get('use_cache', True)
+
+
+            start_time: float = time.time()
+            transformer_processor: TransformerProcessor = get_transformer_processor()
             result: TransformerResponse = transformer_processor.transformByTemplate(
-                source_text=data['text'],
-                source_language=data.get('source_language', 'de'),
-                target_language=data.get('target_language', 'de'),
-                template=data['template'],
-                context=data.get('context', {}),
-                use_cache=data.get('use_cache', True)
+                text=text,
+                template=template,
+                source_language=source_language,
+                target_language=target_language,
+                context=context,
+                use_cache=use_cache
             )
 
-            # Tracke LLM-Nutzung wenn vorhanden
-            if result.llm_info:
-                for request in result.llm_info.requests:
-                    _track_llm_usage(
-                        model=request.model,
-                        tokens=request.tokens,
-                        duration=request.duration,
-                        purpose='template_transformation'
-                    )
+            # Antwort erstellen
+            end_time: float = time.time()
+            duration_ms = int((end_time - start_time) * 1000)
 
-            # Berechne Gesamtkosten
-            total_cost = 0.0
-            if result.llm_info:
-                for request in result.llm_info.requests:
-                    total_cost += _calculate_llm_cost(
-                        model=request.model,
-                        tokens=request.tokens
-                    )
-
-            # Gesamtprozessdauer in Millisekunden berechnen
-            process_duration = int((time.time() - process_start) * 1000)
-
-            # Füge Ressourcenverbrauch zum Tracker hinzu
-            if tracker:
-                tracker.eval_result(result)
-            
-            # Erstelle Response
-            response: Dict[str, Any] = {
-                'status': 'error' if result.error else 'success',
-                'request': {
-                    'processor': 'transformer',
-                    'timestamp': datetime.now().isoformat(),
-                    'parameters': {
-                        'source_text': _truncate_text(data['text']),
-                        'source_language': data.get('source_language', 'de'),
-                        'target_language': data.get('target_language', 'de'),
-                        'template': data['template'],
-                        'context': data.get('context', {}),
-                        'duration_ms': process_duration
-                    }
+            response: TransformerResponse = transformer_processor.create_response(
+                processor_name="transformer",
+                result=result,
+                request_info={
+                    'text': _truncate_text(text),
+                    'template': template,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'context': context,
+                    'use_cache': use_cache,
+                    'duration_ms': duration_ms
                 },
-                'process': result.process.to_dict(),  # Nutze die to_dict() Methode von ProcessInfo
-                'data': {
-                    'input': {
-                        'text': data['text'],
-                        'language': data.get('source_language', ''),
-                        'template': data['template'],
-                        'context': data.get('context', {})
-                    },
-                    'output': {
-                        'text': result.data.output.text if hasattr(result.data, 'output') and not result.error else None,
-                        'language': result.data.output.language if hasattr(result.data, 'output') and not result.error else None,
-                        'structured_data': result.data.output.structured_data if hasattr(result.data, 'output') and hasattr(result.data.output, 'structured_data') and not result.error else {}
-                    }
-                }
-            }
+                response_class=TransformerResponse,
+                from_cache=transformer_processor.process_info.is_from_cache,    
+                cache_key=transformer_processor.process_info.cache_key
+            )
 
-            # Füge error-Informationen hinzu wenn vorhanden
-            if result.error:
-                response['error'] = {
-                    'code': result.error.code,
-                    'message': result.error.message,
-                    'details': result.error.details if hasattr(result.error, 'details') else {}
-                }
-                return response, 400
-            
-            return response
+            return response.to_dict()
             
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
-            return {
-                'status': 'error',
-                'error': {
-                    'code': error.__class__.__name__,
-                    'message': str(error),
-                    'details': {}
-                }
-            }, 400
+            error_response = transformer_processor.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'source_text': _truncate_text(data['text']),
+                    'source_language': data.get('source_language', 'de'),
+                    'target_language': data.get('target_language', 'de'),
+                    'template': data['template'],
+                    'context': data.get('context', {})
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code=error.__class__.__name__,
+                    message=str(error),
+                    details={}
+                )
+            )
+            return error_response.to_dict(), 400
         except Exception as error:
             logger.error(
                 'Fehler bei der Template-Transformation',
@@ -539,7 +515,7 @@ class HtmlTableTransformEndpoint(Resource):
             start_row = int(data.get('start_row')) if data.get('start_row') is not None else None
             row_count = int(data.get('row_count')) if data.get('row_count') is not None else None
 
-            transformer_processor: TransformerProcessor = get_transformer_processor(tracker.process_id if tracker else None)
+            transformer_processor: TransformerProcessor = get_transformer_processor()
             result: TransformerResponse = transformer_processor.transformHtmlTable(
                 source_url=data['source_url'],
                 output_format=data.get('output_format', 'json'),
@@ -556,60 +532,53 @@ class HtmlTableTransformEndpoint(Resource):
                 tracker.eval_result(result)
             
             # Erstelle Response
-            response = {
-                'status': 'success',
-                'request': {
-                    'processor': 'transformer',
-                    'timestamp': datetime.now().isoformat(),
-                    'parameters': {
-                        'source_url': data['source_url'],
-                        'output_format': data.get('output_format', 'json'),
-                        'table_index': data.get('table_index'),
-                        'start_row': data.get('start_row'),
-                        'row_count': data.get('row_count'),
-                        'duration_ms': process_duration
-                    }
+            response: TransformerResponse = transformer_processor.create_response(
+                processor_name="transformer_table",
+                result=result.data,
+                request_info={
+                    'source_url': data['source_url'],
+                    'output_format': data.get('output_format', 'json'),
+                    'table_index': table_index,
+                    'start_row': start_row,
+                    'row_count': row_count
                 },
-                'process': {
-                    'id': tracker.process_id if tracker else None,
-                    'main_processor': 'transformer',
-                    'started': datetime.fromtimestamp(process_start).isoformat(),
-                    'completed': datetime.now().isoformat(),
-                    'duration': process_duration
-                },
-                'data': {
-                    'input': {
-                        'text': result.data.input.text,
-                        'language': result.data.input.language,
-                        'format': result.data.input.format.value
-                    },
-                    'output': {
-                        'text': result.data.output.text,
-                        'language': result.data.output.language,
-                        'format': result.data.output.format.value,
-                        'structured_data': result.data.output.structured_data
-                    }
+                response_class=TransformerResponse,
+                from_cache=getattr(transformer_processor.process_info, 'is_from_cache', False),
+                cache_key=getattr(transformer_processor.process_info, 'cache_key', "")
+            )
+            
+            return {
+                "status": "success",
+                "data": response.to_dict(),
+                "process": {
+                    "id": transformer_processor.process_info.id,
+                    "duration_ms": transformer_processor.process_info.duration_ms,
+                    "is_from_cache": transformer_processor.process_info.is_from_cache,
+                    "cache_key": transformer_processor.process_info.cache_key
                 }
             }
 
-            if result.error:
-                response['error'] = {
-                    'code': result.error.code,
-                    'message': result.error.message,
-                    'details': result.error.details
-                }
-                return response, 400
-
-            return response
-
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as error:
-            return {
-                'status': 'error',
-                'error': {
-                    'code': error.__class__.__name__,
-                    'message': str(error)
-                }
-            }, 400
+            error_response: TransformerResponse = transformer_processor.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'source_url': data['source_url'],
+                    'output_format': data.get('output_format', 'json'),
+                    'table_index': data.get('table_index'),
+                    'start_row': data.get('start_row'),
+                    'row_count': data.get('row_count')
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code=error.__class__.__name__,
+                    message=str(error),
+                    details={}
+                )
+            )
+            return error_response.to_dict(), 400
         except Exception as error:
             logger.error(
                 'Fehler bei der HTML-Tabellen-Transformation',
@@ -693,7 +662,6 @@ class MetadataEndpoint(Resource):
         
         # Performance Tracking für detaillierte Zeitmessung
         tracker: PerformanceTracker | None = get_performance_tracker() or get_performance_tracker(process_id)
-        processor_start = time.time()
         
         try:
             # Request-Parameter extrahieren
@@ -711,64 +679,25 @@ class MetadataEndpoint(Resource):
                     context = json.loads(context_str)
                 except json.JSONDecodeError:
                     logger.warning(f"Ungültiger JSON-Kontext: {context_str}")
+                    context = {}
             
-            # Processor initialisieren (optimiert mit Cache)
+            # MetadataProcessor verwenden
             processor = get_metadata_processor(process_id)
-            processor_end = time.time()
-            logger.info(f"Processor-Erstellungszeit: {(processor_end - processor_start) * 1000:.2f} ms")
-                
-            # Verarbeitung starten
-            processing_start = time.time()
+            
+            # Metadaten extrahieren - mit asyncio.run ausführen, da die Methode asynchron ist
             result = asyncio.run(processor.process(
                 binary_data=uploaded_file,
                 content=content,
                 context=context,
                 use_cache=use_cache
             ))
-            processing_end = time.time()
-            logger.info(f"Metadata-Verarbeitungszeit: {(processing_end - processing_start) * 1000:.2f} ms")
             
-            # Response erstellen
-            response_start = time.time()
-            response: Dict[str, Any] = {
-                'status': 'error' if result.error else 'success',
-                'request': {
-                    'processor': 'metadata',
-                    'timestamp': datetime.now().isoformat(),
-                    'parameters': {
-                        'has_file': uploaded_file is not None,
-                        'has_content': content is not None,
-                        'context': context,
-                        'duration_ms': int((time.time() - process_start_time) * 1000)
-                    }
-                },
-                'process': result.process.to_dict(),
-                'data': {
-                    'technical': result.data.technical.to_dict() if result.data.technical else None,
-                    'content': result.data.content.to_dict() if result.data.content else None
-                },
-                'error': None
-            }
-
-            # Fehlerbehandlung
-            if result.error:
-                response['error'] = {
-                    'code': result.error.code,
-                    'message': result.error.message,
-                    'details': result.error.details if hasattr(result.error, 'details') else {}
-                }
-                response_end = time.time()
-                logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
-                return response, 400
-            
-            response_end = time.time()
-            logger.info(f"Response-Erstellungszeit: {(response_end - response_start) * 1000:.2f} ms")
-            
-            # Gesamtzeit
-            total_time = time.time() - process_start_time
-            logger.info(f"Gesamte Verarbeitungszeit: {total_time * 1000:.2f} ms")
-            
-            return response
+            # Response direkt zurückgeben, da die process-Methode bereits eine vollständige
+            # MetadataResponse zurückgibt, die unserem API-Format entspricht
+            if isinstance(result, dict):
+                return result
+            else:
+                return result.to_dict()
                 
         except ProcessingError as e:
             logger.error("Bekannter Verarbeitungsfehler",

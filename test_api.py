@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import argparse
 import requests
+import json
 
 logger = get_logger(process_id="test_api")
 
@@ -88,4 +89,25 @@ try:
             print(f"Response Text: {get_response.text[:500]}")  # Erste 500 Zeichen des Antworttextes
             
 except Exception as e:
-    print(f"Ein Fehler ist aufgetreten: {str(e)}") 
+    print(f"Ein Fehler ist aufgetreten: {str(e)}")
+
+def test_tracks_endpoint():
+    """Testet den Tracks-Endpunkt."""
+    url = "http://localhost:5001/api/tracks/available"
+    print(f"Sende GET-Anfrage an: {url}")
+    
+    try:
+        response = requests.get(url)
+        print(f"Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # JSON formatieren und ausgeben
+            data = response.json()
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+        else:
+            print(f"Fehler: {response.text}")
+    except Exception as e:
+        print(f"Fehler bei der Anfrage: {e}")
+
+if __name__ == "__main__":
+    test_tracks_endpoint() 

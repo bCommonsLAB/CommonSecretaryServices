@@ -86,7 +86,10 @@ job_parameters_model: Model | OrderedModel = event_job_ns.model('JobParameters',
     'video_url': fields.String(required=False, description='URL zum Video'),
     'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
     'source_language': fields.String(required=False, default='en', description='Quellsprache'),
-    'target_language': fields.String(required=False, default='de', description='Zielsprache')
+    'target_language': fields.String(required=False, default='de', description='Zielsprache'),
+    'target': fields.String(required=False, description='Zielgruppe der Session'),
+    'template': fields.String(required=False, default='Session', description='Template für die Markdown-Generierung'),
+    'use_cache': fields.Boolean(required=False, default=True, description='Ob Caching verwendet werden soll')
 })
 
 webhook_model: Model | OrderedModel = event_job_ns.model('Webhook', {  # type: ignore
@@ -100,14 +103,16 @@ job_create_model: Model | OrderedModel = event_job_ns.model('JobCreate', {  # ty
     'parameters': fields.Nested(job_parameters_model, required=True, description='Job-Parameter'),
     'webhook': fields.Nested(webhook_model, required=False, description='Webhook-Konfiguration'),
     'user_id': fields.String(required=False, description='Benutzer-ID'),
-    'job_name': fields.String(required=False, description='Benutzerfreundlicher Job-Name')
+    'job_name': fields.String(required=False, description='Benutzerfreundlicher Job-Name'),
+    'use_cache': fields.Boolean(required=False, default=True, description='Ob Caching verwendet werden soll')
 })
 
 batch_create_model: Model | OrderedModel = event_job_ns.model('BatchCreate', {  # type: ignore
     'jobs': fields.List(fields.Nested(job_create_model), required=True, description='Liste der zu erstellenden Jobs'),
     'webhook': fields.Nested(webhook_model, required=False, description='Webhook-Konfiguration für den gesamten Batch'),
     'batch_name': fields.String(required=False, description='Benutzerfreundlicher Batch-Name'),
-    'batch_id': fields.String(required=False, description='Benutzerdefinierte Batch-ID')
+    'batch_id': fields.String(required=False, description='Benutzerdefinierte Batch-ID'),
+    'use_cache': fields.Boolean(required=False, default=True, description='Ob Caching verwendet werden soll')
 })
 
 # Output-Modelle
@@ -120,13 +125,23 @@ job_progress_model: Model | OrderedModel = event_job_ns.model('JobProgress', {  
 job_results_model: Model | OrderedModel = event_job_ns.model('JobResults', {  # type: ignore
     'markdown_file': fields.String(required=False, description='Pfad zur Markdown-Datei'),
     'markdown_url': fields.String(required=False, description='URL zur Markdown-Datei'),
-    'assets': fields.List(fields.Raw, required=False, description='Liste der Assets')
+    'assets': fields.List(fields.Raw, required=False, description='Liste der Assets'),
+    'structured_data': fields.Raw(required=False, description='Strukturierte Daten aus der Verarbeitung'),
+    'web_text': fields.String(required=False, description='Extrahierter Text der Session-Seite'),
+    'video_transcript': fields.String(required=False, description='Transkription des Videos'),
+    'attachments_text': fields.String(required=False, description='Extrahierter Text der Anhänge'),
+    'target_dir': fields.String(required=False, description='Zielverzeichnis für die generierten Dateien'),
+    'markdown_content': fields.String(required=False, description='Der generierte Markdown-Inhalt'),
+    'video_file': fields.String(required=False, description='Pfad zur heruntergeladenen Videodatei'),
+    'attachments_url': fields.String(required=False, description='URL zu den Anhängen'),
+    'attachments': fields.List(fields.String, required=False, description='Liste der heruntergeladenen Anhänge')
 })
 
 job_error_model: Model | OrderedModel = event_job_ns.model('JobError', {  # type: ignore
     'code': fields.String(required=True, description='Fehlercode'),
     'message': fields.String(required=True, description='Fehlermeldung'),
-    'details': fields.Raw(required=False, description='Detaillierte Fehlerinformationen')
+    'details': fields.Raw(required=False, description='Detaillierte Fehlerinformationen'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers')
 })
 
 log_entry_model: Model | OrderedModel = event_job_ns.model('LogEntry', {  # type: ignore
@@ -148,7 +163,8 @@ job_model: Model | OrderedModel = event_job_ns.model('Job', {  # type: ignore
     'error': fields.Nested(job_error_model, required=False, description='Fehlerinformationen'),
     'logs': fields.List(fields.Nested(log_entry_model), required=False, description='Log-Einträge'),
     'batch_id': fields.String(required=False, description='Batch-ID'),
-    'job_name': fields.String(required=False, description='Benutzerfreundlicher Job-Name')
+    'job_name': fields.String(required=False, description='Benutzerfreundlicher Job-Name'),
+    'use_cache': fields.Boolean(required=False, default=True, description='Ob Caching verwendet werden soll')
 })
 
 batch_model: Model | OrderedModel = event_job_ns.model('Batch', {  # type: ignore
@@ -161,38 +177,44 @@ batch_model: Model | OrderedModel = event_job_ns.model('Batch', {  # type: ignor
     'total_jobs': fields.Integer(required=True, description='Gesamtzahl der Jobs'),
     'completed_jobs': fields.Integer(required=True, description='Anzahl abgeschlossener Jobs'),
     'failed_jobs': fields.Integer(required=True, description='Anzahl fehlgeschlagener Jobs'),
-    'archived': fields.Boolean(required=False, description='Archivierungsstatus')
+    'archived': fields.Boolean(required=False, description='Archivierungsstatus'),
+    'use_cache': fields.Boolean(required=False, default=True, description='Ob Caching verwendet werden soll')
 })
 
 # Response-Modelle
 job_response_model: Model | OrderedModel = event_job_ns.model('JobResponse', {  # type: ignore
     'status': fields.String(required=True, description='Response-Status'),
     'job': fields.Nested(job_model, required=False, description='Job-Informationen'),
-    'message': fields.String(required=False, description='Statusmeldung')
+    'message': fields.String(required=False, description='Statusmeldung'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers bei Fehlern')
 })
 
 jobs_list_response_model: Model | OrderedModel = event_job_ns.model('JobsListResponse', {  # type: ignore
     'status': fields.String(required=True, description='Response-Status'),
     'total': fields.Integer(required=True, description='Gesamtzahl der Jobs'),
-    'jobs': fields.List(fields.Nested(job_model), required=True, description='Liste der Jobs')
+    'jobs': fields.List(fields.Nested(job_model), required=True, description='Liste der Jobs'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers bei Fehlern')
 })
 
 batch_response_model: Model | OrderedModel = event_job_ns.model('BatchResponse', {  # type: ignore
     'status': fields.String(required=True, description='Response-Status'),
     'batch': fields.Nested(batch_model, required=False, description='Batch-Informationen'),
-    'message': fields.String(required=False, description='Statusmeldung')
+    'message': fields.String(required=False, description='Statusmeldung'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers bei Fehlern')
 })
 
 batches_list_response_model: Model | OrderedModel = event_job_ns.model('BatchesListResponse', {  # type: ignore
     'status': fields.String(required=True, description='Response-Status'),
     'total': fields.Integer(required=True, description='Gesamtzahl der Batches'),
-    'batches': fields.List(fields.Nested(batch_model), required=True, description='Liste der Batches')
+    'batches': fields.List(fields.Nested(batch_model), required=True, description='Liste der Batches'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers bei Fehlern')
 })
 
 error_response_model: Model | OrderedModel = event_job_ns.model('ErrorResponse', {  # type: ignore
     'status': fields.String(required=True, description='Response-Status'),
     'message': fields.String(required=True, description='Fehlermeldung'),
-    'details': fields.Raw(required=False, description='Detaillierte Fehlerinformationen')
+    'details': fields.Raw(required=False, description='Detaillierte Fehlerinformationen'),
+    'error_type': fields.String(required=False, description='Typ des Fehlers')
 })
 
 # API-Endpunkte
@@ -215,11 +237,21 @@ class EventJobsEndpoint(Resource):
             if not user_id and 'X-User-ID' in request.headers:
                 user_id = request.headers.get('X-User-ID')
             
+            # Cache-Nutzung aus den Parametern oder Header
+            use_cache = data.get('use_cache', True)
+            if 'X-Use-Cache' in request.headers:
+                use_cache = request.headers.get('X-Use-Cache', 'true').lower() == 'true'
+            
+            # Cache-Parameter in die Job-Parameter einfügen
+            if 'parameters' not in data:
+                data['parameters'] = {}
+            data['parameters']['use_cache'] = use_cache
+            
             # Job erstellen
-            job_id = job_repo.create_job(data, user_id=user_id)
+            job_id: str = job_repo.create_job(data, user_id=user_id)
             
             # Job abrufen
-            job = job_repo.get_job(job_id)
+            job: Optional[Job] = job_repo.get_job(job_id)
             
             if job:
                 return json_response({
@@ -230,11 +262,22 @@ class EventJobsEndpoint(Resource):
             else:
                 return json_response({
                     "status": "error",
-                    "message": f"Job {job_id} konnte nicht erstellt werden"
+                    "message": f"Job {job_id} konnte nicht erstellt werden",
+                    "error_type": "creation_failed"
                 }, 500)
                 
+        except ValueError as ve:
+            # Validierungsfehler
+            return json_response({
+                "status": "error",
+                "message": str(ve),
+                "error_type": "validation_error"
+            }, 400)
         except Exception as e:
-            return json_response(handle_error(e), 400)
+            # Allgemeine Fehler
+            error_details = handle_error(e)
+            error_details["error_type"] = type(e).__name__
+            return json_response(error_details, 400)
     
     @event_job_ns.response(200, 'Erfolg', jobs_list_response_model)  # type: ignore
     @event_job_ns.response(400, 'Fehler', error_response_model)  # type: ignore
@@ -328,8 +371,18 @@ class EventJobsEndpoint(Resource):
                 }
             })
                 
+        except ValueError as ve:
+            # Validierungsfehler (z.B. ungültige Parameter)
+            return json_response({
+                "status": "error",
+                "message": str(ve),
+                "error_type": "validation_error"
+            }, 400)
         except Exception as e:
-            return json_response(handle_error(e), 400)
+            # Allgemeine Fehler
+            error_details = handle_error(e)
+            error_details["error_type"] = type(e).__name__
+            return json_response(error_details, 400)
 
 @event_job_ns.route('/jobs/<string:job_id>')  # type: ignore
 class EventJobDetailsEndpoint(Resource):
@@ -347,7 +400,8 @@ class EventJobDetailsEndpoint(Resource):
             if not job:
                 return json_response({
                     "status": "error",
-                    "message": f"Job {job_id} nicht gefunden"
+                    "message": f"Job {job_id} nicht gefunden",
+                    "error_type": "not_found"
                 }, 404)
             
             # Benutzer-ID aus den Headern holen
@@ -359,7 +413,8 @@ class EventJobDetailsEndpoint(Resource):
                 if user_id not in job.access_control.read_access:
                     return json_response({
                         "status": "error",
-                        "message": f"Keine Berechtigung für Job {job_id}"
+                        "message": f"Keine Berechtigung für Job {job_id}",
+                        "error_type": "permission_denied"
                     }, 403)
             
             return json_response({
@@ -367,8 +422,18 @@ class EventJobDetailsEndpoint(Resource):
                 "job": job.to_dict()
             })
                 
+        except ValueError as ve:
+            # Validierungsfehler
+            return json_response({
+                "status": "error",
+                "message": str(ve),
+                "error_type": "validation_error"
+            }, 400)
         except Exception as e:
-            return json_response(handle_error(e), 400)
+            # Allgemeine Fehler
+            error_details = handle_error(e)
+            error_details["error_type"] = type(e).__name__
+            return json_response(error_details, 400)
     
     @event_job_ns.response(200, 'Erfolg', job_response_model)  # type: ignore
     @event_job_ns.response(404, 'Job nicht gefunden', error_response_model)  # type: ignore
@@ -384,7 +449,8 @@ class EventJobDetailsEndpoint(Resource):
             if not job:
                 return json_response({
                     "status": "error",
-                    "message": f"Job {job_id} nicht gefunden"
+                    "message": f"Job {job_id} nicht gefunden",
+                    "error_type": "not_found"
                 }, 404)
             
             # Benutzer-ID aus den Headern holen
@@ -396,7 +462,8 @@ class EventJobDetailsEndpoint(Resource):
                 if user_id not in job.access_control.write_access:
                     return json_response({
                         "status": "error",
-                        "message": f"Keine Berechtigung zum Löschen von Job {job_id}"
+                        "message": f"Keine Berechtigung zum Löschen von Job {job_id}",
+                        "error_type": "permission_denied"
                     }, 403)
             
             # Job löschen
@@ -410,11 +477,22 @@ class EventJobDetailsEndpoint(Resource):
             else:
                 return json_response({
                     "status": "error",
-                    "message": f"Job {job_id} konnte nicht gelöscht werden"
+                    "message": f"Job {job_id} konnte nicht gelöscht werden",
+                    "error_type": "deletion_failed"
                 }, 500)
                 
+        except ValueError as ve:
+            # Validierungsfehler
+            return json_response({
+                "status": "error",
+                "message": str(ve),
+                "error_type": "validation_error"
+            }, 400)
         except Exception as e:
-            return json_response(handle_error(e), 400)
+            # Allgemeine Fehler
+            error_details = handle_error(e)
+            error_details["error_type"] = type(e).__name__
+            return json_response(error_details, 400)
 
 @event_job_ns.route('/batches')  # type: ignore
 class EventBatchesEndpoint(Resource):
@@ -943,4 +1021,49 @@ class EventBatchToggleActiveEndpoint(Resource):
             
         except Exception as e:
             logger.error(f"Fehler beim Umschalten des Active-Status: {str(e)}")
-            return json_response(handle_error(e), 500) 
+            return json_response(handle_error(e), 500)
+
+@event_job_ns.route('/batches/fail-all', methods=['POST'])  # type: ignore
+class EventBatchFailAllEndpoint(Resource):
+    @event_job_ns.response(200, 'Erfolg', batch_response_model)  # type: ignore
+    @event_job_ns.response(400, 'Fehler', error_response_model)  # type: ignore
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Setzt alle nicht archivierten Batches auf den Status 'failed'.
+        
+        Diese Methode aktualisiert den Status aller aktiven Batches auf 'failed'.
+        Dies ist nützlich für Debugging oder Reset-Zwecke.
+        
+        Returns:
+            Response mit Erfolgs- oder Fehlermeldung und der Anzahl der aktualisierten Batches.
+        """
+        try:
+            # Repository holen
+            job_repo: SessionJobRepository = get_job_repository()
+            
+            # Benutzer-ID aus den Headern holen
+            user_id = request.headers.get('X-User-ID')
+            
+            # Alle nicht archivierten Batches abrufen
+            batches = job_repo.get_batches(archived=False)
+            
+            updated_count = 0
+            for batch in batches:
+                # Zugriffsrechte prüfen, falls Benutzer-ID vorhanden
+                if user_id and batch.user_id and batch.user_id != user_id:
+                    if user_id not in batch.access_control.write_access:
+                        continue
+                
+                # Batch und zugehörige Jobs auf failed setzen
+                job_repo.update_batch_status(batch.batch_id, "failed")
+                job_repo.update_jobs_status_by_batch(batch.batch_id, "failed")
+                updated_count += 1
+            
+            return json_response({
+                "status": "success",
+                "message": f"{updated_count} Batches wurden auf 'failed' gesetzt",
+                "updated_count": updated_count
+            })
+                
+        except Exception as e:
+            return json_response(handle_error(e), 400) 

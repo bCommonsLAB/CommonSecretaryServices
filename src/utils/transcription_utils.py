@@ -42,6 +42,7 @@ from src.core.models.audio import (
     AudioSegmentInfo, Chapter, TranscriptionResult, TranscriptionSegment
 )
 from src.core.exceptions import ProcessingError
+from src.processors.base_processor import BaseProcessor
 
 # Type-Definitionen
 FieldType = tuple[Union[type[str], type[None]], Field]
@@ -76,14 +77,16 @@ class TemplateFieldDefinition:
 class WhisperTranscriber:
     """Klasse für die Interaktion mit GPT-4."""
     
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], processor: BaseProcessor[Any]) -> None:
         """
         Initialisiert den WhisperTranscriber.
         
         Args:
             config: Konfiguration für den Transcriber
+            processor: BaseProcessor für LLM-Request Tracking
         """
         self.config: Dict[str, Any] = config
+        self.processor: BaseProcessor[Any] = processor
         
         # Verwende konfigurierte Verzeichnisse oder Fallback zu processor-spezifischen Verzeichnissen
         # Anmerkung: In der config.yaml sollten für jeden Prozessor temp_dir und debug_dir definiert sein
@@ -128,33 +131,100 @@ class WhisperTranscriber:
         purpose: str,
         tokens: int,
         duration: float,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,
+        response: Optional[ChatCompletion] = None,
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> LLMRequest:
         """
-        Zentrale Methode für LLMRequest-Erstellung.
+        Zentrale Methode für LLMRequest-Erstellung, Tracking und Debug-Logging.
         
         Args:
             purpose: Zweck des Requests (z.B. 'transcription', 'translation')
             tokens: Anzahl der verwendeten Tokens
             duration: Dauer in Millisekunden
             model: Optional, zu verwendendes Modell (default: self.model)
+            system_prompt: Optional, verwendeter System-Prompt
+            user_prompt: Optional, verwendeter User-Prompt
+            response: Optional, die vollständige ChatCompletion Response
+            logger: Optional, Logger für Debug-Ausgaben
+            processor: Optional, Name des aufrufenden Processors
             
         Returns:
             LLMRequest: Der erstellte Request
         """
-        return LLMRequest(
+        request = LLMRequest(
             model=model or self.model,
             purpose=purpose,
             tokens=tokens,
-            duration=int(duration)  # Konvertiere zu int für Millisekunden
+            duration=duration,
+            processor=processor or self.__class__.__name__
         )
+
+        # Tracking im BaseProcessor 
+        self.processor.add_llm_requests([request])
+
+        # Debug-Logging der LLM-Interaktion
+        if logger:
+            logger.debug(f"LLM Request erstellt",
+                purpose=purpose,
+                tokens=tokens,
+                duration=duration,
+                model=request.model,
+                processor=request.processor)
+
+        # Speichere zusätzliche Debug-Informationen
+        if system_prompt or user_prompt or response:
+            try:
+                # Verwende das konfigurierte Debug-Verzeichnis
+                debug_dir = self.debug_dir / "llm"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Erstelle einen eindeutigen Dateinamen
+                timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename: str = f"{timestamp}_{purpose}.json"
+                
+                # Bereite die Interaktionsdaten vor
+                interaction_data: Dict[str, Any] = {
+                    'timestamp': datetime.now().isoformat(),
+                    'purpose': purpose,
+                    'system_prompt': system_prompt,
+                    'user_prompt': user_prompt,
+                    'response': {
+                        'content': response.choices[0].message.content if response and response.choices and response.choices[0].message else None,
+                        'usage': {
+                            'total_tokens': tokens,
+                            'duration_ms': duration
+                        }
+                    }
+                }
+                
+                # Speichere die Interaktionsdaten
+                file_path: Path = debug_dir / filename
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(interaction_data, f, indent=2, ensure_ascii=False)
+                    
+                if logger:
+                    logger.debug("LLM Interaktion gespeichert",
+                               file=str(file_path),
+                               tokens=tokens)
+                    
+            except Exception as e:
+                if logger:
+                    logger.warning("LLM Debug-Informationen konnten nicht gespeichert werden",
+                                 error=e)
+
+        return request
 
     def translate_text(
         self,
         text: str,
         source_language: str,
         target_language: str,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TranslationResult:
         """
         Übersetzt Text in die Zielsprache mit GPT-4.
@@ -197,33 +267,28 @@ class WhisperTranscriber:
 
             message: ChatCompletionMessage = response.choices[0].message       
             translated_text: str = message.content or ""
-            
-            self._save_llm_interaction(
-                purpose="translation",
-                system_prompt=system_prompt, 
-                user_prompt=user_prompt, 
-                response=response, 
-                logger=logger
-            )
 
-            # LLM-Nutzung tracken mit zentraler Methode
-            llm_request = self.create_llm_request(
+            # LLM-Nutzung zentral tracken
+            self.create_llm_request(
                 purpose="translation",
                 tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration
+                duration=duration,
+                model=self.model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response=response,
+                logger=logger,
+                processor=processor
             )
-            
+
             result = TranslationResult(
                 text=translated_text,
                 source_language=source_language,
-                target_language=target_language,
-                requests=[llm_request]
+                target_language=target_language
             )
 
             if logger:
-                logger.info("Übersetzung abgeschlossen",
-                    tokens=llm_request.tokens,
-                    duration_ms=duration)
+                logger.info("Übersetzung abgeschlossen", duration_ms=duration)
             
             return result
             
@@ -237,7 +302,8 @@ class WhisperTranscriber:
         text: str,
         target_language: str,
         max_words: Optional[int] = None,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TransformationResult:
         """
         Fasst Text zusammen.
@@ -288,31 +354,26 @@ class WhisperTranscriber:
             summary: str = response.choices[0].message.content or ""
             summary = summary.strip()
 
-            self._save_llm_interaction(
-                purpose="summarization",
-                system_prompt=system_prompt, 
-                user_prompt=user_prompt, 
-                response=response, 
-                logger=logger
-            )
-
-            # LLM-Nutzung tracken mit zentraler Methode
-            llm_request = self.create_llm_request(
+            # LLM-Nutzung zentral tracken
+            self.create_llm_request(
                 purpose="summarization",
                 tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration
+                duration=duration,
+                model=self.model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response=response,
+                logger=logger,
+                processor=processor
             )
-            
+
             result = TransformationResult(
                 text=summary,
-                target_language=target_language,
-                requests=[llm_request]
+                target_language=target_language
             )
 
             if logger:
-                logger.info("Zusammenfassung abgeschlossen",
-                    tokens=llm_request.tokens,
-                    duration_ms=duration)
+                logger.info("Zusammenfassung abgeschlossen", duration_ms=duration)
             
             return result
             
@@ -347,18 +408,9 @@ class WhisperTranscriber:
         # TODO: Implementierung der Formatierung
         formatted = f"[Formatted as {format.value}]: {text}"
         
-        # Dummy LLM Info für die Formatierung
-        llm_usage = LLMRequest(
-            model=self.model,
-            purpose="formatting",
-            tokens=len(text.split()),
-            duration=1
-        )
-        
         return TransformationResult(
             text=formatted,
-            target_language=target_language,
-            requests=[llm_usage]
+            target_language=target_language
         )
 
     def saveDebugOutput(
@@ -381,37 +433,109 @@ class WhisperTranscriber:
         # TODO: Implementierung der Debug-Ausgabe
         pass
 
+    def _clean_yaml_value(self, value: str) -> str:
+        """Bereinigt einen Wert für YAML-Kompatibilität.
+        
+        Args:
+            value: Der zu bereinigende Wert
+            
+        Returns:
+            str: Der bereinigte Wert
+        """
+        # Entferne Sonderzeichen und problematische Zeichen für YAML
+        # Erhalte Bindestriche, Unterstriche und Leerzeichen
+        cleaned = re.sub(r'[^a-zA-Z0-9\s\-_]', '', value)
+        # Entferne mehrfache Leerzeichen
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        return cleaned.strip()
+
     def transform_by_template(
         self, 
         text: str, 
         target_language: str,
         template: str, 
         context: Dict[str, Any] | None = None,
-        logger: Optional[ProcessingLogger] = None
+        additional_field_descriptions: Optional[Dict[str, str]] = None,
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None,
+        use_cache: bool = True
     ) -> TransformationResult:
-        """Transformiert Text basierend auf einem Template."""
+        """
+        Transformiert einen Text anhand eines Templates.
+        
+        Args:
+            text: Der zu transformierende Text
+            target_language: Die Zielsprache
+            template: Name des Templates
+            context: Optionaler Kontext für das Template
+            additional_field_descriptions: Zusätzliche Feldbeschreibungen für das Template
+            logger: Optional, Logger für Debug-Ausgaben
+            processor: Optional, Name des aufrufenden Prozessors
+            use_cache: Ob der Cache verwendet werden soll
+            
+        Returns:
+            TransformationResult mit dem transformierten Text
+        """
         try:
             if logger:
                 logger.info(f"Starte Template-Transformation: {template}")
 
+            if not template:
+                raise ValueError("Template ist nicht definiert")
+
             # 1. Template-Datei lesen
-            template_content: str = self._read_template_file(template, logger)
-            
+            try:
+                template_content: str = self._read_template_file(template, logger)
+            except Exception as e:
+                # Spezifischer Fehler für Template-Lesefehler
+                error_msg = f"Template '{template}' konnte nicht gelesen werden: {str(e)}"
+                if logger:
+                    logger.error(error_msg)
+                return TransformationResult(
+                    text="Fehler bei der Template-Transformation: Template konnte nicht gelesen werden",
+                    target_language=target_language,
+                    structured_data={
+                        "error": error_msg,
+                        "error_type": "TemplateReadError",
+                        "template": template,
+                        "exception": str(e)
+                    }
+                )
+
             # 2. Systemprompt extrahieren
             template_content, system_prompt = self._extract_system_prompt(template_content, logger)
 
-            # 3. Strukturierte Variablen extrahieren und Model erstellen
+            # 3. Kontext-Variablen ersetzen
+            try:
+                # Einfache Variablen im Template mit Kontext-Werten ersetzen
+                template_content = self._replace_context_variables(template_content, context, text, logger)
+            except ValueError as ve:
+                # Detaillierter Fehler bei der Kontextersetzung
+                error_msg = str(ve)
+                if logger:
+                    logger.error(f"Fehler bei Kontext-Transformation: {error_msg}")
+                return TransformationResult(
+                    text="Fehler bei der Template-Transformation: Kontextvariablen konnten nicht ersetzt werden",
+                    target_language=target_language,
+                    structured_data={
+                        "error": error_msg,
+                        "error_type": "ContextVariableError",
+                        "template": template,
+                        "context_keys": list(context.keys()) if context else []
+                    }
+                )
+            
+            # 4. Strukturierte Variablen extrahieren und Model erstellen
             field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
             
             if not field_definitions.fields:
                 # Wenn keine strukturierten Variablen gefunden wurden, erstellen wir eine einfache Response
                 return TransformationResult(
                     text=text,
-                    target_language=target_language,
-                    requests=[]
+                    target_language=target_language
                 )
 
-            # 4. GPT-4 Prompts erstellen
+            # 5. GPT-4 Prompts erstellen
             context_str: str = (
                 json.dumps(context, indent=2, ensure_ascii=False)
                 if isinstance(context, dict)
@@ -427,6 +551,10 @@ class WhisperTranscriber:
                 for name, field in field_definitions.fields.items()
             }
             
+            # Füge zusätzliche Feldbeschreibungen hinzu, falls vorhanden
+            if additional_field_descriptions:
+                field_descriptions.update(additional_field_descriptions)
+                
             user_prompt: str = (
                 f"Analyze the following text and extract the information as a JSON object:\n\n"
                 f"TEXT:\n{text}\n\n"
@@ -441,10 +569,10 @@ class WhisperTranscriber:
                 f"5. Do not include any text outside the JSON object"
             )
 
-            # 5. OpenAI Anfrage senden
+            # 6. OpenAI Anfrage senden
             if logger:
                 logger.info("Sende Anfrage an OpenAI " + self.model)
-
+            
             # Zeitmessung starten
             start_time: float = time.time()
 
@@ -500,36 +628,36 @@ class WhisperTranscriber:
                 }
 
             # LLM-Nutzung tracken mit zentraler Methode
-            llm_request: LLMRequest = self.create_llm_request(
+            self.create_llm_request(
                 purpose="template_transform",
                 tokens=response.usage.total_tokens if response.usage else 0,
                 duration=duration,
-                model=self.model
-            )
-
-            # Debug-Informationen speichern
-            self._save_llm_interaction(
-                purpose="template_transform",
+                model=self.model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response=response,
                 logger=logger,
-                template=template,
-                field_definitions=field_definitions
+                processor=processor
             )
 
             # Template mit extrahierten Daten füllen
             for field_name, field_value in result_json.items():
                 pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
+                
+                # Prüfe ob es sich um ein Frontmatter-Feld handelt
+                field_def: TemplateField | None = field_definitions.fields.get(field_name)
+                if field_def and getattr(field_def, 'isFrontmatter', False):
+                    # Bereinige den Wert für YAML-Kompatibilität
+                    value = self._clean_yaml_value(value)
+                    
                 template_content = re.sub(pattern, value, template_content)
 
             # Einfache Kontext-Variablen ersetzen
             template_content = self._replace_context_variables(template_content, context, text, logger)
-
+            
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
-                    tokens=llm_request.tokens,
                     duration_ms=duration,
                     model=self.model)
 
@@ -537,19 +665,22 @@ class WhisperTranscriber:
             return TransformationResult(
                 text=template_content,
                 target_language=target_language,
-                requests=[llm_request],
                 structured_data=result_json
             )
-
+            
         except Exception as e:
             if logger:
                 logger.error("Fehler bei der Template-Transformation", error=e)
-            # Erstelle eine Fehler-Response statt Exception zu werfen
+            # Erstelle eine Fehler-Response mit detaillierten Informationen
             error_result = TransformationResult(
                 text=f"Fehler bei der Template-Transformation: {str(e)}",
                 target_language=target_language,
-                requests=[],
-                structured_data={"error": str(e)}
+                structured_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "template": template,
+                    "traceback": traceback.format_exc()
+                }
             )
             return error_result
 
@@ -573,30 +704,102 @@ class WhisperTranscriber:
         if not isinstance(context, dict):
             context = {}
         
-        # Füge text als spezielle Variable hinzu
-        if text:
-            # Ersetze {{text}} mit dem tatsächlichen Text
-            template_content = re.sub(r'\{\{text\}\}', text, template_content)
-        
-        # Finde alle einfachen Template-Variablen (ohne Description)
-        simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
-        
-        for key, value in context.items():
-            if value is not None and key in simple_variables:
-                pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
-                str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-                template_content = re.sub(pattern, str_value, template_content)
+        try:
+            # Füge text als spezielle Variable hinzu
+            if text:
+                # Ersetze {{text}} mit dem tatsächlichen Text
+                template_content = re.sub(r'\{\{text\}\}', text, template_content)
+            
+            # Finde alle einfachen Template-Variablen (ohne Description)
+            simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
+            
+            for key, value in context.items():
+                try:
+                    if value is not None and key in simple_variables:
+                        pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
+                        str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                        template_content = re.sub(pattern, str_value, template_content)
+                except Exception as variable_error:
+                    # Detaillierte Fehlerinformationen für eine spezifische Variable
+                    # Bereite eine sichere String-Version des problematischen Werts vor
+                    safe_value = ""
+                    try:
+                        if isinstance(value, (dict, list)):
+                            safe_value = json.dumps(value, ensure_ascii=False)[:100]
+                        else:
+                            safe_value = str(value)[:100]
+                    except:
+                        safe_value = f"<Nicht darstellbarer Wert vom Typ {type(type_cast(object, value)).__name__}>"
+                        
+                    error_msg = f"Fehler beim Ersetzen der Variable '{key}': {str(variable_error)}. Problematischer Wert: {safe_value}"
+                    if logger:
+                        logger.error(error_msg, 
+                                   variable=key, 
+                                   value_type=type(type_cast(object, value)).__name__, 
+                                   error=variable_error)
+                    raise ValueError(error_msg)
 
-        return template_content
+            return template_content
+            
+        except Exception as e:
+            if isinstance(e, ValueError) and "Fehler beim Ersetzen der Variable" in str(e):
+                # Weiterleiten des speziellen Fehlers
+                raise
+            else:
+                # Allgemeiner Fehler beim Ersetzen von Variablen
+                error_msg = f"Fehler beim Ersetzen von Kontext-Variablen: {str(e)}"
+                if logger:
+                    logger.error(error_msg, error=e)
+                raise ValueError(error_msg)
 
     def _extract_structured_variables(self, template_content: str, logger: Optional[ProcessingLogger]) -> TemplateFields:
-        """Extrahiert strukturierte Variablen aus dem Template."""
+        """Extrahiert strukturierte Variablen aus dem Template.
+        
+        Args:
+            template_content: Der Inhalt des Templates
+            logger: Optional Logger
+            
+        Returns:
+            TemplateFields: Die extrahierten Felder mit Beschreibungen
+        """
         pattern: str = r'\{\{([a-zA-Z][a-zA-Z0-9_]*)\|([^}]+)\}\}'
         matches: list[re.Match[str]] = list(re.finditer(pattern, template_content))
         
         seen_vars: set[str] = set()
         field_definitions: TemplateFields = TemplateFields(fields={})
         
+        # Extrahiere YAML Frontmatter
+        yaml_pattern = r'^---\n(.*?)\n---'
+        yaml_match = re.search(yaml_pattern, template_content, re.DOTALL)
+        
+        if yaml_match:
+            yaml_content = yaml_match.group(1)
+            # Extrahiere Variablen aus YAML-Zeilen
+            yaml_lines = yaml_content.split('\n')
+            for line in yaml_lines:
+                line = line.strip()
+                if line and ':' in line:
+                    # Extrahiere den Variablennamen vor dem ersten Doppelpunkt
+                    var_name = line.split(':', 1)[0].strip()
+                    if var_name and var_name not in seen_vars:
+                        seen_vars.add(var_name)
+                        # Suche nach einer Beschreibung in den Template-Variablen
+                        description = "YAML Frontmatter Variable"
+                        # Suche nach einer möglichen Beschreibung im Template
+                        desc_pattern = r'\{\{' + re.escape(var_name) + r'\|([^}]+)\}\}'
+                        desc_match = re.search(desc_pattern, template_content)
+                        if desc_match:
+                            description = desc_match.group(1).strip()
+                        
+                        field_def = TemplateField(
+                            description=description,
+                            max_length=5000,  # Standard-Länge
+                            isFrontmatter=True,
+                            default=None
+                        )
+                        field_definitions.fields[var_name] = field_def
+        
+        # Füge weitere Template-Variablen hinzu
         for match in matches:
             var_name: str = match.group(1).strip()
             if var_name in seen_vars:
@@ -608,7 +811,8 @@ class WhisperTranscriber:
             field_def = TemplateField(
                 description=description,
                 max_length=5000,
-                default=None
+                default=None,
+                isFrontmatter=False
             )
             
             field_definitions.fields[var_name] = field_def
@@ -655,74 +859,6 @@ class WhisperTranscriber:
                 logger.info("Kein Systemprompt im Template gefunden, verwende Standard-Prompt")
             return template_content, default_system_prompt
 
-    def _save_llm_interaction(
-        self, 
-        purpose: str,
-        system_prompt: str, 
-        user_prompt: str, 
-        response: ChatCompletion, 
-        logger: Optional[ProcessingLogger] = None,
-        template: Optional[str] = None, 
-        field_definitions: Optional[TemplateFields] = None,
-    ) -> None:
-        """Speichert die LLM-Interaktion für Debugging und Analyse."""
-        try:
-            # Verwende das konfigurierte Debug-Verzeichnis, falls der Transcriber initialisiert ist
-            # Ansonsten einen allgemeinen Pfad aus der Konfiguration
-            from src.core.config import Config
-            app_config = Config()
-            cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
-            debug_dir = cache_base / "default" / "debug" / "llm"
-            
-            # Wenn wir im Kontext eines Transcribers sind, verwende dessen Debug-Verzeichnis
-            if hasattr(self, 'debug_dir'):
-                debug_dir = self.debug_dir / "llm"
-            
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Erstelle einen eindeutigen Dateinamen
-            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
-            template_name: str = template if template else 'direct'
-            filename: str = f"{timestamp}_{purpose}_{template_name}.json"
-            
-            # Bereite die Interaktionsdaten vor
-            interaction_data: Dict[str, Any] = {
-                'timestamp': datetime.now().isoformat(),
-                'template': template,
-                'system_prompt': system_prompt,
-                'user_prompt': user_prompt,
-                'response': {
-                    'content': response.choices[0].message.content if response.choices and response.choices[0].message else None,
-                    'function_call': response.choices[0].message.function_call.arguments if response.choices and response.choices[0].message and hasattr(response.choices[0].message, 'function_call') and response.choices[0].message.function_call else None,
-                    'usage': {
-                        'total_tokens': response.usage.total_tokens if response.usage else 0,
-                        'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
-                        'completion_tokens': response.usage.completion_tokens if response.usage else 0
-                    }
-                }
-            }
-            
-            if field_definitions:
-                interaction_data['field_definitions'] = {
-                    name: field.description for name, field in field_definitions.fields.items()
-                }
-            
-            # Speichere die Interaktionsdaten
-            file_path: Path = debug_dir / filename
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(interaction_data, f, indent=2, ensure_ascii=False)
-                
-            if logger:
-                logger.debug("LLM Interaktion gespeichert",
-                           file=str(file_path),
-                           tokens=interaction_data['response']['usage']['total_tokens'])
-                
-        except Exception as e:
-            if logger:
-                logger.warning("LLM Interaktion konnte nicht gespeichert werden",
-                             error=e,
-                             template=template)
-
     async def transcribe_segment(
         self,
         file_path: Union[Path, bytes],
@@ -730,7 +866,8 @@ class WhisperTranscriber:
         segment_id: Optional[int] = None,
         segment_title: Optional[str] = None,
         source_language: str = "de",
-        target_language: str = "de"
+        target_language: str = "de",
+        processor: Optional[str] = None
     ) -> TranscriptionResult:
         """Transkribiert ein einzelnes Audio-Segment.
         
@@ -906,18 +1043,17 @@ class WhisperTranscriber:
                 duration = (time.time() - start_time) * 1000
                 
                 # LLM-Nutzung tracken mit zentraler Methode
-                whisper_request: LLMRequest = self.create_llm_request(
+                self.create_llm_request(
                     purpose="transcription_failed",
                     tokens=0,
                     duration=duration,
                     model="whisper-1"
                 )
-                
+
                 return TranscriptionResult(
                     text="",
                     source_language=source_language,
-                    segments=[segment],
-                    requests=[whisper_request]
+                    segments=[segment]
                 )
             
             # Zeitmessung beenden
@@ -928,13 +1064,14 @@ class WhisperTranscriber:
             tokens = getattr(response, 'usage', {}).get('total_tokens', int(estimated_tokens))
             
             # LLM-Nutzung tracken mit zentraler Methode
-            whisper_request = self.create_llm_request(
+            self.create_llm_request(
+                processor=processor,
                 purpose="transcription",
                 tokens=tokens,
                 duration=duration,
                 model="whisper-1"  # Explizit Whisper-Modell angeben
             )
-            
+
             if source_language == "auto":
                 # Konvertiere Whisper Sprachcode in ISO 639-1
                 source_language = self._convert_to_iso_code(response.language)
@@ -960,8 +1097,7 @@ class WhisperTranscriber:
             return TranscriptionResult(
                 text=response.text,
                 source_language=source_language,
-                segments=[segment],  # Nur ein Segment pro Audio-Datei
-                requests=[whisper_request]
+                segments=[segment]  # Nur ein Segment pro Audio-Datei
             )
             
         except Exception as e:
@@ -988,18 +1124,17 @@ class WhisperTranscriber:
             duration = (time.time() - start_time) * 1000
             
             # LLM-Nutzung tracken mit zentraler Methode für Fehler
-            error_request = self.create_llm_request(
+            self.create_llm_request(
                 purpose="transcription_error",
                 tokens=0,
                 duration=duration,
                 model="whisper-1"
             )
-            
+
             return TranscriptionResult(
                 text=f"[Transkriptionsfehler: {str(e)}]",
                 source_language=source_language,
-                segments=[segment],
-                requests=[error_request]
+                segments=[segment]
             )
 
     def _convert_to_iso_code(self, language: str) -> str:
@@ -1070,7 +1205,8 @@ class WhisperTranscriber:
         segments: Union[List[AudioSegmentInfo], List[Chapter]],
         source_language: str = "de",
         target_language: str = "de",
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TranscriptionResult:
         """Transkribiert mehrere Audio-Segmente parallel (max. 5 gleichzeitig).
         
@@ -1133,14 +1269,15 @@ class WhisperTranscriber:
                     segment_title=segment.title,
                     source_language=source_language,
                     target_language=target_language,
-                    logger=logger
+                    logger=logger,
+                    processor=processor
                 ))
             
             # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse
             try:
                 # Expliziter Typecast für die Ergebnisse
                 results = await asyncio.gather(*segment_tasks)
-                batch_results = results
+                batch_results: List[TranscriptionResult] = results
                 
                 # Verarbeite die Ergebnisse des Batches
                 for i, result in enumerate(batch_results):
@@ -1149,9 +1286,6 @@ class WhisperTranscriber:
                     if logger:
                         logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Verarbeitung abgeschlossen, Textlänge: {len(result.text or '')}")
                     
-                    # Sammle Request-Informationen
-                    if result.requests:
-                        combined_requests.extend(result.requests)
                     
                     # Übersetzung, falls nötig
                     if result.source_language != target_language and result.text.strip():
@@ -1162,14 +1296,12 @@ class WhisperTranscriber:
                             text=result.text,
                             source_language=result.source_language,
                             target_language=target_language,
-                            logger=logger
+                            logger=logger,
+                            processor=processor
                         )
                         
                         if logger:
                             logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Übersetzung abgeschlossen, Textlänge: {len(translation_result.text or '')}")
-                        
-                        if translation_result.requests:
-                            combined_requests.extend(translation_result.requests)
                         
                         # Verwende übersetzten Text
                         if translation_result.text.strip():
@@ -1206,6 +1338,5 @@ class WhisperTranscriber:
         return TranscriptionResult(
             text=result_text,
             source_language=detected_language,
-            segments=[],  # Keine Segmente im Output
-            requests=combined_requests  # Alle einzelnen Requests
+            segments=[]  # Keine Segmente im Output
         )

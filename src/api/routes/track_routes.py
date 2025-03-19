@@ -5,6 +5,7 @@ API-Routen für den Track-Prozessor.
 
 import traceback
 from typing import Dict, Any, Union, cast
+import uuid
 
 # Typ-Ignorierung für Flask-RESTx
 from flask import request
@@ -139,8 +140,14 @@ class TrackSummaryEndpoint(Resource):
             # Konvertiere String zu Boolean
             use_cache: bool = use_cache_str.lower() == 'true' if isinstance(use_cache_str, str) else bool(use_cache_str)
             
+            # Process-ID generieren für Tracking
+            process_id = str(uuid.uuid4())
+            
             # Prozessor initialisieren
-            processor = TrackProcessor(resource_calculator)
+            processor = TrackProcessor(
+                resource_calculator=resource_calculator,
+                process_id=process_id
+            )
             
             # Track-Zusammenfassung erstellen (asynchron)
             import asyncio
@@ -149,7 +156,7 @@ class TrackSummaryEndpoint(Resource):
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # Wenn der Loop bereits läuft, erstelle einen neuen
-                    response = asyncio.run(processor.create_track_summary(
+                    track_response = asyncio.run(processor.create_track_summary(
                         track_name=track_name,
                         template=template,
                         target_language=target_language,
@@ -157,7 +164,7 @@ class TrackSummaryEndpoint(Resource):
                     ))
                 else:
                     # Verwende den bestehenden Loop
-                    response = loop.run_until_complete(processor.create_track_summary(
+                    track_response = loop.run_until_complete(processor.create_track_summary(
                         track_name=track_name,
                         template=template,
                         target_language=target_language,
@@ -165,7 +172,7 @@ class TrackSummaryEndpoint(Resource):
                     ))
             except RuntimeError:
                 # Fallback, wenn kein Event-Loop verfügbar ist
-                response: TrackResponse = asyncio.run(processor.create_track_summary(
+                track_response: TrackResponse = asyncio.run(processor.create_track_summary(
                     track_name=track_name,
                     template=template,
                     target_language=target_language,
@@ -173,7 +180,195 @@ class TrackSummaryEndpoint(Resource):
                 ))
             
             # Response in Dictionary umwandeln
-            return response.to_dict()
+            return track_response.to_dict()
+            
+        except (ValidationError, ProcessingError) as e:
+            # Bei bekannten Fehlern 400 zurückgeben
+            logger.warning(f"Fehler bei der Track-Verarbeitung: {e}")
+            
+            return {
+                'status': 'error',
+                'error': {
+                    'code': e.__class__.__name__,
+                    'message': str(e),
+                    'details': {}
+                }
+            }, 400
+            
+        except Exception as e:
+            # Bei unbekannten Fehlern 500 zurückgeben
+            logger.error(
+                'Unerwarteter Fehler bei der Track-Verarbeitung',
+                error=e,
+                traceback=traceback.format_exc()
+            )
+            
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'InternalServerError',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'details': {}
+                }
+            }, 500
+
+@track_ns.route('/available')  # type: ignore
+class AvailableTracksEndpoint(Resource):
+    """Endpoint zum Abrufen aller verfügbaren Tracks."""
+    
+    @track_ns.doc(  # type: ignore
+        description='Gibt eine Liste aller verfügbaren Tracks und deren Anzahl zurück.'
+    )
+    @track_ns.response(200, 'Erfolg')  # type: ignore
+    @track_ns.response(500, 'Serverfehler')  # type: ignore
+    def get(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Gibt eine Liste aller verfügbaren Tracks und deren Anzahl zurück.
+        
+        Returns:
+            Union[Dict[str, Any], tuple[Dict[str, Any], int]]: Liste der Tracks oder eine Fehlermeldung
+        """
+        try:
+            # Process-ID generieren für Tracking
+            process_id = str(uuid.uuid4())
+            
+            # Prozessor initialisieren
+            processor = TrackProcessor(
+                resource_calculator=resource_calculator,
+                process_id=process_id
+            )
+            
+            # Verfügbare Tracks abrufen (asynchron)
+            import asyncio
+            try:
+                # Versuche, den bestehenden Event-Loop zu verwenden
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Wenn der Loop bereits läuft, erstelle einen neuen
+                    tracks_data = asyncio.run(processor.get_available_tracks())
+                else:
+                    # Verwende den bestehenden Loop
+                    tracks_data = loop.run_until_complete(processor.get_available_tracks())
+            except RuntimeError:
+                # Fallback, wenn kein Event-Loop verfügbar ist
+                tracks_data = asyncio.run(processor.get_available_tracks())
+            
+            # Response erstellen
+            response = {
+                'status': 'success',
+                'data': tracks_data
+            }
+            
+            return response
+            
+        except Exception as e:
+            # Bei unbekannten Fehlern 500 zurückgeben
+            logger.error(
+                'Unerwarteter Fehler beim Abrufen der verfügbaren Tracks',
+                error=e,
+                traceback=traceback.format_exc()
+            )
+            
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'InternalServerError',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'details': {}
+                }
+            }, 500
+
+@track_ns.route('/<string:track_name>/summarize_all')  # type: ignore
+class SummarizeAllTracksEndpoint(Resource):
+    """Endpoint für die Erstellung von Zusammenfassungen für alle Tracks."""
+    
+    @track_ns.doc(  # type: ignore
+        description='Erstellt Zusammenfassungen für alle Tracks, optional gefiltert durch track_name.',
+        params={
+            'track_name': 'Filter für Track-Namen (optional)',
+            'template': 'Name des Templates für die Zusammenfassung',
+            'target_language': 'Zielsprache für die Zusammenfassung',
+            'useCache': 'Ob der Cache verwendet werden soll (default: false)'
+        }
+    )
+    @track_ns.response(200, 'Erfolg')  # type: ignore
+    @track_ns.response(400, 'Fehler bei der Verarbeitung')  # type: ignore
+    @track_ns.response(500, 'Serverfehler')  # type: ignore
+    def post(self, track_name: str) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Erstellt Zusammenfassungen für alle Tracks.
+        
+        Args:
+            track_name: Filter für Track-Namen (optional, * = alle)
+            
+        Returns:
+            Union[Dict[str, Any], tuple[Dict[str, Any], int]]: Zusammenfassungen der Tracks oder eine Fehlermeldung
+        """
+        try:
+            # Request-Daten parsen - versuche zuerst JSON, dann Query-Parameter
+            data: Dict[str, Any] = {}
+            try:
+                json_data = request.get_json(silent=True)
+                if json_data:
+                    data = json_data
+            except Exception:
+                pass  # Ignoriere Fehler beim JSON-Parsing
+            
+            # Parameter extrahieren - zuerst aus JSON, dann aus Query-Parametern
+            template_default = 'track-eco-social-summary'
+            template: str = str(data.get('template', request.args.get('template', template_default)))
+            
+            target_lang_default = 'de'
+            target_language: str = str(data.get('target_language', request.args.get('target_language', target_lang_default)))
+            
+            # useCache-Parameter extrahieren (Standard: False)
+            use_cache_str: Any = data.get('useCache', request.args.get('useCache', 'false'))
+            # Konvertiere String zu Boolean
+            use_cache: bool = use_cache_str.lower() == 'true' if isinstance(use_cache_str, str) else bool(use_cache_str)
+            
+            # Process-ID generieren für Tracking
+            process_id = str(uuid.uuid4())
+            
+            # Prozessor initialisieren
+            processor = TrackProcessor(
+                resource_calculator=resource_calculator,
+                process_id=process_id
+            )
+            
+            # Track-Filter bestimmen
+            track_filter = None if track_name == '*' else track_name
+            
+            # Alle Tracks zusammenfassen (asynchron)
+            import asyncio
+            try:
+                # Versuche, den bestehenden Event-Loop zu verwenden
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Wenn der Loop bereits läuft, erstelle einen neuen
+                    result = asyncio.run(processor.create_all_track_summaries(
+                        track_filter=track_filter,
+                        template=template,
+                        target_language=target_language,
+                        use_cache=use_cache
+                    ))
+                else:
+                    # Verwende den bestehenden Loop
+                    result = loop.run_until_complete(processor.create_all_track_summaries(
+                        track_filter=track_filter,
+                        template=template,
+                        target_language=target_language,
+                        use_cache=use_cache
+                    ))
+            except RuntimeError:
+                # Fallback, wenn kein Event-Loop verfügbar ist
+                result = asyncio.run(processor.create_all_track_summaries(
+                    track_filter=track_filter,
+                    template=template,
+                    target_language=target_language,
+                    use_cache=use_cache
+                ))
+            
+            return result
             
         except (ValidationError, ProcessingError) as e:
             # Bei bekannten Fehlern 400 zurückgeben

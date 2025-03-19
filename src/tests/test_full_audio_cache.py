@@ -8,15 +8,27 @@ import asyncio
 import uuid
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, TypedDict, Protocol
+from dataclasses import dataclass
+from datetime import datetime
 
 import pytest
 
 from src.core.config import Config
 from src.core.resource_tracking import ResourceCalculator
 from src.core.mongodb.connection import get_mongodb_database
-from src.processors.audio_processor import AudioProcessor
+from src.processors.audio_processor import AudioProcessor, WhisperTranscriberProtocol
 from src.utils.performance_tracker import get_performance_tracker
+from src.processors.base_processor import BaseProcessor
+from src.core.models.audio import (
+    AudioSegmentInfo, 
+    Chapter, 
+    TranscriptionResult, 
+    WhisperSegment,
+    TranscriptionSegment
+)
+from src.core.models.llm import LLMRequest, LLModel
+from src.utils.logger import ProcessingLogger
 
 # Logger einrichten
 logger = logging.getLogger(__name__)
@@ -113,7 +125,7 @@ async def test_audio_processor_with_caching():
     logger.info("Erster Durchlauf - Verarbeitung und Caching...")
     try:
         # Setze Whisper-Transcriber-Mock
-        processor.transcriber = MockWhisperTranscriber()
+        processor.transcriber = MockWhisperTranscriber(processor)
         
         # Setze Transformer-Mock
         processor.transformer = MockTransformerProcessor()
@@ -181,34 +193,79 @@ async def test_audio_processor_with_caching():
 
 # Mock-Klassen für Tests
 
-class MockWhisperTranscriber:
+@dataclass
+class Chapter:
+    """Informationen über ein Kapitel"""
+    start: float
+    end: float
+    title: str
+    text: str = ""
+    translated_text: str = ""
+
+class TranscriptionResult(TypedDict):
+    """Ergebnis der Transkription"""
+    segments: List[Dict[str, Any]]
+    total_tokens: int
+    total_cost: float
+    usage: Dict[str, int]
+
+class MockWhisperTranscriber(WhisperTranscriberProtocol):
     """Mock für WhisperTranscriber"""
     
-    async def transcribe_segments(self, *, segments, source_language, target_language, logger=None):
+    def __init__(self, processor: Optional[BaseProcessor[Any]] = None):
+        self.processor = processor
+    
+    async def transcribe_segments(
+        self, 
+        *, 
+        segments: List[AudioSegmentInfo] | List[Chapter],
+        source_language: str,
+        target_language: str,
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
+    ) -> TranscriptionResult:
         """Mock für transcribe_segments"""
-        result = {
-            "segments": [],
-            "total_tokens": 100,
-            "total_cost": 0.01,
-            "usage": {"prompt_tokens": 50, "completion_tokens": 50, "total_tokens": 100}
-        }
-        
+        result_segments: List[TranscriptionSegment] = []
         for i, segment in enumerate(segments):
-            segment_result = {
-                "index": i,
-                "start": segment.start,
-                "end": segment.end,
-                "text": f"Testtext {i} für Segment von {segment.start} bis {segment.end}",
-                "translated_text": f"Test text {i} for segment from {segment.start} to {segment.end}"
-            }
-            result["segments"].append(segment_result)
+            result_segments.append(TranscriptionSegment(
+                text=f"Testtext {i} für Segment von {segment.start} bis {segment.end}",
+                segment_id=i,
+                start=segment.start,
+                end=segment.end,
+                confidence=1.0
+            ))
+            
+        llm_request = LLMRequest(
+            model="gpt-3.5-turbo-mock",
+            purpose="transcription",
+            tokens=100,
+            duration=1000.0,
+            processor="mock_processor"
+        )
+        
+        llm_model = LLModel(
+            model="gpt-3.5-turbo-mock",
+            duration=1000.0,
+            tokens=100
+        )
+            
+        result = TranscriptionResult(
+            text="\n".join(s.text for s in result_segments),
+            source_language=source_language,
+            segments=result_segments,
+            requests=[llm_request] if self.processor else [],
+            llms=[llm_model] if self.processor else []
+        )
+        
+        if self.processor:
+            self.processor.add_llm_requests([llm_request])
             
         return result
 
 class MockTransformerResponse:
     """Mock für TransformerResponse"""
     
-    def __init__(self, text, tokens, cost):
+    def __init__(self, text: str, tokens: int, cost: float):
         self.original_text = ""
         self.transformed_text = text
         self.tokens = tokens
@@ -222,7 +279,7 @@ class MockTransformerProcessor:
         self.model = "gpt-3.5-turbo-mock"
         self.llms = []
     
-    def transform(self, source_text, source_language, target_language, context=None):
+    def transform(self, source_text: str, source_language: str, target_language: str, context: Optional[Dict[str, Any]] = None) -> MockTransformerResponse:
         """Mock für transform"""
         return MockTransformerResponse(
             text=f"Transformed: {source_text}",
@@ -230,7 +287,7 @@ class MockTransformerProcessor:
             cost=0.001
         )
     
-    def transformByTemplate(self, source_text, source_language, target_language, context=None, template=None):
+    def transformByTemplate(self, source_text: str, source_language: str, target_language: str, context: Optional[Dict[str, Any]] = None, template: Optional[str] = None) -> MockTransformerResponse:
         """Mock für transformByTemplate"""
         return MockTransformerResponse(
             text=f"Template transformed: {source_text}",

@@ -2,12 +2,13 @@
 Main routes for the dashboard application.
 Contains the main dashboard view and test routes.
 """
-from flask import Blueprint, render_template, jsonify, request, redirect, url_for
-from datetime import datetime, timedelta
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
 from typing import Any, Dict, List, cast, Optional
+import logging
 
 from core.config import ApplicationConfig
 from utils.logger import ProcessingLogger
@@ -21,6 +22,10 @@ import requests  # Neu hinzugefügt für API-Anfragen
 import markdown  # type: ignore
 from src.core.mongodb.repository import SessionJobRepository
 from src.core.mongodb import get_job_repository
+from src.core.models.job_models import JobStatus
+
+# Logger initialisieren
+logger = logging.getLogger(__name__)
 
 # Create the blueprint
 main = Blueprint('main', __name__)
@@ -734,21 +739,10 @@ def api_event_monitor_job_detail(job_id: str):
 
 @main.route('/api/dashboard/event-monitor/jobs')
 def api_event_monitor_jobs():
-    # Extrahiere batch_id aus den Query-Parametern
-    batch_id = request.args.get('batch_id')
-    
-    if not batch_id:
-        logger.error("Keine batch_id in der Anfrage")
-        return jsonify({
-            "status": "error",
-            "message": "batch_id ist ein erforderlicher Parameter"
-        }), 400
-    
     try:
         # API-Basis-URL aus der Konfiguration laden
         config = Config()
-        # DEBUG: Ausgabe der API-Response
-        logger.debug(f"Lade Jobs für batch_id: {batch_id}")
+        logger.debug("Lade Jobs")
         
         # Verwende die generische get-Methode anstelle einer nicht existierenden get_api_base_url-Methode
         base_url = config.get('server.api_base_url', 'http://localhost:5001')
@@ -760,8 +754,22 @@ def api_event_monitor_jobs():
                 "message": "API-Basis-URL nicht konfiguriert"
             }), 500
         
-        # Erstelle die Anfrage-URL für Jobs für einen bestimmten Batch
-        url = f"{base_url}/api/event-job/jobs?batch_id={batch_id}"
+        # Extrahiere alle Query-Parameter
+        batch_id = request.args.get('batch_id')
+        status = request.args.get('status')
+        
+        # Erstelle die Basis-URL für Jobs
+        url = f"{base_url}/api/event-job/jobs"
+        
+        # Füge Query-Parameter hinzu, wenn vorhanden
+        params: List[str] = []
+        if batch_id:
+            params.append(f"batch_id={batch_id}")
+        if status:
+            params.append(f"status={status}")
+            
+        if params:
+            url = f"{url}?{'&'.join(params)}"
         
         logger.debug(f"Rufe API auf: {url}")
         
@@ -774,8 +782,7 @@ def api_event_monitor_jobs():
         
         logger.info(f"Jobs API-Antwort erhalten: {response_data}")
         
-        # Bereite die Antwort vor - direkte Struktur ohne Wrapping in 'data'
-        # Dies passt besser zur erwarteten Verarbeitungslogik im Template
+        # Bereite die Antwort vor
         result = {
             "status": "success",
             "jobs": response_data.get('jobs', []),
@@ -1212,7 +1219,7 @@ def api_event_monitor_batch_archive(batch_id: str):
 @main.route('/api/dashboard/event-monitor/batches/<string:batch_id>/restart', methods=['POST'])
 def api_event_monitor_batch_restart(batch_id: str):
     """
-    API-Endpunkt zum Neustarten aller Jobs in einem Batch, außer completed Jobs.
+    API-Endpunkt zum Neustarten aller Jobs in einem Batch.
     
     :param batch_id: Die ID des Batches, dessen Jobs neu gestartet werden sollen.
     :return: JSON-Antwort mit Erfolgsmeldung oder Fehlermeldung.
@@ -1225,92 +1232,191 @@ def api_event_monitor_batch_restart(batch_id: str):
         }), 400
     
     try:
-        # Alle Jobs für diesen Batch abrufen
-        config = Config()
-        api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
+        # Repository-Instanz holen
+        job_repo = get_job_repository()
         
-        # Jobs für diesen Batch abfragen
-        url = f"{api_base_url}/api/dashboard/event-monitor/jobs?batch_id={batch_id}"
-        jobs_response: requests.Response = requests.get(url)
-        jobs_response.raise_for_status()
+        # Alle Jobs des Batches auf einmal auf PENDING setzen
+        result = job_repo.update_jobs_status_by_batch(batch_id, JobStatus.PENDING)
         
-        jobs_data = jobs_response.json()
-        jobs: List[Dict[str, Any]] = []
-        
-        if 'data' in jobs_data and 'jobs' in jobs_data['data']:
-            jobs = jobs_data['data']['jobs']
-        elif 'jobs' in jobs_data:
-            jobs = jobs_data['jobs']
-        
-        if not jobs:
+        if result > 0:
+            # Erfolgsantwort zurückgeben
             return jsonify({
-                "status": "warning",
-                "message": "Keine Jobs für diesen Batch gefunden"
-            }), 200
-        
-        # Alle Jobs außer completed neu starten
-        results: List[Dict[str, Any]] = []
-        success_count = 0
-        restartable_jobs_count = 0
-        
-        for job in jobs:
-            job_id = job.get('job_id')
-            job_status = job.get('status')
-            
-            # Nur Jobs neu starten, die nicht completed sind
-            if not job_id or job_status == "completed":
-                if job_id and job_status == "completed":
-                    results.append({
-                        "job_id": job_id,
-                        "status": "skipped",
-                        "message": "Job ist bereits abgeschlossen"
-                    })
-                continue
-                
-            restartable_jobs_count += 1
-            
-            # Direkter Aufruf der Event-Job-API statt rekursivem Dashboard-API-Aufruf
-            restart_url = f"{api_base_url}/api/event-job/{job_id}/restart"
-            logger.debug(f"Neustart für Job {job_id} (Status: {job_status}) an {restart_url}")
-            restart_response: requests.Response = requests.post(restart_url, json={"batch_id": batch_id})
-            
-            logger.debug(f"Neustart für Job {job_id} an {restart_url}: Status {restart_response.status_code}")
-            
-            if restart_response.status_code == 200:
-                success_count += 1
-                results.append({
-                    "job_id": job_id,
-                    "status": "success",
-                    "previous_status": job_status
-                })
-            else:
-                results.append({
-                    "job_id": job_id,
-                    "status": "error",
-                    "message": f"Fehler: Status {restart_response.status_code}",
-                    "previous_status": job_status
-                })
-        
-        # Erfolgsantwort zurückgeben
-        if restartable_jobs_count == 0:
-            return jsonify({
-                "status": "warning",
-                "message": "Keine neu startbaren Jobs in diesem Batch gefunden (alle sind completed)",
+                "status": "success",
+                "message": f"{result} Jobs wurden neu gestartet",
                 "data": {
-                    "results": results
+                    "restarted_jobs": result
                 }
             })
         else:
             return jsonify({
-                "status": "success",
-                "message": f"{success_count} von {restartable_jobs_count} Jobs wurden neu gestartet",
+                "status": "warning",
+                "message": "Keine Jobs für diesen Batch gefunden",
                 "data": {
-                    "results": results
+                    "restarted_jobs": 0
                 }
-            })
+            }), 200
+            
     except Exception as e:
         logger.error(f"Fehler beim Neustarten des Batches {batch_id}: {e}")
         return jsonify({
             "status": "error",
             "message": f"Fehler: {str(e)}"
+        }), 500
+
+@main.route('/api/dashboard/event-monitor/batches/fail-all', methods=['POST'])
+def api_event_monitor_fail_all_batches():
+    """
+    API-Endpunkt zum Setzen aller aktiven Batches auf failed.
+    """
+    try:
+        # API-URL zusammenbauen
+        api_url = f"{current_app.config['API_BASE_URL']}/event-job/batches/fail-all"
+        
+        # Headers vorbereiten
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        # Benutzer-ID aus den Headern weiterleiten
+        if 'X-User-ID' in request.headers:
+            headers['X-User-ID'] = request.headers['X-User-ID']
+        
+        # API-Aufruf durchführen
+        response = requests.post(api_url, headers=headers)
+        response.raise_for_status()
+        
+        # Erfolgreiche Antwort
+        return jsonify(response.json()), response.status_code
+        
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTP-Fehler beim Setzen der Batches auf failed: {http_err}"
+        logger.error(error_message)
+        return jsonify({
+            "status": "error",
+            "message": error_message
+        }), getattr(http_err.response, 'status_code', 500)
+        
+    except Exception as e:
+        error_message = f"Fehler beim Setzen der Batches auf failed: {str(e)}"
+        logger.error(error_message)
+        return jsonify({
+            "status": "error",
+            "message": error_message
+        }), 500 
+
+@main.route('/api/dashboard/event-monitor/batches/force-fail-all', methods=['POST'])
+def api_event_monitor_force_fail_all():
+    """
+    API-Endpunkt zum direkten Setzen ALLER Batches und Jobs auf failed.
+    Dies ist eine direkte Datenbankoperation, die alle Batches und Jobs betrifft.
+    """
+    try:
+        # Repository-Instanz holen
+        job_repo = get_job_repository()
+        now = datetime.utcnow()  # Verwende utcnow statt now(UTC)
+        
+        # Direkte Batch-Aktualisierung
+        batch_result = job_repo.batches.update_many(
+            {"archived": {"$ne": True}},  # Nicht archivierte Batches
+            {
+                "$set": {
+                    "status": "failed",  # Kleinbuchstaben statt Großbuchstaben
+                    "updated_at": now,
+                    "completed_at": now
+                }
+            }
+        )
+        
+        # Direkte Job-Aktualisierung für alle Jobs
+        job_result = job_repo.jobs.update_many(
+            {},  # Alle Jobs
+            {
+                "$set": {
+                    "status": "failed",  # Kleinbuchstaben statt Großbuchstaben
+                    "updated_at": now,
+                    "completed_at": now,
+                    "error": {
+                        "code": "FORCED_FAILURE",
+                        "message": "Job wurde manuell auf failed gesetzt",
+                        "details": {
+                            "forced_at": now.isoformat(),
+                            "reason": "Manuelle Massenaktualisierung"
+                        }
+                    }
+                }
+            }
+        )
+        
+        # Log die Änderungen
+        logger.info(
+            f"Force-fail-all ausgeführt",
+            extra={
+                "updated_batches": batch_result.modified_count,
+                "updated_jobs": job_result.modified_count
+            }
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{batch_result.modified_count} Batches und {job_result.modified_count} Jobs auf failed gesetzt",
+            "data": {
+                "updated_batches": batch_result.modified_count,
+                "updated_jobs": job_result.modified_count
+            }
+        })
+            
+    except Exception as e:
+        error_message = f"Fehler beim Setzen aller Batches und Jobs auf failed: {str(e)}"
+        logger.error(error_message)
+        return jsonify({
+            "status": "error",
+            "message": error_message
+        }), 500 
+
+@main.route('/api/dashboard/event-monitor/batches/set-pending-all', methods=['POST'])
+def api_event_monitor_set_pending_all():
+    """Setzt alle nicht archivierten Batches und deren Jobs auf 'pending'."""
+    try:
+        job_repository = get_job_repository()
+        
+        # Hole alle nicht archivierten Batches
+        batches = job_repository.get_batches(archived=False)
+        updated_batches = 0
+        updated_jobs = 0
+        
+        # Aktualisiere jeden Batch und seine Jobs
+        for batch in batches:
+            # Aktualisiere Batch und alle zugehörigen Jobs auf PENDING
+            if job_repository.update_batch_status(batch.batch_id, JobStatus.PENDING):
+                updated_batches += 1
+                
+            # Aktualisiere alle Jobs des Batches
+            jobs_updated = job_repository.update_jobs_status_by_batch(
+                batch.batch_id, 
+                JobStatus.PENDING
+            )
+            updated_jobs += jobs_updated
+        
+        logger.info(
+            f"Alle Batches auf pending gesetzt",
+            extra={
+                "updated_batches": updated_batches,
+                "updated_jobs": updated_jobs
+            }
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{updated_batches} Batches und {updated_jobs} Jobs auf pending gesetzt",
+            "data": {
+                "updated_batches": updated_batches,
+                "updated_jobs": updated_jobs
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Setzen der Batches auf pending: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
         }), 500 

@@ -49,6 +49,7 @@ session_input = cast(ModelType, session_ns.model('SessionInput', {  # type: igno
     'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
     'source_language': fields.String(required=False, default='en', description='Quellsprache'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache'),
+    'target': fields.String(required=False, description='Zielgruppe der Session'),
     'template': fields.String(required=False, default='Session', description='Name des Templates für die Markdown-Generierung')
 }))
 
@@ -64,6 +65,41 @@ session_response_model = cast(ModelType, session_ns.model('SessionResponse', {  
     'process': fields.Raw(required=True, description='Prozessinformationen'),
     'data': fields.Raw(required=False, description='Ergebnisdaten'),
     'error': fields.Raw(required=False, description='Fehlerinformationen')
+}))
+
+cached_session_model = cast(ModelType, session_ns.model('CachedSession', {  # type: ignore
+    'cache_id': fields.String(description='Cache-ID der Session'),
+    'processed_at': fields.String(description='Zeitpunkt der Verarbeitung'),
+    'event': fields.String(description='Name der Veranstaltung'),
+    'session': fields.String(description='Name der Session'),
+    'track': fields.String(description='Track/Kategorie'),
+    'target_language': fields.String(description='Zielsprache'),
+    'target': fields.String(description='Zielgruppe'),
+    'template': fields.String(description='Verwendetes Template'),
+    'topic': fields.String(description='Thema der Session'),
+    'relevance': fields.String(description='Relevanz'),
+    'web_text': fields.String(description='Extrahierter Webtext'),
+    'video_transcript': fields.String(description='Video-Transkription'),
+    'target_dir': fields.String(description='Zielverzeichnis'),
+    'markdown_file': fields.String(description='Markdown-Dateipfad'),
+    'attachment_count': fields.Integer(description='Anzahl der Anhänge'),
+    'page_count': fields.Integer(description='Anzahl der Seiten'),
+    'process_id': fields.String(description='Prozess-ID'),
+    'url': fields.String(description='Session-URL'),
+    'filename': fields.String(description='Dateiname'),
+    'day': fields.String(description='Veranstaltungstag'),
+    'starttime': fields.String(description='Startzeit'),
+    'endtime': fields.String(description='Endzeit'),
+    'speakers': fields.String(description='Vortragende (kommagetrennt)'),
+    'video_url': fields.String(description='Video-URL'),
+    'attachments_url': fields.String(description='Anhänge-URL'),
+    'source_language': fields.String(description='Quellsprache')
+}))
+
+cached_sessions_response_model = cast(ModelType, session_ns.model('CachedSessionsResponse', {  # type: ignore
+    'status': fields.String(required=True, description='Status der Anfrage'),
+    'count': fields.Integer(required=True, description='Anzahl der gefundenen Sessions'),
+    'sessions': fields.List(fields.Nested(cached_session_model), description='Liste der gecachten Sessions')
 }))
 
 # Helper-Funktion zum Abrufen des Session-Processors
@@ -138,6 +174,7 @@ class SessionProcessEndpoint(Resource):
             attachments_url = data.get('attachments_url')
             source_language = data.get('source_language', 'en')
             target_language = data.get('target_language', 'de')
+            target = data.get('target') 
             template = data.get('template', 'Session')
             use_cache = data.get('use_cache', True)
             
@@ -160,6 +197,7 @@ class SessionProcessEndpoint(Resource):
                 attachments_url=attachments_url,
                 source_language=source_language,
                 target_language=target_language,
+                target=target,
                 template=template,
                 use_cache=use_cache
             ))
@@ -222,6 +260,45 @@ class AsyncSessionProcessEndpoint(Resource):
             "status": "success",
             "message": "Async-Session-API-Struktur vorbereitet, Implementierung steht noch aus"
         }
+
+# 3. Gecachte Sessions abrufen
+@session_ns.route('/cached')  # type: ignore
+class CachedSessionsEndpoint(Resource):
+    @session_ns.doc(description='Ruft alle gecachten Sessions ab')  # type: ignore
+    @session_ns.response(200, 'Erfolg', cached_sessions_response_model)  # type: ignore
+    @session_ns.response(400, 'Fehler', error_model)  # type: ignore
+    def get(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Ruft alle Sessions aus dem Cache ab und gibt sie in einer flachen Struktur zurück"""
+        process_id = str(uuid.uuid4())
+        session_processor: SessionProcessor = get_session_processor(process_id)
+        
+        try:
+            # Hole alle gecachten Sessions
+            cached_sessions = session_processor.get_cached_sessions()
+            
+            return {
+                'status': 'success',
+                'count': len(cached_sessions),
+                'sessions': cached_sessions
+            }
+            
+        except Exception as e:
+            logger.error("Fehler beim Abrufen der gecachten Sessions",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc(),
+                        process_id=process_id)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 500
 
 # Neue MongoDB-basierte Endpoints werden in einer separaten Datei implementiert:
 # - src/api/routes/session_job_routes.py für Session-Jobs

@@ -60,3 +60,7 @@
 - Prüfe Response-Konformität
 - Validiere LLM-Tracking
 - Teste Fehlerszenarien
+
+**#Serverstart**
+Immer in virtueller Pythonumgebung starten:
+venv\Scripts\activate; $env:PYTHONPATH = "."; python src/main.py

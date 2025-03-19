@@ -2,76 +2,23 @@
 
 LLM-Tracking Logik:
 -----------------
-Der AudioProcessor trackt die LLM-Nutzung auf zwei Ebenen:
+Der AudioProcessor trackt die LLM-Nutzung über die ProcessInfo:
 
-1. Aggregierte Informationen (LLMInfo):
+1. Aggregierte Informationen in ProcessInfo:
    - Gesamtanzahl der Tokens
    - Gesamtdauer der Verarbeitung
    - Anzahl der Requests
    - Gesamtkosten
 
-2. Einzelne Requests (LLMRequest) aus verschiedenen Operationen:
-   a) Transkription (Whisper API):
+2. Hierarchisches Tracking über Sub-Prozessoren:
+   a) Whisper API (Transkription):
       - Model: whisper-1
       - Purpose: transcription
       - Pro Audio-Segment ein Request
 
-   b) Template-Transformation (wenn Template verwendet):
-      - Model: gpt-4
-      - Purpose: template_transform
-      - Requests vom TransformerProcessor
-
-   c) Übersetzung (wenn Zielsprache != Quellsprache):
-      - Model: gpt-4
-      - Purpose: translation
-      - Requests vom TransformerProcessor
-
-Ablauf:
-1. LLMInfo wird für den Gesamtprozess initialisiert
-2. Transkription erzeugt Whisper-Requests
-3. Optional: Template/Übersetzung erzeugt GPT-Requests
-4. Alle Requests werden im LLMInfo aggregiert
-5. Die Response enthält beide Informationsebenen
-
-Beispiel Response:
-{
-  "llm_info": {
-    "requests_count": 4,
-    "total_tokens": 2000,
-    "total_duration": 3000,
-    "total_cost": 0.20,
-    "requests": [
-      {
-        "model": "whisper-1",
-        "purpose": "transcription",
-        "tokens": 500,
-        "duration": 800,
-        "timestamp": "2024-01-20T10:15:30Z"
-      },
-      {
-        "model": "whisper-1", 
-        "purpose": "transcription",
-        "tokens": 600,
-        "duration": 900,
-        "timestamp": "2024-01-20T10:15:31Z"
-      },
-      {
-        "model": "gpt-4",
-        "purpose": "template_transform",
-        "tokens": 400,
-        "duration": 600,
-        "timestamp": "2024-01-20T10:15:32Z"
-      },
-      {
-        "model": "gpt-4",
-        "purpose": "translation",
-        "tokens": 500,
-        "duration": 700,
-        "timestamp": "2024-01-20T10:15:33Z"
-      }
-    ]
-  }
-}
+   b) TransformerProcessor (Template/Übersetzung):
+      - Eigene ProcessInfo
+      - Wird in Haupt-ProcessInfo integriert
 """
 import os
 import shutil
@@ -84,8 +31,9 @@ import uuid
 import requests
 from datetime import datetime
 import math
+import time
 
-from src.core.models.transformer import LLMInfo, TransformerResponse
+from src.core.models.transformer import TransformerResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
@@ -98,12 +46,12 @@ from src.core.models.audio import (
     AudioSegmentInfo,
     Chapter
 )
-from src.core.models.llm import LLModel, LLMRequest
-from src.core.models.response_factory import ResponseFactory
+from src.core.models.base import ProcessInfo, ErrorInfo
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.models.enums import ProcessorType
-from src.core.models.base import ProcessInfo, ProcessingLogger
-from src.core.config import Config, ApplicationConfig
+from src.utils.logger import ProcessingLogger
+from src.core.config import Config
+from src.processors.base_processor import BaseProcessor
 
 try:
     from pydub import AudioSegment  # type: ignore
@@ -144,19 +92,21 @@ AudioSegmentType = type[AudioSegmentProtocol]
 
 class WhisperTranscriberProtocol(Protocol):
     """Protocol für WhisperTranscriber."""
+    processor: Optional[BaseProcessor[Any]]  # Hinzugefügt für BaseProcessor Integration
+    
     async def transcribe_segments(
         self,
         *,
         segments: Union[List[AudioSegmentInfo], List[Chapter]],
         source_language: str,
         target_language: str,
-        logger: Optional[ProcessingLogger] = None
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
     ) -> TranscriptionResult: ...
 
 class TransformerProcessorProtocol(Protocol):
     """Protocol für TransformerProcessor."""
     model: str
-    llms: List[LLModel]
     
     def transform(
         self,
@@ -192,78 +142,67 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         temp_file_suffix (str): Suffix für temporäre Dateien
         temp_dir (Path): Verzeichnis für temporäre Dateien
         cache_dir (Path): Verzeichnis für den Cache
-        logger (ProcessingLogger): Logger für die Verarbeitung
     """
     
     # Name der Cache-Collection für MongoDB
     cache_collection_name = "audio_cache"
     
-    logger: ProcessingLogger  # Explizite Typ-Annotation für logger
     temp_dir: Path  # Explizite Typ-Annotation für temp_dir
     cache_dir: Path  # Explizite Typ-Annotation für cache_dir
     start_time: Optional[datetime] = None  # Startzeit des Verarbeitungsprozesses
     end_time: Optional[datetime] = None  # Endzeit des Verarbeitungsprozesses
-    duration: Optional[float] = None  # Dauer des Verarbeitungsprozesses in Sekunden
+    duration: Optional[float] = None
     
-    def __init__(self, resource_calculator: ResourceCalculator, process_id: Optional[str] = None) -> None:
+    def __init__(self, resource_calculator: ResourceCalculator, 
+                 process_id: Optional[str] = None, 
+                 parent_process_info: Optional[ProcessInfo] = None):
         """Initialisiert den AudioProcessor."""
-        super().__init__(resource_calculator=resource_calculator, process_id=process_id)
+        # Zeit für Gesamtinitialisierung starten
+        init_start = time.time()
         
-        # Konfiguration laden
-        config = Config()
-        self.config: ApplicationConfig = config.get_all()
+        # Superklasse-Initialisierung
+        super().__init__(resource_calculator=resource_calculator, 
+                        process_id=process_id, 
+                        parent_process_info=parent_process_info)
         
-        # Audio-Konfiguration aus Config extrahieren
-        processor_config: ProcessorConfig = self.config.get('processors', {})
-        audio_config: ProcessorConfig = processor_config.get('audio', {})
-        
-        # Konfigurationswerte mit Typ-Annotationen
-        self.max_file_size: int = audio_config.get('max_file_size', 125829120)  # 120MB
-        self.segment_duration: int = audio_config.get('segment_duration', 300)  # 5 Minuten
-        self.max_segments: Optional[int] = audio_config.get('max_segments', 100)
-        self.export_format: str = audio_config.get('export_format', 'mp3')
-        self.temp_file_suffix: str = f".{self.export_format}"
-        
-        # Debug-Logging der Audio-Konfigurationsparameter
-        self.logger.debug("AudioProcessor initialisiert mit Konfiguration", 
-                         max_file_size=self.max_file_size,
-                         segment_duration=self.segment_duration,
-                         max_segments=self.max_segments,
-                         export_format=self.export_format,
-                         temp_dir=str(self.temp_dir),
-                         cache_dir=str(self.cache_dir))
-        
-        # Initialisiere Sub-Prozessoren
-        self.transformer_processor: TransformerProcessorProtocol = cast(TransformerProcessorProtocol,
-            TransformerProcessor(resource_calculator, process_id))
-        
-        # Initialisiere den Transcriber mit Audio-spezifischen Konfigurationen
-        transcriber_config = {
-            "process_id": process_id,
-            "processor_name": "audio",
-            "cache_dir": str(self.cache_dir),  # Haupt-Cache-Verzeichnis
-            "temp_dir": str(self.temp_dir),    # Temporäres Unterverzeichnis
-            "debug_dir": str(self.temp_dir / "debug")
-        }
-        
-        # Füge batch_size hinzu, falls definiert
-        batch_size = audio_config.get('batch_size')
-        if batch_size is not None:
-            transcriber_config["batch_size"] = batch_size
-        
-        self.transcriber: WhisperTranscriberProtocol = cast(WhisperTranscriberProtocol,
-                                                           WhisperTranscriber(transcriber_config))
-
-    @property
-    def process_info(self) -> ProcessInfo:
-        """Gibt die Prozess-Informationen zurück."""
-        return ProcessInfo(
-            id=self.process_id,
-            main_processor="audio",
-            started=self.start_time.isoformat() if self.start_time else datetime.now().isoformat(),
-            duration=self.duration if self.duration else None,
-            completed=self.end_time.isoformat() if self.end_time else None
-        )
+        try:
+            # Konfiguration laden
+            config = Config()
+            processor_config = config.get('processors', {})
+            audio_config = processor_config.get('audio', {})
+            
+            # Audio-spezifische Konfiguration
+            self.max_file_size = audio_config.get('max_file_size', 125829120)
+            self.segment_duration = audio_config.get('segment_duration', 300)
+            self.max_segments = audio_config.get('max_segments', 100)
+            self.export_format = audio_config.get('export_format', 'mp3')
+            self.temp_file_suffix = f".{self.export_format}"
+            
+            # Sub-Prozessoren mit ProcessInfo initialisieren
+            self.transformer_processor = TransformerProcessor(
+                resource_calculator, 
+                process_id,
+                parent_process_info=self.process_info
+            )
+            
+            # Transcriber mit Audio-spezifischen Konfigurationen
+            transcriber_config = {
+                'processor_name': 'audio',
+                'cache_dir': str(self.cache_dir),
+                'temp_dir': str(self.temp_dir),
+                'debug_dir': str(self.temp_dir / "debug")
+            }
+            
+            self.transcriber = WhisperTranscriber(transcriber_config, processor=self)
+            
+            # Performance-Logging
+            init_end = time.time()
+            self.logger.info(f"Gesamte Initialisierungszeit: {(init_end - init_start) * 1000:.2f} ms")
+            
+        except Exception as e:
+            self.logger.error("Fehler bei der Initialisierung des AudioProcessors",
+                            error=e)
+            raise ProcessingError(f"Initialisierungsfehler: {str(e)}")
 
     def measure_operation(self, operation_name: str):
         """Context Manager für die Zeitmessung von Operationen."""
@@ -786,280 +725,145 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         skip_segments: Optional[List[int]] = None,
         use_cache: bool = True
     ) -> AudioResponse:
-        """Verarbeitet eine Audio-Datei.
-        
-        Args:
-            audio_source: Die Audio-Quelle (Pfad, URL oder Bytes)
-            source_info: Optionale Zusatzinformationen zur Quelle
-            chapters: Optionale Kapitelinformationen
-            source_language: Quellsprache (ISO 639-1)
-            target_language: Zielsprache (ISO 639-1)
-            template: Optionales Template für die Transformation
-            skip_segments: Optionale Liste von zu überspringenden Segmenten
-            use_cache: Ob der Cache verwendet werden soll (default: True)
-            
-        Returns:
-            AudioResponse: Das Verarbeitungsergebnis
-        """
-        # Initialisiere LLMInfo für den gesamten Prozess
-        llm_info = LLMInfo(
-            model=self.transformer_processor.model if self.transformer_processor else "none",
-            purpose="audio-processing",
-            requests=[]  # Explizit leere Liste
-        )
-        start_time = datetime.now()
+        """Verarbeitet eine Audio-Datei."""
         
         try:
-            # Initialisiere source_info wenn nicht vorhanden
+            # Parameter validieren und standardisieren
             source_info = source_info or {}
-            source_language = source_language or "de"  # Fallback auf Deutsch
-            target_language = target_language or source_language  # Fallback auf Quellsprache
+            source_language = source_language or "de"
+            target_language = target_language or source_language
             
-            # Erstelle temporäre Datei aus der Quelle
-            if isinstance(audio_source, bytes):
-                temp_file_path: Path = self._create_temp_file(audio_source)
-            elif isinstance(audio_source, str) and audio_source.startswith(('http://', 'https://')):
-                temp_file_path = self._download_audio(audio_source)
-            else:
-                temp_file_path = Path(audio_source)
-            
-            # Generiere Cache-Schlüssel
+            # Cache-Schlüssel generieren
             cache_key = self._create_cache_key(
-                audio_path=str(temp_file_path),
+                audio_path=str(audio_source),
                 source_info=source_info,
                 target_language=target_language,
                 template=template
             )
-                
-            # Überprüfe auf Cache-Hit
-            if use_cache and self.is_cache_enabled():
-                self.logger.debug(f"Prüfe Cache für Audio mit Schlüssel: {cache_key}")
-                cache_hit, cached_result = self.get_from_cache(cache_key)
-                
-                if cache_hit and cached_result:
-                    self.logger.info(f"Cache-Hit für Audio: {getattr(cached_result.metadata, 'filename', 'unbekannt')}")
-
-                    # Response aus Cache erstellen
-                    response: AudioResponse = self._create_response(
-                        result=cached_result,
-                        request={
-                            'source': str(audio_source),
-                            'source_language': source_language,
-                            'target_language': target_language,
-                            'template': template
-                        },
-                        elapsed_time=0.0,
-                        llm_info=None,  # Keine LLM-Info bei Cache-Hit
-                        from_cache=True
-                    )
-                    return response
             
-            # Erstelle Verarbeitungsverzeichnis
-            process_dir: Path = self.get_process_dir(
-                str(temp_file_path),
-                source_info.get('original_filename'),
-                source_info.get('video_id'),
-                True
+            # Cache prüfen
+            if use_cache and self.is_cache_enabled():
+                cache_hit, cached_result = self.get_from_cache(cache_key)
+                if cache_hit and cached_result:
+                    return self.create_response(
+                        processor_name="audio",
+                        result=cached_result,
+                        request_info={
+                            "audio_path": str(audio_source),
+                            "source_info": source_info,
+                            "target_language": target_language,
+                            "template": template,
+                            "use_cache": use_cache
+                        },
+                        response_class=AudioResponse,
+                        from_cache=True,
+                        cache_key=cache_key
+                    )
+            
+            # Audio verarbeiten
+            audio = self._process_audio_file(str(audio_source))
+            if not audio:
+                raise ProcessingError("Audio konnte nicht verarbeitet werden")
+            
+            # Audio segmentieren
+            process_dir = self.get_process_dir(str(audio_source), source_info.get('original_filename'))
+            segments = self.get_audio_segments(audio, process_dir, chapters, skip_segments)
+            
+            # Transkription durchführen
+            transcription_result = await self.transcriber.transcribe_segments(
+                segments=segments,
+                source_language=source_language,
+                target_language=target_language,
+                logger=self.logger,
+                processor=self.__class__.__name__
             )
-
-            try:
-                # Verarbeite die Audio-Datei
-                audio: AudioSegmentProtocol | None = self._process_audio_file(str(temp_file_path))
-                
-                if not audio:
-                    raise ProcessingError("Audio konnte nicht verarbeitet werden")
-
-                # Erstelle Audio-Segmente
-                segment_infos: Union[List[AudioSegmentInfo], List[Chapter]] = self.get_audio_segments(audio, process_dir, chapters, skip_segments)
-
-                # Transkription durchführen
-                self.logger.info(f"Verarbeite {len(segment_infos)} Kapitel")
-                transcription_result: TranscriptionResult = await self.transcriber.transcribe_segments(
-                    segments=segment_infos,
+            
+            # Template-Transformation wenn nötig
+            if template:
+                transformer_response = self.transformer_processor.transformByTemplate(
+                    text=transcription_result.text,
                     source_language=source_language,
                     target_language=target_language,
-                    logger=self.logger
+                    template=template,
+                    context=source_info
                 )
-
-                if transcription_result.source_language != source_language:
-                    source_language = transcription_result.source_language
-
-                if not transcription_result:
-                    raise ProcessingError("Keine Transkription erstellt")
-
-                # Füge Whisper-Requests hinzu
-                if transcription_result.requests:
-                    self.logger.info(f"Füge {len(transcription_result.requests)} Whisper-Requests hinzu")
-                    llm_info.add_request(transcription_result.requests)
-                elif transcription_result.llms:  # Fallback auf llms wenn requests leer
-                    self.logger.info(f"Füge {len(transcription_result.llms)} Whisper-LLMs als Requests hinzu")
-                    # Konvertiere LLModels zu LLMRequests
-                    llm_requests: List[LLMRequest] = [
-                        LLMRequest(
-                            model=llm.model,
-                            purpose="transcription",
-                            tokens=llm.tokens,
-                            duration=int(llm.duration),  # Konvertiere zu int für Millisekunden
-                            timestamp=llm.timestamp
-                        )
-                        for llm in transcription_result.llms
-                    ]
-                    llm_info.add_request(llm_requests)
-
-                original_text: str = transcription_result.text
-
-                # Template-Transformation oder Übersetzung durchführen
-                if template:
-                    # Transformiere den Text mit dem Template
-                    self.logger.info(f"Text transformation mit Template {template}")
-                    transformer_response: TransformerResponse = self.transformer_processor.transformByTemplate(
-                        source_text=original_text,
-                        source_language=source_language,
-                        target_language=target_language,
-                        template=template,
-                        context=source_info
+                
+                if transformer_response and transformer_response.data:
+                    transcription_result = TranscriptionResult(
+                        text=transformer_response.data.text,
+                        source_language=transcription_result.source_language,
+                        segments=transcription_result.segments
                     )
-                    
-                    # Füge Template-Transformation Requests hinzu
-                    if transformer_response.process and transformer_response.process.llm_info:
-                        self.logger.info(f"Füge {len(transformer_response.process.llm_info.requests)} Template-Transformation-Requests hinzu")
-                        llm_info.add_request(transformer_response.process.llm_info.requests)
-                    
-                    if transformer_response and transformer_response.data and transformer_response.data.output:
-                        transcription_result = TranscriptionResult(
-                            text=transformer_response.data.output.text,
-                            source_language=transcription_result.source_language,
-                            segments=transcription_result.segments,
-                            requests=[],  # Leere Liste statt None
-                            llms=[]  # Leere Liste statt None
-                        )
-
-                # Erstelle das finale Ergebnis
-                metadata = AudioMetadata(
-                    duration=float(len(audio)) / 1000.0,  # Konvertiere ms zu Sekunden
+            
+            # Ergebnis erstellen
+            result = AudioProcessingResult(
+                transcription=transcription_result,
+                metadata=AudioMetadata(
+                    duration=float(len(audio)) / 1000.0,
                     process_dir=str(process_dir),
-                    format=getattr(audio, 'format', 'mp3'),
+                    format=self.export_format,
                     channels=getattr(audio, 'channels', 2)
-                )
-                
-                # Erstelle bereinigte Version des Results ohne Requests
-                result = AudioProcessingResult(
-                    transcription=TranscriptionResult(
-                        text=transcription_result.text if transcription_result else "",
-                        source_language=transcription_result.source_language if transcription_result else "unknown",
-                        segments=transcription_result.segments if transcription_result and transcription_result.segments else [],
-                        requests=[],
-                        llms=[]
-                    ),
-                    metadata=metadata,
-                    process_id=self.process_id,
-                    transformation_result=None  # Kein separates Transformationsergebnis mehr
-                )
-                
-                # Speichere im Cache
-                self.save_to_cache(
-                    cache_key=cache_key,
-                    result=result
-                )
-                self.logger.debug(f"Audio-Ergebnis im MongoDB-Cache gespeichert: {cache_key}")
-                
-                # Response erstellen
-                response: AudioResponse = self._create_response(
-                    result=result,
-                    request={
-                        'source': str(audio_source),
-                        'source_language': source_language,
-                        'target_language': target_language,
-                        'template': template
-                    },
-                    elapsed_time=0.0,
-                    llm_info=llm_info if llm_info.requests else None,
-                    from_cache=False
-                )
-                
-                return response
-
-            except Exception as e:
-                # Log den Fehler und erstelle Error-Response
-                self.logger.error(
-                    "Fehler bei der Audio-Verarbeitung",
-                    error=e,
-                    error_type=type(e).__name__,
-                    stage="audio_processing",
-                    process_id=self.process_id
-                )
-                
-                # Error-Response mit ResponseFactory
-                end_time = datetime.now()
-                duration_ms = int((end_time - start_time).total_seconds() * 1000)
-                
-                return self._create_response(
-                    result=AudioProcessingResult(
-                        transcription=TranscriptionResult(
-                            text="",
-                            source_language="unknown",
-                            segments=[],
-                            requests=[],
-                            llms=[]
-                        ),
-                        metadata=AudioMetadata(
-                            duration=0.0,
-                            process_dir="",
-                            format="unknown",
-                            channels=0
-                        ),
-                        process_id=self.process_id,
-                        transformation_result=None
-                    ),
-                    request={
-                        'original_filename': source_info.get('original_filename') if source_info else None,
-                        'source_language': source_language,
-                        'target_language': target_language,
-                        'template': template,
-                        'started': start_time.isoformat(),
-                        'completed': end_time.isoformat(),
-                        'duration_ms': duration_ms
-                    },
-                    elapsed_time=0.0,
-                    llm_info=None,
-                    from_cache=False
-                )
-
+                ),
+                process_id=self.process_id
+            )
+            
+            # Im Cache speichern
+            if use_cache:
+                self.save_to_cache(cache_key, result)
+            
+            # Response erstellen mit request_info
+            return self.create_response(
+                processor_name=ProcessorType.AUDIO.value,
+                result=result,
+                request_info={
+                    'audio_source': str(audio_source),
+                    'source_info': source_info,
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'use_cache': use_cache
+                },
+                response_class=AudioResponse,
+                from_cache=False,
+                cache_key=cache_key
+            )
+            
         except Exception as e:
-            # Log und handle den Fehler
-            self.logger.error(f"Fehler bei der Audio-Verarbeitung: {str(e)}")
-            self._handle_error(e, "audio_processing")
+            self.logger.error("Fehler bei der Audio-Verarbeitung",
+                            error=e,
+                            error_type=type(e).__name__)
             
-            # Erstelle leeres Ergebnisobjekt mit Fehlermeldung
-            self.logger.error("Unerwarteter Fehler bei der Audio-Verarbeitung")
-            
-            end_time = datetime.now()
-            duration_ms = int((end_time - start_time).total_seconds() * 1000)
-            
-            return self._create_response(
+            # Erstelle eine Fehler-Response mit create_response
+            return self.create_response(
+                processor_name=ProcessorType.AUDIO.value,
                 result=AudioProcessingResult(
                     transcription=TranscriptionResult(
-                        text=f"Fehler: {str(e)}",
+                        text="",
                         source_language=source_language or "unknown"
                     ),
                     metadata=AudioMetadata(
                         duration=0.0,
-                        process_dir=str(self.temp_dir),
-                        title="Verarbeitungsfehler"
+                        process_dir="",
+                        format="unknown"
                     ),
-                    process_id=self.process_id,
-                    transformation_result=None
+                    process_id=self.process_id
                 ),
-                request={
-                    'original_filename': source_info.get('original_filename') if source_info else None,
-                    'source_language': source_language,
-                    'target_language': target_language,
+                request_info={
+                    'audio_source': str(audio_source),
+                    'source_info': source_info or {},
+                    'source_language': source_language or "unknown",
+                    'target_language': target_language or "unknown",
                     'template': template,
-                    'duration_ms': duration_ms
+                    'use_cache': use_cache
                 },
-                elapsed_time=0.0,
-                llm_info=None,
-                from_cache=False
+                response_class=AudioResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="AUDIO_PROCESSING_ERROR",
+                    message=str(e),
+                    details={"error_type": type(e).__name__}
+                )
             )
 
     def _create_temp_file(self, audio_data: bytes) -> Path:
@@ -1120,26 +924,25 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         )
 
     def _create_response(self, result: AudioProcessingResult, request: Dict[str, Any], 
-                        elapsed_time: float, from_cache: bool = False, llm_info: Optional[LLMInfo] = None) -> AudioResponse:
+                        elapsed_time: float, from_cache: bool = False, cache_key: str="") -> AudioResponse:
         """Erstellt eine API-Response aus dem Verarbeitungsergebnis.
         
         Args:
             result: Das Verarbeitungsergebnis
             request: Die ursprüngliche Anfrage
             elapsed_time: Die benötigte Zeit in Sekunden
-            llm_info: Informationen zur LLM-Nutzung
             
         Returns:
             AudioResponse: Die API-Response
         """
         # Response erstellen
-        response: AudioResponse = ResponseFactory.create_response(
+        response: AudioResponse = self.create_response(
             processor_name=ProcessorType.AUDIO.value,
             result=result,
             request_info=request,
             response_class=AudioResponse,
             from_cache=from_cache,
-            llm_info=llm_info if llm_info and getattr(llm_info, "requests", None) else None,
+            cache_key=cache_key
         )
         
         return response 
