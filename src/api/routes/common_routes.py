@@ -11,12 +11,15 @@ import mimetypes
 from pathlib import Path
 import sys
 import asyncio
+import uuid
 
 from src.processors.session_processor import SessionProcessor
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from utils.logger import ProcessingLogger
+from src.processors.obsidian_processor import ObsidianProcessor
+from src.core.models import ObsidianExportRequest
 
 # Typvariable für Dekoratoren
 T = TypeVar('T')
@@ -80,6 +83,18 @@ notion_response_model = cast(ModelType, common_ns.model('NotionResponse', {  # t
 # Error-Modell
 error_model = cast(ModelType, common_ns.model('Error', {  # type: ignore
     'error': fields.String(description='Fehlermeldung')
+}))
+
+# Modell für den Obsidian-Export hinzufügen
+obsidian_export_model = cast(ModelType, common_ns.model('ObsidianExportRequest', {  # type: ignore
+    'source_dir': fields.String(required=True, description='Quellverzeichnis des Events', default="sessions"),
+    'target_dir': fields.String(required=True, description='Zielverzeichnis für den Obsidian-Export', default="obsidian"),
+    'event_name': fields.String(required=True, description='Name des Events', default="FOSDEM 2025"),
+    'languages': fields.List(fields.String, description='Zu exportierende Sprachen', default=['de', 'en']),
+    'export_mode': fields.String(description='Export-Modus (copy, regenerate, hybrid)', default='copy', enum=['copy', 'regenerate', 'hybrid']),
+    'preserve_changes': fields.Boolean(description='Änderungen beibehalten', default=True),
+    'force_overwrite': fields.Boolean(description='Überschreiben erzwingen', default=False),
+    'include_assets': fields.Boolean(description='Assets einschließen', default=True)
 }))
 
 # Helper-Funktion zum Abrufen des Session-Processors
@@ -281,4 +296,76 @@ class SampleFileEndpoint(Resource):
                     'code': 'SAMPLE_DOWNLOAD_ERROR',
                     'message': str(e)
                 }
-            }, 500 
+            }, 500
+
+# Obsidian Export Endpoint
+@common_ns.route('/obsidian_exporter')  # type: ignore
+class ObsidianEndpoint(Resource):
+    @common_ns.doc(description='Exportiert Event-Daten nach Obsidian')  # type: ignore
+    @common_ns.expect(obsidian_export_model)  # type: ignore
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Exportiert Event-Daten in ein für Obsidian optimiertes Format.
+        """
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            try:
+                # Parse Request
+                data = request.get_json()
+                if not data:
+                    return {'error': 'Keine Daten gefunden'}, 400
+                
+                # Validiere Pflichtfelder
+                required_fields = ['source_dir', 'target_dir', 'event_name']
+                for field in required_fields:
+                    if field not in data or not data[field]:
+                        return {'error': f'Feld "{field}" ist ein Pflichtfeld'}, 400
+                
+                # Erstelle ObsidianExportRequest
+                export_request = ObsidianExportRequest(
+                    source_dir=data.get('source_dir', ''),
+                    target_dir=data.get('target_dir', ''),
+                    event_name=data.get('event_name', ''),
+                    languages=data.get('languages', ['de', 'en']),
+                    export_mode=data.get('export_mode', 'copy'),
+                    preserve_changes=data.get('preserve_changes', True),
+                    force_overwrite=data.get('force_overwrite', False),
+                    include_assets=data.get('include_assets', True)
+                )
+                
+                # Erstelle Konfiguration und Exporter
+                config = export_request.to_config()
+                
+                # Erstelle Resource-Calculator für den Prozessor
+                resource_calculator = ResourceCalculator()
+                
+                # Initialisiere den neuen ObsidianProcessor mit ResourceCalculator
+                exporter = ObsidianProcessor(
+                    resource_calculator=resource_calculator,
+                    config=config,
+                    process_id=str(uuid.uuid4())
+                )
+                
+                # Führe Export durch (asynchron mit dem neuen Prozessor)
+                response = await exporter.export(use_cache=True)
+                
+                # Gib Ergebnis zurück (die Response wird direkt vom Prozessor erstellt)
+                return response.to_dict()
+            
+            except Exception as e:
+                logger.error("Fehler beim Obsidian-Export", 
+                            error=e,
+                            error_type=type(e).__name__,
+                            stack_trace=traceback.format_exc())
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': type(e).__name__,
+                        'message': str(e),
+                        'details': {
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()
+                        }
+                    }
+                }, 500
+        
+        return asyncio.run(process_request()) 

@@ -123,43 +123,53 @@ class TrackProcessingResult:
         sessions: List[SessionData] = []
         
         for session_dict in sessions_data:
-            # Extrahiere und validiere Input-Daten
-            input_data: Dict[str, Any] = safe_get(session_dict, "input", cast(Dict[str, Any], {}))
-            session_input = SessionInput(
-                event=str(safe_get(input_data, "event", "")),
-                session=str(safe_get(input_data, "session", "")),
-                url=str(safe_get(input_data, "url", "")),
-                filename=str(safe_get(input_data, "filename", "")),
-                track=str(safe_get(input_data, "track", "")),
-                day=str(safe_get(input_data, "day", "")) if safe_get(input_data, "day", None) else None,
-                starttime=str(safe_get(input_data, "starttime", "")) if safe_get(input_data, "starttime", None) else None,
-                endtime=str(safe_get(input_data, "endtime", "")) if safe_get(input_data, "endtime", None) else None,
-                speakers=list(safe_get(input_data, "speakers", [])),  # type: ignore
-                video_url=str(safe_get(input_data, "video_url", "")) if safe_get(input_data, "video_url", None) else None,
-                attachments_url=str(safe_get(input_data, "attachments_url", "")) if safe_get(input_data, "attachments_url", None) else None,
-                source_language=str(safe_get(input_data, "source_language", "en")),
-                target_language=str(safe_get(input_data, "target_language", "de")),
-                target=str(safe_get(input_data, "target", "")) if safe_get(input_data, "target", None) else None,
-                template=str(safe_get(input_data, "template", "Session"))
-            )
-            
-            # Extrahiere und validiere Output-Daten
-            output_data: SessionOutputDict = safe_get(session_dict, "output", cast(SessionOutputDict, {}))  # type: ignore
-            session_output = SessionOutput(
-                input_data=session_input,
-                target_dir=str(safe_get(output_data, "target_dir", "")),  # type: ignore
-                web_text=str(safe_get(output_data, "web_text", "")),  # type: ignore
-                video_transcript=str(safe_get(output_data, "video_transcript", "")),  # type: ignore
-                attachments_text=str(safe_get(output_data, "attachments_text", "")),  # type: ignore
-                markdown_file=str(safe_get(output_data, "markdown_file", "")),  # type: ignore
-                markdown_content=str(safe_get(output_data, "markdown_content", "")),  # type: ignore
-                video_file=str(safe_get(output_data, "video_file", "")) if safe_get(output_data, "video_file", None) else None,  # type: ignore
-                attachments_url=str(safe_get(output_data, "attachments_url", "")) if safe_get(output_data, "attachments_url", None) else None,  # type: ignore
-                attachments=list(safe_get(output_data, "attachments", [])),  # type: ignore
-                structured_data=dict(safe_get(output_data, "structured_data", {}))  # type: ignore
-            )
-            
-            sessions.append(SessionData(input=session_input, output=session_output))
+            try:
+                # Extrahiere und validiere Input-Daten
+                input_data: Dict[str, Any] = safe_get(session_dict, "input", cast(Dict[str, Any], {}))
+                session_input = SessionInput(
+                    event=str(safe_get(input_data, "event", "")),
+                    session=str(safe_get(input_data, "session", "")),
+                    url=str(safe_get(input_data, "url", "")),
+                    filename=str(safe_get(input_data, "filename", "")),
+                    track=str(safe_get(input_data, "track", "")),
+                    day=str(safe_get(input_data, "day", "")) if safe_get(input_data, "day", None) else None,
+                    starttime=str(safe_get(input_data, "starttime", "")) if safe_get(input_data, "starttime", None) else None,
+                    endtime=str(safe_get(input_data, "endtime", "")) if safe_get(input_data, "endtime", None) else None,
+                    speakers=list(safe_get(input_data, "speakers", [])),  # type: ignore
+                    video_url=str(safe_get(input_data, "video_url", "")) if safe_get(input_data, "video_url", None) else None,
+                    attachments_url=str(safe_get(input_data, "attachments_url", "")) if safe_get(input_data, "attachments_url", None) else None,
+                    source_language=str(safe_get(input_data, "source_language", "en")),
+                    target_language=str(safe_get(input_data, "target_language", "de")),
+                    target=str(safe_get(input_data, "target", "")) if safe_get(input_data, "target", None) else None,
+                    template=str(safe_get(input_data, "template", "Session"))
+                )
+                
+                # Extrahiere und validiere Output-Daten - NUR mit bekannten Parametern
+                output_data: Dict[str, Any] = safe_get(session_dict, "output", cast(Dict[str, Any], {}))
+                # Erstelle SessionOutput-Parameter ohne attachments_text
+                output_params = {
+                    "input_data": session_input,
+                    "target_dir": str(safe_get(output_data, "target_dir", "")),
+                    "web_text": str(safe_get(output_data, "web_text", "")),
+                    "video_transcript": str(safe_get(output_data, "video_transcript", "")),
+                    "markdown_file": str(safe_get(output_data, "markdown_file", "")),
+                    "markdown_content": str(safe_get(output_data, "markdown_content", "")),
+                    "video_file": str(safe_get(output_data, "video_file", "")) if safe_get(output_data, "video_file", None) else None,
+                    "attachments_url": str(safe_get(output_data, "attachments_url", "")) if safe_get(output_data, "attachments_url", None) else None,
+                    "attachments": list(safe_get(output_data, "attachments", [])),
+                    "page_texts": list(safe_get(output_data, "page_texts", [])),
+                    "structured_data": dict(safe_get(output_data, "structured_data", {}))
+                }
+                
+                # Erstelle SessionOutput ohne attachments_text
+                session_output = SessionOutput(**output_params)
+                
+                sessions.append(SessionData(input=session_input, output=session_output))
+            except Exception as e:
+                # Fehler bei einer Session überspringen, aber protokollieren
+                # Die genaue Logging-Methode hängt von der Verfügbarkeit von self.logger ab
+                print(f"Fehler beim Deserialisieren einer Session: {str(e)}")
+                continue
         
         return cls(
             track_name=str(safe_get(data, "track_name", "")),
@@ -531,26 +541,29 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
             Optional[Tuple[TrackProcessingResult, Dict[str, Any]]]: 
                 Das geladene Ergebnis und Metadaten oder None
         """
-        # Prüfe Cache
-        cache_result = self.cache.load_cache_with_key(
-            cache_key=cache_key,
-            result_class=TrackProcessingResult
-        )
+        # Verwende die get_from_cache-Methode der CacheableProcessor-Basisklasse
+        # (MongoDB-basiert) statt cache.load_cache_with_key (dateibasiert)
+        cache_hit, result = self.get_from_cache(cache_key)
         
-        if cache_result:
+        if cache_hit and result:
             self.logger.info("Cache-Hit für Track-Verarbeitung", 
                            cache_key=cache_key)
-            return cache_result
+            # Erstelle leere Metadaten, da diese in der MongoDB-Version nicht
+            # als separates Dictionary zurückgegeben werden
+            metadata = {
+                'track_name': result.track_name,
+                'template': result.template,
+                'target_language': result.target_language,
+                'process_id': result.process_id
+            }
+            return result, metadata
             
         return None
     
     def _save_to_cache(
         self,
         cache_key: str,
-        result: TrackProcessingResult,
-        track_name: str,
-        template: str,
-        target_language: str
+        result: TrackProcessingResult
     ) -> None:
         """
         Speichert ein Verarbeitungsergebnis im Cache.
@@ -558,27 +571,20 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         Args:
             cache_key: Der Cache-Schlüssel
             result: Das zu speichernde Ergebnis
-            track_name: Name des Tracks
-            template: Name des Templates
-            target_language: Zielsprache
         """
-        # Erstelle Metadaten
-        metadata = {
-            'track_name': track_name,
-            'template': template,
-            'target_language': target_language,
-            'process_id': self.process_id
-        }
-        
-        # Speichere im Cache
-        self.cache.save_cache_with_key(
-            cache_key=cache_key,
-            result=result,
-            metadata=metadata
-        )
-        
-        self.logger.info("Track-Verarbeitungsergebnis im Cache gespeichert", 
-                       cache_key=cache_key)
+        try:
+            # Verwende die save_to_cache-Methode der CacheableProcessor-Basisklasse
+            self.save_to_cache(cache_key=cache_key, result=result)
+            
+            self.logger.info("Track-Verarbeitungsergebnis im Cache gespeichert", 
+                          cache_key=cache_key)
+        except Exception as e:
+            # Fehler beim Cache-Speichervorgang protokollieren, aber Hauptprozess nicht unterbrechen
+            self.logger.error(f"Fehler beim Speichern des Ergebnisses im Cache: {str(e)}",
+                            error=e,
+                            traceback=traceback.format_exc())
+            # Wir werfen die Exception nicht weiter, damit der Hauptprozess weiterläuft,
+            # auch wenn der Cache-Speichervorgang fehlschlägt
     
     async def create_track_summary(
         self,
@@ -785,10 +791,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         structured_data=dict(structured_data) if structured_data else {}, # Stelle sicher, dass es ein Dict ist
                         sessions=optimized_sessions,
                         process_id=self.process_id
-                    ),
-                    track_name=track_name,
-                    template=template,
-                    target_language=target_language
+                    )
                 )
                 
                 processing_time = time.time() - start_time
@@ -1014,7 +1017,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         """
         result_data = cached_data.get("result", {})
         
-        # Validiere und konvertiere die Daten
+        # Validiere und konvertiere die Daten - nur bekannte Felder verwenden
         track_name = str(safe_get(result_data, "track_name", ""))  # type: ignore
         template = str(safe_get(result_data, "template", ""))  # type: ignore
         target_language = str(safe_get(result_data, "target_language", ""))  # type: ignore
@@ -1023,56 +1026,95 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         # Explizite Typ-Definitionen für Dictionaries
         metadata_dict: Dict[str, Any] = safe_get(result_data, "metadata", {})  # type: ignore
         structured_data_dict: Dict[str, Any] = safe_get(result_data, "structured_data", {})  # type: ignore
+        process_id: Optional[str] = safe_get(result_data, "process_id")  # type: ignore
         
-        # Sessions rekonstruieren
+        # Rekonstruiere Sessions, aber ignoriere unbekannte Felder
         sessions: List[SessionData] = []
-        for session_dict in result_data.get("sessions", []):  # type: ignore
-            if isinstance(session_dict, dict):
-                try:
-                    # Input-Daten extrahieren und validieren
-                    input_dict = session_dict.get("input", {})  # type: ignore
-                    session_input = SessionInput(
-                        event=str(input_dict.get("event", "")),  # type: ignore
-                        session=str(input_dict.get("session", "")),  # type: ignore
-                        url=str(input_dict.get("url", "")),  # type: ignore
-                        filename=str(input_dict.get("filename", "")),  # type: ignore
-                        track=str(input_dict.get("track", "")),  # type: ignore
-                        day=str(input_dict.get("day", "")) if input_dict.get("day") else None,  # type: ignore
-                        starttime=str(input_dict.get("starttime", "")) if input_dict.get("starttime") else None,  # type: ignore
-                        endtime=str(input_dict.get("endtime", "")) if input_dict.get("endtime") else None,  # type: ignore
-                        speakers=list(input_dict.get("speakers", [])),  # type: ignore
-                        video_url=str(input_dict.get("video_url", "")) if input_dict.get("video_url") else None,  # type: ignore
-                        attachments_url=str(input_dict.get("attachments_url", "")) if input_dict.get("attachments_url") else None,  # type: ignore
-                        source_language=str(input_dict.get("source_language", "en")),  # type: ignore
-                        target_language=str(input_dict.get("target_language", "de")),  # type: ignore
-                        target=str(input_dict.get("target", "")) if input_dict.get("target") else None,  # type: ignore
-                        template=str(input_dict.get("template", "Session"))  # type: ignore
-                    )
-                    
-                    # Output-Daten extrahieren und validieren
-                    output_dict = session_dict.get("output", {})  # type: ignore
-                    session_output = SessionOutput(
-                        input_data=session_input,
-                        target_dir=str(output_dict.get("target_dir", "")),  # type: ignore
-                        web_text=str(output_dict.get("web_text", "")),  # type: ignore
-                        video_transcript=str(output_dict.get("video_transcript", "")),  # type: ignore
-                        attachments_text=str(output_dict.get("attachments_text", "")),  # type: ignore
-                        markdown_file=str(output_dict.get("markdown_file", "")),  # type: ignore
-                        markdown_content=str(output_dict.get("markdown_content", "")),  # type: ignore
-                        video_file=str(output_dict.get("video_file", "")) if output_dict.get("video_file") else None,  # type: ignore
-                        attachments_url=str(output_dict.get("attachments_url", "")) if output_dict.get("attachments_url") else None,  # type: ignore
-                        attachments=list(output_dict.get("attachments", [])),  # type: ignore
-                        structured_data=dict(output_dict.get("structured_data", {}))  # type: ignore
-                    )
-                    
-                    sessions.append(SessionData(input=session_input, output=session_output))
-                    
-                except Exception as e:
-                    self.logger.warning(f"Fehler beim Deserialisieren einer Session: {str(e)}")
-                    continue
+        session_dicts: List[Dict[str, Any]] = safe_get(result_data, "sessions", [])  # type: ignore
         
-        process_id = str(safe_get(result_data, "process_id", "")) if safe_get(result_data, "process_id", None) else None  # type: ignore
+        for session_dict in session_dicts:
+            try:
+                # Input-Daten rekonstruieren
+                input_dict: Dict[str, Any] = session_dict.get("input", {})
+                
+                # Explizit typisierte Werte extrahieren
+                session_event: str = str(input_dict.get("event", ""))
+                session_name: str = str(input_dict.get("session", ""))
+                session_url: str = str(input_dict.get("url", ""))
+                session_filename: str = str(input_dict.get("filename", ""))
+                session_track: str = str(input_dict.get("track", ""))
+                session_day: Optional[str] = input_dict.get("day")
+                session_starttime: Optional[str] = input_dict.get("starttime")
+                session_endtime: Optional[str] = input_dict.get("endtime")
+                session_speakers: List[str] = input_dict.get("speakers", [])
+                session_video_url: Optional[str] = input_dict.get("video_url")
+                session_attachments_url: Optional[str] = input_dict.get("attachments_url")
+                session_source_lang: str = str(input_dict.get("source_language", "en"))
+                session_target_lang: str = str(input_dict.get("target_language", "de"))
+                session_target: Optional[str] = input_dict.get("target")
+                session_template: str = str(input_dict.get("template", "Session"))
+                
+                input_obj = SessionInput(
+                    event=session_event,
+                    session=session_name,
+                    url=session_url,
+                    filename=session_filename,
+                    track=session_track,
+                    day=session_day,
+                    starttime=session_starttime,
+                    endtime=session_endtime,
+                    speakers=session_speakers,
+                    video_url=session_video_url,
+                    attachments_url=session_attachments_url,
+                    source_language=session_source_lang,
+                    target_language=session_target_lang,
+                    target=session_target,
+                    template=session_template
+                )
+                
+                # Output-Daten rekonstruieren - nur bekannte Felder verwenden
+                output_dict: Dict[str, Any] = session_dict.get("output", {})
+                
+                # Explizit typisierte Werte extrahieren
+                session_web_text: str = str(output_dict.get("web_text", ""))
+                session_video_transcript: str = str(output_dict.get("video_transcript", ""))
+                session_target_dir: str = str(output_dict.get("target_dir", ""))
+                session_markdown_file: str = str(output_dict.get("markdown_file", ""))
+                session_markdown_content: str = str(output_dict.get("markdown_content", ""))
+                session_video_file: Optional[str] = output_dict.get("video_file")
+                session_out_attachments_url: Optional[str] = output_dict.get("attachments_url")
+                session_attachments: List[str] = output_dict.get("attachments", [])
+                session_page_texts: List[str] = output_dict.get("page_texts", [])
+                session_structured_data: Dict[str, Any] = output_dict.get("structured_data", {})
+                
+                # Nur bekannte Felder für SessionOutput extrahieren
+                output_obj = SessionOutput(
+                    web_text=session_web_text,
+                    video_transcript=session_video_transcript,
+                    input_data=input_obj,
+                    target_dir=session_target_dir,
+                    markdown_file=session_markdown_file,
+                    markdown_content=session_markdown_content,
+                    video_file=session_video_file,
+                    attachments_url=session_out_attachments_url,
+                    attachments=session_attachments,
+                    page_texts=session_page_texts,
+                    structured_data=session_structured_data
+                )
+                
+                # SessionData hinzufügen
+                sessions.append(SessionData(
+                    input=input_obj,
+                    output=output_obj
+                ))
+            except Exception as e:
+                self.logger.warning(
+                    f"Session konnte nicht aus Cache rekonstruiert werden: {str(e)}",
+                    error=e,
+                    session_data=session_dict
+                )
         
+        # Erstelle TrackProcessingResult
         return TrackProcessingResult(
             track_name=track_name,
             template=template,

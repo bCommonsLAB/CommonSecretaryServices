@@ -5,6 +5,7 @@ Verwaltet die Speicherung und Abfrage von Session-Jobs in der MongoDB.
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.collection import Collection
+from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.results import UpdateResult, DeleteResult
 from typing import Dict, Any, List, Optional, Union
@@ -687,10 +688,10 @@ class SessionJobRepository:
             filter_dict["archived"] = archived
         
         # Batches abfragen
-        batch_data = self.batches.find(filter_dict).sort("created_at", DESCENDING).skip(skip).limit(limit)
+        batch_data: Cursor[Any] = self.batches.find(filter_dict).sort("created_at", DESCENDING).skip(skip).limit(limit)
         
         # Batches in Objekte umwandeln
-        batches = [Batch.from_dict(batch) for batch in batch_data]
+        batches: List[Batch] = [Batch.from_dict(batch) for batch in batch_data]
         
         logger.debug(f"{len(batches)} Batches abgefragt")
         
@@ -1010,7 +1011,7 @@ class SessionJobRepository:
             
         return success
     
-    def update_jobs_status_by_batch(self, batch_id: str, status: Union[str, JobStatus]) -> int:
+    def update_jobs_status_by_batch(self, batch_id: str, status: Union[str, JobStatus], language: Optional[str] = None) -> int:
         """
         Aktualisiert den Status aller Jobs eines Batches.
         
@@ -1030,13 +1031,16 @@ class SessionJobRepository:
             "status": status_value,
             "updated_at": now
         }
-        
+
+        if language:
+            update_dict["parameters.target_language"] = language
+
         # Wenn Status auf "completed" oder "failed" gesetzt wird, setze completed_at
         if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
             update_dict["completed_at"] = now
         
         # Alle Jobs des Batches aktualisieren
-        result = self.jobs.update_many(
+        result: UpdateResult = self.jobs.update_many(
             {"batch_id": batch_id},
             {"$set": update_dict}
         )

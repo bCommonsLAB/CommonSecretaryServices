@@ -34,6 +34,7 @@ import shutil
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 
+from core.services.translator_service import TranslatorService
 from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
@@ -420,6 +421,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
 
                 markdown_content = markdown_content.replace("{slides}", slides)
 
+
                 # Markdown-Datei im Session-Verzeichnis speichern
                 markdown_file: Path = target_dir / filename
                 markdown_file.write_text(markdown_content, encoding='utf-8')
@@ -427,6 +429,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 processing_time = time.time() - start_time
                 self.logger.debug("Markdown generiert",
                                 processing_time=processing_time,
+                                markdown_file=filename,
                                 markdown_length=len(markdown_content))
                     
                 return markdown_file, markdown_content, structured_data
@@ -442,7 +445,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         self,
         attachments_url: str,
         session_data: SessionInput,
-        target_dir: Path
+        target_dir: str
     ) -> Tuple[List[str], List[str]]:
         """
         Verarbeitet die Anhänge einer Session.
@@ -464,9 +467,9 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         try:
             with tracker.measure_operation('process_attachments', 'session') if tracker else nullcontext():
                 self.logger.info(f"Verarbeite Anhänge: {attachments_url}")
-                
+                assets_dir: Path = self.base_dir / target_dir
+
                 # Erstelle Verzeichnis für Assets
-                assets_dir = target_dir / "assets"
                 if not assets_dir.exists():
                     assets_dir.mkdir(parents=True)
                     
@@ -515,7 +518,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                             # Verifikation der Kopie
                             if target_path.exists():
                                 # Normalisierter Pfad für die Gallery
-                                normalized_path = f"assets/{file_name}"
+                                normalized_path = f"{target_dir}/{file_name}"
                                 gallery_paths.append(normalized_path)
                                 successful_copies += 1
                                 self.logger.debug(f"Vorschaubild kopiert ({index+1}/{len(source_paths)}): {source_path} -> {target_path}")
@@ -670,21 +673,56 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 
                 self.logger.info(f"Starte Verarbeitung von Session: {session}")
                 
+                # Übersetze Track- und Session-Namen, wenn die Zielsprache nicht der Quellsprache entspricht
+                translated_track = track
+                translated_filename = filename
                 
-                # Erstelle formatierten Session-Verzeichnisnamen mit Startzeit
-                session_dir_name = f"{Path(filename).stem}"
+                #if source_language != target_language:
+                
+                # Translator-Service laden
+                from src.core.services.translator_service import get_translator_service
+                translator: TranslatorService = get_translator_service()
+                
+                # Track und Session übersetzen
+                with tracker.measure_operation('translate_directory_names', 'translation') if tracker else nullcontext():
+                    translated_track = await translator.translate_entity(
+                        entity_type="track",
+                        entity_id=track,
+                        text=track,
+                        target_language=target_language,
+                        source_language=source_language
+                    )
+                    
+                    # Session-Übersetzung für Kontext (könnte in Zukunft verwendet werden)
+                    await translator.translate_entity(
+                        entity_type="session",
+                        entity_id=session,
+                        text=session,
+                        target_language=target_language,
+                        source_language=source_language
+                    )
+                    
+                    # Für den Dateinamen den Stammteil des Original-Dateinamens übersetzen
+                    stem = Path(filename).stem
+                    translated_stem = await translator.translate_entity(
+                        entity_type="filename",
+                        entity_id=stem,
+                        text=stem,
+                        target_language=target_language,
+                        source_language=source_language
+                    )
+                    
+                    # Sicherstellen, dass der Dateiname nicht zu lang wird
+                    if len(translated_stem) > 50:
+                        translated_stem = translated_stem[:50]
+                    
+                    # Übersetzen Dateinamen zusammensetzen
+                    suffix = Path(filename).suffix
+                    translated_filename = f"{translated_stem}{suffix}"
                 
                 # Zielverzeichnisstruktur erstellen:
                 # sessions/[session]/[track]/[time-session_dir]
-                target_dir: Path = self.base_dir / event / track / session_dir_name
-                if not target_dir.exists():
-                    target_dir.mkdir(parents=True)
                 
-                if source_language != target_language:
-                    self.logger.warning("Quell- und Zielsprache unterscheiden sich, verwende Quellsprache für Transkription")
-                    filename = filename.replace(".md", "_" + target_language + ".md")
-
-                template += "_" + target_language 
                 # 1. Session-Seite abrufen
                 web_text = await self._fetch_session_page(url)
                 
@@ -701,12 +739,16 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 # 3. Anhänge verarbeiten falls vorhanden
                 attachment_paths = []
                 page_texts: List[str] = []
+
+                # Verwende für Assets immer den originalen Session-Namen
                 
+                session_dir_name = f"{Path(filename).stem}"
+
                 if attachments_url:
                     attachment_paths, page_texts = await self._process_attachments(
                         attachments_url=attachments_url,
                         session_data=input_data,
-                        target_dir=target_dir
+                        target_dir= event + "/assets/" + session_dir_name
                     )
                 
                 # 4. Markdown generieren
@@ -726,13 +768,20 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     "cache_key": cache_key
                 }
 
+                # Verwende die übersetzten Namen für die Zielverzeichnisse
+                target_dir: Path = self.base_dir / event / target_language / translated_track
+                if not target_dir.exists():
+                    target_dir.mkdir(parents=True)
+
+                template += "_" + target_language 
+                
                
                 markdown_file, markdown_content, structured_data = await self._generate_markdown(
                     web_text=web_text,
                     video_transcript=video_transcript,
                     session_data=input_data,
                     target_dir=target_dir,
-                    filename=filename,
+                    filename=translated_filename,  # Verwende den übersetzten Dateinamen
                     template=template,
                     context=template_context,
                     page_texts=page_texts
@@ -1249,7 +1298,27 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             SessionProcessingResult: Das rekonstruierte Ergebnis
         """
         result_data = cached_data.get("result", {})
-        return SessionProcessingResult.from_dict(result_data)
+        
+        # Bekannte Felder filtern und unbekannte ignorieren
+        filtered_data = {
+            "web_text": result_data.get("web_text", ""),
+            "video_transcript": result_data.get("video_transcript", ""),
+            "attachment_paths": result_data.get("attachment_paths", []),
+            "page_texts": result_data.get("page_texts", []),
+            "target_dir": result_data.get("target_dir", ""),
+            "markdown_content": result_data.get("markdown_content", ""),
+            "markdown_file": result_data.get("markdown_file", ""),
+            "process_id": result_data.get("process_id"),
+            "structured_data": result_data.get("structured_data", {})
+        }
+        
+        # Input-Daten separat behandeln, falls vorhanden
+        input_data = result_data.get("input_data", {})
+        if input_data:
+            filtered_data["input_data"] = input_data
+        
+        # Sichere Erstellung des SessionProcessingResult, ignoriert unbekannte Felder
+        return SessionProcessingResult(**filtered_data)
 
     def _create_specialized_indexes(self, collection: Any) -> None:
         """

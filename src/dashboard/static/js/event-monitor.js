@@ -384,158 +384,161 @@ window.loadJobsForBatch = function(batchId, batchIndex, isAutoOpen = false) {
   // Prüfen, ob der Klick zum Schließen oder Öffnen gedacht ist
   const isOpening = tableContainer.classList.contains('d-none');
   
-  // Toggle der Sichtbarkeit
+  // Wenn öffnen, dann zeige die Tabelle an; wenn schließen, dann verstecke sie
   if (isOpening) {
-    // Tabelle anzeigen
-      tableContainer.classList.remove('d-none');
-      if (toggleButton) {
-        toggleButton.textContent = 'Jobs verstecken';
-    }
+    // Öffnen
+    tableContainer.classList.remove('d-none');
+    if (toggleButton) toggleButton.textContent = 'Jobs verstecken';
     
-    // Prüfen ob Daten bereits geladen wurden
-    if (jobsContainer.getAttribute('data-loaded') === 'true') {
-      console.log(`Jobs für Batch ${batchId} wurden bereits geladen, zeige aus Cache an`);
-    return;
-  }
-  
-    // Benutzer-Feedback während des Ladens anzeigen
-    jobsContainer.innerHTML = `<tr><td colspan="6" class="text-center py-3">
-      <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-      <span>Lade Jobs...</span>
-    </td></tr>`;
-  
-  // API-Anfrage an den Batch-Jobs-Endpunkt
-    console.log(`API-Anfrage für Jobs von Batch ${batchId} wird gesendet`);
-  fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Netzwerkantwort war nicht ok für Jobs von Batch ${batchId}`);
-        }
-        return response.json();
-      })
-    .then(data => {
-      // Versuche, die Jobs aus der Antwort zu extrahieren
-      let jobs = [];
+    // Prüfen, ob die Jobs bereits geladen wurden
+    if (!jobsContainer.getAttribute('data-loaded')) {
+      // Noch nicht geladen? Dann laden...
+      console.log(`Jobs für Batch ${batchId} werden geladen...`);
       
-      // Prüfe verschiedene mögliche Strukturen
-      if (data.data && data.data.jobs) {
-          console.log(`Jobs gefunden in data.data.jobs: ${data.data.jobs.length} Jobs`);
-        jobs = data.data.jobs;
-      } else if (data.jobs) {
-          console.log(`Jobs gefunden in data.jobs: ${data.jobs.length} Jobs`);
-        jobs = data.jobs;
-      } else {
-          console.error(`Keine Jobs in der Antwort gefunden!`, data);
-      }
-      
-      if (loadingSpinner) {
-        loadingSpinner.classList.add('d-none');
-      }
-      
-      if (jobs && jobs.length > 0) {
-        console.log(`Verarbeite ${jobs.length} Jobs für Batch ${batchId}`);
-        
-        // Jobs markieren als geladen
-        jobsContainer.setAttribute('data-loaded', 'true');
-        // HTML für die Jobs generieren
-          const jobsHTML = jobs.map((job) => {
-            // Bestimme Button-Klasse und Tooltip basierend auf Status
-            let reloadButtonClass = 'btn-outline-warning';  // Standard für failed
-            let reloadButtonTooltip = 'Job neu starten';
-            let reloadButtonDisabled = '';
-            
-            switch(job.status) {
-              case 'completed':
-                reloadButtonClass = 'btn-outline-secondary';
-                reloadButtonTooltip = 'Abgeschlossenen Job neu starten';
-                break;
-              case 'processing':
-                reloadButtonClass = 'btn-outline-secondary';
-                reloadButtonTooltip = 'Laufender Job kann nicht neu gestartet werden';
-                break;
-              case 'failed':
-                reloadButtonClass = 'btn-outline-warning';
-                reloadButtonTooltip = 'Fehlgeschlagenen Job neu starten';
-                break;
-              default:
-                reloadButtonClass = 'btn-outline-secondary';
-                reloadButtonTooltip = 'Job neu starten';
-            }
-
-            return `<tr class="job-row" data-job-id="${job.job_id}" data-batch-id="${batchId}">
-              <td>
-                <span class="status-badge ${getStatusBadgeClass(job.status)}">
-                  ${job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                </span>
-              </td>
-              <td>
-                <a href="#" onclick="showJobDetails('${job.job_id}'); return false;" class="text-decoration-none">
-                  <strong>${job.job_name || job.job_id}</strong>
-                </a>
-              </td>
-              <td>${formatDateTime(job.created_at)}</td>
-              <td>${job.completed_at ? formatDateTime(job.completed_at) : '-'}</td>
-              <td>
-                ${job.progress ? getProgressHTML(job.progress) : '-'}
-              </td>
-              <td>
-                <div class="btn-group btn-group-sm" role="group">
-                  <button type="button" class="btn btn-outline-primary" title="Details anzeigen" 
-                          onclick="showJobDetails('${job.job_id}'); return false;">
-                    <i class="fas fa-info-circle"></i>
-                </button>
-                  <button type="button" class="btn ${reloadButtonClass}" title="${reloadButtonTooltip}" 
-                          onclick="restartJob('${job.job_id}', '${job.job_type}'); return false;" ${reloadButtonDisabled}>
-                    <i class="fas fa-redo-alt"></i>
-                  </button>
-                  <button type="button" class="btn btn-outline-danger" title="Job löschen" 
-                          onclick="deleteJob('${job.job_id}'); return false;">
-                    <i class="fas fa-trash-alt"></i>
-                  </button>
-              </div>
-            </td>
-            </tr>`;
-          }).join('');
-          
-          // Jobs in den Container einfügen
-          jobsContainer.innerHTML = jobsHTML;
-          
-          console.log(`Jobs für Batch ${batchId} erfolgreich geladen und gerendert`);
-      } else {
-        // Keine Jobs gefunden
-        jobsContainer.innerHTML = `
-          <tr>
-              <td colspan="6" class="text-center py-3">
-              <div class="alert alert-info mb-0">
-                  <i class="fas fa-info-circle me-2"></i> Keine Jobs für diesen Batch gefunden.
-              </div>
-            </td>
-          </tr>
-        `;
-          console.log(`Keine Jobs für Batch ${batchId} gefunden`);
-      }
-    })
-    .catch(error => {
-        // Fehlerbehandlung
+      // Ladeanzeige einfügen
       jobsContainer.innerHTML = `
-        <tr>
-            <td colspan="6" class="text-center py-3">
-            <div class="alert alert-danger mb-0">
-                <i class="fas fa-exclamation-circle me-2"></i> 
-              Fehler beim Laden der Jobs: ${error.message}
+        <tr id="${loadingSpinnerId}">
+          <td colspan="6" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">Lade Jobs...</span>
             </div>
+            <div class="mt-2">Lade Jobs...</div>
           </td>
         </tr>
       `;
-        console.error('Fehler beim Laden der Jobs:', error);
-      });
-  } else {
-    // Schließe den Batch
-    tableContainer.classList.add('d-none');
-    if (toggleButton) {
-      toggleButton.textContent = 'Jobs anzeigen';
+      
+      // API aufrufen, um die Jobs zu laden
+      fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Netzwerkantwort war nicht ok: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Versuche, die Jobs aus der Antwort zu extrahieren
+          let jobs = [];
+          
+          if (data.data && data.data.jobs) {
+            jobs = data.data.jobs;
+          } else if (data.jobs) {
+            jobs = data.jobs;
+          }
+          
+          if (jobs && jobs.length > 0) {
+            console.log(`Verarbeite ${jobs.length} Jobs für Batch ${batchId}`);
+            
+            // Jobs markieren als geladen
+            jobsContainer.setAttribute('data-loaded', 'true');
+            // HTML für die Jobs generieren
+              const jobsHTML = jobs.map((job) => {
+                // Bestimme Button-Klasse und Tooltip basierend auf Status
+                let reloadButtonClass = 'btn-outline-warning';  // Standard für failed
+                let reloadButtonTooltip = 'Job neu starten';
+                let reloadButtonDisabled = '';
+                
+                switch(job.status) {
+                  case 'completed':
+                    reloadButtonClass = 'btn-outline-secondary';
+                    reloadButtonTooltip = 'Abgeschlossenen Job neu starten';
+                    break;
+                  case 'processing':
+                    reloadButtonClass = 'btn-outline-secondary';
+                    reloadButtonTooltip = 'Laufender Job kann nicht neu gestartet werden';
+                    break;
+                  case 'failed':
+                    reloadButtonClass = 'btn-outline-warning';
+                    reloadButtonTooltip = 'Fehlgeschlagenen Job neu starten';
+                    break;
+                  default:
+                    reloadButtonClass = 'btn-outline-secondary';
+                    reloadButtonTooltip = 'Job neu starten';
+                }
+
+                // Sprache aus den Job-Parametern extrahieren
+                let targetLanguage = 'unbekannt';
+                if (job.parameters && job.parameters.target_language) {
+                  targetLanguage = getLanguageName(job.parameters.target_language);
+                }
+
+                return `<tr class="job-row" data-job-id="${job.job_id}" data-batch-id="${batchId}">
+                  <td>
+                    <span class="status-badge ${getStatusBadgeClass(job.status)}">
+                      ${job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                    </span>
+                  </td>
+                  <td>
+                    <a href="#" onclick="showJobDetails('${job.job_id}'); return false;" class="text-decoration-none">
+                      <strong>${job.job_name || job.job_id}</strong>
+                    </a>
+                  </td>
+                  <td>${formatDateTime(job.created_at)}</td>
+                  <td>${job.completed_at ? formatDateTime(job.completed_at) : '-'}</td>
+                  <td>
+                    <span class="badge bg-secondary">${targetLanguage}</span>
+                  </td>
+                  <td>
+                    ${job.progress ? getProgressHTML(job.progress) : '-'}
+                  </td>
+                  <td>
+                    <div class="btn-group btn-group-sm" role="group">
+                      <button type="button" class="btn btn-outline-primary" title="Details anzeigen" 
+                              onclick="showJobDetails('${job.job_id}'); return false;">
+                        <i class="fas fa-info-circle"></i>
+                    </button>
+                      <button type="button" class="btn ${reloadButtonClass}" title="${reloadButtonTooltip}" 
+                              onclick="restartJob('${job.job_id}', '${batchId}'); return false;" ${reloadButtonDisabled}>
+                        <i class="fas fa-redo-alt"></i>
+                      </button>
+                      <button type="button" class="btn btn-outline-info" title="Sprache ändern" 
+                              onclick="changeJobLanguage('${job.job_id}', '${batchId}'); return false;">
+                        <i class="fas fa-language"></i>
+                      </button>
+                      <button type="button" class="btn btn-outline-danger" title="Job löschen" 
+                              onclick="deleteJob('${job.job_id}'); return false;">
+                        <i class="fas fa-trash-alt"></i>
+                      </button>
+                  </div>
+                </td>
+                </tr>`;
+              }).join('');
+              
+              // Jobs in den Container einfügen
+              jobsContainer.innerHTML = jobsHTML;
+          } else {
+            // Keine Jobs gefunden
+            jobsContainer.innerHTML = `
+              <tr>
+                <td colspan="6" class="text-center py-3">
+                  <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i> Keine Jobs für diesen Batch gefunden.
+                  </div>
+                </td>
+              </tr>
+            `;
+          }
+        })
+        .catch(error => {
+          console.error(`Fehler beim Laden der Jobs für Batch ${batchId}:`, error);
+          jobsContainer.innerHTML = `
+            <tr>
+              <td colspan="6" class="text-center py-3">
+                <div class="alert alert-danger mb-0">
+                  <i class="fas fa-exclamation-triangle me-2"></i> Fehler beim Laden der Jobs: ${error.message}
+                </div>
+              </td>
+            </tr>
+          `;
+        });
     }
+  } else {
+    // Schließen
+    tableContainer.classList.add('d-none');
+    if (toggleButton) toggleButton.textContent = 'Jobs anzeigen';
   }
+  
+  // Status merken
+  return isOpening;
 };
 
 // Dokument geladen
@@ -828,42 +831,30 @@ window.restartJob = function(jobId, batchId) {
     return response.json();
   })
   .then(data => {
-    console.log('Job Neustart erfolgreich:', data);
+    console.log(`Job ${jobId} erfolgreich neu gestartet`, data);
     
-    // Erfolgsmeldung anzeigen
-    const toast = document.createElement('div');
-    toast.className = 'toast align-items-center text-white bg-success border-0 position-fixed bottom-0 end-0 m-3';
-    toast.setAttribute('role', 'alert');
-    toast.setAttribute('aria-live', 'assertive');
-    toast.setAttribute('aria-atomic', 'true');
-    toast.innerHTML = `
-      <div class="d-flex">
-        <div class="toast-body">
-          Job wurde erfolgreich für den Neustart markiert.
-        </div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-      </div>
-    `;
-    document.body.appendChild(toast);
+    // Status-Badge aktualisieren
+    if (statusElement) {
+      statusElement.innerHTML = `<span class="status-badge status-pending">Pending</span>`;
+      
+      // Die ganze Zeile hervorheben
+      const jobRow = statusElement.closest('tr');
+      highlightUpdatedElement(jobRow);
+    }
     
-    const bsToast = new bootstrap.Toast(toast);
-    bsToast.show();
-    
-    // Optional: Seite nach kurzer Verzögerung neu laden, um den neuen Status anzuzeigen
-    setTimeout(() => {
-      window.location.reload();
-    }, 3000);
+    // Zeige eine Benachrichtigung an
+    showNotification('success', `Job ${jobId} wurde erfolgreich neu gestartet.`);
   })
   .catch(error => {
-    console.error('Fehler beim Neustarten des Jobs:', error);
+    console.error(`Fehler beim Neustarten des Jobs: ${error.message}`);
     
-    // Fehlermeldung anzeigen
-    alert(`Fehler beim Neustarten des Jobs: ${error.message}`);
-    
-    // Status-Element zurücksetzen
-    if (statusElement) {
+    // Status-Badge zurücksetzen
+    if (statusElement && originalContent) {
       statusElement.innerHTML = originalContent;
     }
+    
+    // Zeige eine Fehlermeldung an
+    showNotification('error', `Fehler beim Neustarten des Jobs: ${error.message}`);
   });
 };
 
@@ -1357,6 +1348,168 @@ function loadArchive() {
         </div>
       `;
     });
+}
+
+// Funktion zum Ändern der Sprache eines einzelnen Jobs
+function changeJobLanguage(jobId, batchId) {
+  console.log(`Sprache ändern für Job ${jobId} in Batch ${batchId}`);
+  
+  // Job-Details abrufen, um den aktuellen Zustand zu kennen
+  fetch(`/api/dashboard/event-monitor/job/${jobId}`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Netzwerkantwort war nicht ok: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Job-Daten aus der Antwort extrahieren
+      let job = null;
+      
+      if (data.data && data.data.job) {
+        job = data.data.job;
+      } else if (data.job) {
+        job = data.job;
+      }
+      
+      if (!job) {
+        throw new Error('Job-Daten nicht gefunden in der Antwort');
+      }
+      
+      // Modal vorbereiten
+      document.getElementById('changeJobLanguageJobId').value = jobId;
+      document.getElementById('changeJobLanguageBatchId').value = batchId;
+      
+      // Job-Name und aktuelle Sprache anzeigen
+      document.getElementById('changeJobLanguageJobName').textContent = job.job_name || job.job_id;
+      
+      // Aktuelle Sprache aus den Job-Parametern extrahieren
+      let currentLanguage = 'unbekannt';
+      if (job.parameters && job.parameters.target_language) {
+        currentLanguage = getLanguageName(job.parameters.target_language);
+      }
+      document.getElementById('changeJobLanguageCurrentLanguage').textContent = currentLanguage;
+      
+      // Modal öffnen
+      const modal = new bootstrap.Modal(document.getElementById('changeJobLanguageModal'));
+      modal.show();
+    })
+    .catch(error => {
+      console.error('Fehler beim Laden der Job-Details:', error);
+      showToast('Fehler', `Fehler beim Laden der Job-Details: ${error.message}`, 'danger');
+    });
+}
+
+// Funktion zum Speichern der Sprachänderung eines Jobs
+function saveJobLanguageChange() {
+  const jobId = document.getElementById('changeJobLanguageJobId').value;
+  const batchId = document.getElementById('changeJobLanguageBatchId').value;
+  const targetLanguage = document.getElementById('changeJobLanguageSelect').value;
+  const resetStatus = document.getElementById('changeJobLanguageResetStatus').checked;
+  
+  if (!targetLanguage) {
+    showToast('Fehler', 'Bitte wählen Sie eine Zielsprache aus', 'warning');
+    return;
+  }
+  
+  // API-Anfrage zum Ändern der Sprache
+  fetch('/api/dashboard/event-monitor/batches/change-language', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      target_language: targetLanguage,
+      reset_status: resetStatus
+    }),
+  })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Netzwerkantwort war nicht ok: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Modal schließen
+      const modal = bootstrap.Modal.getInstance(document.getElementById('changeJobLanguageModal'));
+      modal.hide();
+      
+      // Erfolgsmeldung anzeigen
+      showToast('Erfolg', `Zielsprache wurde auf ${getLanguageName(targetLanguage)} geändert`, 'success');
+      
+      // Tabelle aktualisieren
+      loadJobsForBatch(batchId, getIndexForBatch(batchId));
+    })
+    .catch(error => {
+      console.error('Fehler beim Ändern der Sprache:', error);
+      showToast('Fehler', `Fehler beim Ändern der Sprache: ${error.message}`, 'danger');
+    });
+}
+
+// Hilfsfunktion zum Anzeigen von Toast-Benachrichtigungen
+function showToast(title, message, type = 'info') {
+  const toastContainer = document.getElementById('toastContainer');
+  if (!toastContainer) return;
+  
+  const toastId = `toast-${Date.now()}`;
+  const toastHTML = `
+    <div id="${toastId}" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header bg-${type} text-white">
+        <strong class="me-auto">${title}</strong>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body">
+        ${message}
+      </div>
+    </div>
+  `;
+  
+  toastContainer.insertAdjacentHTML('beforeend', toastHTML);
+  const toastElement = document.getElementById(toastId);
+  const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 5000 });
+  toast.show();
+  
+  // Toast nach dem Ausblenden entfernen
+  toastElement.addEventListener('hidden.bs.toast', () => {
+    toastElement.remove();
+  });
+}
+
+// Hilfsfunktion zum Ermitteln des Batch-Index
+function getIndexForBatch(batchId) {
+  const batchRow = document.querySelector(`tr[data-batch-id="${batchId}"]`);
+  if (batchRow) {
+    const batchIndex = batchRow.getAttribute('data-batch-index');
+    return batchIndex;
+  }
+  
+  // Wenn nicht gefunden, prüfe ob es ein archivierter Batch ist
+  const archiveBatchRow = document.querySelector(`tr[data-archive-batch-id="${batchId}"]`);
+  if (archiveBatchRow) {
+    const archiveIndex = archiveBatchRow.getAttribute('data-archive-index');
+    return `archive-${archiveIndex}`;
+  }
+  
+  return null;
+}
+
+// Hilfsfunktion zum Anzeigen des Sprachnamens aus dem Sprachcode
+function getLanguageName(languageCode) {
+  const languages = {
+    'en': 'Englisch',
+    'de': 'Deutsch',
+    'fr': 'Französisch',
+    'es': 'Spanisch',
+    'it': 'Italienisch',
+    'ja': 'Japanisch',
+    'ko': 'Koreanisch',
+    'zh': 'Chinesisch',
+    'ru': 'Russisch',
+    'pt': 'Portugiesisch'
+  };
+  
+  return languages[languageCode] || languageCode;
 }
 
 // Nach 60 Sekunden speicherbaren Bericht generieren

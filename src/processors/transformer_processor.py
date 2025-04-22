@@ -51,8 +51,8 @@ Beispiel Response:
 """
 
 import hashlib
-from typing import Dict, Any, Optional, List, Union, cast, TYPE_CHECKING
-from datetime import datetime
+from typing import Dict, Any, Optional, Tuple,List, Union, cast, TYPE_CHECKING
+from datetime import datetime, UTC
 import traceback
 import time
 import json
@@ -251,9 +251,18 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
         Returns:
             TransformationResult: Das deserialisierte TransformationResult
         """
-        # TransformationResult aus Cache-Daten erstellen
+        # Filtern Sie nur die bekannten Felder, die in TransformationResult.from_dict akzeptiert werden
+        # Dies macht die Deserialisierung robust gegenüber zusätzlichen Feldern
+        filtered_data = {
+            "text": cached_data.get("text", ""),
+            "target_language": cached_data.get("target_language", "unknown"),
+            "structured_data": cached_data.get("structured_data"),
+            "processed_at": cached_data.get("processed_at", datetime.now(UTC).isoformat())
+        }
+        
+        # TransformationResult aus gefilterten Daten erstellen
         # LLM-Informationen werden bewusst weggelassen, da sie bei Cache-Treffern nicht vorhanden sind
-        return TransformationResult.from_cache(cached_data)
+        return TransformationResult.from_dict(filtered_data)
     
     def _create_specialized_indexes(self, collection: Any) -> None:
         """
@@ -361,13 +370,15 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             
             # Erstelle Prompt für OpenAI
             prompt_creation_start = time.time()
-            system_message = self._create_system_message(
+            system_message, user_prompt = self._create_system_message(
                 source_language=source_language,
                 target_language=target_language,
+                source_text=source_text,
                 summarize=summarize,
                 target_format=target_format,
                 context=context
             )
+
             prompt_creation_end = time.time()
             self.logger.info(f"Zeit für Prompt-Erstellung: {(prompt_creation_end - prompt_creation_start) * 1000:.2f} ms")
             
@@ -377,9 +388,9 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_message},
-                    {"role": "user", "content": source_text}
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.2,
             )
             llm_call_end = time.time()
             llm_duration = llm_call_end - llm_call_start
@@ -493,9 +504,10 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
     def _create_system_message(self,
                                source_language: str,
                                target_language: str, 
+                               source_text: str,
                                summarize: bool,
                                target_format: Optional[OutputFormat] = None,
-                               context: Optional[Dict[str, Any]] = None) -> str:
+                               context: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
         """
         Erstellt die System-Nachricht für den OpenAI-API-Aufruf.
         
@@ -512,27 +524,190 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
         format_instruction = ""
         if target_format == OutputFormat.HTML:
             format_instruction = "Formatiere die Ausgabe als HTML mit korrekten Tags."
+        elif target_format == OutputFormat.FILENAME:
+            format_instruction = "Übersetze und formatiere die Ausgabe als Dateiname - ersetze Bindestriche zwischen Worte durch Leerzeichen - max. 50 Zeichen."
         elif target_format == OutputFormat.MARKDOWN:
             format_instruction = "Formatiere die Ausgabe im Markdown-Format."
         
         summarize_instruction = ""
         if summarize:
-            summarize_instruction = "Fasse den Text prägnant zusammen, behalte aber alle wichtigen Informationen bei."
+            summarize_instruction = "Fasse den Text prägnant zusammen, behalte aber alle wichtigen Informationen bei:"
         
         context_instruction = ""
         if context:  # Der Typ Dict[str, Any] garantiert bereits, dass es ein dict ist
             context_str = json.dumps(context, ensure_ascii=False)
-            context_instruction = f"Berücksichtige den folgenden Kontext bei der Transformation: {context_str}"
+            context_instruction = f"Berücksichtige den folgenden Kontext bei der Aufgabe: {context_str}"
         
-        return f"""Du bist ein Textverarbeitungsassistent, der Texte perfekt übersetzt und formatiert.
+        system_message: str = f"""Du bist ein Textverarbeitungsassistent, der Texte perfekt übersetzt und formatiert."""        
 
-Aufgabe: Übersetze den Eingabetext von {source_language} nach {target_language}.
+        # Sprachname aus ISO 639-1 Code ermitteln
+        target_language_name = self._get_language_name(target_language)
+       
+        user_prompt: str = f"""
 {summarize_instruction}
 {format_instruction}
 {context_instruction}
+Übersetze das Ergebnis ohne zusätzliche Erklärungen oder Metadaten in die Sprache '{target_language_name}'
+Folgender Text soll verarbeitet werden: 
 
-Gib nur den transformierten Text zurück, ohne zusätzliche Erklärungen oder Metadaten.
+{source_text}
 """
+
+        return system_message, user_prompt
+
+    def _get_language_name(self, language_code: str) -> str:
+        """
+        Wandelt einen ISO 639-1 Sprachcode in den entsprechenden Sprachnamen um.
+        
+        Args:
+            language_code: ISO 639-1 Sprachcode (z.B. 'de', 'en')
+            
+        Returns:
+            str: Der entsprechende Sprachname oder der Code selbst, falls nicht gefunden
+        """
+        language_map = {
+            "aa": "Afar",
+            "ab": "Abchasisch",
+            "af": "Afrikaans",
+            "am": "Amharisch",
+            "ar": "Arabisch",
+            "as": "Assamesisch",
+            "ay": "Aymara",
+            "az": "Aserbaidschanisch",
+            "ba": "Baschkirisch",
+            "be": "Belarussisch",
+            "bg": "Bulgarisch",
+            "bh": "Biharisch",
+            "bi": "Bislama",
+            "bn": "Bengalisch",
+            "bo": "Tibetisch",
+            "br": "Bretonisch",
+            "ca": "Katalanisch",
+            "co": "Korsisch",
+            "cs": "Tschechisch",
+            "cy": "Walisisch",
+            "da": "Dänisch",
+            "de": "Deutsch",
+            "dz": "Dzongkha",
+            "el": "Griechisch",
+            "en": "Englisch",
+            "eo": "Esperanto",
+            "es": "Spanisch",
+            "et": "Estnisch",
+            "eu": "Baskisch",
+            "fa": "Persisch",
+            "fi": "Finnisch",
+            "fj": "Fidschi",
+            "fo": "Färöisch",
+            "fr": "Französisch",
+            "fy": "Friesisch",
+            "ga": "Irisch",
+            "gd": "Schottisches Gälisch",
+            "gl": "Galizisch",
+            "gn": "Guaraní",
+            "gu": "Gujarati",
+            "ha": "Hausa",
+            "he": "Hebräisch",
+            "hi": "Hindi",
+            "hr": "Kroatisch",
+            "hu": "Ungarisch",
+            "hy": "Armenisch",
+            "ia": "Interlingua",
+            "id": "Indonesisch",
+            "ie": "Interlingue",
+            "ik": "Inupiaq",
+            "is": "Isländisch",
+            "it": "Italienisch",
+            "iu": "Inuktitut",
+            "ja": "Japanisch",
+            "jw": "Javanisch",
+            "ka": "Georgisch",
+            "kk": "Kasachisch",
+            "kl": "Grönländisch",
+            "km": "Khmer",
+            "kn": "Kannada",
+            "ko": "Koreanisch",
+            "ks": "Kaschmiri",
+            "ku": "Kurdisch",
+            "ky": "Kirgisisch",
+            "la": "Latein",
+            "ln": "Lingala",
+            "lo": "Lao",
+            "lt": "Litauisch",
+            "lv": "Lettisch",
+            "mg": "Malagasy",
+            "mi": "Maori",
+            "mk": "Mazedonisch",
+            "ml": "Malayalam",
+            "mn": "Mongolisch",
+            "mo": "Moldawisch",
+            "mr": "Marathi",
+            "ms": "Malaiisch",
+            "mt": "Maltesisch",
+            "my": "Burmesisch",
+            "na": "Nauruisch",
+            "ne": "Nepalesisch",
+            "nl": "Niederländisch",
+            "no": "Norwegisch",
+            "oc": "Okzitanisch",
+            "om": "Oromo",
+            "or": "Oriya",
+            "pa": "Punjabi",
+            "pl": "Polnisch",
+            "ps": "Paschtu",
+            "pt": "Portugiesisch",
+            "qu": "Quechua",
+            "rm": "Rätoromanisch",
+            "rn": "Rundi",
+            "ro": "Rumänisch",
+            "ru": "Russisch",
+            "rw": "Kinyarwanda",
+            "sa": "Sanskrit",
+            "sd": "Sindhi",
+            "sg": "Sango",
+            "sh": "Serbo-Kroatisch",
+            "si": "Singhalesisch",
+            "sk": "Slowakisch",
+            "sl": "Slowenisch",
+            "sm": "Samoanisch",
+            "sn": "Shona",
+            "so": "Somali",
+            "sq": "Albanisch",
+            "sr": "Serbisch",
+            "ss": "Swati",
+            "st": "Sotho",
+            "su": "Sundanesisch",
+            "sv": "Schwedisch",
+            "sw": "Suaheli",
+            "ta": "Tamil",
+            "te": "Telugu",
+            "tg": "Tadschikisch",
+            "th": "Thailändisch",
+            "ti": "Tigrinya",
+            "tk": "Turkmenisch",
+            "tl": "Tagalog",
+            "tn": "Tswana",
+            "to": "Tongaisch",
+            "tr": "Türkisch",
+            "ts": "Tsonga",
+            "tt": "Tatarisch",
+            "tw": "Twi",
+            "ug": "Uigurisch",
+            "uk": "Ukrainisch",
+            "ur": "Urdu",
+            "uz": "Usbekisch",
+            "vi": "Vietnamesisch",
+            "vo": "Volapük",
+            "wo": "Wolof",
+            "xh": "Xhosa",
+            "yi": "Jiddisch",
+            "yo": "Yoruba",
+            "za": "Zhuang",
+            "zh": "Chinesisch",
+            "zu": "Zulu"
+        }
+        
+        return language_map.get(language_code.lower(), language_code)
 
     def validate_text(self, text: Optional[str], field_name: str = "text") -> str:
         """

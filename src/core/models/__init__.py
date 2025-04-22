@@ -62,6 +62,18 @@ from .story import (
     SessionDict
 )
 
+# Obsidian-Modelle
+from .obsidian import (
+    ObsidianExportConfig,
+    SessionInfo,
+    TrackInfo,
+    EventInfo,
+    ExportMapping,
+    ExportProgress,
+    ObsidianExportRequest,
+    ObsidianExportResponse
+)
+
 __all__ = [
     # Basis-Modelle und Enums
     "ErrorInfo",
@@ -124,5 +136,15 @@ __all__ = [
     "TargetGroupModel",
     "TopicDict",
     "TargetGroupDict",
-    "SessionDict"
+    "SessionDict",
+    
+    # Obsidian-Modelle
+    "ObsidianExportConfig",
+    "SessionInfo",
+    "TrackInfo",
+    "EventInfo",
+    "ExportMapping",
+    "ExportProgress",
+    "ObsidianExportRequest",
+    "ObsidianExportResponse"
 ] 

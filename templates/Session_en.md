@@ -1,6 +1,6 @@
 ---
 tags: {{tags|What are the 10 most important keywords from the text? Replace spaces with hyphens so that they are valid tags. Please output them comma-separated.}}
-title: {{title|an appropriate title for the session with the main solution name presented in this session}}
+title: {{title|an appropriate title for the session with the main solution name presented in this session - max. 70 characters}}
 subtitle: {{subtitle|an appropriate subtitle for the session - only text without special characters, colons, exclamation marks, etc.}}
 intro: {{intro|how can we briefly introduce this session in a motivating way?}}
 speaker: {{speakers|Which speakers are mentioned in the text? Separate with commas and spaces.}}

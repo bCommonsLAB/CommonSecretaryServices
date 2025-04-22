@@ -3,7 +3,7 @@ Main routes for the dashboard application.
 Contains the main dashboard view and test routes.
 """
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 import json
 import os
 import re
@@ -11,6 +11,7 @@ from typing import Any, Dict, List, cast, Optional
 import logging
 
 from core.config import ApplicationConfig
+from core.models.job_models import Batch
 from utils.logger import ProcessingLogger
 from ..utils import get_system_info
 from pathlib import Path
@@ -1375,8 +1376,14 @@ def api_event_monitor_force_fail_all():
 
 @main.route('/api/dashboard/event-monitor/batches/set-pending-all', methods=['POST'])
 def api_event_monitor_set_pending_all():
-    """Setzt alle nicht archivierten Batches und deren Jobs auf 'pending'."""
+    """
+    Setzt alle nicht archivierten Batches und deren Jobs auf 'pending'.
+    Parameter:
+    - target_language: Die neue Zielsprache (z.B. 'de', 'en', etc.)
+    """
     try:
+        data = request.get_json() or {}
+        target_language: str = data.get('target_language')
         job_repository = get_job_repository()
         
         # Hole alle nicht archivierten Batches
@@ -1393,7 +1400,8 @@ def api_event_monitor_set_pending_all():
             # Aktualisiere alle Jobs des Batches
             jobs_updated = job_repository.update_jobs_status_by_batch(
                 batch.batch_id, 
-                JobStatus.PENDING
+                JobStatus.PENDING,
+                language=target_language
             )
             updated_jobs += jobs_updated
         
@@ -1409,8 +1417,8 @@ def api_event_monitor_set_pending_all():
             "status": "success",
             "message": f"{updated_batches} Batches und {updated_jobs} Jobs auf pending gesetzt",
             "data": {
-                "updated_batches": updated_batches,
-                "updated_jobs": updated_jobs
+                "batches_updated": updated_batches,
+                "jobs_updated": updated_jobs
             }
         })
         
@@ -1420,3 +1428,107 @@ def api_event_monitor_set_pending_all():
             "status": "error",
             "message": str(e)
         }), 500 
+
+@main.route('/api/dashboard/event-monitor/batches/change-language', methods=['POST'])
+def api_event_monitor_change_language():
+    """
+    Ändert die Zielsprache für alle Jobs oder einen einzelnen Job im Event-Monitor.
+    
+    Parameter:
+    - target_language: Die neue Zielsprache (z.B. 'de', 'en', etc.)
+    - job_id: (Optional) Die ID eines einzelnen Jobs, dessen Sprache geändert werden soll
+    - reset_status: (Optional) Ob der Status der Jobs auf 'pending' zurückgesetzt werden soll
+    - current_batches_only: (Optional) Ob nur aktuelle (nicht archivierte) Batches betroffen sein sollen
+    
+    Returns:
+        JSON mit Erfolgs- oder Fehlermeldung
+    """
+    logger = logging.getLogger(__name__)
+    try:
+        # Daten aus dem Request auslesen
+        data = request.get_json() or {}
+        
+        target_language = data.get('target_language')
+        job_id = data.get('job_id')
+        reset_status = data.get('reset_status', False)
+        current_batches_only = data.get('current_batches_only', True)
+        
+        if not target_language:
+            return jsonify({'status': 'error', 'message': 'Zielsprache (target_language) ist erforderlich'}), 400
+        
+        # Repository und weitere benötigte Objekte initialisieren
+        job_repo = get_job_repository()
+        success_count = 0
+        
+        # Bestimmen, ob ein einzelner Job oder mehrere Jobs aktualisiert werden sollen
+        if job_id:
+            # Einzelnen Job aktualisieren
+            logger.info(f"Ändere Zielsprache für Job {job_id} auf {target_language}")
+            
+            job = job_repo.get_job(job_id)
+            if not job:
+                return jsonify({'status': 'error', 'message': f'Job mit ID {job_id} nicht gefunden'}), 404
+            
+            # Job-Parameter aktualisieren
+            job_parameters = job.parameters.to_dict() if job.parameters else {}
+            job_parameters['target_language'] = target_language
+            
+            # Status zurücksetzen, falls gewünscht
+            if reset_status:
+                job_repo.update_job_status(job_id, JobStatus.PENDING)
+                
+            # Job-Parameter aktualisieren
+            job_repo.jobs.update_one(
+                {"job_id": job_id},
+                {"$set": {"parameters": job_parameters}}
+            )
+            success_count = 1
+            
+            logger.info(f"Zielsprache für Job {job_id} erfolgreich auf {target_language} geändert")
+        else:
+            # Alle Jobs in Batches aktualisieren
+            logger.info(f"Ändere Zielsprache für alle Jobs auf {target_language}")
+            
+            # Batches abrufen (basierend auf dem 'current_batches_only' Parameter)
+            batches: List[Batch] = job_repo.get_batches(archived=not current_batches_only)
+            
+            # Durch alle Batches iterieren und Jobs aktualisieren
+            for batch in batches:
+                batch_id = batch.batch_id
+                logger.info(f"Verarbeite Batch {batch_id}")
+                
+                # Jobs für den aktuellen Batch abrufen
+                jobs = job_repo.get_jobs_for_batch(batch_id, limit=1000)
+                
+                for job in jobs:
+                    # Parameter aktualisieren
+                    job_parameters = job.parameters.to_dict() if job.parameters else {}
+                    job_parameters['target_language'] = target_language
+                    
+                    # Job-Parameter aktualisieren
+                    job_repo.jobs.update_one(
+                        {"job_id": job.job_id},
+                        {"$set": {"parameters": job_parameters}}
+                    )
+                    success_count += 1
+                
+                # Status zurücksetzen, falls gewünscht
+                if reset_status and jobs:
+                    job_repo.update_batch_status(batch_id, JobStatus.PENDING)
+                    job_repo.update_jobs_status_by_batch(batch_id, JobStatus.PENDING)
+            
+            logger.info(f"Zielsprache für {success_count} Jobs erfolgreich auf {target_language} geändert")
+        
+        # Erfolgreiche Antwort zurückgeben
+        return jsonify({
+            'status': 'success',
+            'message': f'Zielsprache für {success_count} Job(s) erfolgreich auf {target_language} geändert',
+            'data': {
+                'updated_count': success_count,
+                'target_language': target_language
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Ändern der Zielsprache: {str(e)}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Fehler beim Ändern der Zielsprache: {str(e)}'}), 500 

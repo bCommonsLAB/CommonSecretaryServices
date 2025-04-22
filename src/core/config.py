@@ -89,7 +89,7 @@ class Config:
         },
         'processors': {
             'youtube': {
-                'max_file_size': 140000000,  # 120 MB
+                'max_file_size': 200000000,  # 120 MB
                 'max_duration': 3600,        # 1 Stunde
                 'cache_dir': 'cache/youtube',  # Vereinheitlichter Cache-Pfad
                 'ydl_opts': {
@@ -97,7 +97,7 @@ class Config:
                 }
             },
             'audio': {
-                'max_file_size': 140000000,  # 120 MB
+                'max_file_size': 200000000,  # 120 MB
                 'segment_duration': 300,      # 5 Minuten
                 'cache_dir': 'cache/audio',  # Vereinheitlichter Cache-Pfad
                 'export_format': 'mp3'

@@ -60,6 +60,7 @@
 - Prüfe Response-Konformität
 - Validiere LLM-Tracking
 - Teste Fehlerszenarien
+alle Testdateien unter .tests/ organisieren
 
 **#Serverstart**
 Immer in virtueller Pythonumgebung starten:

@@ -211,11 +211,17 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="h3">Event-Verarbeitungs-Monitor</h1>
     <div class="d-flex align-items-center">
+      <button class="btn btn-success me-3" data-bs-toggle="modal" data-bs-target="#createBatchModal">
+        <i class="fas fa-plus-circle me-1"></i> Batch erstellen
+      </button>
       <button id="failAllBatchesBtn" class="btn btn-sm btn-danger me-3">
         <i class="fas fa-exclamation-triangle me-1"></i> Alle auf Failed
       </button>
       <button id="setPendingBtn" class="btn btn-sm btn-warning me-3">
         <i class="fas fa-clock me-1"></i> Alle auf Pending
+      </button>
+      <button id="changeLanguageBtn" class="btn btn-sm btn-info me-3" data-bs-toggle="modal" data-bs-target="#changeLanguageModal">
+        <i class="fas fa-language me-1"></i> Sprache ändern
       </button>
       <div class="form-check form-switch me-3">
         <input class="form-check-input" type="checkbox" id="autoRefreshSwitch">
@@ -301,6 +307,7 @@
                         <th>Job</th>
                         <th>Erstellt</th>
                         <th>Abgeschlossen</th>
+                        <th>Sprache</th>
                         <th>Fortschritt</th>
                         <th>Aktionen</th>
                       </tr>
@@ -357,6 +364,213 @@
     </div>
   </div>
 </div>
+
+<!-- Create Batch Modal -->
+<div class="modal fade" id="createBatchModal" tabindex="-1" aria-labelledby="createBatchModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="createBatchModalLabel">Neuen Event-Batch erstellen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="createBatchForm">
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="batchName" class="form-label">Batch-Name</label>
+              <input type="text" class="form-control" id="batchName" placeholder="Name des Batches" required>
+            </div>
+            <div class="col-md-6">
+              <label for="eventName" class="form-label">Event-Name</label>
+              <input type="text" class="form-control" id="eventName" placeholder="Name des Events" required>
+            </div>
+          </div>
+          
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="sourceLanguage" class="form-label">Quellsprache</label>
+              <select class="form-select" id="sourceLanguage" required>
+                <option value="" selected disabled>Bitte wählen...</option>
+                <option value="en">Englisch</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Französisch</option>
+                <option value="es">Spanisch</option>
+                <option value="it">Italienisch</option>
+                <option value="ja">Japanisch</option>
+                <option value="ko">Koreanisch</option>
+                <option value="zh">Chinesisch</option>
+                <option value="ru">Russisch</option>
+                <option value="pt">Portugiesisch</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label for="targetLanguage" class="form-label">Zielsprache</label>
+              <select class="form-select" id="targetLanguage" required>
+                <option value="" selected disabled>Bitte wählen...</option>
+                <option value="en">Englisch</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Französisch</option>
+                <option value="es">Spanisch</option>
+                <option value="it">Italienisch</option>
+                <option value="ja">Japanisch</option>
+                <option value="ko">Koreanisch</option>
+                <option value="zh">Chinesisch</option>
+                <option value="ru">Russisch</option>
+                <option value="pt">Portugiesisch</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="mb-3">
+            <label for="templateType" class="form-label">Template-Typ</label>
+            <select class="form-select" id="templateType" required>
+              <option value="" selected disabled>Bitte wählen...</option>
+              <option value="Session">Session</option>
+              <option value="Presentation">Präsentation</option>
+              <option value="Conference">Konferenz</option>
+              <option value="Workshop">Workshop</option>
+              <option value="Meeting">Meeting</option>
+            </select>
+          </div>
+          
+          <div class="mb-3">
+            <label for="sessionsData" class="form-label">Sessions (JSON-Format)</label>
+            <textarea class="form-control" id="sessionsData" rows="10" placeholder='[
+  {
+    "session": "Session 1",
+    "track": "Track A",
+    "filename": "session1.mp3",
+    "event": "Event Name",
+    "url": "https://example.com/session1"
+  }
+]' required></textarea>
+            <div class="form-text">Geben Sie die Sessions im JSON-Format ein. Jede Session muss mindestens die Felder session, track, event und url enthalten.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="createBatchBtn">Batch erstellen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Change Language Modal -->
+<div class="modal fade" id="changeLanguageModal" tabindex="-1" aria-labelledby="changeLanguageModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="changeLanguageModalLabel">Sprache für alle Jobs ändern</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="changeLanguageForm">
+          <div class="mb-3">
+            <label for="targetLanguageChange" class="form-label">Neue Zielsprache</label>
+            <select class="form-select" id="targetLanguageChange" required>
+              <option value="" selected disabled>Bitte wählen...</option>
+              <option value="en">Englisch</option>
+              <option value="de">Deutsch</option>
+              <option value="fr">Französisch</option>
+              <option value="es">Spanisch</option>
+              <option value="it">Italienisch</option>
+              <option value="ja">Japanisch</option>
+              <option value="ko">Koreanisch</option>
+              <option value="zh">Chinesisch</option>
+              <option value="ru">Russisch</option>
+              <option value="pt">Portugiesisch</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="resetStatusCheck" checked>
+              <label class="form-check-label" for="resetStatusCheck">
+                Status auf "pending" zurücksetzen, um Jobs neu zu verarbeiten
+              </label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="currentBatchesOnly">
+              <label class="form-check-label" for="currentBatchesOnly">
+                Nur aktuelle Batches (nicht archivierte) ändern
+              </label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="submitLanguageChangeBtn">Ändern und neu einreichen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal für Job-Sprachänderungen -->
+<div class="modal fade" id="changeJobLanguageModal" tabindex="-1" aria-labelledby="changeJobLanguageModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="changeJobLanguageModalLabel">Sprache ändern</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="changeJobLanguageForm">
+          <!-- Versteckte Input-Felder für Job-ID und Batch-ID -->
+          <input type="hidden" id="changeJobLanguageJobId" name="jobId">
+          <input type="hidden" id="changeJobLanguageBatchId" name="batchId">
+          
+          <!-- Job-Name Anzeige -->
+          <div class="mb-3">
+            <label class="form-label">Job:</label>
+            <div class="form-control bg-light" id="changeJobLanguageJobName"></div>
+          </div>
+          
+          <!-- Aktuelle Sprache Anzeige -->
+          <div class="mb-3">
+            <label class="form-label">Aktuelle Sprache:</label>
+            <div class="form-control bg-light" id="changeJobLanguageCurrentLanguage"></div>
+          </div>
+          
+          <!-- Neue Sprache Auswahl -->
+          <div class="mb-3">
+            <label for="changeJobLanguageSelect" class="form-label">Neue Zielsprache:</label>
+            <select class="form-select" id="changeJobLanguageSelect" name="targetLanguage" required>
+              <option value="" selected disabled>Sprache wählen...</option>
+              <option value="en">Englisch</option>
+              <option value="de">Deutsch</option>
+              <option value="fr">Französisch</option>
+              <option value="es">Spanisch</option>
+              <option value="it">Italienisch</option>
+              <option value="ja">Japanisch</option>
+              <option value="ko">Koreanisch</option>
+              <option value="zh">Chinesisch</option>
+              <option value="ru">Russisch</option>
+              <option value="pt">Portugiesisch</option>
+            </select>
+          </div>
+          
+          <!-- Job Status zurücksetzen -->
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="changeJobLanguageResetStatus" name="resetStatus" checked>
+            <label class="form-check-label" for="changeJobLanguageResetStatus">
+              Job-Status auf "pending" zurücksetzen und neu starten
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-primary" onclick="saveJobLanguageChange()">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast-Container für Benachrichtigungen -->
+<div id="toastContainer" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 {% endblock %}
 
 {% block scripts %}
@@ -414,6 +628,161 @@
         console.error('Fehler:', error);
         alert('Fehler beim Setzen der Batches auf "pending".');
       }
+    }
+  });
+
+  // Handler für den "Batch erstellen" Button
+  document.getElementById('createBatchBtn').addEventListener('click', async function() {
+    // Formularvalidierung
+    const form = document.getElementById('createBatchForm');
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    try {
+      // Daten sammeln
+      const batchName = document.getElementById('batchName').value;
+      const eventName = document.getElementById('eventName').value;
+      const sourceLanguage = document.getElementById('sourceLanguage').value;
+      const targetLanguage = document.getElementById('targetLanguage').value;
+      const templateType = document.getElementById('templateType').value;
+      
+      // Sessions-Daten parsen
+      let sessions;
+      try {
+        sessions = JSON.parse(document.getElementById('sessionsData').value);
+        if (!Array.isArray(sessions)) {
+          throw new Error('Sessions müssen als Array angegeben werden');
+        }
+      } catch (e) {
+        alert('Fehler beim Parsen der Sessions: ' + e.message);
+        return;
+      }
+
+      // Jobs für jede Session vorbereiten
+      const jobs = sessions.map(session => {
+        // Quell- und Zielsprache zu jeder Session hinzufügen
+        const sessionWithLanguage = {
+          ...session,
+          source_language: sourceLanguage,
+          target_language: targetLanguage,
+          template: templateType
+        };
+
+        // Stelle sicher, dass event gesetzt ist, falls nicht in der Session vorhanden
+        if (!sessionWithLanguage.event) {
+          sessionWithLanguage.event = eventName;
+        }
+
+        return {
+          parameters: sessionWithLanguage,
+          user_id: 'dashboard-user'
+        };
+      });
+
+      // Batch-Daten vorbereiten
+      const batchData = {
+        jobs: jobs,
+        batch_name: batchName,
+        user_id: 'dashboard-user'
+      };
+
+      // API-Anfrage zum Erstellen des Batches
+      const response = await fetch('/api/event-job/batches', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': 'dashboard-user'
+        },
+        body: JSON.stringify(batchData)
+      });
+
+      const result = await response.json();
+      
+      if (result.status === 'success') {
+        alert(`Batch erfolgreich erstellt: ${result.message || 'Batch wurde erstellt'}`);
+        // Modal schließen und Seite neu laden
+        const modal = bootstrap.Modal.getInstance(document.getElementById('createBatchModal'));
+        modal.hide();
+        location.reload();
+      } else {
+        alert(`Fehler beim Erstellen des Batches: ${result.message || 'Unbekannter Fehler'}`);
+      }
+    } catch (error) {
+      console.error('Fehler beim Erstellen des Batches:', error);
+      alert('Ein Fehler ist aufgetreten: ' + error.message);
+    }
+  });
+
+  // Handler für den "Sprache ändern" Button
+  document.getElementById('submitLanguageChangeBtn').addEventListener('click', async function() {
+    // Formularvalidierung
+    const form = document.getElementById('changeLanguageForm');
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    // Sicherheitsabfrage
+    if (!confirm('Möchten Sie wirklich die Zielsprache für alle ausgewählten Jobs ändern und diese ggf. neu einreichen? Diese Aktion kann zu erheblichen Systembelastungen führen.')) {
+      return;
+    }
+
+    try {
+      // Daten sammeln
+      const targetLanguage = document.getElementById('targetLanguageChange').value;
+      const resetStatus = document.getElementById('resetStatusCheck').checked;
+      const currentBatchesOnly = document.getElementById('currentBatchesOnly').checked;
+
+      // Zeige Ladeindikator
+      const modalBody = document.querySelector('#changeLanguageModal .modal-body');
+      const originalContent = modalBody.innerHTML;
+      modalBody.innerHTML = `
+        <div class="text-center py-4">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Wird verarbeitet...</span>
+          </div>
+          <p class="mt-2">Die Sprachänderung wird durchgeführt. Dies kann einige Zeit dauern...</p>
+        </div>
+      `;
+
+      // API-Anfrage zum Ändern der Sprache
+      const response = await fetch('/api/dashboard/event-monitor/batches/set-pending-all', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            target_language: targetLanguage,
+            reset_status: resetStatus,
+            current_batches_only: currentBatchesOnly
+          })
+      });
+
+
+      const result = await response.json();
+      
+      // Modal schließen
+      const modal = bootstrap.Modal.getInstance(document.getElementById('changeLanguageModal'));
+      modal.hide();
+
+      // Erfolgsmeldung und Seite neu laden
+      if (result.status === 'success') {
+        alert(`Sprachänderung erfolgreich: ${result.jobs_updated} Jobs in ${result.batches_updated} Batches aktualisiert.`);
+        location.reload();
+      } else {
+        alert(`Fehler bei der Sprachänderung: ${result.message || 'Unbekannter Fehler'}`);
+        // Original-Inhalt wiederherstellen
+        modalBody.innerHTML = originalContent;
+      }
+    } catch (error) {
+      console.error('Fehler bei der Sprachänderung:', error);
+      alert('Ein Fehler ist aufgetreten: ' + error.message);
+      
+      // Original-Inhalt wiederherstellen
+      const modalBody = document.querySelector('#changeLanguageModal .modal-body');
+      modalBody.innerHTML = document.getElementById('changeLanguageForm').outerHTML;
     }
   });
 </script>

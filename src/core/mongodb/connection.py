@@ -141,6 +141,13 @@ def setup_mongodb_connection() -> None:
             "cache_key": 1,
             "file_hash": 1,
             "last_accessed": 1
+        },
+        "translations": {
+            "entity_type": 1,
+            "entity_id": 1,
+            "original_language": 1,
+            "original_text": 1,
+            "last_accessed": 1
         }
     }
     

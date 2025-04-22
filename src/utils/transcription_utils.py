@@ -590,7 +590,8 @@ class WhisperTranscriber:
 
             response: ChatCompletion = self.client.chat.completions.create(
                 model=self.model,
-                messages=messages
+                messages=messages,
+                temperature=0.5
             )
 
             # Zeitmessung beenden

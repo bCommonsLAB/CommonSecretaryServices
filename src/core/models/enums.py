@@ -49,3 +49,5 @@ class OutputFormat(str, Enum):
     MARKDOWN = "markdown"
     JSON = "json"
     XML = "xml" 
+    FILENAME = "filename"
+    

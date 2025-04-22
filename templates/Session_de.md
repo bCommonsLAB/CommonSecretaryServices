@@ -1,6 +1,6 @@
 ---
 tags: {{tags|Was sind die max. 10 wichtigsten Schlüsselwörter aus dem Text? Leerstellen durch Bindestriche ersetzen, damit es gültige Tags sind. Bitte Kommagetrennt ausgeben.}}
-title: {{title|einen treffenden Titel der Session - Nur Text ohne Sonderzeichen, Doppelpunkt, Rufezeichen, etc. - max. 6 Worte}}
+title: {{title|einen treffenden Titel der Session - Nur Text ohne Sonderzeichen, Doppelpunkt, Rufezeichen, etc. - max. 70 Zeichen}}
 subtitle: {{subtitle|einen treffenden Untertitel der Session - Nur Text ohne Sonderzeichen, Doppelpunkt, Rufezeichen, etc.}}
 intro: {{intro|wie können wir diese Session kurz motivierend einführen?}}
 speaker: {{speakers|Welche Sprecher werden im Text erwähnt? Mit Komma und leerstelle getrennt ausgeben.}}
