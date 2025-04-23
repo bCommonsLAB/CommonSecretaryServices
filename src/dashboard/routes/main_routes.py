@@ -183,6 +183,11 @@ def home():
         if not os.path.exists(perf_path):
             logger.warning(f"Performance file not found at {perf_path}")
             return render_template('dashboard.html', stats=stats, system_info=get_system_info())
+        
+        # Prüfe, ob die Datei leer ist
+        if os.path.getsize(perf_path) == 0:
+            logger.warning("Performance file is empty")
+            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
             
         with open(perf_path, 'r') as f:
             perf_data = json.load(f)

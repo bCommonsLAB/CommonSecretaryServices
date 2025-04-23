@@ -525,7 +525,7 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
         if target_format == OutputFormat.HTML:
             format_instruction = "Formatiere die Ausgabe als HTML mit korrekten Tags."
         elif target_format == OutputFormat.FILENAME:
-            format_instruction = "Übersetze und formatiere die Ausgabe als Dateiname - ersetze Bindestriche zwischen Worte durch Leerzeichen - max. 50 Zeichen."
+            format_instruction = "Formatiere die Ausgabe als gültigen Dateiname ohne Sonderzeichen und Umlaute - ersetze Bindestriche zwischen Worte durch Leerzeichen - max. 50 Zeichen."
         elif target_format == OutputFormat.MARKDOWN:
             format_instruction = "Formatiere die Ausgabe im Markdown-Format."
         

@@ -11,13 +11,32 @@
             "id": "39c0038cc4035b51",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "sessions/FOSDEM 2025/de/Tool die Docs 8/9800 Sandboxes und Zählen Transformieren von Dokum.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "Neuer Tab"
+              "title": "9800 Sandboxes und Zählen Transformieren von Dokum"
+            }
+          },
+          {
+            "id": "f9bef29586d36365",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "sessions/FOSDEM 2025/de/Lightning Talks 38/FOSDEM Infrastruktur Bewertung.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "FOSDEM Infrastruktur Bewertung"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -74,7 +93,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 491.5
+    "width": 840.5
   },
   "right": {
     "id": "33c34cfb9f569c43",
@@ -179,52 +198,53 @@
       "audio-recorder:Audioaufzeichnung starten/stoppen": false
     }
   },
-  "active": "39c0038cc4035b51",
+  "active": "f9bef29586d36365",
   "lastOpenFiles": [
-    "sessions/FOSDEM 2025/de/Finanzierung des FOSS Ökosystems 12/20 Jahre Hacking der Finanzierung von XWiki und Cr.md",
-    "sessions/FOSDEM 2025/en/Funding the FOSS Ecosystem 12/20 Years of Hacking the Funding of XWiki and Crypt.md",
-    "sessions/FOSDEM 2025/de/Finanzierung des FOSS Ökosystems 12/20 Jahre Hacking der Finanzierung von XWiki und Crxxx.md",
-    "cache/transformer/temp/debug/llm/20250422_233854_template_transform.json",
-    "sessions/FOSDEM 2025/en/Funding the FOSS Ecosystem 12",
-    "cache/video/temp/video/24dca7a3-61a3-4cf1-bccb-5b0b7f4771f2",
-    "cache/transformer/temp/debug/llm/20250422_233820_text_transformation.json",
-    "cache/transformer/temp/debug/llm/20250422_233819_text_transformation.json",
-    "cache/transformer/temp/debug/llm/20250422_233818_text_transformation.json",
-    "cache/transformer/temp/debug/llm/20250422_233310_template_transform.json",
-    "cache/video/temp/video/c2586866-8bff-4064-b25e-b77edb4b2206",
-    "cache/transformer/temp/debug/llm/20250422_233010_template_transform.json",
-    "cache/video/temp/video/4d2b59e1-8b97-4b74-a2f5-6d2336786300",
-    "sessions/FOSDEM 2025/de/Funding the FOSS Ecosystem 12/20 Jahre Hacking der Finanzierung von XWiki und Cr.md",
-    "sessions/FOSDEM 2025/de/Finanzierung des FOSS-Ökosystems-12/20 Jahre Hacking der Finanzierung von XWiki und Cr.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/20 Years of Hacking the Funding of XWiki and Crypt.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/20-Years-of-Hacking-the-Funding-of-XWiki-and-Crypt.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad.md",
-    "sessions/FOSDEM 2025/it/Finanziare-l'ecosistema-FOSS-12/20 anni di hacking del finanziamento di XWiki e Cr.md",
-    "sessions/FOSDEM 2025/de/Funding-the-FOSS-Ecosystem-12/20-Years-of-Hacking-the-Funding-of-XWiki-and-Crypt.md",
-    "sessions/FOSDEM 2025/de/Funding-the-FOSS-Ecosystem-12/20 Jahre Hacking der Finanzierung von XWiki und Cr.md",
-    "stories/FOSDEM 2025_ecosocial/Gemeinschaftsbildung/Gemeinschaftsbildung_de.md",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_022.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_021.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_020.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_019.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_018.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_017.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_016.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_015.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_014.jpg",
-    "sessions/FOSDEM 2025/assets/20-Years-of-Hacking-the-Funding-of-XWiki-and-CryptPad/preview_013.jpg",
-    "README_multilingual_directories.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/Public and Private Partnership in FOSS Funding.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/Storytelling, Networking & Strategy in OpenSSL Fundraising.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/When to Say No to Funding for FOSS Projects.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/Funding for Fresh Ideas in the FOSS Community.md",
-    "sessions/FOSDEM 2025/en/Funding-the-FOSS-Ecosystem-12/Balancing VC and Open Source in FOSS Funding.md",
-    "sessions/FOSDEM 2025/en/APIs-GraphQL-OpenAPI-AsyncAPI-and-friends-7/Comparing API tech with Spotify schema at FOSDEM 2025.md",
-    "sessions/FOSDEM 2025/en/Rust-12/Enhancing Terminal Aesthetics with Rust using Ratatui.md",
-    "sessions/FOSDEM 2025/en/Open-Research-22/Exploring Data Tracking with Choreographic Approaches.md",
-    "sessions/FOSDEM 2025/en/Open-Research-22/Exploring Open Research Transformations.md",
-    "sessions/FOSDEM 2025/en/Open-Research-22/Framework for Research Software and Data in Open Science.md",
-    "sessions/FOSDEM 2025/en/Open-Research-22/Assessing Modern Slavery with Wikirate Platform.md",
-    "sessions/FOSDEM 2025/en/Collaboration-and-Content-Management-19/Building Collaboration with Collabora Online.md"
+    "sessions/FOSDEM 2025/de/APIs GraphQL OpenAPI AsyncAPI und Freunde 7/Harmonisierung von APIs ein Vergleich von OpenAPI .md",
+    "sessions/FOSDEM 2025/de/APIs GraphQL OpenAPI AsyncAPI und Freunde 7/Dokumentation Ihrer ereignisgesteuerten Architektu.md",
+    "sessions/FOSDEM 2025/de/APIs GraphQL OpenAPI AsyncAPI und Freunde 7/AsyncAPI für Event Driven World 101.md",
+    "sessions/FOSDEM 2025/de/APIs GraphQL OpenAPI AsyncAPI und Freunde 7/API Scoring Die geheime Waffe im Kampf um API Exze.md",
+    "sessions/FOSDEM 2025/de/Offene Forschung 22/Open Research Organisatoren Panel.md",
+    "sessions/FOSDEM 2025/de/FOSS auf Mobilgeräten 11/Kernel Support for Mobile Linux The Missing 20 Dat.md",
+    "cache/transformer/temp/debug/llm/20250423_093145_template_transform.json",
+    "cache/video/temp/video/ccbd4b8c-7e90-40e4-993e-2671093e1693",
+    "sessions/FOSDEM 2025/de/Lightning Talks 38/Status des CJK Eingabesystems in Wayland.md",
+    "cache/transformer/temp/debug/llm/20250423_085330_template_transform.json",
+    "cache/video/temp/video/4c1e7999-7a8b-4583-acec-049c61bf2a88",
+    "sessions/FOSDEM 2025/de/Main Track K Building 18/Nostr Notizen und andere Dinge übertragen von Rela.md",
+    "cache/transformer/temp/debug/llm/20250423_084946_template_transform.json",
+    "sessions/FOSDEM 2025/de/Energie Beschleunigung der Übergang durch Open Source 24/Energy Access Explorer Das digitale Gemeingut zur .md",
+    "cache/transformer/temp/debug/llm/20250423_084942_template_transform.json",
+    "cache/video/temp/video/81e41364-fd8f-4670-982a-06eafb2ed0bf",
+    "sessions/FOSDEM 2025/de/Lightning Talks 38/Von Pixels zu Verfahren Eine Open Source Design Su.md",
+    "cache/transformer/temp/debug/llm/20250423_084911_template_transform.json",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_022.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_021.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_020.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_012.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_011.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_010.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_009.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_008.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_007.jpg",
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_006.jpg",
+    "cache/pdf/temp/pdf/e02f10dfa5edc41d/preview_native/page_22.txt",
+    "cache/pdf/temp/pdf/e02f10dfa5edc41d/preview_native/page_21.txt",
+    "sessions/FOSDEM 2025/de/Lightning Talks 38/Linux VR Einsteiger Leitfaden für Events in virtue.md",
+    "sessions/FOSDEM 2025/de/Lightning Talks 38/Godot VR als Front End für ParaView Lightning Talk.md",
+    "sessions/FOSDEM 2025/de/Libre Office 21/LOWA In Need Of a VCL Plug Dateiname_ LOWA In Need.md",
+    "sessions/FOSDEM 2025/de/Libre Office 21/Sprachen und LibreOffice.md",
+    "sessions/FOSDEM 2025/de/Libre Office 21/Verbesserte Kommentare Erwähnungen.md",
+    "sessions/FOSDEM 2025/de/Libre Office 21/Cool UI UX Command Tracking Analysis.md",
+    "sessions/FOSDEM 2025/de/Libre Office 21/LibreOffice auf Mobilgeräten mit der Collabora Off.md",
+    "sessions/FOSDEM 2025/de/Moderne E-Mail 18/Mox und Vereinfachung der Mailserver Einrichtung.md",
+    "sessions/FOSDEM 2025/de/Zusammenarbeit und Inhaltsverwaltung 19/Rethinking the Web CMS and Finding the Excitement.md",
+    "sessions/FOSDEM 2025/de/Offene Forschung 22/Öffnung der unverschlossenen Manuskripttruhe kompa.md",
+    "sessions/FOSDEM 2025/de/Offene Forschung 22/PICO Scholar Fortschrittliche Offene Forschung mit.md",
+    "sessions/FOSDEM 2025/de/Offene Forschung 22/Wie Open Source Software die Zukunft des Gesundhei.md",
+    "sessions/FOSDEM 2025/de/Offene Forschung 22/Building Bridges Between Researchers Technologists.md",
+    "sessions/FOSDEM 2025/de/Tool die Docs 8/CLI Magic Tricks für Docs Projects.md",
+    "sessions/FOSDEM 2025/de/Zusammenarbeit und Inhaltsverwaltung 19/Was ist neu in Nextcloud.md",
+    "sessions/FOSDEM 2025/de/Zusammenarbeit und Inhaltsverwaltung 19/Open Cloud Mesh.md"
   ]
 }

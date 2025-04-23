@@ -421,15 +421,17 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
 
                 markdown_content = markdown_content.replace("{slides}", slides)
 
-
+                # Sicherstellen, dass der Dateiname keine ungültigen Zeichen enthält
+                sanitized_filename = self._sanitize_filename(filename)
+                
                 # Markdown-Datei im Session-Verzeichnis speichern
-                markdown_file: Path = target_dir / filename
+                markdown_file: Path = target_dir / sanitized_filename
                 markdown_file.write_text(markdown_content, encoding='utf-8')
                 
                 processing_time = time.time() - start_time
                 self.logger.debug("Markdown generiert",
                                 processing_time=processing_time,
-                                markdown_file=filename,
+                                markdown_file=sanitized_filename,
                                 markdown_length=len(markdown_content))
                     
                 return markdown_file, markdown_content, structured_data
@@ -480,10 +482,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 )
                 
                 if pdf_result.error:
-                    raise ProcessingError(
-                        f"Fehler bei der PDF-Vorschau und -Textextraktion: {pdf_result.error.message}",
-                        details=pdf_result.error.details
-                    )
+                    self.logger.error(f"Fehler bei der PDF-Vorschau und -Textextraktion: {pdf_result.error.message}")
+                    return [], []
                 
                 # Extrahiere Vorschaubilder
                 gallery_paths: List[str] = []
@@ -672,7 +672,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 cache_key = self._create_cache_key(input_data)
                 
                 self.logger.info(f"Starte Verarbeitung von Session: {session}")
-                
+                filename = self._sanitize_filename(filename)
+
                 # Übersetze Track- und Session-Namen, wenn die Zielsprache nicht der Quellsprache entspricht
                 translated_track = track
                 translated_filename = filename
@@ -704,6 +705,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     
                     # Für den Dateinamen den Stammteil des Original-Dateinamens übersetzen
                     stem = Path(filename).stem
+                    
                     translated_stem = await translator.translate_entity(
                         entity_type="filename",
                         entity_id=stem,
@@ -712,6 +714,9 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                         source_language=source_language
                     )
                     
+                    # Nach der Übersetzung auf Sonderzeichen prüfen und bereinigen
+                    translated_stem = self._sanitize_filename(translated_stem)
+                    
                     # Sicherstellen, dass der Dateiname nicht zu lang wird
                     if len(translated_stem) > 50:
                         translated_stem = translated_stem[:50]
@@ -719,6 +724,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     # Übersetzen Dateinamen zusammensetzen
                     suffix = Path(filename).suffix
                     translated_filename = f"{translated_stem}{suffix}"
+                    
                 
                 # Zielverzeichnisstruktur erstellen:
                 # sessions/[session]/[track]/[time-session_dir]
@@ -743,6 +749,11 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 # Verwende für Assets immer den originalen Session-Namen
                 
                 session_dir_name = f"{Path(filename).stem}"
+                if len(session_dir_name) > 50:
+                        session_dir_name = session_dir_name[:50]
+                
+                # Bereinige den Verzeichnisnamen
+                session_dir_name = self._sanitize_filename(session_dir_name)
 
                 if attachments_url:
                     attachment_paths, page_texts = await self._process_attachments(
@@ -769,7 +780,11 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 }
 
                 # Verwende die übersetzten Namen für die Zielverzeichnisse
-                target_dir: Path = self.base_dir / event / target_language / translated_track
+                # Stelle sicher, dass die Verzeichnisnamen sauber sind
+                sanitized_event = self._sanitize_filename(event)
+                sanitized_track = self._sanitize_filename(translated_track)
+                
+                target_dir: Path = self.base_dir / sanitized_event / target_language / sanitized_track
                 if not target_dir.exists():
                     target_dir.mkdir(parents=True)
 
@@ -1477,3 +1492,40 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         except Exception as e:
             self.logger.error(f"Fehler beim Abrufen der gecachten Sessions: {str(e)}")
             return []
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Bereinigt einen Dateinamen, indem ungültige Zeichen entfernt oder ersetzt werden.
+        
+        Args:
+            filename: Der zu bereinigende Dateiname
+            
+        Returns:
+            Bereinigter Dateiname ohne ungültige Zeichen
+        """
+        import re
+        
+        # Zeilenumbrüche entfernen
+        sanitized = filename.replace('\n', ' ').replace('\r', ' ')
+        
+        # Ungültige Zeichen durch Unterstriche ersetzen
+        # Windows-unzulässige Zeichen: \ / : * ? " < > |
+        sanitized = re.sub(r'[\\/:*?"<>|]', '_', sanitized)
+        
+        # Weitere problematische Zeichen ersetzen
+        sanitized = re.sub(r'[\x00-\x1F\x7F]', '', sanitized)  # Steuerzeichen entfernen
+        
+        # Mehrfache Leerzeichen durch einen ersetzen
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        
+        # Mehrfache Unterstriche durch einen ersetzen
+        sanitized = re.sub(r'_+', '_', sanitized)
+        
+        # Führende und nachfolgende Unterstriche und Leerzeichen entfernen
+        sanitized = sanitized.strip('_ ')
+        
+        # Sicherstellen, dass der Dateiname nicht leer ist
+        if not sanitized:
+            sanitized = "unnamed"
+            
+        return sanitized
