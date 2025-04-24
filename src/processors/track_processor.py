@@ -361,6 +361,8 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
     async def get_track_sessions(self, track_name: str) -> List[SessionData]:
         """
         Holt alle Sessions eines Tracks aus der Datenbank.
+        Die Methode behält die originalen Dateinamen bei, da die Übersetzung 
+        später in _create_context_from_sessions erfolgt.
         
         Args:
             track_name: Name des Tracks
@@ -458,42 +460,62 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         self.logger.info(f"{len(sessions)} Sessions für Track '{track_name}' gefunden")
         return sessions
     
-    def _get_track_directory(self, event_name: str, track_name: str) -> Path:
+    async def _get_track_directory(self, event_name: str, track_name: str, target_language: str = "de", source_language: str = "de", use_translated_names: bool = True) -> Path:
         """
-        Ermittelt das Verzeichnis für einen Track.
+        Ermittelt das Verzeichnis für einen Track mit Übersetzungsunterstützung.
+        Verwendet die zentrale Methode aus BaseProcessor für konsistente Verzeichnisnamen.
         
         Args:
             event_name: Name des Events (z.B. "FOSDEM 2025")
             track_name: Name des Tracks
+            target_language: Zielsprache (default: "de")
+            source_language: Quellsprache (default: "de")
+            use_translated_names: Ob übersetzte Namen verwendet werden sollen
             
         Returns:
             Path: Pfad zum Track-Verzeichnis
         """
-        # Erstelle den Pfad zum Track-Verzeichnis
-        track_dir = self.base_dir / event_name / track_name
-        
-        # Stelle sicher, dass das Verzeichnis existiert
-        track_dir.mkdir(parents=True, exist_ok=True)
+        # Verwende die zentrale Methode aus BaseProcessor
+        track_dir, _, _ = await self._get_translated_entity_directory(
+            event_name=event_name,
+            track_name=track_name,
+            target_language=target_language,
+            source_language=source_language,
+            use_translated_names=use_translated_names
+        )
         
         return track_dir
     
-    def _save_track_summary(self, event_name: str, track_name: str, summary: str) -> str:
+    async def _save_track_summary(self, event_name: str, track_name: str, summary: str, target_language: str = "de", source_language: str = "de") -> str:
         """
         Speichert die Track-Zusammenfassung in einer Markdown-Datei.
+        Der Dateiname beginnt mit einem Unterstrich, damit er im Verzeichnis an erster Stelle angezeigt wird.
         
         Args:
             event_name: Name des Events (z.B. "FOSDEM 2025")
             track_name: Name des Tracks
             summary: Die generierte Zusammenfassung
+            target_language: Zielsprache (default: "de")
+            source_language: Quellsprache (default: "de")
             
         Returns:
             str: Pfad zur gespeicherten Datei
         """
         # Track-Verzeichnis ermitteln
-        track_dir = self._get_track_directory(event_name, track_name)
+        track_dir = await self._get_track_directory(
+            event_name=event_name, 
+            track_name=track_name,
+            target_language=target_language,
+            source_language=source_language
+        )
         
         # Dateiname für die Zusammenfassung erstellen
-        filename = f"{track_name}-summary.md"
+        # Der Unterstrich am Anfang sorgt dafür, dass die Datei im Verzeichnis an erster Stelle angezeigt wird
+        if target_language == "de":
+            filename = "_Zusammenfassung.md"
+        else:
+            filename = "_Summary.md"
+            
         file_path = track_dir / filename
         
         # Zusammenfassung in die Datei schreiben
@@ -675,7 +697,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 
                 # Kontext aus allen Sessions erstellen
                 with tracker.measure_operation('create_context', 'track') if tracker else nullcontext():
-                    context = self._create_context_from_sessions(sessions)
+                    context = await self._create_context_from_sessions(sessions, target_language)
                 
                 # Template-Transformation durchführen
                 with tracker.measure_operation('transform_template', 'track') if tracker else nullcontext():
@@ -684,7 +706,8 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         source_language=target_language,  # Wir nehmen an, dass die Markdown-Dateien bereits in Zielsprache sind
                         target_language=target_language,
                         template=template,
-                        context=context
+                        context=context,
+                        use_cache=use_cache
                     )
                 
                 # Prüfen, ob ein Fehler zurückgegeben wurde
@@ -730,7 +753,13 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 
                 # Zusammenfassung in Datei speichern
                 with tracker.measure_operation('save_summary', 'track') if tracker else nullcontext():
-                    summary_file_path = self._save_track_summary(event_name, track_name, summary)
+                    summary_file_path = await self._save_track_summary(
+                        event_name=event_name,
+                        track_name=track_name,
+                        summary=summary,
+                        target_language=target_language,
+                        source_language='en'  
+                    )
                 
                 # Metadaten erstellen
                 metadata = {
@@ -872,12 +901,15 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         
         return "\n".join(merged_content)
     
-    def _create_context_from_sessions(self, sessions: List[SessionData]) -> Dict[str, Any]:
+    async def _create_context_from_sessions(self, sessions: List[SessionData], target_language: str = "de") -> Dict[str, Any]:
         """
         Erstellt einen Kontext aus den Session-Daten für die Template-Verarbeitung.
+        Übersetzt die Dateinamen, Sessionnamen und Track-Namen mit der zentralen Übersetzungsmethode.
+        Formatiert Obsidian-Links korrekt mit %20 für Leerzeichen.
         
         Args:
             sessions (List[SessionData]): Liste der Session-Daten
+            target_language: Zielsprache (default: "de")
             
         Returns:
             Dict[str, Any]: Kontext für die Template-Verarbeitung
@@ -886,23 +918,101 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
             "sessions": []
         }
         
-        for session in sessions:
-            session_context: Dict[str, Any] = {
-                "title": session.input.session,
-                "filename": session.input.filename,
-                "obsidian_link": f"[{session.input.session}]({session.input.filename})",
-                "track": session.input.track,
-                "url": session.input.url,
-                "date": session.input.day or "",
-                "speakers": session.input.speakers or []
-            }
-            
-            context["sessions"].append(session_context)
+        # Für Track- und Event-Namen (nehmen wir die aus der ersten Session)
+        track_name = ""
+        event_name = ""
+        translated_track_name = ""
         
-        # Allgemeine Track-Informationen
         if sessions:
-            context["track_name"] = sessions[0].input.track
-            context["event_name"] = sessions[0].input.event
+            track_name = sessions[0].input.track
+            event_name = sessions[0].input.event
+            
+            # Übersetze den Track-Namen
+            try:
+                source_language = sessions[0].input.source_language
+                translated_track_name = await self._translate_entity_name(
+                    entity_type="track",
+                    entity_id=track_name,
+                    entity_text=track_name,
+                    target_language=target_language,
+                    source_language=source_language
+                )
+            except Exception as e:
+                self.logger.warning(f"Fehler beim Übersetzen des Track-Namens '{track_name}': {str(e)}")
+                translated_track_name = track_name  # Fallback: Original
+        
+        for session in sessions:
+            # Extrahiere die Originaldaten
+            source_language = session.input.source_language
+            original_filename = session.input.filename
+            original_session_name = session.input.session
+            original_track_name = session.input.track
+            
+            try:
+                # Übersetze den Dateinamen
+                translated_filename = await self._translate_filename(
+                    filename=original_filename,
+                    target_language=target_language,
+                    source_language=source_language
+                )
+                
+                # Übersetze den Sessionnamen
+                translated_session_name = await self._translate_entity_name(
+                    entity_type="session",
+                    entity_id=original_session_name,
+                    entity_text=original_session_name,
+                    target_language=target_language,
+                    source_language=source_language
+                )
+                
+                # Übersetze den Track-Namen für jede Session (falls unterschiedlich)
+                translated_track = translated_track_name
+                if original_track_name != track_name:
+                    translated_track = await self._translate_entity_name(
+                        entity_type="track",
+                        entity_id=original_track_name,
+                        entity_text=original_track_name,
+                        target_language=target_language,
+                        source_language=source_language
+                    )
+                
+                # Bereite den Obsidian-Link vor - ersetze Leerzeichen durch %20
+                obsidian_link_filename = translated_filename.replace(" ", "%20")
+                
+                # Session-Kontext mit übersetzten Werten erstellen
+                session_context: Dict[str, Any] = {
+                    "title": translated_session_name,  # Verwende übersetzten Sessionnamen
+                    "original_title": original_session_name,  # Originaltitel für Referenz
+                    "filename": translated_filename,  # Verwende übersetzten Dateinamen
+                    "obsidian_link": f"[{translated_session_name}]({obsidian_link_filename})",  # Mit %20 für Leerzeichen
+                    "track": translated_track,  # Verwende übersetzten Track-Namen
+                    "original_track": original_track_name,  # Original Track-Name für Referenz
+                    "url": session.input.url,
+                    "date": session.input.day or "",
+                    "speakers": session.input.speakers or []
+                }
+                
+                context["sessions"].append(session_context)
+                
+            except Exception as e:
+                self.logger.warning(f"Fehler beim Übersetzen der Session-Daten: {str(e)}")
+                # Fallback: Verwende originale Werte
+                obsidian_link_filename = original_filename.replace(" ", "%20")
+                session_context: Dict[str, Any] = {
+                    "title": original_session_name,
+                    "filename": original_filename,
+                    "obsidian_link": f"[{original_session_name}]({obsidian_link_filename})",  # Mit %20 für Leerzeichen
+                    "track": original_track_name,
+                    "url": session.input.url,
+                    "date": session.input.day or "",
+                    "speakers": session.input.speakers or []
+                }
+                context["sessions"].append(session_context)
+        
+        # Allgemeine Track-Informationen mit übersetzten Namen
+        context["track_name"] = translated_track_name if translated_track_name else track_name
+        context["original_track_name"] = track_name  # Original für Referenz
+        context["event_name"] = event_name
         
         return context
     

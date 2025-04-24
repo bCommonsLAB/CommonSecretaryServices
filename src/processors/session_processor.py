@@ -34,7 +34,7 @@ import shutil
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 
-from core.services.translator_service import TranslatorService
+from core.services.translator_service import TranslatorService, get_translator_service
 from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
@@ -51,7 +51,7 @@ from src.core.config import Config
 from src.processors.video_processor import VideoProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.pdf_processor import PDFProcessor
-from src.utils.performance_tracker import get_performance_tracker
+from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
 from utils.performance_tracker import PerformanceTracker
@@ -674,57 +674,21 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 self.logger.info(f"Starte Verarbeitung von Session: {session}")
                 filename = self._sanitize_filename(filename)
 
-                # Übersetze Track- und Session-Namen, wenn die Zielsprache nicht der Quellsprache entspricht
-                translated_track = track
-                translated_filename = filename
+                # Verwende die zentrale Methode für Verzeichnis- und Übersetzungslogik
+                target_dir, _, _ = await self._get_translated_entity_directory(
+                    event_name=event,
+                    track_name=track,
+                    target_language=target_language,
+                    source_language=source_language,
+                    use_translated_names=True
+                )
                 
-                #if source_language != target_language:
-                
-                # Translator-Service laden
-                from src.core.services.translator_service import get_translator_service
-                translator: TranslatorService = get_translator_service()
-                
-                # Track und Session übersetzen
-                with tracker.measure_operation('translate_directory_names', 'translation') if tracker else nullcontext():
-                    translated_track = await translator.translate_entity(
-                        entity_type="track",
-                        entity_id=track,
-                        text=track,
-                        target_language=target_language,
-                        source_language=source_language
-                    )
-                    
-                    # Session-Übersetzung für Kontext (könnte in Zukunft verwendet werden)
-                    await translator.translate_entity(
-                        entity_type="session",
-                        entity_id=session,
-                        text=session,
-                        target_language=target_language,
-                        source_language=source_language
-                    )
-                    
-                    # Für den Dateinamen den Stammteil des Original-Dateinamens übersetzen
-                    stem = Path(filename).stem
-                    
-                    translated_stem = await translator.translate_entity(
-                        entity_type="filename",
-                        entity_id=stem,
-                        text=stem,
-                        target_language=target_language,
-                        source_language=source_language
-                    )
-                    
-                    # Nach der Übersetzung auf Sonderzeichen prüfen und bereinigen
-                    translated_stem = self._sanitize_filename(translated_stem)
-                    
-                    # Sicherstellen, dass der Dateiname nicht zu lang wird
-                    if len(translated_stem) > 50:
-                        translated_stem = translated_stem[:50]
-                    
-                    # Übersetzen Dateinamen zusammensetzen
-                    suffix = Path(filename).suffix
-                    translated_filename = f"{translated_stem}{suffix}"
-                    
+                # Übersetze nur den Dateinamen mit der zentralen Methode
+                translated_filename = await self._translate_filename(
+                    filename=filename,
+                    target_language=target_language,
+                    source_language=source_language
+                )
                 
                 # Zielverzeichnisstruktur erstellen:
                 # sessions/[session]/[track]/[time-session_dir]
@@ -779,18 +743,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     "cache_key": cache_key
                 }
 
-                # Verwende die übersetzten Namen für die Zielverzeichnisse
-                # Stelle sicher, dass die Verzeichnisnamen sauber sind
-                sanitized_event = self._sanitize_filename(event)
-                sanitized_track = self._sanitize_filename(translated_track)
+                template += "_" + target_language
                 
-                target_dir: Path = self.base_dir / sanitized_event / target_language / sanitized_track
-                if not target_dir.exists():
-                    target_dir.mkdir(parents=True)
-
-                template += "_" + target_language 
-                
-               
                 markdown_file, markdown_content, structured_data = await self._generate_markdown(
                     web_text=web_text,
                     video_transcript=video_transcript,
@@ -1529,3 +1483,47 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             sanitized = "unnamed"
             
         return sanitized
+
+    async def _get_translated_entity_directory(self, event_name: str, track_name: str, target_language: str, source_language: str, use_translated_names: bool) -> Tuple[Path, str, str]:
+        """
+        Wrapper für die entsprechende Methode in BaseProcessor.
+        Verwendet die zentrale Verzeichnis- und Übersetzungslogik für Track und Event-Namen.
+        
+        Args:
+            event_name: Name der Veranstaltung
+            track_name: Name des Tracks
+            target_language: Zielsprache
+            source_language: Quellsprache
+            use_translated_names: Ob übersetzte Namen verwendet werden sollen
+            
+        Returns:
+            Tuple aus übersetztem Verzeichnis, übersetztem Track und übersetztem Event
+        """
+        # Delegiere an die Basisklasse
+        return await super()._get_translated_entity_directory(
+            event_name=event_name,
+            track_name=track_name,
+            target_language=target_language,
+            source_language=source_language,
+            use_translated_names=use_translated_names
+        )
+
+    async def _translate_filename(self, filename: str, target_language: str, source_language: str) -> str:
+        """
+        Wrapper für die entsprechende Methode in BaseProcessor.
+        Übersetzt einen Dateinamen in die Zielsprache.
+        
+        Args:
+            filename: Der zu übersetzende Dateiname
+            target_language: Zielsprache
+            source_language: Quellsprache
+            
+        Returns:
+            Übersetzter Dateiname
+        """
+        # Delegiere an die Basisklasse
+        return await super()._translate_filename(
+            filename=filename,
+            target_language=target_language,
+            source_language=source_language
+        )

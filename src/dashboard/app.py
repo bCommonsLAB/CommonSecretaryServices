@@ -39,7 +39,7 @@ app.register_blueprint(api_blueprint, url_prefix='/api')
 
 # Flag für den ersten Request
 _first_request = True
-# Worker-Manager-Instanz
+# Worker-Manager-Instanz (Typ: SessionWorkerManager oder None)
 _worker_manager = None
 # Cache-Setup durchgeführt
 _cache_setup_done = False

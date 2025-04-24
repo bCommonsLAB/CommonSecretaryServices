@@ -12,6 +12,7 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 import yaml
+import re
 
 from src.core.exceptions import ValidationError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo, LLMInfo, BaseResponse
@@ -60,6 +61,7 @@ class BaseProcessor(Generic[T]):
         self.process_id = process_id or str(uuid.uuid4())
         self.resource_calculator: ResourceCalculator = resource_calculator
         self.logger: ProcessingLogger = self.init_logger()
+        self.base_dir: Path = Path("output")  # Basis-Verzeichnis für alle Ausgaben
         
         if parent_process_info:
             self.process_info: ProcessInfo = parent_process_info
@@ -510,4 +512,175 @@ class BaseProcessor(Generic[T]):
         except Exception as e:
             self.logger.error(f"Fehler beim Erstellen der spezialisierten Indizes: {str(e)}")
             raise
+
+    def _sanitize_filename(self, name: str) -> str:
+        """
+        Bereinigt einen Datei- oder Verzeichnisnamen.
+        Entfernt ungültige Zeichen und ersetzt Leerzeichen durch Unterstriche.
+        
+        Args:
+            name: Der zu bereinigende Name
+            
+        Returns:
+            str: Der bereinigte Name
+        """
+        # Ersetze ungültige Zeichen durch Unterstriche
+        invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
+        sanitized = re.sub(invalid_chars, '_', name)
+        
+        # Entferne doppelte Unterstriche
+        sanitized = re.sub(r'_+', '_', sanitized)
+        
+        # Entferne führende und abschließende Unterstriche
+        sanitized = sanitized.strip('_')
+        
+        # Stelle sicher, dass der Name nicht leer ist
+        if not sanitized:
+            sanitized = 'unnamed'
+            
+        # Kürze den Namen, falls er zu lang ist
+        if len(sanitized) > 50:
+            sanitized = sanitized[:50]
+            
+        return sanitized
+
+    async def _translate_entity_name(
+        self, 
+        entity_type: str, 
+        entity_id: str, 
+        entity_text: str, 
+        target_language: str, 
+        source_language: str
+    ) -> str:
+        """
+        Übersetzt einen Entitätsnamen (Event, Track, Session, Dateiname) und
+        stellt die Konsistenz der Übersetzung über mehrere Aufrufe sicher.
+        
+        Args:
+            entity_type: Typ der Entität ('event', 'track', 'session', 'filename')
+            entity_id: ID oder eindeutiger Bezeichner der Entität
+            entity_text: Text, der übersetzt werden soll
+            target_language: Zielsprache 
+            source_language: Quellsprache
+            
+        Returns:
+            str: Der übersetzte und bereinigte Entitätsname
+        """
+        
+            
+        # Translator-Service laden
+        from src.core.services.translator_service import get_translator_service
+        translator = get_translator_service()
+        
+        # Entität übersetzen
+        translated_text = await translator.translate_entity(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            text=entity_text,
+            target_language=target_language,
+            source_language=source_language
+        )
+        
+        # Nach der Übersetzung auf Sonderzeichen prüfen und bereinigen
+        sanitized_translated_text = self._sanitize_filename(translated_text)
+        
+        # Sicherstellen, dass der Name nicht zu lang wird
+        if len(sanitized_translated_text) > 50:
+            sanitized_translated_text = sanitized_translated_text[:50]
+            
+        return sanitized_translated_text
+        
+    async def _translate_filename(
+        self,
+        filename: str,
+        target_language: str,
+        source_language: str
+    ) -> str:
+        """
+        Übersetzt einen Dateinamen, wobei nur der Stammteil übersetzt wird und
+        die Dateierweiterung erhalten bleibt.
+        
+        Args:
+            filename: Der zu übersetzende Dateiname
+            target_language: Zielsprache
+            source_language: Quellsprache
+            
+        Returns:
+            str: Der übersetzte und bereinigte Dateiname
+        """
+                    
+        # Dateiname in Stamm und Erweiterung aufteilen
+        path = Path(filename)
+        stem = path.stem
+        suffix = path.suffix
+        
+        # Stammteil übersetzen
+        translated_stem = await self._translate_entity_name(
+            entity_type="filename",
+            entity_id=stem,
+            entity_text=stem,
+            target_language=target_language,
+            source_language=source_language
+        )
+        
+        # Übersetzten Dateinamen zusammensetzen
+        return f"{translated_stem}{suffix}"
+    
+    async def _get_translated_entity_directory(
+        self,
+        event_name: str,
+        track_name: str,
+        target_language: str = "de",
+        source_language: str = "de",
+        use_translated_names: bool = True
+    ) -> Tuple[Path, str, str]:
+        """
+        Ermittelt das Verzeichnis für eine Entität mit Übersetzung der Namen.
+        
+        Args:
+            event_name: Name des Events
+            track_name: Name des Tracks
+            target_language: Zielsprache (default: "de")
+            source_language: Quellsprache (default: "de")
+            use_translated_names: Ob übersetzte Namen verwendet werden sollen
+            
+        Returns:
+            Tuple[Path, str, str]: (Verzeichnispfad, übersetzter Track-Name, übersetzter Event-Name)
+        """
+        # Sanitize original names for consistent IDs
+        sanitized_event_id = self._sanitize_filename(event_name)
+        sanitized_track_id = self._sanitize_filename(track_name)
+        
+        translated_event = event_name
+        translated_track = track_name
+        
+        if use_translated_names:
+            # Übersetze die Namen
+            translated_event = await self._translate_entity_name(
+                entity_type="event",
+                entity_id=sanitized_event_id,
+                entity_text=event_name,
+                target_language=target_language,
+                source_language=source_language
+            )
+            
+            translated_track = await self._translate_entity_name(
+                entity_type="track",
+                entity_id=sanitized_track_id,
+                entity_text=track_name,
+                target_language=target_language,
+                source_language=source_language
+            )
+        
+        # Sanitize translated names for directory creation
+        sanitized_event = self._sanitize_filename(translated_event)
+        sanitized_track = self._sanitize_filename(translated_track)
+        
+        # Erstelle den Verzeichnispfad
+        base_path: Path = self.base_dir / sanitized_event / target_language / sanitized_track
+        
+        # Stelle sicher, dass das Verzeichnis existiert
+        base_path.mkdir(parents=True, exist_ok=True)
+        
+        return base_path, translated_track, translated_event
     

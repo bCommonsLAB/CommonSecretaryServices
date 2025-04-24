@@ -19,7 +19,7 @@ tags: {{tags|Welche 10 Schlüsselwörter fassen die Sessions in diesem topic am 
 
 {{eco_social_relevance|Welche Aspekte dieses Tracks können den Wandel hin zu nachhaltigen, gerechten und gemeinschaftlichen Systemen unterstützen? Wie lassen sich technologische Fortschritte mit sozialen und ökologischen Werten verbinden? Bitte in mehreren Absätzen strukturiert ausarbeiten.}}
 
-## Anwendungsmöglichkeiten für Eco-Social Designer  
+## Anwendungsmöglichkeiten
 
 {{eco_social_applications|Wie können Designer, Entwickler und Initiativen aus dem ökosozialen Bereich diese Erkenntnisse konkret nutzen? Welche Tools, Plattformen oder Ansätze sind besonders vielversprechend? Bitte bis zu 7  konkrete Beispielen ausarbeiten, jedes Beispiel gefolgt mit einem Obsidian-link, in dem das Beispiel vorkommt.}}
 
