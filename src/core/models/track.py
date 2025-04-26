@@ -84,10 +84,30 @@ class TrackData:
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Daten in ein Dictionary."""
+        # Behandle input: entweder TrackInput-Objekt oder Dictionary
+        if isinstance(self.input, dict):
+            input_dict = self.input
+        else:
+            input_dict = self.input.to_dict()
+            
+        # Behandle output: entweder TrackOutput-Objekt oder Dictionary
+        if isinstance(self.output, dict):
+            output_dict = self.output
+        else:
+            output_dict = self.output.to_dict()
+            
+        # Behandle sessions: Liste von SessionData-Objekten oder Dictionaries
+        sessions_list: List[Dict[str, Any]] = []
+        for session in self.sessions:
+            if isinstance(session, dict):
+                sessions_list.append(session)
+            else:
+                sessions_list.append(session.to_dict())
+        
         return {
-            "input": self.input.to_dict(),
-            "output": self.output.to_dict(),
-            "sessions": [session.to_dict() for session in self.sessions],
+            "input": input_dict,
+            "output": output_dict,
+            "sessions": sessions_list,
             "session_count": self.session_count,
             "query": self.query,
             "context": self.context

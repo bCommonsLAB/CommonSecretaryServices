@@ -1447,43 +1447,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             self.logger.error(f"Fehler beim Abrufen der gecachten Sessions: {str(e)}")
             return []
 
-    def _sanitize_filename(self, filename: str) -> str:
-        """
-        Bereinigt einen Dateinamen, indem ungültige Zeichen entfernt oder ersetzt werden.
-        
-        Args:
-            filename: Der zu bereinigende Dateiname
-            
-        Returns:
-            Bereinigter Dateiname ohne ungültige Zeichen
-        """
-        import re
-        
-        # Zeilenumbrüche entfernen
-        sanitized = filename.replace('\n', ' ').replace('\r', ' ')
-        
-        # Ungültige Zeichen durch Unterstriche ersetzen
-        # Windows-unzulässige Zeichen: \ / : * ? " < > |
-        sanitized = re.sub(r'[\\/:*?"<>|]', '_', sanitized)
-        
-        # Weitere problematische Zeichen ersetzen
-        sanitized = re.sub(r'[\x00-\x1F\x7F]', '', sanitized)  # Steuerzeichen entfernen
-        
-        # Mehrfache Leerzeichen durch einen ersetzen
-        sanitized = re.sub(r'\s+', ' ', sanitized)
-        
-        # Mehrfache Unterstriche durch einen ersetzen
-        sanitized = re.sub(r'_+', '_', sanitized)
-        
-        # Führende und nachfolgende Unterstriche und Leerzeichen entfernen
-        sanitized = sanitized.strip('_ ')
-        
-        # Sicherstellen, dass der Dateiname nicht leer ist
-        if not sanitized:
-            sanitized = "unnamed"
-            
-        return sanitized
-
+    
     async def _get_translated_entity_directory(self, event_name: str, track_name: str, target_language: str, source_language: str, use_translated_names: bool) -> Tuple[Path, str, str]:
         """
         Wrapper für die entsprechende Methode in BaseProcessor.

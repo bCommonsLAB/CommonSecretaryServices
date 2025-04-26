@@ -460,70 +460,6 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         self.logger.info(f"{len(sessions)} Sessions für Track '{track_name}' gefunden")
         return sessions
     
-    async def _get_track_directory(self, event_name: str, track_name: str, target_language: str = "de", source_language: str = "de", use_translated_names: bool = True) -> Path:
-        """
-        Ermittelt das Verzeichnis für einen Track mit Übersetzungsunterstützung.
-        Verwendet die zentrale Methode aus BaseProcessor für konsistente Verzeichnisnamen.
-        
-        Args:
-            event_name: Name des Events (z.B. "FOSDEM 2025")
-            track_name: Name des Tracks
-            target_language: Zielsprache (default: "de")
-            source_language: Quellsprache (default: "de")
-            use_translated_names: Ob übersetzte Namen verwendet werden sollen
-            
-        Returns:
-            Path: Pfad zum Track-Verzeichnis
-        """
-        # Verwende die zentrale Methode aus BaseProcessor
-        track_dir, _, _ = await self._get_translated_entity_directory(
-            event_name=event_name,
-            track_name=track_name,
-            target_language=target_language,
-            source_language=source_language,
-            use_translated_names=use_translated_names
-        )
-        
-        return track_dir
-    
-    async def _save_track_summary(self, event_name: str, track_name: str, summary: str, target_language: str = "de", source_language: str = "de") -> str:
-        """
-        Speichert die Track-Zusammenfassung in einer Markdown-Datei.
-        Der Dateiname beginnt mit einem Unterstrich, damit er im Verzeichnis an erster Stelle angezeigt wird.
-        
-        Args:
-            event_name: Name des Events (z.B. "FOSDEM 2025")
-            track_name: Name des Tracks
-            summary: Die generierte Zusammenfassung
-            target_language: Zielsprache (default: "de")
-            source_language: Quellsprache (default: "de")
-            
-        Returns:
-            str: Pfad zur gespeicherten Datei
-        """
-        # Track-Verzeichnis ermitteln
-        track_dir = await self._get_track_directory(
-            event_name=event_name, 
-            track_name=track_name,
-            target_language=target_language,
-            source_language=source_language
-        )
-        
-        # Dateiname für die Zusammenfassung erstellen
-        # Der Unterstrich am Anfang sorgt dafür, dass die Datei im Verzeichnis an erster Stelle angezeigt wird
-        if target_language == "de":
-            filename = "_Zusammenfassung.md"
-        else:
-            filename = "_Summary.md"
-            
-        file_path = track_dir / filename
-        
-        # Zusammenfassung in die Datei schreiben
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(summary)
-        
-        self.logger.info(f"Track-Zusammenfassung gespeichert: {file_path}")
-        return str(file_path)
     
     def _generate_cache_key(
         self,
@@ -750,16 +686,25 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                     summary = data.text
                     if data.structured_data:
                         structured_data = data.structured_data  
-                
+         
+                # Verwende die zentrale Methode aus BaseProcessor
+                track_dir, translated_track, translated_event = await self._get_translated_entity_directory(
+                    event_name=event_name,
+                    track_name=track_name,
+                    target_language=target_language,
+                    source_language='en',
+                    use_translated_names=True
+                )
+
                 # Zusammenfassung in Datei speichern
                 with tracker.measure_operation('save_summary', 'track') if tracker else nullcontext():
-                    summary_file_path = await self._save_track_summary(
-                        event_name=event_name,
-                        track_name=track_name,
-                        summary=summary,
-                        target_language=target_language,
-                        source_language='en'  
-                    )
+
+                    summary_file: str = "_" + self._sanitize_filename(translated_track) + ".md"
+                    file_path: Path = (track_dir / summary_file)  
+                    
+                    # Zusammenfassung in die Datei schreiben
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(summary)
                 
                 # Metadaten erstellen
                 metadata = {
@@ -769,7 +714,8 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                     "generated_at": datetime.now().isoformat(),
                     "template": template,
                     "language": target_language,
-                    "summary_file": summary_file_path
+                    "track_dir": str(track_dir),
+                    "summary_file": summary_file
                 }
                 
                 # Optimierte Sessions-Liste erstellen

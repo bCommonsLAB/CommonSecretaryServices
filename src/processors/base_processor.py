@@ -530,7 +530,8 @@ class BaseProcessor(Generic[T]):
         
         # Entferne doppelte Unterstriche
         sanitized = re.sub(r'_+', '_', sanitized)
-        
+        sanitized = sanitized.replace("-", " ")
+
         # Entferne führende und abschließende Unterstriche
         sanitized = sanitized.strip('_')
         
@@ -649,7 +650,6 @@ class BaseProcessor(Generic[T]):
         """
         # Sanitize original names for consistent IDs
         sanitized_event_id = self._sanitize_filename(event_name)
-        sanitized_track_id = self._sanitize_filename(track_name)
         
         translated_event = event_name
         translated_track = track_name
@@ -666,7 +666,7 @@ class BaseProcessor(Generic[T]):
             
             translated_track = await self._translate_entity_name(
                 entity_type="track",
-                entity_id=sanitized_track_id,
+                entity_id=track_name,
                 entity_text=track_name,
                 target_language=target_language,
                 source_language=source_language

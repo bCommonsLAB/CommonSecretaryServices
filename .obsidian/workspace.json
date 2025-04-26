@@ -4,39 +4,24 @@
     "type": "split",
     "children": [
       {
-        "id": "18ea1a0aa5db7e40",
+        "id": "f15e06035dc0ade9",
         "type": "tabs",
         "children": [
           {
-            "id": "39c0038cc4035b51",
+            "id": "f963d705a06fad7e",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "sessions/FOSDEM 2025/de/Tool die Docs 8/9800 Sandboxes und Zählen Transformieren von Dokum.md",
+                "file": "sessions/FOSDEM 2025/de/FOSDEM 2025.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "9800 Sandboxes und Zählen Transformieren von Dokum"
-            }
-          },
-          {
-            "id": "f9bef29586d36365",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "sessions/FOSDEM 2025/en/Open Source In The European Legislative Landscape/Room Changeover and Intro to the Implementation an.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Room Changeover and Intro to the Implementation an"
+              "title": "FOSDEM 2025"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -93,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 316.5
+    "width": 461.5
   },
   "right": {
     "id": "33c34cfb9f569c43",
@@ -198,44 +183,44 @@
       "audio-recorder:Audioaufzeichnung starten/stoppen": false
     }
   },
-  "active": "07262fa3c811aa5a",
+  "active": "f963d705a06fad7e",
   "lastOpenFiles": [
-    "templates/Session_es.md",
-    "templates/Session_it copy.md",
-    "templates/Track_eco_social_es.md",
-    "templates/Track_eco_social_ed.md",
-    "templates/Track_eco_social_de copy.md",
-    "templates/Track_eco_social_it.md",
-    "templates/Track_eco_social_en copy.md",
-    "templates/Session_it.md",
-    "templates/Session_en copy.md",
-    "sessions/FOSDEM 2025/en/Open Source In The European Legislative Landscape/_Summary.md",
-    "sessions/FOSDEM 2025/en/Tool the Docs 8/_Summary.md",
-    "sessions/FOSDEM 2025/en/APIs GraphQL OpenAPI AsyncAPI and friends 7/Harmonizing APIs a comparison of OpenAPI and Graph.md",
-    "cache/transformer/temp/debug/llm/20250424_113808_template_transform.json",
-    "sessions/FOSDEM 2025/en/Social Web 12/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113750_template_transform.json",
-    "sessions/FOSDEM 2025/en/Rust 12/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113723_template_transform.json",
-    "cache/transformer/temp/debug/llm/20250424_113700_text_transformation.json",
-    "cache/transformer/temp/debug/llm/20250424_113659_template_transform.json",
-    "sessions/FOSDEM 2025/en/Open Research 22/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113608_template_transform.json",
-    "sessions/FOSDEM 2025/en/Open Media 12/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113525_template_transform.json",
-    "sessions/FOSDEM 2025/en/Modern Email 18/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113500_template_transform.json",
-    "sessions/FOSDEM 2025/en/Main Track K Building 18/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113429_template_transform.json",
-    "sessions/FOSDEM 2025/en/Main Track Janson 7/_Summary.md",
-    "cache/transformer/temp/debug/llm/20250424_113340_template_transform.json",
-    "sessions/FOSDEM 2025/en/Lightning Talks 38/_Summary.md",
-    "sessions/FOSDEM 2025/en/LibreOffice 21/_Summary.md",
-    "sessions/FOSDEM 2025/en/Keynotes 13/_Summary.md",
-    "sessions/FOSDEM 2025/en/Government Collaboration 11/_Summary.md",
-    "sessions/FOSDEM 2025/en/Funding the FOSS Ecosystem 12/_Summary.md",
-    "sessions/FOSDEM 2025/en/FOSS on Mobile Devices 11/_Summary.md",
-    "sessions/FOSDEM 2025/en/FOSDEM Junior 18/_Summary.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_it.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_fr.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_es.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_en.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_de.md",
+    "sessions/FOSDEM 2025/en/FOSDEM 2025.md",
+    "sessions/FOSDEM 2025/fr/FOSDEM 2025.md",
+    "sessions/FOSDEM 2025/it/FOSDEM 2025.md",
+    "sessions/FOSDEM 2025/es/FOSDEM 2025.md",
+    "sessions/FOSDEM 2025/de/FOSDEM 2025.md",
+    "sessions/FOSDEM 2025/assets/FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg",
+    "sessions/FOSDEM 2025/assets/FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg.crdownload",
+    "sessions/FOSDEM 2025/assets/VID-20250201-WA0002_1.mp4",
+    "sessions/FOSDEM 2025/assets/AtFosdem.mp4",
+    "AtFosdem.mp4",
+    "sessions/FOSDEM 2025/de/Tool die Docs 8/9800 Sandboxes und Zählen Transformieren von Dokum.md",
+    "sessions/FOSDEM 2025/templates/Track_eco_social_de.md",
+    "sessions/FOSDEM 2025/templates/Session_it.md",
+    "sessions/FOSDEM 2025/templates/Session_fr.md",
+    "sessions/FOSDEM 2025/templates/Session_es.md",
+    "sessions/FOSDEM 2025/templates/Session_en.md",
+    "sessions/FOSDEM 2025/templates/Session_de.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_it copy.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_fr copy.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_es copy.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_en copy.md",
+    "sessions/FOSDEM 2025/templates/Event_eco_social_de copy.md",
+    "sessions/FOSDEM 2025/templates/Track_eco_social_en.md",
+    "sessions/FOSDEM 2025/templates/Track_eco_social_es.md",
+    "sessions/FOSDEM 2025/templates/Track_eco_social_fr.md",
+    "sessions/FOSDEM 2025/templates",
+    "cache/transformer/temp/debug/llm/20250426_073829_template_transform.json",
+    "cache/transformer/temp/debug/llm/20250426_073703_template_transform.json",
+    "cache/transformer/temp/debug/llm/20250426_073540_template_transform.json",
+    "cache/transformer/temp/debug/llm/20250426_073011_template_transform.json",
+    "cache/transformer/temp/debug/llm/20250426_072142_template_transform.json",
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_019.jpg",
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_018.jpg",
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_017.jpg",
@@ -244,7 +229,6 @@
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_014.jpg",
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_013.jpg",
     "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_022.jpg",
-    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_021.jpg",
-    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_020.jpg"
+    "sessions/FOSDEM 2025/assets/Energy-Access-Explorer-The-Digital-Public-Good-to-/preview_021.jpg"
   ]
 }
