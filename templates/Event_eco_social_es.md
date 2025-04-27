@@ -6,9 +6,9 @@ tags: {{tags|¿Qué 10 palabras clave resumen mejor este evento? Por favor, sep�
 > [¡Información sobre transparencia!]
 > Esta página web es un experimento: se ha generado automáticamente. Todo su contenido se basa en una serie de eventos que se enumeran aquí: https://fosdem.org/2025/schedule/events/
 > A partir del contenido y los enlaces de estas sesiones, se han seleccionado las fuentes disponibles (audio/vídeo/imágenes/textos), se han transcrito, resumido y, con la ayuda de [[sessions/FOSDEM 2025/templates/Event_eco_social_de|plantillas]], se han vuelto a narrar en un contexto eco-social. Se han utilizado modelos LLM de Open AI. Más información en https://www.bcommonsLab.org
-> ![[sessions/FOSDEM 2025/assets/AtFosdem.mp4]]
+> ![[AtFosdem.mp4]]
 
-![[sessions/FOSDEM 2025/assets/FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
+![[FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
 Fonte: Wikipedia
 
 

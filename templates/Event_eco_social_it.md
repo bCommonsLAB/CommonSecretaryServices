@@ -7,9 +7,9 @@ tags: {{tags|Quali sono le 10 parole chiave che riassumono al meglio questo even
 > [!Informazioni sulla trasparenza]-
 > Questo sito web è un esperimento: è stato generato automaticamente. Tutti i contenuti si basano su alcuni eventi elencati qui: https://fosdem.org/2025/schedule/events/
 > Dal contenuto e dai link di queste sessioni sono state selezionate le fonti disponibili (audio/video/immagini/testi), trascritte, riassunte e raccontate in un contesto eco-sociale con l'aiuto di [[sessions/FOSDEM 2025/templates/Event_eco_social_de|modelli]]. Sono stati utilizzati modelli LLM di Open AI . Maggiori informazioni su https://www.bcommonsLab.org
-> ![[sessions/FOSDEM 2025/assets/AtFosdem.mp4]]
+> ![[AtFosdem.mp4]]
 
-![[sessions/FOSDEM 2025/assets/FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
+![[FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
 Source: Wikipedia
 
 ## Di cosa tratta l'evento?

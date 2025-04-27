@@ -7,9 +7,9 @@ interpretiert für eco socials
 > [!Transparenz Info]-
 > Diese Webseite ist ein Experiment: Sie wurde automatisch generiert. Alle Inhalte basieren auf einigen Events, die hier gelistet sind: https://fosdem.org/2025/schedule/events/
 > Aus dem Inhalt und Links dieser Sessions wurden verfügbaren Quellen (Audio/Video/Bild/Texte) ausgelesen, transkribiert, zusammengefasst und mit Hilfe von [[sessions/FOSDEM 2025/templates/Event_eco_social_de|Templates]] in einem eco-sozialem Kontext neu erzählt. Es wurden LLM Modelle von Open AI  verwendet. Weitere Informationen unter https://www.bcommonsLab.org
-> ![[sessions/FOSDEM 2025/assets/AtFosdem.mp4]]
+> ![[AtFosdem.mp4]]
 
-![[sessions/FOSDEM 2025/assets/FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
+![[FOSDEM_2025_Opening_Talk_from_the_speaker_perspective.jpg]]
 Quelle: Wikipedia
 
 ## Worum geht es in dem Event? 

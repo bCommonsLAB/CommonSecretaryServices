@@ -149,9 +149,30 @@ class AudioProcessEndpoint(Resource):
         source_language: str = 'de'  # Default-Wert
         target_language: str = 'de'  # Default-Wert
         try:
+            # DEBUG: Request-Headers protokollieren
+            from flask import request
+            logger.info(f"Request-URL: {request.url}")
+            logger.info(f"Request-Headers: {dict(request.headers)}")
+            logger.info(f"Request-Content-Length: {request.content_length}")
+            
             # Parse request
             args = upload_parser.parse_args()
             audio_file = args.get('file')
+            
+            # DEBUG: Dateigröße-Informationen protokollieren
+            if audio_file:
+                try:
+                    # Position sichern und Größe durch Lesen ermitteln
+                    current_pos = audio_file.tell()
+                    audio_file.seek(0, os.SEEK_END)
+                    actual_file_size = audio_file.tell()
+                    audio_file.seek(current_pos)  # Position wiederherstellen
+                    
+                    # Protokolliere beide Größen
+                    logger.info(f"Audiodatei: {audio_file.filename}, gemeldete Größe: {audio_file.content_length}, tatsächliche Größe: {actual_file_size}")
+                except Exception as e:
+                    logger.warning(f"Fehler beim Ermitteln der tatsächlichen Dateigröße: {e}")
+            
             source_language = args.get('source_language', 'de')
             target_language = args.get('target_language', 'de')
             template = args.get('template', '')
