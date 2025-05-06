@@ -599,6 +599,264 @@ error_model = transformer_ns.model('ErrorModel', {
     'error': fields.Raw(description='Fehlerinformationen')
 })
 
+# Text-Datei Upload Parser - für den Datei-basierten Text-Transformer
+text_upload_parser = transformer_ns.parser()
+text_upload_parser.add_argument(
+    'file', 
+    type=FileStorage, 
+    location='files',
+    required=True,
+    help='Die zu transformierende Textdatei (TXT, MD)'
+)
+text_upload_parser.add_argument(
+    'source_language',
+    type=str,
+    location='form',
+    required=True,
+    help='Die Quellsprache (ISO 639-1 Code, z.B. "de", "en")'
+)
+text_upload_parser.add_argument(
+    'target_language',
+    type=str,
+    location='form',
+    required=True,
+    help='Die Zielsprache (ISO 639-1 Code, z.B. "de", "en")'
+)
+text_upload_parser.add_argument(
+    'summarize',
+    type=str,
+    location='form',
+    required=False,
+    default='false',
+    help='Ob der Text zusammengefasst werden soll (true/false)'
+)
+text_upload_parser.add_argument(
+    'target_format',
+    type=str,
+    location='form',
+    required=False,
+    default='TEXT',
+    help='Das Zielformat (TEXT, HTML, MARKDOWN, JSON)'
+)
+text_upload_parser.add_argument(
+    'context',
+    type=str,  # JSON string
+    location='form',
+    required=False,
+    help='Optionaler JSON-Kontext mit zusätzlichen Informationen'
+)
+text_upload_parser.add_argument(
+    'use_cache',
+    type=str,
+    location='form',
+    required=False,
+    default='true',
+    help='Ob der Cache verwendet werden soll (true/false)'
+)
+
+# Text-Datei-Transformation Endpunkt
+@transformer_ns.route('/text/file')
+class TransformTextFileEndpoint(Resource):
+    @transformer_ns.expect(text_upload_parser)
+    @transformer_ns.response(200, 'Erfolg', transformer_ns.model('TransformTextFileResponse', {
+        'status': fields.String(description='Status der Verarbeitung (success/error)'),
+        'request': fields.Raw(description='Details zur Anfrage'),
+        'process': fields.Raw(description='Informationen zur Verarbeitung'),
+        'data': fields.Raw(description='Transformiertes Ergebnis'),
+        'error': fields.Raw(description='Fehlerinformationen (falls vorhanden)')
+    }))
+    @transformer_ns.response(400, 'Validierungsfehler', error_model)
+    @transformer_ns.doc(description='Transformiert eine Textdatei (TXT, MD) von einer Sprache in eine andere')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Transformiert eine Textdatei von einer Sprache in eine andere.
+        
+        Unterstützt werden Plain-Text und Markdown Dateien (.txt, .md).
+        Optional kann der Text zusammengefasst und in verschiedenen Formaten ausgegeben werden.
+        """
+        # Zeitmessung starten
+        process_start_time = time.time()
+        
+        # Prozess-ID für Tracking
+        process_id = str(uuid.uuid4())
+        logger.info(f"Text-Datei-Transformation gestartet: {process_id}")
+        
+        # Performance Tracking
+        tracker: PerformanceTracker | None = get_performance_tracker() 
+        if not tracker:
+            tracker = get_performance_tracker(process_id)
+        
+        try:
+            # Request-Parameter extrahieren
+            args = text_upload_parser.parse_args()
+            
+            # Datei extrahieren und überprüfen
+            uploaded_file = args.get('file')
+            if not uploaded_file:
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidRequest",
+                        "message": "Keine Datei im Request gefunden."
+                    }
+                }, 400
+                
+            # Dateityp überprüfen (nur .txt und .md erlaubt)
+            filename = uploaded_file.filename or ""
+            if not filename.lower().endswith(('.txt', '.md')):
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidFileType",
+                        "message": "Der Dateityp wird nicht unterstützt. Nur .txt und .md Dateien sind erlaubt."
+                    }
+                }, 400
+                
+            # Dateiinhalt lesen
+            try:
+                source_text = uploaded_file.read().decode('utf-8')
+            except UnicodeDecodeError:
+                # Versuche mit einer anderen Kodierung
+                uploaded_file.seek(0)  # Zurück zum Anfang der Datei
+                try:
+                    source_text = uploaded_file.read().decode('latin-1')
+                except Exception:
+                    return {
+                        "status": "error",
+                        "error": {
+                            "code": "FileDecodingError",
+                            "message": "Die Datei konnte nicht korrekt dekodiert werden. Bitte stellen Sie sicher, dass es sich um eine gültige Textdatei handelt."
+                        }
+                    }, 400
+                    
+            # Parameter extrahieren
+            source_language = args.get('source_language', 'de')
+            target_language = args.get('target_language', 'de')
+            summarize_str = args.get('summarize', 'false').lower()
+            summarize = summarize_str == 'true'
+            target_format_str = args.get('target_format', 'TEXT')
+            use_cache_str = args.get('use_cache', 'true').lower()
+            use_cache = use_cache_str != 'false'  # Alles außer explizite 'false' wird als true behandelt
+            
+            # Kontext parsen, falls vorhanden
+            context_str = args.get('context')
+            context = {}
+            if context_str:
+                try:
+                    context = json.loads(context_str)
+                except json.JSONDecodeError:
+                    logger.warning(f"Ungültiger JSON-Kontext: {context_str}")
+                    context = {}
+            
+            # Target-Format konvertieren
+            try:
+                target_format = OutputFormat[target_format_str] if target_format_str else None
+            except KeyError:
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidRequest",
+                        "message": f"Ungültiges Zielformat: {target_format_str}. Erlaubte Werte: {', '.join([f.name for f in OutputFormat])}"
+                    }
+                }, 400
+                
+            # Processor initialisieren und Text transformieren
+            processor: TransformerProcessor = get_transformer_processor()
+            result: TransformerResponse = processor.transform(
+                source_text=source_text,
+                source_language=source_language,
+                target_language=target_language,
+                summarize=summarize,
+                target_format=target_format,
+                context=context,
+                use_cache=use_cache
+            )
+            
+            # Antwort erstellen
+            end_time: float = time.time()
+            duration_ms = int((end_time - process_start_time) * 1000)
+            
+            response: TransformerResponse = processor.create_response(
+                processor_name="transformer",
+                result=result,
+                request_info={
+                    'filename': filename,
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context,
+                    'duration_ms': duration_ms
+                },
+                response_class=TransformerResponse,
+                from_cache=processor.process_info.is_from_cache,
+                cache_key=processor.process_info.cache_key
+            )
+            
+            return response.to_dict()
+            
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            # Spezifische Fehlerbehandlung
+            logger.error(f"Bekannter Fehler bei der Text-Datei-Transformation: {str(e)}")
+            
+            error_response = BaseResponse(
+                status="error",
+                error=ErrorInfo(
+                    code=e.__class__.__name__,
+                    message=str(e),
+                    details=traceback.format_exc()
+                ),
+                request=RequestInfo(
+                    processor="transformer",
+                    timestamp=datetime.now().isoformat(),
+                    parameters={
+                        'filename': getattr(uploaded_file, 'filename', None),
+                        'source_language': args.get('source_language', 'de'),
+                        'target_language': args.get('target_language', 'de')
+                    }
+                ),
+                process=ProcessInfo(
+                    id=process_id,
+                    main_processor="transformer",
+                    started=datetime.now().isoformat(),
+                    completed=datetime.now().isoformat(),
+                    duration_ms=int((time.time() - process_start_time) * 1000)
+                )
+            )
+            return error_response.to_dict(), 400
+            
+        except Exception as e:
+            # Allgemeine Fehlerbehandlung
+            logger.error(f"Fehler bei der Text-Datei-Transformation: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            error_response = BaseResponse(
+                status="error",
+                error=ErrorInfo(
+                    code="ProcessingError",
+                    message=f"Fehler bei der Text-Datei-Transformation: {str(e)}",
+                    details=traceback.format_exc()
+                ),
+                request=RequestInfo(
+                    processor="transformer",
+                    timestamp=datetime.now().isoformat(),
+                    parameters={
+                        'filename': getattr(uploaded_file, 'filename', None),
+                        'source_language': args.get('source_language', 'de') if args else 'de',
+                        'target_language': args.get('target_language', 'de') if args else 'de'
+                    }
+                ),
+                process=ProcessInfo(
+                    id=process_id,
+                    main_processor="transformer",
+                    started=datetime.now().isoformat(),
+                    completed=datetime.now().isoformat(),
+                    duration_ms=int((time.time() - process_start_time) * 1000)
+                )
+            )
+            return error_response.to_dict(), 400
+
 # Metadata Upload Parser - für den integrierten Metadata-Endpoint
 metadata_upload_parser = transformer_ns.parser()
 metadata_upload_parser.add_argument(
