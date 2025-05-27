@@ -82,7 +82,6 @@ class YoutubeDLOpts(TypedDict, total=True):
     playlist_items: NotRequired[str]
     youtube_include_dash_manifest: bool
     cachedir: NotRequired[str]
-    cookiefile: NotRequired[str]  # Optionales Feld für Cookie-Dateipfad
 
 class ExtractOpts(TypedDict, total=True):
     """Type helper für minimale Extraktions-Optionen."""
@@ -382,20 +381,30 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
         target_language: str = 'de',
         source_language: str = 'auto',
         template: Optional[str] = None,
-        use_cache: bool = True,
-        youtube_cookie: Optional[str] = None
+        use_cache: bool = True
     ) -> YoutubeResponse:
-        """
-        Verarbeitet ein YouTube-Video.
-        Optional kann ein YouTube-Cookie als String (Inhalt einer cookies.txt) übergeben werden.
-        Wird ein Cookie übergeben, wird es als temporäre Datei gespeichert und yt-dlp verwendet diese Datei für die Authentifizierung.
-        Das Cookie hat KEINEN Einfluss auf den Cache-Key oder die Response-Metadaten.
+        """Verarbeitet ein YouTube-Video.
+        
+        Args:
+            url: URL des Videos
+            target_language: Zielsprache für die Verarbeitung
+            source_language: Quellsprache des Videos (auto für automatische Erkennung)
+            template: Optionales Template für die Transformation
+            use_cache: Ob der Cache verwendet werden soll
+            
+        Returns:
+            YoutubeResponse: Die Verarbeitungsergebnisse
         """
         try:
             # 1. Wenn Cache aktiviert, versuche direkt die Video-ID aus der URL zu extrahieren
             if use_cache and self.is_cache_enabled():
+                # Extrahiere Video-ID direkt aus der URL
                 video_id = self._extract_video_id_from_url(url)
+                
+                # Erzeuge Cache-Schlüssel
                 cache_key = self._create_cache_key_from_id(video_id, target_language, template)
+                
+                # Prüfe Cache
                 cache_hit, cached_result = self.get_from_cache(cache_key)
                 if cache_hit and cached_result:
                     self.logger.info(f"Cache-Hit für Video-ID: {video_id}")
@@ -413,30 +422,35 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                         from_cache=True,
                         cache_key=cache_key
                     )
-            # 2. Kein Cache-Hit: Video-Informationen extrahieren
+            
+            # 2. Wenn kein Cache-Hit: Video-Informationen extrahieren
             info = self._extract_video_info(url)
+            
+            # 3. Video-ID extrahieren (jetzt erst für die tatsächliche Verarbeitung)
             video_id = info['id']
+            
+            # 4. Cache-Schlüssel generieren
             cache_key = self._create_cache_key_from_id(video_id, target_language, template)
+            
+            # 5. Verarbeitungsverzeichnis erstellen
             process_dir = self.create_process_dir(video_id)
+            
+            # 6. Download-Optionen anpassen
             download_opts = self.ydl_opts.copy()
             output_path = str(process_dir / "%(title)s.%(ext)s")
             download_opts['outtmpl'] = output_path
-            # Cookie-Handling: Wenn youtube_cookie gesetzt, speichere als Datei und setze Option
-            # Das Cookie wird nur für den Download verwendet und beeinflusst NICHT den Cache-Key
-            cookiefile_path = None
-            if youtube_cookie:
-                # Schreibe das Cookie als temporäre Datei für yt-dlp
-                cookiefile_path = process_dir / "cookies.txt"
-                with open(cookiefile_path, "w", encoding="utf-8") as f:
-                    f.write(youtube_cookie)
-                download_opts['cookiefile'] = str(cookiefile_path)
-                self.logger.info(f"YouTube-Cookie für yt-dlp verwendet: {cookiefile_path}")
+            
+            # 7. Video herunterladen
             with yt_dlp.YoutubeDL(download_opts) as ydl:
                 ydl.download([url])  # type: ignore
+            
+            # 8. Audio-Datei finden
             audio_files = list(process_dir.glob(f"*.{self.export_format}"))
             if not audio_files:
                 raise ProcessingError("Keine Audio-Datei gefunden")
             audio_file = audio_files[0]
+            
+            # 9. Metadaten erstellen
             metadata = YoutubeMetadata(
                 title=info['title'],
                 url=url,
@@ -462,6 +476,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 age_limit=info.get('age_limit'),
                 webpage_url=info.get('webpage_url')
             )
+            
+            # 10. Audio verarbeiten
             self.logger.info("Starte Audio-Verarbeitung")
             audio_response = await self.audio_processor.process(
                 audio_source=str(audio_file),
@@ -474,14 +490,20 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 template=template,
                 use_cache=use_cache
             )
+            
+            # 11. Ergebnis erstellen
             result = YoutubeProcessingResult(
                 metadata=metadata,
                 transcription=audio_response.data.transcription if audio_response.data else None,
                 process_id=self.process_id,
                 processed_at=datetime.now()
             )
+            
+            # 12. Im Cache speichern
             if use_cache and self.is_cache_enabled():
                 self.save_to_cache(cache_key=cache_key, result=result)
+            
+            # 13. Response erstellen
             return self.create_response(
                 processor_name="youtube",
                 result=result,
@@ -496,10 +518,13 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 from_cache=False,
                 cache_key=cache_key
             )
+            
         except Exception as e:
             self.logger.error("Fehler bei der Video-Verarbeitung",
                             error=e,
                             error_type=type(e).__name__)
+            
+            # Fehler-Response
             return self.create_response(
                 processor_name="youtube",
                 result=YoutubeProcessingResult(

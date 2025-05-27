@@ -13,7 +13,7 @@ import asyncio
 
 from flask import request
 from werkzeug.datastructures import FileStorage
-from flask_restx import Namespace, Resource, fields  # type: ignore
+from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 
 from src.core.models.transformer import TransformerResponse
 from src.processors.transformer_processor import TransformerProcessor
@@ -150,47 +150,70 @@ def _calculate_llm_cost(model: str, tokens: int) -> float:
         )
         return 0.0
 
+# Parser für den Text-Transformations-Endpunkt
+text_transform_parser = transformer_ns.parser()
+text_transform_parser.add_argument('text', type=str, location='form', required=True, help='Der zu transformierende Text')
+text_transform_parser.add_argument('source_language', type=str, location='form', required=True, help='Die Quellsprache (ISO 639-1 Code)')
+text_transform_parser.add_argument('target_language', type=str, location='form', required=True, help='Die Zielsprache (ISO 639-1 Code)')
+text_transform_parser.add_argument('summarize', type=inputs.boolean, location='form', required=False, default=False, help='Ob der Text zusammengefasst werden soll (true/false)')
+text_transform_parser.add_argument('target_format', type=str, location='form', required=False, help='Das Zielformat (TEXT, HTML, MARKDOWN, JSON)')
+text_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Transformation')
+text_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
+
+# Parser für den Template-Transformations-Endpunkt
+template_transform_parser = transformer_ns.parser()
+template_transform_parser.add_argument('text', type=str, location='form', required=True, help='Der zu transformierende Text')
+template_transform_parser.add_argument('source_language', type=str, location='form', default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
+template_transform_parser.add_argument('target_language', type=str, location='form', default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
+template_transform_parser.add_argument('template', type=str, location='form', required=True, help='Name des Templates (ohne .md Endung)')
+template_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Template-Verarbeitung')
+template_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
+
+# Parser für den HTML-Tabellen-Transformations-Endpunkt
+html_table_transform_parser = transformer_ns.parser()
+html_table_transform_parser.add_argument('source_url', type=str, location='form', required=True, help='Die URL der Webseite mit der HTML-Tabelle')
+html_table_transform_parser.add_argument('output_format', type=str, location='form', default='json', help='Ausgabeformat (aktuell nur JSON unterstützt)')
+html_table_transform_parser.add_argument('table_index', type=int, location='form', required=False, help='Optional - Index der gewünschten Tabelle (0-basiert).')
+html_table_transform_parser.add_argument('start_row', type=int, location='form', required=False, help='Optional - Startzeile für das Paging (0-basiert)')
+html_table_transform_parser.add_argument('row_count', type=int, location='form', required=False, help='Optional - Anzahl der zurückzugebenden Zeilen')
+
 # Text-Transformation Endpoint
 @transformer_ns.route('/text')  # type: ignore
 class TransformTextEndpoint(Resource):
     # Swagger-Dokumentation für den Endpunkt
-    transform_model = transformer_ns.model('TransformRequest', {
-        'text': fields.String(required=True, description='Der zu transformierende Text'),
-        'source_language': fields.String(required=True, description='Die Quellsprache (ISO 639-1 Code)'),
-        'target_language': fields.String(required=True, description='Die Zielsprache (ISO 639-1 Code)'),
-        'summarize': fields.Boolean(required=False, default=False, description='Ob der Text zusammengefasst werden soll'),
-        'target_format': fields.String(required=False, description='Das Zielformat (TEXT, HTML, MARKDOWN, JSON)'),
-        'context': fields.Raw(required=False, description='Optionaler Kontext für die Transformation'),
-        'use_cache': fields.Boolean(required=False, default=True, description='Ob der Cache verwendet werden soll')
-    })
-    
     @transformer_ns.doc(description='Transformiert Text von einer Sprache in eine andere')  # type: ignore
-    @transformer_ns.expect(transform_model)  # type: ignore
+    @transformer_ns.expect(text_transform_parser)  # type: ignore
     @transformer_ns.response(200, 'Erfolgreiche Transformation')  # type: ignore
     @transformer_ns.response(400, 'Ungültige Anfrage')  # type: ignore
     @transformer_ns.response(500, 'Server-Fehler')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Transformiert Text von einer Sprache in eine andere, mit optionaler Zusammenfassung."""
         try:
-            # Request-Daten extrahieren
-            data = request.json
-            if not data:
-                return {
-                    "status": "error",
-                    "error": {
-                        "code": "InvalidRequest",
-                        "message": "Keine Daten im Request gefunden."
-                    }
-                }, 400
+            # Request-Daten extrahieren mit dem Parser
+            args = text_transform_parser.parse_args()
             
             # Parameter extrahieren
-            source_text = data.get('text', '')
-            source_language = data.get('source_language', 'de')
-            target_language = data.get('target_language', 'de')
-            summarize = data.get('summarize', False)
-            target_format_str = data.get('target_format', 'TEXT')
-            context = data.get('context', {})
-            use_cache = data.get('use_cache', True)
+            source_text = args.get('text', '')
+            source_language = args.get('source_language', 'de')
+            target_language = args.get('target_language', 'de')
+            summarize = args.get('summarize', False)
+            target_format_str = args.get('target_format', 'TEXT')
+            context_str = args.get('context')
+            use_cache = args.get('use_cache', True)
+
+            # Kontext parsen, falls vorhanden
+            context = {}
+            if context_str:
+                try:
+                    context = json.loads(context_str)
+                except json.JSONDecodeError:
+                    return {
+                        "status": "error",
+                        "error": {
+                            "code": "InvalidRequest",
+                            "message": "Ungültiger JSON-String im context-Feld."
+                        }
+                    }, 400
             
             # Validierung
             if not source_text:
@@ -324,14 +347,7 @@ class TransformTextEndpoint(Resource):
 # Template Transformation Endpunkt
 @transformer_ns.route('/template')  # type: ignore
 class TemplateTransformEndpoint(Resource):
-    @transformer_ns.expect(transformer_ns.model('TransformTemplateInput', {  # type: ignore
-        'text': fields.String(required=True, description='Der zu transformierende Text'),
-        'source_language': fields.String(default='de', description='Quellsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'target_language': fields.String(default='de', description='Zielsprache (ISO 639-1 code, z.B. "en", "de")'),
-        'template': fields.String(required=True, description='Name des Templates (ohne .md Endung)'),
-        'context': fields.String(required=False, description='Kontextinformationen für die Template-Verarbeitung'),
-        'use_cache': fields.Boolean(required=False, default=True, description='Ob der Cache verwendet werden soll')
-    }))
+    @transformer_ns.expect(template_transform_parser) # type: ignore
     @transformer_ns.response(200, 'Erfolg', transformer_ns.model('TransformerTemplateResponse', {  # type: ignore
         'status': fields.String(description='Status der Verarbeitung (success/error)'),
         'request': fields.Nested(transformer_ns.model('TemplateRequestInfo', {  # type: ignore
@@ -357,20 +373,31 @@ class TemplateTransformEndpoint(Resource):
     }))
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
-        from flask import request as flask_request  # Lokaler Import, um Namenskonflikte zu vermeiden
-        data = flask_request.get_json()
+        args = template_transform_parser.parse_args()
         tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
-
             # Parameter extrahieren
-            text = data.get('text', '')
-            source_language = data.get('source_language', 'de')
-            target_language = data.get('target_language', 'de')
-            template = data.get('template', '')
-            context = data.get('context', {})
-            use_cache = data.get('use_cache', True)
+            text = args.get('text', '')
+            source_language = args.get('source_language', 'de')
+            target_language = args.get('target_language', 'de')
+            template = args.get('template', '')
+            context_str = args.get('context')
+            use_cache = args.get('use_cache', True)
 
+            # Kontext parsen, falls vorhanden
+            context = {}
+            if context_str:
+                try:
+                    context = json.loads(context_str)
+                except json.JSONDecodeError:
+                    return {
+                        'status': 'error',
+                        'error': {
+                            'code': 'InvalidRequest',
+                            'message': 'Ungültiger JSON-String im context-Feld.'
+                        }
+                    }, 400
 
             start_time: float = time.time()
             transformer_processor: TransformerProcessor = get_transformer_processor()
@@ -411,11 +438,11 @@ class TemplateTransformEndpoint(Resource):
                 processor_name="transformer",
                 result=None,
                 request_info={
-                    'source_text': _truncate_text(data['text']),
-                    'source_language': data.get('source_language', 'de'),
-                    'target_language': data.get('target_language', 'de'),
-                    'template': data['template'],
-                    'context': data.get('context', {})
+                    'source_text': _truncate_text(text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'template': template,
+                    'context': context
                 },
                 response_class=TransformerResponse,
                 from_cache=False,
@@ -445,13 +472,7 @@ class TemplateTransformEndpoint(Resource):
 # HTML-Tabellen-Transformations-Endpunkt
 @transformer_ns.route('/html-table')
 class HtmlTableTransformEndpoint(Resource):
-    @transformer_ns.expect(transformer_ns.model('TransformHtmlTableInput', {
-        'source_url': fields.String(required=True, description='Die URL der Webseite mit der HTML-Tabelle'),
-        'output_format': fields.String(default='json', enum=['json'], description='Ausgabeformat (aktuell nur JSON unterstützt)'),
-        'table_index': fields.Integer(required=False, description='Optional - Index der gewünschten Tabelle (0-basiert). Wenn nicht angegeben, werden alle Tabellen zurückgegeben.'),
-        'start_row': fields.Integer(required=False, description='Optional - Startzeile für das Paging (0-basiert)'),
-        'row_count': fields.Integer(required=False, description='Optional - Anzahl der zurückzugebenden Zeilen')
-    }))
+    @transformer_ns.expect(html_table_transform_parser) # type: ignore
     @transformer_ns.response(200, 'Erfolg', transformer_ns.model('HtmlTableTransformResponse', {
         'status': fields.String(description='Status der Verarbeitung (success/error)'),
         'request': fields.Nested(transformer_ns.model('TableRequestInfo', {
@@ -505,20 +526,22 @@ class HtmlTableTransformEndpoint(Resource):
     }))
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """HTML-Tabellen von einer Webseite in JSON transformieren"""
-        data = request.get_json()
+        args = html_table_transform_parser.parse_args()
         tracker = get_performance_tracker()
         process_start = time.time()
         
         try:
-            # Konvertiere numerische Parameter explizit zu Integer
-            table_index = int(data.get('table_index')) if data.get('table_index') is not None else None
-            start_row = int(data.get('start_row')) if data.get('start_row') is not None else None
-            row_count = int(data.get('row_count')) if data.get('row_count') is not None else None
+            # Parameter direkt vom Parser verwenden (Typkonvertierung erfolgt durch den Parser)
+            source_url = args['source_url']
+            output_format = args.get('output_format', 'json')
+            table_index = args.get('table_index')
+            start_row = args.get('start_row')
+            row_count = args.get('row_count')
 
             transformer_processor: TransformerProcessor = get_transformer_processor()
             result: TransformerResponse = transformer_processor.transformHtmlTable(
-                source_url=data['source_url'],
-                output_format=data.get('output_format', 'json'),
+                source_url=source_url,
+                output_format=output_format,
                 table_index=table_index,
                 start_row=start_row,
                 row_count=row_count
@@ -536,8 +559,8 @@ class HtmlTableTransformEndpoint(Resource):
                 processor_name="transformer_table",
                 result=result.data,
                 request_info={
-                    'source_url': data['source_url'],
-                    'output_format': data.get('output_format', 'json'),
+                    'source_url': source_url,
+                    'output_format': output_format,
                     'table_index': table_index,
                     'start_row': start_row,
                     'row_count': row_count
@@ -563,11 +586,11 @@ class HtmlTableTransformEndpoint(Resource):
                 processor_name="transformer",
                 result=None,
                 request_info={
-                    'source_url': data['source_url'],
-                    'output_format': data.get('output_format', 'json'),
-                    'table_index': data.get('table_index'),
-                    'start_row': data.get('start_row'),
-                    'row_count': data.get('row_count')
+                    'source_url': source_url,
+                    'output_format': output_format,
+                    'table_index': table_index,
+                    'start_row': start_row,
+                    'row_count': row_count
                 },
                 response_class=TransformerResponse,
                 from_cache=False,
