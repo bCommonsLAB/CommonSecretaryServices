@@ -9,9 +9,9 @@ from typing import Any, Dict, Union, Tuple, Literal
 from bson import ObjectId  # type: ignore
 from datetime import datetime
 
-from core.models.story import StoryProcessorInput, StoryResponse
-from core.resource_tracking import ResourceCalculator
-from processors.story_processor import StoryProcessor
+from src.core.models.story import StoryProcessorInput, StoryResponse
+from src.core.resource_tracking import ResourceCalculator
+from src.processors.story_processor import StoryProcessor
 
 # Erstelle einen neuen Namespace für Story-Routen
 story_ns = Namespace('story', description='Story Generierung und Verwaltung')

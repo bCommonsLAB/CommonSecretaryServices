@@ -192,7 +192,7 @@ def create_llm_request(
 
 1. Integration der ResponseFactory:
 ```python
-from core.models.response_factory import ResponseFactory
+from src.core.models.response_factory import ResponseFactory
 
 def create_transformer_response(
     self,

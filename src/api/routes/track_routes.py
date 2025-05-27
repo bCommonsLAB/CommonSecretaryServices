@@ -16,7 +16,7 @@ from src.core.models.track import TrackResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.track_processor import TrackProcessor
 from src.utils.logger import get_logger
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Logger erstellen
 logger: ProcessingLogger = get_logger(processor_name="track_api", process_id="track_api")

@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional, Any, cast
 from pymongo import ASCENDING, IndexModel
 from pymongo.collection import Collection
-from core.mongodb.connection import get_mongodb_database  # type: ignore
+from src.core.mongodb.connection import get_mongodb_database  # type: ignore
 
 # Typdefinitionen für bessere Typunterstützung
 TopicDict = Dict[str, Any]

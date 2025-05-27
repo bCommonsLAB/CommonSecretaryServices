@@ -4,10 +4,8 @@ Verwaltet Übersetzungen von Entitäten für die Verzeichnisstruktur.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Optional, List, ClassVar
-import uuid
+from typing import Dict, Any
 import datetime
-from enum import Enum
 
 
 @dataclass(frozen=False, slots=True)

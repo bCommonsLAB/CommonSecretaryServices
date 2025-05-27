@@ -14,11 +14,11 @@ import time
 
 from pymongo.results import UpdateResult
 
-from core.models.job_models import Batch, Job
-from core.mongodb.repository import SessionJobRepository
+from src.core.models.job_models import Batch, Job
+from src.core.mongodb.repository import SessionJobRepository
 from src.core.mongodb import get_job_repository
 from src.utils.logger import get_logger
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="session-job-api")

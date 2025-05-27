@@ -13,7 +13,7 @@ from pymongo.collection import Collection
 from pymongo.command_cursor import CommandCursor
 from pymongo.database import Database
 
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Pfad zum Projektverzeichnis hinzufügen
 current_dir = os.path.dirname(os.path.abspath(__file__))

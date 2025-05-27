@@ -16,7 +16,7 @@ from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 
 from src.core.models.session import SessionResponse
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="session-api")

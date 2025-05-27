@@ -16,7 +16,7 @@ from src.core.models.event import EventResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.event_processor import EventProcessor
 from src.utils.logger import get_logger
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Logger erstellen
 logger: ProcessingLogger = get_logger(processor_name="event_api", process_id="event_api")

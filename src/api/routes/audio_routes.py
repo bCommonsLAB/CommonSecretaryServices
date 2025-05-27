@@ -18,7 +18,7 @@ from src.core.models.audio import AudioResponse
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="audio-api")

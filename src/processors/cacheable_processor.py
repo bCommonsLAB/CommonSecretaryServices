@@ -16,7 +16,7 @@ else:
 
 from pymongo.results import DeleteResult
 
-from core.config import ApplicationConfig
+from src.core.config import ApplicationConfig
 from src.core.config import Config
 from src.core.models.enums import ProcessingStatus
 from src.core.models.base import ProcessInfo

@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Any, List
-from core.models.event import BatchEventResponse
+from src.core.models.event import BatchEventResponse
 from src.processors.event_processor import EventProcessor
 from src.core.resource_tracking import ResourceCalculator
 

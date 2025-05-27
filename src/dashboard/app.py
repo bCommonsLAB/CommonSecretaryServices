@@ -14,7 +14,7 @@ from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
 from src.core.mongodb import get_worker_manager, close_mongodb_connection
 from src.core.mongodb.cache_setup import setup_mongodb_caching
-from utils.logger import ProcessingLogger
+from src.utils.logger import ProcessingLogger
 
 from .routes.config_routes import config
 from .routes.log_routes import logs

@@ -121,8 +121,8 @@ import pydantic
 import openai
 
 # Local
-from core.base import BaseProcessor
-from utils.helpers import create_temp_dir
+from src.core.base import BaseProcessor
+from src.utils.helpers import create_temp_dir
 ```
 
 ## Dokumentation

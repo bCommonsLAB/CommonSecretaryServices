@@ -3,16 +3,16 @@ Main routes for the dashboard application.
 Contains the main dashboard view and test routes.
 """
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import re
 from typing import Any, Dict, List, cast, Optional
 import logging
 
-from core.config import ApplicationConfig
-from core.models.job_models import Batch
-from utils.logger import ProcessingLogger
+from src.core.config import ApplicationConfig
+from src.core.models.job_models import Batch
+from src.utils.logger import ProcessingLogger
 from ..utils import get_system_info
 from pathlib import Path
 import yaml
@@ -24,9 +24,6 @@ import markdown  # type: ignore
 from src.core.mongodb.repository import SessionJobRepository
 from src.core.mongodb import get_job_repository
 from src.core.models.job_models import JobStatus
-
-# Logger initialisieren
-logger = logging.getLogger(__name__)
 
 # Create the blueprint
 main = Blueprint('main', __name__)
@@ -197,7 +194,7 @@ def home():
             return render_template('dashboard.html', stats=stats, system_info=get_system_info())
             
         # Calculate time window
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         day_ago = now - timedelta(days=1)
         
         # Filter recent requests and ensure timestamp is valid
@@ -525,7 +522,7 @@ def get_recent_requests():
             return jsonify([])
             
         # Calculate time window
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         day_ago = now - timedelta(days=1)
         
         # Filter recent requests and ensure timestamp is valid
@@ -818,8 +815,8 @@ def api_event_monitor_job_restart(job_id: str):
         config = Config()
         
         # Request-Daten extrahieren (optional: batch_id)
-        request_data: Dict[str, Any] = request.get_json() or {}
-        batch_id: str = request_data.get('batch_id', '')
+        data = cast(Dict[str, Any], request.get_json() or {})
+        batch_id: str = data.get('batch_id', '')
         
         # Verwende die generische get-Methode für die API-Basis-URL
         base_url = config.get('server.api_base_url', 'http://localhost:5001')
@@ -878,8 +875,8 @@ def api_event_monitor_job_archive(job_id: str):
         config = Config()
         
         # Request-Daten extrahieren (optional: batch_id)
-        request_data: Dict[str, Any] = request.get_json() or {}
-        batch_id: str = request_data.get('batch_id', '')
+        data = cast(Dict[str, Any], request.get_json() or {})
+        batch_id: str = data.get('batch_id', '')
         
         # Verwende die generische get-Methode für die API-Basis-URL
         base_url = config.get('server.api_base_url', 'http://localhost:5001')
@@ -1119,7 +1116,7 @@ def api_event_monitor_toggle_active(batch_id: str):
         api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
         
         # Request-Daten (falls vorhanden) weitergeben
-        data: Dict[str, Any] = request.get_json() if request.is_json else {}
+        data = cast(Dict[str, Any], request.get_json() if request.is_json else {})
         
         # API-Anfrage zur Umschaltung des isActive-Status
         # Verwende standardisierte Event-Job-API-URL
@@ -1158,7 +1155,7 @@ def api_event_monitor_batch_archive(batch_id: str):
         api_base_url = config.get('server.api_base_url', 'http://localhost:5001')
         
         # Request-Daten (falls vorhanden) weitergeben oder Standarddaten verwenden
-        data: Dict[str, Any] = request.get_json() if request.is_json else {}
+        data = cast(Dict[str, Any], request.get_json() if request.is_json else {})
         
         # Sicherstellen, dass die Mindestanforderungen erfüllt sind
         if 'batch_id' not in data:
@@ -1319,7 +1316,7 @@ def api_event_monitor_force_fail_all():
     try:
         # Repository-Instanz holen
         job_repo = get_job_repository()
-        now = datetime.utcnow()  # Verwende utcnow statt now(UTC)
+        now = datetime.now(timezone.utc)  # Verwende utcnow statt now(UTC)
         
         # Direkte Batch-Aktualisierung
         batch_result = job_repo.batches.update_many(
@@ -1387,8 +1384,8 @@ def api_event_monitor_set_pending_all():
     - target_language: Die neue Zielsprache (z.B. 'de', 'en', etc.)
     """
     try:
-        data = request.get_json() or {}
-        target_language: str = data.get('target_language')
+        data = cast(Dict[str, Any], request.get_json() or {})
+        target_language: Optional[str] = data.get('target_language')
         job_repository = get_job_repository()
         
         # Hole alle nicht archivierten Batches
@@ -1451,9 +1448,9 @@ def api_event_monitor_change_language():
     logger = logging.getLogger(__name__)
     try:
         # Daten aus dem Request auslesen
-        data = request.get_json() or {}
+        data = cast(Dict[str, Any], request.get_json() or {})
         
-        target_language = data.get('target_language')
+        target_language: Optional[str] = data.get('target_language')
         job_id = data.get('job_id')
         reset_status = data.get('reset_status', False)
         current_batches_only = data.get('current_batches_only', True)

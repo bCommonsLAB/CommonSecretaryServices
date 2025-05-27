@@ -51,3 +51,5 @@ mypy==1.8.0
 
 # No idea does not work without it
 pydub>=0.25.1
+
+markdown

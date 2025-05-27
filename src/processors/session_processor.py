@@ -34,7 +34,6 @@ import shutil
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 
-from core.services.translator_service import TranslatorService, get_translator_service
 from src.processors.pdf_processor import PDFResponse
 from src.core.models.transformer import TransformerResponse
 from src.core.models.video import VideoResponse
@@ -54,7 +53,7 @@ from src.processors.pdf_processor import PDFProcessor
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
-from utils.performance_tracker import PerformanceTracker
+from src.utils.performance_tracker import PerformanceTracker
 
 # TypeVar für den Rückgabetyp von Tasks definieren
 T = TypeVar('T')
@@ -1448,7 +1447,14 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             return []
 
     
-    async def _get_translated_entity_directory(self, event_name: str, track_name: str, target_language: str, source_language: str, use_translated_names: bool) -> Tuple[Path, str, str]:
+    async def _get_translated_entity_directory(
+        self,
+        event_name: str,
+        track_name: str,
+        target_language: str = "de",
+        source_language: str = "de",
+        use_translated_names: bool = True
+    ) -> Tuple[Path, str, str]:
         """
         Wrapper für die entsprechende Methode in BaseProcessor.
         Verwendet die zentrale Verzeichnis- und Übersetzungslogik für Track und Event-Namen.

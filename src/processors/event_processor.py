@@ -13,7 +13,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
-from core.models.transformer import TransformerData
+from src.core.models.transformer import TransformerData
 from src.core.config import Config
 from src.core.exceptions import ProcessingError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
@@ -614,19 +614,10 @@ class EventProcessor(CacheableProcessor[EventProcessingResult]):
                     track_metadata = track.output.metadata
                     track_structured_data = track.output.structured_data
                 
-                # Stelle sicher, dass die Metadata ein Dict ist
-                if not isinstance(track_metadata, dict):
-                    track_metadata = {}
-                if not isinstance(track_structured_data, dict):
-                    track_structured_data = {}
-                
-                metadata_dict: Dict[str, Any] = track_metadata 
-                structured_dict: Dict[str, Any] = track_structured_data
-                
                 # Pfad-Informationen extrahieren
-                track_dir = str(metadata_dict.get("track_dir", ""))
+                track_dir = str(track_metadata.get("track_dir", ""))
                 track_dir = track_dir.replace("\\", "/")
-                summary_file = str(metadata_dict.get("summary_file", ""))
+                summary_file = str(track_metadata.get("summary_file", ""))
 
                 obsidian_link = f"{track_dir}/{summary_file}"
                 track_title = summary_file.replace("_", "")
@@ -638,14 +629,14 @@ class EventProcessor(CacheableProcessor[EventProcessingResult]):
                 track_context: Dict[str, Any] = {
                     "name": track_name,
                     "summary": track_summary,
-                    "topic": str(structured_dict.get("topic", "")),
-                    "tags": str(structured_dict.get("tags", "")),
-                    "general_summary": str(structured_dict.get("general_summary", "")),
-                    "eco_social_relevance": str(structured_dict.get("eco_social_relevance", "")),
-                    "eco_social_applications": str(structured_dict.get("eco_social_applications", "")),
-                    "challenges": str(structured_dict.get("challenges", "")),
-                    "session_count": int(metadata_dict.get("sessions_count", 0)),
-                    "sessions": str(structured_dict.get("event_list", "")),
+                    "topic": str(track_structured_data.get("topic", "")),
+                    "tags": str(track_structured_data.get("tags", "")),
+                    "general_summary": str(track_structured_data.get("general_summary", "")),
+                    "eco_social_relevance": str(track_structured_data.get("eco_social_relevance", "")),
+                    "eco_social_applications": str(track_structured_data.get("eco_social_applications", "")),
+                    "challenges": str(track_structured_data.get("challenges", "")),
+                    "session_count": int(track_metadata.get("sessions_count", 0)),
+                    "sessions": str(track_structured_data.get("event_list", "")),
                     "obsidian_link": obsidian_link,
                     "track_title": track_title
                 }

@@ -15,15 +15,15 @@ from flask import request
 from werkzeug.datastructures import FileStorage
 from flask_restx import Namespace, Resource, fields  # type: ignore
 
-from core.models.transformer import TransformerResponse
+from src.core.models.transformer import TransformerResponse
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.metadata_processor import MetadataProcessor, MetadataResponse
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker
-from utils.logger import ProcessingLogger
-from utils.performance_tracker import PerformanceTracker
+from src.utils.logger import ProcessingLogger
+from src.utils.performance_tracker import PerformanceTracker
 from src.core.models.enums import OutputFormat
 from src.core.models.base import (
     BaseResponse,

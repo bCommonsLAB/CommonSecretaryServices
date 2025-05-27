@@ -31,6 +31,8 @@ ENV FLASK_APP=src.main:app
 ENV FLASK_ENV=production
 ENV FLASK_DEBUG=0
 
+
+
 # Port exponieren
 EXPOSE 5001
 

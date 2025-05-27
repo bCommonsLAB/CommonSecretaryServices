@@ -13,7 +13,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
-from core.models.transformer import TransformerData
+from src.core.models.transformer import TransformerData
 from src.core.config import Config
 from src.core.exceptions import ProcessingError
 from src.core.models.base import ErrorInfo, ProcessInfo, RequestInfo
@@ -147,22 +147,31 @@ class TrackProcessingResult:
                 # Extrahiere und validiere Output-Daten - NUR mit bekannten Parametern
                 output_data: Dict[str, Any] = safe_get(session_dict, "output", cast(Dict[str, Any], {}))
                 # Erstelle SessionOutput-Parameter ohne attachments_text
-                output_params = {
-                    "input_data": session_input,
-                    "target_dir": str(safe_get(output_data, "target_dir", "")),
-                    "web_text": str(safe_get(output_data, "web_text", "")),
-                    "video_transcript": str(safe_get(output_data, "video_transcript", "")),
-                    "markdown_file": str(safe_get(output_data, "markdown_file", "")),
-                    "markdown_content": str(safe_get(output_data, "markdown_content", "")),
-                    "video_file": str(safe_get(output_data, "video_file", "")) if safe_get(output_data, "video_file", None) else None,
-                    "attachments_url": str(safe_get(output_data, "attachments_url", "")) if safe_get(output_data, "attachments_url", None) else None,
-                    "attachments": list(safe_get(output_data, "attachments", [])),
-                    "page_texts": list(safe_get(output_data, "page_texts", [])),
-                    "structured_data": dict(safe_get(output_data, "structured_data", {}))
-                }
-                
-                # Erstelle SessionOutput ohne attachments_text
-                session_output = SessionOutput(**output_params)
+                target_dir: str = str(safe_get(output_data, "target_dir", ""))
+                web_text: str = str(safe_get(output_data, "web_text", ""))
+                video_transcript: str = str(safe_get(output_data, "video_transcript", ""))
+                markdown_file: str = str(safe_get(output_data, "markdown_file", ""))
+                markdown_content: str = str(safe_get(output_data, "markdown_content", ""))
+                video_file: Optional[str] = str(safe_get(output_data, "video_file", "")) if safe_get(output_data, "video_file", None) else None
+                attachments_url: Optional[str] = str(safe_get(output_data, "attachments_url", "")) if safe_get(output_data, "attachments_url", None) else None
+                attachments: List[str] = safe_get(output_data, "attachments", cast(List[str], []))
+                page_texts: List[str] = safe_get(output_data, "page_texts", cast(List[str], []))
+                structured_data: Dict[str, Any] = safe_get(output_data, "structured_data", cast(Dict[str, Any], {}))
+
+                # Erstelle SessionOutput direkt mit benannten Parametern
+                session_output = SessionOutput(
+                    input_data=session_input,
+                    target_dir=target_dir,
+                    web_text=web_text,
+                    video_transcript=video_transcript,
+                    markdown_file=markdown_file,
+                    markdown_content=markdown_content,
+                    video_file=video_file,
+                    attachments_url=attachments_url,
+                    attachments=attachments,
+                    page_texts=page_texts,
+                    structured_data=structured_data
+                )
                 
                 sessions.append(SessionData(input=session_input, output=session_output))
             except Exception as e:
@@ -171,6 +180,8 @@ class TrackProcessingResult:
                 print(f"Fehler beim Deserialisieren einer Session: {str(e)}")
                 continue
         
+        process_id_raw = safe_get(data, "process_id", None)
+        process_id: Optional[str] = None if process_id_raw is None else str(process_id_raw)
         return cls(
             track_name=str(safe_get(data, "track_name", "")),
             template=str(safe_get(data, "template", "")),
@@ -179,7 +190,7 @@ class TrackProcessingResult:
             metadata=dict(safe_get(data, "metadata", {})), # type: ignore
             structured_data=dict(safe_get(data, "structured_data", {})), # type: ignore
             sessions=sessions,
-            process_id=str(safe_get(data, "process_id", "")) if safe_get(data, "process_id", None) else None
+            process_id=process_id
         )
     
     def to_track_data(self) -> TrackData:
@@ -688,7 +699,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         structured_data = data.structured_data  
          
                 # Verwende die zentrale Methode aus BaseProcessor
-                track_dir, translated_track, translated_event = await self._get_translated_entity_directory(
+                track_dir, translated_track, _ = await self._get_translated_entity_directory(
                     event_name=event_name,
                     track_name=track_name,
                     target_language=target_language,
@@ -765,7 +776,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                         metadata=metadata,
                         structured_data=dict(structured_data) if structured_data else {}, # Stelle sicher, dass es ein Dict ist
                         sessions=optimized_sessions,
-                        process_id=self.process_id
+                        process_id=cast(Optional[str], self.process_id)
                     )
                 )
                 
@@ -1082,7 +1093,8 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         # Explizite Typ-Definitionen für Dictionaries
         metadata_dict: Dict[str, Any] = safe_get(result_data, "metadata", {})  # type: ignore
         structured_data_dict: Dict[str, Any] = safe_get(result_data, "structured_data", {})  # type: ignore
-        process_id: Optional[str] = safe_get(result_data, "process_id")  # type: ignore
+        process_id_raw = safe_get(result_data, "process_id", None)
+        process_id: Optional[str] = None if process_id_raw is None else str(process_id_raw)
         
         # Rekonstruiere Sessions, aber ignoriere unbekannte Felder
         sessions: List[SessionData] = []
@@ -1143,12 +1155,12 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 session_page_texts: List[str] = output_dict.get("page_texts", [])
                 session_structured_data: Dict[str, Any] = output_dict.get("structured_data", {})
                 
-                # Nur bekannte Felder für SessionOutput extrahieren
-                output_obj = SessionOutput(
-                    web_text=session_web_text,
-                    video_transcript=session_video_transcript,
+                # Erstelle SessionOutput direkt mit benannten Parametern
+                session_output = SessionOutput(
                     input_data=input_obj,
                     target_dir=session_target_dir,
+                    web_text=session_web_text,
+                    video_transcript=session_video_transcript,
                     markdown_file=session_markdown_file,
                     markdown_content=session_markdown_content,
                     video_file=session_video_file,
@@ -1161,7 +1173,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 # SessionData hinzufügen
                 sessions.append(SessionData(
                     input=input_obj,
-                    output=output_obj
+                    output=session_output
                 ))
             except Exception as e:
                 self.logger.warning(
