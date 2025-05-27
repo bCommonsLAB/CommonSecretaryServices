@@ -15,7 +15,7 @@ copy .env.example .env.docker
 
 REM Update Docker configuration
 echo Updating Docker configuration...
-powershell -Command "(Get-Content docker\config\config.yaml) -replace 'port: 5000', 'port: 5001' -replace 'api_port: 5000', 'api_port: 5001' | Set-Content docker\config\config.yaml"
+REM powershell -Command "(Get-Content docker\config\config.yaml) -replace 'port: 5000', 'port: 5001' -replace 'api_port: 5000', 'api_port: 5001' | Set-Content docker\config\config.yaml"
 
 REM Run the container
 echo Starting container...
@@ -25,7 +25,7 @@ docker run -d ^
     --env-file .env.docker ^
     -v "%CD%/logs:/app/logs" ^
     -v "%CD%/temp-processing:/app/temp-processing" ^
-    -v "%CD%/docker/config/config.yaml:/app/config/config.yaml" ^
+    -v "%CD%/config/config.yaml:/app/config/config.yaml" ^
     secretary-services
 
 REM Clean up temporary files
