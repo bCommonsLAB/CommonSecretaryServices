@@ -59,6 +59,7 @@ youtube_parser.add_argument('source_language', location='json', type=str, defaul
 youtube_parser.add_argument('target_language', location='json', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
 youtube_parser.add_argument('template', location='json', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
 youtube_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
+youtube_parser.add_argument('youtube_cookie', location='json', type=str, required=False, help='Optional: YouTube-Cookie als String (Inhalt einer cookies.txt)')
 
 # Parser für YouTube-Anfragen mit Formular
 youtube_form_parser = video_ns.parser()
@@ -67,6 +68,7 @@ youtube_form_parser.add_argument('source_language', location='form', type=str, d
 youtube_form_parser.add_argument('target_language', location='form', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
 youtube_form_parser.add_argument('template', location='form', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
 youtube_form_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
+youtube_form_parser.add_argument('youtube_cookie', location='form', type=str, required=False, help='Optional: YouTube-Cookie als String (Inhalt einer cookies.txt)')
 
 # Definiere Error-Modell, identisch zum alten Format
 error_model: Model | OrderedModel = video_ns.model('Error', {
@@ -160,9 +162,10 @@ def get_youtube_processor(process_id: Optional[str] = None) -> YoutubeProcessor:
 
 # Hilfsfunktion für die YouTube-Verarbeitung
 async def process_youtube(url: str, source_language: str = 'auto', target_language: str = 'de', 
-                          template: str = 'youtube', use_cache: bool = True, process_id: Optional[str] = None) -> YoutubeResponse:
+                          template: str = 'youtube', use_cache: bool = True, process_id: Optional[str] = None, youtube_cookie: Optional[str] = None) -> YoutubeResponse:
     """
     Verarbeitet eine YouTube-URL und extrahiert den Audio-Inhalt.
+    Optional kann ein YouTube-Cookie als String übergeben werden.
     
     Args:
         url: Die YouTube-URL
@@ -171,6 +174,7 @@ async def process_youtube(url: str, source_language: str = 'auto', target_langua
         template: Das zu verwendende Template
         use_cache: Ob der Cache verwendet werden soll
         process_id: Optional eine eindeutige Prozess-ID
+        youtube_cookie: Optional ein YouTube-Cookie als String (Inhalt einer cookies.txt)
         
     Returns:
         YoutubeResponse mit den Verarbeitungsergebnissen
@@ -186,7 +190,8 @@ async def process_youtube(url: str, source_language: str = 'auto', target_langua
         source_language=source_language,
         target_language=target_language,
         template=template,
-        use_cache=use_cache
+        use_cache=use_cache,
+        youtube_cookie=youtube_cookie
     )
     
     return result
@@ -239,15 +244,11 @@ class YoutubeEndpoint(Resource):
     @video_ns.response(200, 'Erfolg', youtube_response)
     @video_ns.response(400, 'Validierungsfehler', error_model)
     @video_ns.doc(id='process_youtube',
-                 description='Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt. Unterstützt sowohl JSON als auch Formular-Anfragen.')
+                 description='Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt. Optional kann ein YouTube-Cookie als String übergeben werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """
         Verarbeitet ein Youtube-Video und extrahiert den Audio-Inhalt.
-        
-        Benötigt eine gültige YouTube-URL und unterstützt verschiedene Parameter zur Steuerung der Verarbeitung.
-        Die Verarbeitung umfasst das Herunterladen des Videos, die Extraktion der Audio-Spur und die Transkription des Inhalts.
-        
-        Die Anfrage kann entweder als JSON oder als Formular (multipart/form-data) gesendet werden.
+        Optional kann ein YouTube-Cookie als String (Inhalt einer cookies.txt) übergeben werden.
         """
         try:
             # Prozess-ID für die Verarbeitung
@@ -260,6 +261,7 @@ class YoutubeEndpoint(Resource):
             target_language = 'de'
             template = 'youtube'
             use_cache = True
+            youtube_cookie = None
             
             # Prüfe, ob die Anfrage als Formular oder als JSON gesendet wurde
             if request.form and 'url' in request.form:
@@ -270,6 +272,7 @@ class YoutubeEndpoint(Resource):
                 template = request.form.get('template', 'youtube')
                 use_cache_str = request.form.get('useCache', 'true')
                 use_cache = use_cache_str.lower() == 'true'
+                youtube_cookie = request.form.get('youtube_cookie')
             else:
                 # JSON-Anfrage
                 args = youtube_parser.parse_args()
@@ -278,6 +281,7 @@ class YoutubeEndpoint(Resource):
                 target_language = args.get('target_language', 'de')
                 template = args.get('template', 'youtube')
                 use_cache = args.get('useCache', True)
+                youtube_cookie = args.get('youtube_cookie')
 
             if not url:
                 raise ProcessingError("Youtube-URL ist erforderlich")
@@ -289,7 +293,8 @@ class YoutubeEndpoint(Resource):
                 target_language=target_language,
                 template=template,
                 use_cache=use_cache,
-                process_id=process_id
+                process_id=process_id,
+                youtube_cookie=youtube_cookie
             ))
             
             # Füge Ressourcenverbrauch zum Tracker hinzu
