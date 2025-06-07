@@ -2,7 +2,7 @@
 Event-Datenmodelle für die Verarbeitung von Events.
 """
 from typing import Any, Dict, List, Optional, TypedDict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .base import BaseResponse
 from .track import TrackData
 
@@ -11,30 +11,31 @@ class EventInput(BaseModel):
     """
     Eingabedaten für die Event-Verarbeitung.
     """
-    event_name: str
-    template: str
-    target_language: str
+    event_name: str = Field(..., description="Name des Events")
+    template: str = Field(..., description="Template für die Verarbeitung")
+    target_language: str = Field(..., description="Zielsprache für die Verarbeitung")
 
 
 class EventOutput(BaseModel):
     """
     Ausgabedaten für die Event-Verarbeitung.
     """
-    summary: str
-    metadata: Dict[str, Any]
-    structured_data: Dict[str, Any]
+    summary: str = Field(..., description="Zusammenfassung des Events als JSON-String")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadaten des Events")
+    structured_data: Dict[str, Any] = Field(default_factory=dict, description="Strukturierte Daten des Events")
+    results: List[Dict[str, Any]] = Field(default_factory=list, description="Liste der verarbeiteten Ergebnisse")
 
 
 class EventData(BaseModel):
     """
     Daten für ein Event.
     """
-    input: EventInput
-    output: EventOutput
-    tracks: List[TrackData]
-    track_count: int
-    query: str = ""
-    context: Dict[str, Any] = {}
+    input: EventInput = Field(..., description="Eingabedaten des Events")
+    output: EventOutput = Field(..., description="Ausgabedaten des Events")
+    tracks: List[TrackData] = Field(default_factory=list, description="Liste der zugehörigen Tracks")
+    track_count: int = Field(..., description="Anzahl der Tracks")
+    query: str = Field(default="", description="Suchanfrage")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Kontextinformationen")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -64,10 +65,10 @@ class EventResponse(BaseResponse):
     """
     Response für die Event-Verarbeitung.
     """
-    data: Optional[EventData] = None
+    data: Optional[EventData] = Field(None, description="Event-Daten")
 
 
-class EventInputDict(TypedDict, total=False):
+class EventInputDict(TypedDict):
     """
     Dictionary-Repräsentation der Event-Eingabedaten.
     """
@@ -76,10 +77,11 @@ class EventInputDict(TypedDict, total=False):
     target_language: str
 
 
-class EventOutputDict(TypedDict, total=False):
+class EventOutputDict(TypedDict):
     """
     Dictionary-Repräsentation der Event-Ausgabedaten.
     """
     summary: str
     metadata: Dict[str, Any]
-    structured_data: Dict[str, Any] 
+    structured_data: Dict[str, Any]
+    results: List[Dict[str, Any]] 

@@ -31,7 +31,7 @@ audio_ns = Namespace('audio', description='Audio-Verarbeitungs-Operationen')
 
 # Model für Audio-Upload Parameter
 upload_parser = audio_ns.parser()
-upload_parser.add_argument('file', location='files', type=FileStorage, required=True, help='Audio-Datei')
+upload_parser.add_argument('file', location='files', type=FileStorage, required=True, help='Audio-Datei (multipart/form-data)')
 upload_parser.add_argument('source_language', location='form', type=str, default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
 upload_parser.add_argument('target_language', location='form', type=str, default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
 upload_parser.add_argument('template', location='form', type=str, default='', help='Optional Template für die Verarbeitung')
@@ -39,7 +39,12 @@ upload_parser.add_argument('useCache', location='form', type=inputs.boolean, def
 
 # Definiere Error-Modell, identisch zum alten Format
 error_model: Model | OrderedModel = audio_ns.model('Error', {
-    'error': fields.String(description='Fehlermeldung')
+    'status': fields.String(description='Status der Anfrage (error)'),
+    'error': fields.Nested(audio_ns.model('ErrorDetails', {
+        'code': fields.String(description='Fehlercode'),
+        'message': fields.String(description='Fehlermeldung'),
+        'details': fields.Raw(description='Zusätzliche Fehlerdetails')
+    }))
 })
 
 # Definiere Modelle für die API-Dokumentation - FLACHES Format wie in der alten Version
@@ -147,39 +152,90 @@ class AudioProcessEndpoint(Resource):
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine Audio-Datei"""
         source_language: str = 'de'  # Default-Wert
-        target_language: str = 'de'  # Default-Wert
+        target_language: str = 'de'
+        temp_file = None
+        temp_file_path = None
+        
         try:
             # DEBUG: Request-Headers protokollieren
             from flask import request
             logger.info(f"Request-URL: {request.url}")
             logger.info(f"Request-Headers: {dict(request.headers)}")
+            logger.info(f"Request-Content-Type: {request.content_type}")
             logger.info(f"Request-Content-Length: {request.content_length}")
             
-            # Parse request
-            args = upload_parser.parse_args()
+            # Versuche Request-Files und Form zu loggen
+            try:
+                logger.info(f"Request-Files: {request.files}")
+                logger.info(f"Request-Form: {request.form}")
+            except Exception as e:
+                logger.warning(f"Fehler beim Loggen von Request-Daten: {e}")
+            
+            # Prüfe Content-Type
+            if not request.content_type or 'multipart/form-data' not in request.content_type:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'INVALID_CONTENT_TYPE',
+                        'message': 'Content-Type muss multipart/form-data sein',
+                        'details': {
+                            'received_content_type': request.content_type,
+                            'expected_content_type': 'multipart/form-data'
+                        }
+                    }
+                }, 400
+            
+            # Parse request mit Fehlerbehandlung
+            try:
+                args = upload_parser.parse_args()
+            except Exception as parse_error:
+                logger.error(f"Fehler beim Parsen der Request-Argumente: {parse_error}")
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'PARSE_ERROR',
+                        'message': 'Fehler beim Parsen der Request-Daten',
+                        'details': {
+                            'error_type': type(parse_error).__name__,
+                            'error_message': str(parse_error)
+                        }
+                    }
+                }, 400
+            
             audio_file = args.get('file')
             
+            if not audio_file:
+                logger.error("Keine Audio-Datei gefunden in Request")
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'MISSING_FILE',
+                        'message': 'Keine Audio-Datei gefunden',
+                        'details': {
+                            'error_type': 'ValidationError',
+                            'request_files': list(request.files.keys()) if request.files else [],
+                            'parsed_args': {k: str(v) for k, v in args.items() if k != 'file'}
+                        }
+                    }
+                }, 400
+            
             # DEBUG: Dateigröße-Informationen protokollieren
-            if audio_file:
-                try:
-                    # Position sichern und Größe durch Lesen ermitteln
-                    current_pos = audio_file.tell()
-                    audio_file.seek(0, os.SEEK_END)
-                    actual_file_size = audio_file.tell()
-                    audio_file.seek(current_pos)  # Position wiederherstellen
-                    
-                    # Protokolliere beide Größen
-                    logger.info(f"Audiodatei: {audio_file.filename}, gemeldete Größe: {audio_file.content_length}, tatsächliche Größe: {actual_file_size}")
-                except Exception as e:
-                    logger.warning(f"Fehler beim Ermitteln der tatsächlichen Dateigröße: {e}")
+            try:
+                # Position sichern und Größe durch Lesen ermitteln
+                current_pos = audio_file.tell()
+                audio_file.seek(0, os.SEEK_END)
+                actual_file_size = audio_file.tell()
+                audio_file.seek(current_pos)  # Position wiederherstellen
+                
+                # Protokolliere beide Größen
+                logger.info(f"Audiodatei: {audio_file.filename}, gemeldete Größe: {audio_file.content_length}, tatsächliche Größe: {actual_file_size}")
+            except Exception as e:
+                logger.warning(f"Fehler beim Ermitteln der tatsächlichen Dateigröße: {e}")
             
             source_language = args.get('source_language', 'de')
             target_language = args.get('target_language', 'de')
             template = args.get('template', '')
             use_cache = args.get('useCache', True)
-
-            if not audio_file:
-                raise ValueError("Keine Audio-Datei gefunden")
 
             # Validiere Dateiformat
             filename = audio_file.filename.lower()
@@ -239,4 +295,14 @@ class AudioProcessEndpoint(Resource):
                         'error_message': str(e)
                     }
                 }
-            }, 500 
+            }, 500
+            
+        finally:
+            # Räume auf
+            if temp_file:
+                temp_file.close()
+                try:
+                    if temp_file_path:
+                        os.unlink(temp_file_path)
+                except OSError:
+                    pass 

@@ -5,22 +5,24 @@ Verarbeitet mehrere FOSDEM-Events und misst die Performance.
 
 import asyncio
 import json
-import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, List
-from src.core.models.event import BatchEventResponse
+from typing import Dict, Any, List, Optional
+from src.core.models.event import EventResponse
 from src.processors.event_processor import EventProcessor
 from src.core.resource_tracking import ResourceCalculator
 
-async def test_process_many_events(max_events: int = 3, verbose: bool = True):
+async def test_process_many_events(max_events: int = 3, verbose: bool = True) -> Optional[EventResponse]:
     """
     Testet die Batch-Verarbeitung des Event-Processors mit FOSDEM-Events.
     
     Args:
         max_events: Maximale Anzahl der zu verarbeitenden Events
         verbose: Ob detaillierte Ausgaben angezeigt werden sollen
+        
+    Returns:
+        Optional[EventResponse]: Die Response mit den verarbeiteten Events oder None bei Fehler
     """
     start_time = time.time()
     
@@ -29,7 +31,7 @@ async def test_process_many_events(max_events: int = 3, verbose: bool = True):
     
     if not sample_path.exists():
         print(f"Fehler: Testdatei {sample_path} nicht gefunden!")
-        return
+        return None
     
     with open(sample_path, "r", encoding="utf-8") as f:
         events_data: List[Dict[str, Any]] = json.load(f)
@@ -54,7 +56,7 @@ async def test_process_many_events(max_events: int = 3, verbose: bool = True):
         print(f"\nStarte Verarbeitung um {time.strftime('%H:%M:%S')}...")
         
         # Events verarbeiten
-        result: BatchEventResponse = await processor.process_many_events(test_events)
+        result: EventResponse = await processor.process_many_events(test_events)
         
         processing_time = time.time() - start_time
         print(f"\nVerarbeitung abgeschlossen nach {processing_time:.2f} Sekunden")
@@ -62,7 +64,8 @@ async def test_process_many_events(max_events: int = 3, verbose: bool = True):
         # Performance-Metriken ausgeben
         print("\n=== Performance-Metriken ===")
         if result.data and result.data.output:
-            summary = result.data.output.summary
+            # Parse summary aus JSON-String
+            summary = json.loads(result.data.output.summary)
             print(f"Gesamtverarbeitungszeit: {summary['processing_time']:.2f} Sekunden")
             print(f"Verarbeitete Events: {summary['total_events']}")
             print(f"Erfolgreiche Events: {summary['successful']}")
@@ -97,12 +100,12 @@ async def test_process_many_events(max_events: int = 3, verbose: bool = True):
         if result.data and result.data.output:
             print("\n=== Generierte Markdown-Dateien ===")
             for i, output in enumerate(result.data.output.results):
-                print(f"\nDatei {i+1}: {output.markdown_file}")
-                print(f"Länge: {output.metadata.get('markdown_length', 'unbekannt')} Zeichen")
+                print(f"\nDatei {i+1}: {output['markdown_file']}")
+                print(f"Länge: {output['metadata'].get('markdown_length', 'unbekannt')} Zeichen")
                 
                 # Zeige einen Ausschnitt des Inhalts, wenn verbose aktiviert ist
                 if verbose:
-                    content = output.markdown_content
+                    content = output['markdown_content']
                     preview = content[:300] + "..." if len(content) > 300 else content
                     print(f"Vorschau:\n{preview}")
 

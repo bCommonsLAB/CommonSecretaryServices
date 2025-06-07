@@ -35,11 +35,14 @@ class ProcessorType(str, Enum):
     YOUTUBE = "youtube"
 
 class ProcessingStatus(str, Enum):
-    """Status eines Verarbeitungsprozesses"""
-    PENDING = "pending"
-    RUNNING = "running"
+    """
+    Status der Verarbeitung.
+    """
     SUCCESS = "success"
     ERROR = "error"
+    PARTIAL = "partial"
+    PENDING = "pending"
+    RUNNING = "running"
     CANCELLED = "cancelled"
 
 class OutputFormat(str, Enum):

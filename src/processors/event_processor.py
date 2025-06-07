@@ -4,10 +4,11 @@ Event-Prozessor für die Verarbeitung von Events.
 from datetime import datetime, UTC
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, cast
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, cast, TypedDict
 import traceback
 from contextlib import nullcontext
 import time
+import json
 
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -33,6 +34,25 @@ T = TypeVar('T')
 
 # Konstanten für ProcessorType
 PROCESSOR_TYPE_EVENT = "event"
+
+# Typ-Definitionen für Dictionary-Strukturen
+class TrackInputDict(TypedDict):
+    track_name: str
+    template: str
+    target_language: str
+
+class TrackOutputDict(TypedDict):
+    summary: str
+    metadata: Dict[str, Any]
+    structured_data: Dict[str, Any]
+
+class TrackDict(TypedDict):
+    input: TrackInputDict
+    output: TrackOutputDict
+    sessions: List[Any]
+    session_count: int
+    query: str
+    context: Dict[str, Any]
 
 class EventProcessingResult:
     """
@@ -81,7 +101,7 @@ class EventProcessingResult:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'EventProcessingResult':
         """Erstellt ein EventProcessingResult aus einem Dictionary."""
-        tracks_data: List[Dict[str, Any]] = safe_get(data, "tracks", cast(List[Dict[str, Any]], []))
+        tracks_data: List[TrackDict] = safe_get(data, "tracks", cast(List[TrackDict], []))
         tracks: List[TrackData] = []
         
         for track_dict in tracks_data:
@@ -99,7 +119,7 @@ class EventProcessingResult:
                     )
                 except Exception as e:
                     # Falls Fehler, behalte das Dictionary
-                    track_input = input_dict
+                    track_input = cast(TrackInput, input_dict)
                 
                 try:
                     track_output = TrackOutput(
@@ -109,7 +129,7 @@ class EventProcessingResult:
                     )
                 except Exception as e:
                     # Falls Fehler, behalte das Dictionary
-                    track_output = output_dict
+                    track_output = cast(TrackOutput, output_dict)
                 
                 # Erstelle TrackData mit korrekten Objekten
                 track_data = TrackData(
@@ -187,7 +207,7 @@ class EventProcessingResult:
         # Request-Info erstellen
         request = RequestInfo(
             processor=PROCESSOR_TYPE_EVENT,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             parameters={
                 "event_name": self.event_name,
                 "template": self.template,
@@ -199,7 +219,7 @@ class EventProcessingResult:
         process = ProcessInfo(
             id=self.process_id or "",
             main_processor=PROCESSOR_TYPE_EVENT,
-            started=datetime.now().isoformat(),
+            started=datetime.now(UTC).isoformat(),
             sub_processors=[],
             completed=None,
             duration=None
@@ -938,4 +958,130 @@ class EventProcessor(CacheableProcessor[EventProcessingResult]):
             EventProcessingResult: Das rekonstruierte Ergebnis
         """
         result_data = cached_data.get("result", {})
-        return EventProcessingResult.from_dict(result_data) 
+        return EventProcessingResult.from_dict(result_data)
+
+    async def process_many_events(self, events: List[Dict[str, Any]]) -> EventResponse:
+        """
+        Verarbeitet mehrere Events in einem Batch.
+        
+        Args:
+            events: Liste von Event-Dictionaries
+            
+        Returns:
+            EventResponse: Response mit den verarbeiteten Events
+        """
+        start_time = time.time()
+        successful = 0
+        failed = 0
+        errors: List[Dict[str, Any]] = []
+        results: List[Dict[str, Any]] = []
+        
+        # Request-Info erstellen
+        request = RequestInfo(
+            processor=PROCESSOR_TYPE_EVENT,
+            timestamp=datetime.now(UTC).isoformat(),
+            parameters={
+                "event_count": len(events),
+                "batch_processing": True
+            }
+        )
+        
+        # Process-Info erstellen
+        process = ProcessInfo(
+            id=self.process_id or "",
+            main_processor=PROCESSOR_TYPE_EVENT,
+            started=datetime.now(UTC).isoformat(),
+            sub_processors=[],
+            completed=None,
+            duration=None
+        )
+        
+        # Verarbeite jedes Event
+        for i, event in enumerate(events):
+            try:
+                # Event verarbeiten
+                event_name = event.get("session", "Unbekannt")
+                template = event.get("template", "event-eco-social-summary")
+                target_language = event.get("language", "de")
+                
+                result = await self.create_event_summary(
+                    event_name=event_name,
+                    template=template,
+                    target_language=target_language
+                )
+                
+                if result.error:
+                    failed += 1
+                    errors.append({
+                        "index": i,
+                        "error": result.error.message
+                    })
+                else:
+                    successful += 1
+                    if result.data:
+                        results.append({
+                            "markdown_file": f"events/{event_name}.md",
+                            "markdown_content": result.data.output.summary,
+                            "metadata": {
+                                "markdown_length": len(result.data.output.summary),
+                                "event_name": event_name,
+                                "template": template,
+                                "target_language": target_language
+                            }
+                        })
+                
+            except Exception as e:
+                failed += 1
+                errors.append({
+                    "index": i,
+                    "error": str(e)
+                })
+        
+        # Berechne Gesamtzeit
+        processing_time = time.time() - start_time
+        
+        # Erstelle Zusammenfassung als JSON-String
+        summary_dict = {
+            "processing_time": processing_time,
+            "total_events": len(events),
+            "successful": successful,
+            "failed": failed,
+            "errors": errors
+        }
+        summary = json.dumps(summary_dict)
+        
+        # Erstelle EventOutput
+        output = EventOutput(
+            summary=summary,
+            metadata={"batch_processing": True},
+            structured_data={"results": results}
+        )
+        
+        # Erstelle EventData
+        data = EventData(
+            input=EventInput(
+                event_name="batch_processing",
+                template="batch",
+                target_language="de"
+            ),
+            output=output,
+            tracks=[],
+            track_count=0,
+            query="",
+            context={}
+        )
+        
+        # Aktualisiere Process-Info
+        process.completed = datetime.now(UTC).isoformat()
+        process.duration = processing_time
+        
+        # Erstelle Response
+        response = EventResponse(
+            request=request,
+            process=process,
+            status=ProcessingStatus.SUCCESS if failed == 0 else ProcessingStatus.PARTIAL,
+            error=None,
+            data=data
+        )
+        
+        return response 
