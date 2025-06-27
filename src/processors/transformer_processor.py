@@ -56,6 +56,7 @@ from datetime import datetime, UTC
 import traceback
 import time
 import json
+import requests
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup as BS, ResultSet, Tag
@@ -790,6 +791,117 @@ Folgender Text soll verarbeitet werden:
             cache_key=cache_key
         )
 
+    def transformByUrl(
+        self,
+        url: str,
+        template: str,
+        source_language: str,
+        target_language: str,
+        context: Optional[Dict[str, Any]] = None,
+        additional_field_descriptions: Optional[Dict[str, str]] = None,
+        use_cache: bool = True
+    ) -> TransformerResponse:
+        """
+        Transformiert Webseiten-Inhalt nach einem Template.
+        
+        Args:
+            url: Die URL der Webseite
+            template: Name des Templates
+            source_language: Die Quellsprache
+            target_language: Die Zielsprache
+            context: Optionaler Kontext für die Transformation
+            additional_field_descriptions: Zusätzliche Feldbeschreibungen
+            use_cache: Ob der Cache verwendet werden soll
+            
+        Returns:
+            TransformerResponse: Die Antwort mit dem transformierten Text
+        """
+        try:
+            # Webseiten-Inhalt abrufen
+            self.logger.info(f"Rufe Webseiten-Inhalt ab: {url}")
+            
+            # Headers für bessere Kompatibilität
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            # Webseite abrufen
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            text: str = response.text
+            
+            
+            self.logger.info(f"Webseiten-Inhalt extrahiert: {len(text)} Zeichen")
+            
+                     
+            # Template-Transformation mit extrahiertem Text durchführen
+            return self.transformByTemplate(
+                text=text,
+                template=template,
+                source_language=source_language,
+                target_language=target_language,
+                context=context,
+                additional_field_descriptions=additional_field_descriptions,
+                use_cache=use_cache
+            )
+            
+        except requests.RequestException as e:
+            self.logger.error(f"Fehler beim Abrufen der Webseite: {str(e)}")
+            
+            error_info = ErrorInfo(
+                code="URL_FETCH_ERROR",
+                message=f"Fehler beim Abrufen der Webseite: {str(e)}",
+                details={
+                    "error_type": type(e).__name__,
+                    "url": url,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return self.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    "url": url,
+                    "template": template,
+                    "source_language": source_language,
+                    "target_language": target_language
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=error_info
+            )
+        except Exception as e:
+            self.logger.error(f"Fehler bei der URL-Transformation: {str(e)}")
+            
+            error_info = ErrorInfo(
+                code="URL_TRANSFORMATION_ERROR",
+                message=f"Fehler bei der URL-Transformation: {str(e)}",
+                details={
+                    "error_type": type(e).__name__,
+                    "url": url,
+                    "template": template,
+                    "traceback": traceback.format_exc()
+                }
+            )
+            
+            return self.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    "url": url,
+                    "template": template,
+                    "source_language": source_language,
+                    "target_language": target_language
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=error_info
+            )
+
     def transformByTemplate(
         self,
         text: str,
@@ -1046,7 +1158,7 @@ Folgender Text soll verarbeitet werden:
                         if first_cell.get('colspan'):
                             links: ResultSet[PageElement | Tag | NavigableString] = first_cell.find_all('a')
                             if links and len(links) == 1 and isinstance(links[0], Tag):
-                                current_group_info: Dict[str, str] = self._extract_link_info(links[0], source_url)
+                                current_group_info = self._extract_link_info(links[0], source_url)
                             else:
                                 current_group_info = {"Name": first_cell.get_text(strip=True)}
                             continue

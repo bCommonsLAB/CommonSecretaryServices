@@ -7,6 +7,7 @@ import json
 import traceback
 import os
 import socket
+from typing import Dict, Any, Union
 from datetime import datetime
 from pathlib import Path
 from flask import jsonify
@@ -33,11 +34,12 @@ def get_container_ip():
 def run_transformer_test():
     """
     Handle transformer processing test requests.
-    Sends text to the transform-text API endpoint for processing.
+    Supports both text and URL inputs with optional templates.
     Parameters:
-    - text: The input text to transform
+    - input_text: The input text or URL to transform
     - target_language: Target language for translation (e.g. 'en', 'de')
-    - summarize: Whether to generate a summary (boolean)
+    - template: Optional template name
+    - model_type: Whether to translate or summarize
     """
     logger.info("Starting transformer test procedure", 
                 endpoint="run_transformer_test",
@@ -45,33 +47,59 @@ def run_transformer_test():
     
     try:
         # Get parameters from form
-        text = request.form.get('input_text')
-        target_language = request.form.get('target_language', 'de')
-        summarize = request.form.get('model_type') == 'summarize'
+        input_text: str = request.form.get('input_text', '').strip()
+        target_language: str = request.form.get('target_language', 'de')
+        template: str = request.form.get('template', '')
+        model_type: str = request.form.get('model_type', 'translate')
         
-        if not text:
+        if not input_text:
             return render_template('test_procedures.html', test_results={
                 'success': False,
                 'message': 'Missing required parameter',
-                'details': {'error': 'Input text is required'}
+                'details': {'error': 'Input text or URL is required'}
             })
 
+        # Determine if input is a URL
+        is_url: bool = input_text.startswith(('http://', 'https://'))
+        
         # Use container IP for API URL
-        container_ip = get_container_ip()
-        api_port = config.get('server.api_port', 5001)  # Fallback auf 5001
-        api_base_url = os.getenv('API_URL', f'http://{container_ip}:{api_port}')
-        api_url = f"{api_base_url}/api/transform-text"
+        container_ip: str = get_container_ip()
+        api_port: int = config.get('server.api_port', 5001)  # Fallback auf 5001
+        api_base_url: str = os.getenv('API_URL', f'http://{container_ip}:{api_port}')
+        
+        # Choose appropriate API endpoint
+        if template:
+            # Template-based transformation
+            api_url: str = f"{api_base_url}/api/transformer/template"
+            params: Dict[str, Any] = {
+                'template': template,
+                'source_language': 'de',
+                'target_language': target_language,
+                'use_cache': True
+            }
+            
+            if is_url:
+                params['url'] = input_text
+            else:
+                params['text'] = input_text
+                
+        else:
+            # Simple text transformation
+            api_url = f"{api_base_url}/api/transformer/text"
+            params = {
+                'text': input_text,
+                'source_language': 'de',
+                'target_language': target_language,
+                'summarize': model_type == 'summarize',
+                'use_cache': True
+            }
         
         # Log the IP and URL being used
         logger.debug("Using API endpoint", 
                     container_ip=container_ip,
-                    api_url=api_url)
-
-        params = {
-            'text': text,
-            'target_language': target_language,
-            'summarize': summarize
-        }
+                    api_url=api_url,
+                    is_url=is_url,
+                    template=template)
 
         # Log request details
         logger.debug("Sending transformer API request", 
@@ -79,7 +107,7 @@ def run_transformer_test():
                     params=params)
 
         # Call the transformer API endpoint
-        response = requests.post(api_url, json=params)
+        response: requests.Response = requests.post(api_url, json=params)
         
         logger.info("Received API response", 
                    status_code=response.status_code,
@@ -87,8 +115,8 @@ def run_transformer_test():
 
         if response.status_code != 200:
             try:
-                error_data = response.json()
-                error_msg = error_data.get('error', {}).get('message', 'Unknown error')
+                error_data: Dict[str, Any] = response.json()
+                error_msg: str = error_data.get('error', {}).get('message', 'Unknown error')
             except json.JSONDecodeError:
                 error_msg = f"Invalid JSON response (Status {response.status_code}): {response.text}"
             
@@ -97,25 +125,46 @@ def run_transformer_test():
                         error_message=error_msg)
             raise ValueError(f"API request failed: {error_msg}")
 
-        api_data = response.json()
+        api_data: Dict[str, Any] = response.json()
+
+        # Extract result data
+        result_data: Any = api_data.get('data', {})
+        transformed_text: str = ""
+        structured_data: Any = None
+        
+        if isinstance(result_data, dict):
+            # New response format
+            output_data: Dict[str, Any] = result_data.get('output', {})
+            transformed_text = output_data.get('text', '')
+            structured_data = output_data.get('structured_data')
+        else:
+            # Legacy response format
+            transformed_text = result_data.get('transformed_text', '')
+            structured_data = None
 
         # Prepare test results
-        details = {
+        details: Dict[str, Any] = {
             'test_type': 'transformer_processing',
-            'original_text': text,
-            'transformed_text': api_data.get('data', {}).get('output', {}).get('text', ''),
-            'original_length': len(text),
-            'transformed_length': len(api_data.get('data', {}).get('output', {}).get('text', '')),
+            'input_type': 'URL' if is_url else 'Text',
+            'input': input_text[:100] + '...' if len(input_text) > 100 else input_text,
+            'transformed_text': transformed_text[:200] + '...' if len(transformed_text) > 200 else transformed_text,
+            'original_length': len(input_text),
+            'transformed_length': len(transformed_text),
             'target_language': target_language,
-            'summarize': summarize,
-            'process_id': api_data.get('process', {}).get('process_id', ''),
-            'duration': api_data.get('process', {}).get('duration', 0),
-            'llm_requests': api_data.get('process', {}).get('llm_requests', [])
+            'template': template if template else 'None',
+            'model_type': model_type,
+            'process_id': api_data.get('process', {}).get('id', ''),
+            'duration': api_data.get('process', {}).get('duration_ms', 0),
+            'is_from_cache': api_data.get('process', {}).get('is_from_cache', False)
         }
+        
+        if structured_data:
+            details['has_structured_data'] = True
+            details['structured_fields'] = list(structured_data.keys()) if isinstance(structured_data, dict) else 'Yes'
 
-        test_results = {
+        test_results: Dict[str, Any] = {
             'success': api_data.get('status') == 'success',
-            'message': 'Text transformation completed successfully',
+            'message': f'{"URL" if is_url else "Text"} transformation completed successfully',
             'details': details
         }
 
@@ -128,7 +177,7 @@ def run_transformer_test():
                     stack_trace=traceback.format_exc())
         return render_template('test_procedures.html', test_results={
             'success': False,
-            'message': f'Text transformation failed: {str(e)}',
+            'message': f'Transformation failed: {str(e)}',
             'details': {
                 'error': str(e),
                 'error_type': type(e).__name__,

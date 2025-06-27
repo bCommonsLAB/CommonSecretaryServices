@@ -1062,7 +1062,17 @@ class WhisperTranscriber:
             
             # Schätze die Token basierend auf der Textlänge
             estimated_tokens: float = len(response.text.split()) * 1.5 if hasattr(response, 'text') else 0
-            tokens = getattr(response, 'usage', {}).get('total_tokens', int(estimated_tokens))
+            
+            # Behebe das Usage-Objekt Problem - verwende direkte Attribute statt .get()
+            tokens = 0
+            if hasattr(response, 'usage'):
+                usage = response.usage
+                if hasattr(usage, 'total_tokens'):
+                    tokens = usage.total_tokens
+                else:
+                    tokens = int(estimated_tokens)
+            else:
+                tokens = int(estimated_tokens)
             
             # LLM-Nutzung tracken mit zentraler Methode
             self.create_llm_request(
@@ -1077,9 +1087,12 @@ class WhisperTranscriber:
                 # Konvertiere Whisper Sprachcode in ISO 639-1
                 source_language = self._convert_to_iso_code(response.language)
 
+            # Prüfe ob Text leer ist und setze Fallback
+            transcription_text = response.text if hasattr(response, 'text') and response.text.strip() else "[Keine Sprache erkannt]"
+
             # Erstelle ein einzelnes Segment für das gesamte Audio-Segment
             segment = TranscriptionSegment(
-                text=response.text,
+                text=transcription_text,
                 segment_id=segment_id or 0,
                 start=0.0,
                 end=duration / 1000.0,
@@ -1092,11 +1105,11 @@ class WhisperTranscriber:
                     segment_id=segment_id,
                     duration_ms=duration,
                     tokens=tokens,
-                    text_length=len(response.text)
+                    text_length=len(transcription_text)
                 )
             
             return TranscriptionResult(
-                text=response.text,
+                text=transcription_text,
                 source_language=source_language,
                 segments=[segment]  # Nur ein Segment pro Audio-Datei
             )
@@ -1114,7 +1127,7 @@ class WhisperTranscriber:
             
             # Erstelle leeres Ergebnis, damit der Gesamtprozess nicht hängen bleibt
             segment = TranscriptionSegment(
-                text="",
+                text="[Transkriptionsfehler]",
                 segment_id=segment_id or 0,
                 start=0.0,
                 end=0.0,

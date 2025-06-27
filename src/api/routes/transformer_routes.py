@@ -162,11 +162,13 @@ text_transform_parser.add_argument('use_cache', type=inputs.boolean, location='f
 
 # Parser für den Template-Transformations-Endpunkt
 template_transform_parser = transformer_ns.parser()
-template_transform_parser.add_argument('text', type=str, location='form', required=True, help='Der zu transformierende Text')
+template_transform_parser.add_argument('text', type=str, location='form', required=False, help='Der zu transformierende Text (optional wenn URL angegeben)')
+template_transform_parser.add_argument('url', type=str, location='form', required=False, help='URL der Webseite (optional wenn Text angegeben)')
 template_transform_parser.add_argument('source_language', type=str, location='form', default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
 template_transform_parser.add_argument('target_language', type=str, location='form', default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
 template_transform_parser.add_argument('template', type=str, location='form', required=True, help='Name des Templates (ohne .md Endung)')
 template_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Template-Verarbeitung')
+template_transform_parser.add_argument('additional_field_descriptions', type=str, location='form', required=False, help='Optionaler JSON-String mit zusätzlichen Feldbeschreibungen')
 template_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
 
 # Parser für den HTML-Tabellen-Transformations-Endpunkt
@@ -379,11 +381,32 @@ class TemplateTransformEndpoint(Resource):
         try:
             # Parameter extrahieren
             text = args.get('text', '')
+            url = args.get('url', '')
             source_language = args.get('source_language', 'de')
             target_language = args.get('target_language', 'de')
             template = args.get('template', '')
             context_str = args.get('context')
+            additional_field_descriptions_str = args.get('additional_field_descriptions')
             use_cache = args.get('use_cache', True)
+
+            # Validierung: Entweder Text oder URL muss angegeben werden
+            if not text and not url:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidRequest',
+                        'message': 'Entweder text oder url muss angegeben werden.'
+                    }
+                }, 400
+
+            if text and url:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidRequest',
+                        'message': 'Nur entweder text oder url darf angegeben werden, nicht beide.'
+                    }
+                }, 400
 
             # Kontext parsen, falls vorhanden
             context = {}
@@ -399,16 +422,46 @@ class TemplateTransformEndpoint(Resource):
                         }
                     }, 400
 
+            # Additional field descriptions parsen, falls vorhanden
+            additional_field_descriptions = {}
+            if additional_field_descriptions_str:
+                try:
+                    additional_field_descriptions = json.loads(additional_field_descriptions_str)
+                except json.JSONDecodeError:
+                    return {
+                        'status': 'error',
+                        'error': {
+                            'code': 'InvalidRequest',
+                            'message': 'Ungültiger JSON-String im additional_field_descriptions-Feld.'
+                        }
+                    }, 400
+
             start_time: float = time.time()
             transformer_processor: TransformerProcessor = get_transformer_processor()
-            result: TransformerResponse = transformer_processor.transformByTemplate(
-                text=text,
-                template=template,
-                source_language=source_language,
-                target_language=target_language,
-                context=context,
-                use_cache=use_cache
-            )
+            
+            # Wähle die passende Transformationsmethode
+            if url:
+                # URL-basierte Transformation
+                result: TransformerResponse = transformer_processor.transformByUrl(
+                    url=url,
+                    template=template,
+                    source_language=source_language,
+                    target_language=target_language,
+                    context=context,
+                    additional_field_descriptions=additional_field_descriptions,
+                    use_cache=use_cache
+                )
+            else:
+                # Text-basierte Transformation
+                result: TransformerResponse = transformer_processor.transformByTemplate(
+                    text=text,
+                    template=template,
+                    source_language=source_language,
+                    target_language=target_language,
+                    context=context,
+                    additional_field_descriptions=additional_field_descriptions,
+                    use_cache=use_cache
+                )
 
             # Antwort erstellen
             end_time: float = time.time()
@@ -418,11 +471,13 @@ class TemplateTransformEndpoint(Resource):
                 processor_name="transformer",
                 result=result,
                 request_info={
-                    'text': _truncate_text(text),
+                    'text': _truncate_text(text) if text else None,
+                    'url': url if url else None,
                     'template': template,
                     'source_language': source_language,
                     'target_language': target_language,
                     'context': context,
+                    'additional_field_descriptions': additional_field_descriptions,
                     'use_cache': use_cache,
                     'duration_ms': duration_ms
                 },

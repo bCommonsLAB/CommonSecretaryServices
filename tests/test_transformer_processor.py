@@ -239,4 +239,85 @@ def test_transform_specific_error_handling(transformer_processor: TransformerPro
             template="nicht_existierendes_template"
         )
         assert result.error is not None
-        assert "Template nicht gefunden" in result.error.message 
+        assert "Template nicht gefunden" in result.error.message
+
+def test_transform_url_with_template(transformer_processor: TransformerProcessor) -> None:
+    """Test der URL-basierten Template-Transformation."""
+    # Arrange
+    test_url = "https://httpbin.org/html"  # Einfache Test-URL
+    template = "Gedanken"  # Verwendet das Gedanken.md Template
+    
+    # Act
+    result = transformer_processor.transformByUrl(
+        url=test_url,
+        template=template,
+        source_language="de",
+        target_language="de"
+    )
+    
+    # Assert
+    assert isinstance(result, TransformerResponse)
+    assert result.status == ProcessingStatus.SUCCESS
+    assert result.error is None
+    assert isinstance(result.data, TransformerData)
+    assert result.data.output.structured_data is not None
+    
+    # Prüfe die erwarteten Template-Felder
+    structured_data = result.data.output.structured_data
+    assert "tags" in structured_data
+    assert "personen" in structured_data
+    assert "upload_date" in structured_data
+    assert "ort" in structured_data
+    assert "title" in structured_data
+    assert "summary" in structured_data
+    assert "messages" in structured_data
+    
+    # Prüfe, dass die URL im Kontext vorhanden ist
+    assert result.data.output.text is not None
+    assert len(result.data.output.text) > 0
+    
+    assert result.process.llm_info is not None
+    assert len(result.process.llm_info.requests) > 0
+
+def test_transform_url_with_links(transformer_processor: TransformerProcessor) -> None:
+    """Test der URL-basierten Transformation mit Link-Extraktion."""
+    # Arrange
+    test_url = "https://httpbin.org/html"  # Einfache Test-URL
+    template = "Gedanken"  # Verwendet das Gedanken.md Template
+    
+    # Act
+    result = transformer_processor.transformByUrl(
+        url=test_url,
+        template=template,
+        source_language="de",
+        target_language="de"
+    )
+    
+    # Assert
+    assert isinstance(result, TransformerResponse)
+    assert result.status == ProcessingStatus.SUCCESS
+    assert result.error is None
+    assert isinstance(result.data, TransformerData)
+    
+    # Prüfe, dass der extrahierte Text Links enthält
+    extracted_text = result.data.output.text
+    assert extracted_text is not None
+    assert len(extracted_text) > 0
+    
+    # Prüfe, dass Links im Text vorhanden sind (falls die Seite Links hat)
+    if "--- Gefundene Links ---" in extracted_text:
+        assert ":" in extracted_text  # Link-Format: "Text: URL"
+    
+    # Prüfe die erwarteten Template-Felder
+    structured_data = result.data.output.structured_data
+    assert structured_data is not None
+    assert "tags" in structured_data
+    assert "personen" in structured_data
+    assert "upload_date" in structured_data
+    assert "ort" in structured_data
+    assert "title" in structured_data
+    assert "summary" in structured_data
+    assert "messages" in structured_data
+    
+    assert result.process.llm_info is not None
+    assert len(result.process.llm_info.requests) > 0 

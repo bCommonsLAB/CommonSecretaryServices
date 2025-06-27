@@ -17,7 +17,7 @@
             "source.organizeImports": "explicit"
         }
     },
-    "python.languageServer": "Pylance",
+    "python.languageServer": "None",
     "python.analysis.extraPaths": ["./src"],
     "python.analysis.autoSearchPaths": true,
     "python.analysis.useLibraryCodeForTypes": true,
@@ -51,5 +51,37 @@
         "--show-error-codes",
         "--python-version=3.11",
         "--strict"
-    ]
+    ],
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.autoSearchPaths": true,
+    "cursorpyright.analysis.diagnosticMode": "workspace",
+    "cursorpyright.analysis.diagnosticSeverityOverrides": {
+        "reportGeneralTypeIssues": "error",
+        "reportOptionalMemberAccess": "error",
+        "reportOptionalSubscript": "error",
+        "reportPrivateImportUsage": "error",
+        "reportMissingTypeStubs": "error",
+        "reportUnknownMemberType": "error",
+        "reportUnknownVariableType": "error",
+        "reportUnknownArgumentType": "error",
+        "reportUnknownParameterType": "error",
+        "reportMissingParameterType": "error",
+        "reportMissingTypeArgument": "error",
+        "reportInvalidTypeVarUse": "error",
+        "reportUnknownLambdaType": "error",
+        "reportInvalidStringEscapeSequence": "error",
+        "reportUntypedFunctionDecorator": "error",
+        "reportUntypedBaseClass": "error",
+        "reportUntypedNamedTuple": "error"
+    },
+    "cursorpyright.analysis.extraPaths": [
+        "./src"
+    ],
+    "cursorpyright.analysis.include": [
+        "src/**/*.py"
+    ],
+    "cursorpyright.analysis.inlayHints.functionReturnTypes": true,
+    "cursorpyright.analysis.inlayHints.variableTypes": true,
+    "cursorpyright.analysis.typeCheckingMode": "strict",
+    "cursorpyright.analysis.useLibraryCodeForTypes": true
 } 
