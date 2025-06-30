@@ -639,7 +639,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         self,
         attachments_url: str,
         session_data: SessionInput,
-        target_dir: str
+        target_dir: str,
+        use_cache: bool = True
     ) -> Tuple[List[str], List[str], str]:
         """
         Verarbeitet die Anhänge einer Session.
@@ -648,6 +649,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
             attachments_url: URL zu den Anhängen
             session_data: Session-Metadaten
             target_dir: Zielverzeichnis für die verarbeiteten Dateien
+            use_cache: Ob der Cache verwendet werden soll
             
         Returns:
             Tuple aus (Liste der Bildpfade, Liste der Seitentexte, Asset-Verzeichnis)
@@ -670,7 +672,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 # Verarbeite PDF direkt von der URL für Vorschaubilder und Textextraktion
                 pdf_result: PDFResponse = await self.pdf_processor.process(
                     file_path=attachments_url,
-                    extraction_method='preview_and_native'
+                    extraction_method='preview_and_native',
+                    use_cache=use_cache
                 )
                 
                 if pdf_result.error:
@@ -920,7 +923,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     attachment_paths, page_texts, asset_dir = await self._process_attachments(
                         attachments_url=attachments_url,
                         session_data=input_data,
-                        target_dir= translated_event + "/assets/" + session_dir_name
+                        target_dir= translated_event + "/assets/" + session_dir_name,
+                        use_cache=use_cache
                     )
                 
                 # 4. Markdown generieren
