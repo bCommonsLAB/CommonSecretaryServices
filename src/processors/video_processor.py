@@ -139,7 +139,16 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
                 'Sec-Fetch-Mode': 'navigate'
-            }
+            },
+            'extractor_args': {
+                'vimeo': {
+                    'password': None,
+                    'access_token': None
+                }
+            },
+            'format_sort': ['ext:mp4:m4a', 'ext:webm:webma', 'ext:mp3'],
+            'prefer_ffmpeg': True,
+            'keepvideo': False
         }
     
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
@@ -168,7 +177,34 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         seconds = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    
+    def _normalize_vimeo_url(self, url: str) -> str:
+        """
+        Konvertiert Vimeo-Player-URLs in direkte Vimeo-URLs.
+        
+        Args:
+            url: Die ursprüngliche URL
+            
+        Returns:
+            str: Die normalisierte Vimeo-URL
+        """
+        import re
+        
+        # Vimeo-Player-URL-Muster
+        player_pattern = r'https?://player\.vimeo\.com/video/(\d+)'
+        match = re.match(player_pattern, url)
+        
+        if match:
+            video_id = match.group(1)
+            normalized_url = f"https://vimeo.com/{video_id}"
+            self.logger.info(f"Vimeo-Player-URL normalisiert: {url} -> {normalized_url}")
+            return normalized_url
+        
+        # Direkte Vimeo-URL bereits korrekt
+        if 'vimeo.com' in url:
+            return url
+            
+        return url
+
     def _extract_video_info(self, url: str) -> Tuple[str, int, str]:
         """
         Extrahiert grundlegende Informationen aus einem Video.
@@ -179,12 +215,15 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         Returns:
             Tuple mit (Titel, Dauer in Sekunden, Video-ID)
         """
+        # URL normalisieren (besonders für Vimeo)
+        normalized_url = self._normalize_vimeo_url(url)
+        
         with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-            info: YDLDict = ydl.extract_info(url, download=False)  # type: ignore
+            info: YDLDict = ydl.extract_info(normalized_url, download=False)  # type: ignore
             if not info:
                 raise ValueError("Keine Video-Informationen gefunden")
             
-            video_id = str(info.get('id', hashlib.md5(url.encode()).hexdigest()))
+            video_id = str(info.get('id', hashlib.md5(normalized_url.encode()).hexdigest()))
             title = str(info.get('title', 'Unbekanntes Video'))
             duration = int(info.get('duration', 0))
             
@@ -340,15 +379,18 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
 
             # Video-Informationen extrahieren
             if video_source.url:
-                title, duration, video_id = self._extract_video_info(video_source.url)
+                # URL normalisieren (besonders für Vimeo)
+                normalized_url = self._normalize_vimeo_url(video_source.url)
+                title, duration, video_id = self._extract_video_info(normalized_url)
                 
                 # Video herunterladen
                 download_opts = self.ydl_opts.copy()
                 output_path = str(working_dir / "%(title)s.%(ext)s")
                 download_opts['outtmpl'] = output_path
                 
+                self.logger.info(f"Starte Download von: {normalized_url}")
                 with yt_dlp.YoutubeDL(download_opts) as ydl:
-                    ydl.download([video_source.url])  # type: ignore
+                    ydl.download([normalized_url])  # type: ignore
             else:
                 video_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
                 title = video_source.file_name or "Hochgeladenes Video"

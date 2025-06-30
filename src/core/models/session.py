@@ -129,6 +129,8 @@ class SessionOutput:
         video_file: Optional, Pfad zur heruntergeladenen Videodatei
         attachments: Liste der heruntergeladenen Anhänge
         metadata: Zusätzliche Metadaten zur Session
+        archive_data: Optional, Base64-kodiertes ZIP-Archiv mit Markdown und Bildern
+        archive_filename: Optional, Dateiname für das ZIP-Archiv
     """
     web_text: str
     video_transcript: str
@@ -141,6 +143,9 @@ class SessionOutput:
     attachments: List[str] = field(default_factory=list)
     page_texts: List[str] = field(default_factory=list)
     structured_data: Dict[str, Any] = field(default_factory=dict)
+    archive_data: Optional[str] = None
+    archive_filename: Optional[str] = None
+    asset_dir: Optional[str] = None  # Verzeichnis mit den Asset-Dateien
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
@@ -155,7 +160,10 @@ class SessionOutput:
             "attachments_url": self.attachments_url,
             "attachments": self.attachments,
             "page_texts": self.page_texts,
-            "structured_data": self.structured_data
+            "structured_data": self.structured_data,
+            "archive_data": self.archive_data,
+            "archive_filename": self.archive_filename,
+            "asset_dir": self.asset_dir
         }
 
 @dataclass(frozen=True)

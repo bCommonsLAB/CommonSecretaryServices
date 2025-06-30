@@ -541,7 +541,7 @@ class BaseProcessor(Generic[T]):
             
         # Kürze den Namen, falls er zu lang ist
         if len(sanitized) > 50:
-            sanitized = sanitized[:50]
+            sanitized = sanitized[:50].strip() + ".md"
             
         return sanitized
 

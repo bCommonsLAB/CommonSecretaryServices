@@ -146,6 +146,14 @@ class JobResults:
     attachments_text: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     attachments_url: Optional[str] = None
+    # ZIP-Archiv Felder
+    archive_data: Optional[str] = None  # Base64-kodiertes ZIP-Archiv
+    archive_filename: Optional[str] = None  # Dateiname des ZIP-Archives
+    # Zusätzliche Metadaten
+    structured_data: Optional[Dict[str, Any]] = None
+    target_dir: Optional[str] = None
+    page_texts: List[str] = field(default_factory=list)
+    asset_dir: Optional[str] = None  # Verzeichnis mit den Asset-Dateien
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ergebnisse in ein Dictionary."""
         # Alle Felder einschließen, auch mit None-Werten und leeren Listen
@@ -162,7 +170,13 @@ class JobResults:
             video_transcript=data.get("video_transcript"),
             attachments_text=data.get("attachments_text"),
             context=data.get("context"),
-            attachments_url=data.get("attachments_url")
+            attachments_url=data.get("attachments_url"),
+            archive_data=data.get("archive_data"),
+            archive_filename=data.get("archive_filename"),
+            structured_data=data.get("structured_data"),
+            target_dir=data.get("target_dir"),
+            page_texts=data.get("page_texts", []),
+            asset_dir=data.get("asset_dir")
         )
 
 

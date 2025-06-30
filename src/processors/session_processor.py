@@ -31,6 +31,10 @@ import uuid
 from contextlib import nullcontext
 import json
 import shutil
+import zipfile
+import base64
+import io
+import os
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 
@@ -297,6 +301,192 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                              traceback=traceback.format_exc())
             raise ProcessingError(f"Fehler bei der Video-Verarbeitung: {str(e)}")
 
+    def _replace_video_placeholder(self, markdown_content: str, video_url: Optional[str]) -> str:
+        """
+        Ersetzt den {videoplayer} Platzhalter durch passenden Markdown-Code.
+        
+        Args:
+            markdown_content: Der Markdown-Inhalt mit Platzhaltern
+            video_url: Die Video-URL (kann None sein)
+            
+        Returns:
+            str: Markdown-Inhalt mit ersetztem Video-Platzhalter
+        """
+        if not video_url:
+            # Wenn keine Video-URL vorhanden ist, entferne den Platzhalter
+            return markdown_content.replace("{videoplayer}", "").replace("{{video_url}}", "")
+        
+        # Prüfe, ob es sich um eine Vimeo-URL handelt
+        is_vimeo = "vimeo.com" in video_url or "player.vimeo.com" in video_url
+        
+        if is_vimeo:
+            # Für Vimeo-Videos: iframe verwenden
+            video_markdown = f'<iframe src="{video_url}" width="640" height="360" frameborder="0" allowfullscreen></iframe>'
+        else:
+            # Für normale Videos: HTML5 video Element verwenden
+            video_markdown = f'<video src="{video_url}" controls></video>'
+        
+        # Ersetze beide Platzhalter-Varianten
+        markdown_content = markdown_content.replace("{videoplayer}", video_markdown)
+        markdown_content = markdown_content.replace("{{video_url}}", video_markdown)
+        
+        self.logger.debug(f"Video-Platzhalter ersetzt",
+                         video_url=video_url,
+                         is_vimeo=is_vimeo,
+                         video_markdown=video_markdown)
+        
+        return markdown_content
+
+    def _create_session_archive(
+        self,
+        markdown_content: str,
+        markdown_file_path: str,
+        attachment_paths: List[str],
+        asset_dir: str,
+        session_data: SessionInput
+    ) -> Tuple[str, str]:
+        """
+        Erstellt ein ZIP-Archiv mit der originalen Verzeichnisstruktur.
+        
+        Args:
+            markdown_content: Der Markdown-Inhalt
+            markdown_file_path: Vollständiger Pfad zur Markdown-Datei
+            attachment_paths: Liste der Anhang-Pfade (relativ)
+            asset_dir: Verzeichnis mit den Asset-Dateien
+            session_data: Session-Eingabedaten
+            
+        Returns:
+            Tuple aus (Base64-kodiertes ZIP, ZIP-Dateiname)
+        """
+        try:
+            self.logger.info("Erstelle ZIP-Archiv für Session mit originaler Struktur", 
+                           session=session_data.session,
+                           attachment_count=len(attachment_paths),
+                           markdown_file=markdown_file_path,
+                           asset_dir=asset_dir)
+            
+            # ZIP-Dateiname generieren
+            sanitized_session_name = self._sanitize_filename(session_data.session)
+            zip_filename = f"{sanitized_session_name}.zip"
+            
+            # In-Memory ZIP erstellen
+            zip_buffer = io.BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # 1. Markdown-Datei mit originaler Pfadstruktur hinzufügen
+                # markdown_file_path ist bereits relativ wie "sessions/2024 SFSCON/en/Data Spaces/session.md"
+                zip_file.writestr(markdown_file_path, markdown_content.encode('utf-8'))
+                self.logger.debug(f"Markdown-Datei zum ZIP hinzugefügt: {markdown_file_path}")
+                
+                # 2. Alle Asset-Dateien mit originaler Pfadstruktur hinzufügen
+                successful_images = 0
+                failed_images = 0
+                
+                for attachment_path in attachment_paths:
+                    try:
+                        # Vollständigen lokalen Pfad konstruieren
+                        full_local_path = self.base_dir / attachment_path
+                        
+                        if full_local_path.exists():
+                            # Asset mit originalem Pfad zum ZIP hinzufügen
+                            # attachment_path ist bereits korrekt wie "sessions/2024 SFSCON/assets/session_name/image.png"
+                            zip_file.write(str(full_local_path), attachment_path)
+                            successful_images += 1
+                            self.logger.debug(f"Asset zum ZIP hinzugefügt: {attachment_path}")
+                        else:
+                            self.logger.warning(f"Asset nicht gefunden: {full_local_path}")
+                            failed_images += 1
+                            
+                    except Exception as e:
+                        self.logger.warning(f"Fehler beim Hinzufügen des Assets {attachment_path}: {str(e)}")
+                        failed_images += 1
+                
+                # 3. README mit Nutzungshinweisen hinzufügen (in Root des ZIP)
+                readme_content = self._create_archive_readme(session_data, successful_images)
+                zip_file.writestr("README.md", readme_content.encode('utf-8'))
+            
+            # ZIP-Daten als Base64 kodieren
+            zip_buffer.seek(0)
+            zip_data = zip_buffer.getvalue()
+            base64_zip = base64.b64encode(zip_data).decode('utf-8')
+            
+            self.logger.info(f"ZIP-Archiv mit originaler Struktur erstellt: {len(zip_data)} Bytes, "
+                           f"{successful_images} Assets erfolgreich, {failed_images} fehlgeschlagen")
+            
+            return base64_zip, zip_filename
+            
+        except Exception as e:
+            self.logger.error("Fehler beim Erstellen des ZIP-Archives", 
+                             error=e,
+                             session=session_data.session,
+                             traceback=traceback.format_exc())
+            raise ProcessingError(f"ZIP-Archiv-Erstellung fehlgeschlagen: {str(e)}")
+
+
+
+    def _create_archive_readme(self, session_data: SessionInput, image_count: int) -> str:
+        """
+        Erstellt eine README-Datei für das ZIP-Archiv.
+        
+        Args:
+            session_data: Session-Eingabedaten
+            image_count: Anzahl der enthaltenen Bilder
+            
+        Returns:
+            README-Inhalt als String
+        """
+        return f"""# {session_data.session}
+
+## Event
+{session_data.event}
+
+## Track
+{session_data.track}
+
+## Archiv-Inhalt
+
+Dieses Archiv enthält die komplette Verzeichnisstruktur:
+
+```
+sessions/
+├── {session_data.event}/
+│   ├── assets/
+│   │   └── {Path(session_data.filename).stem}/
+│   │       └── [{image_count} Anhang-Bilder]
+│   └── {session_data.target_language.upper()}/
+│       └── {session_data.track}/
+│           └── {session_data.filename}
+└── README.md (diese Datei)
+```
+
+## Nutzung
+
+1. Entpacken Sie das gesamte Archiv in ein Verzeichnis Ihrer Wahl
+2. Die Verzeichnisstruktur wird vollständig wiederhergestellt
+3. Die Markdown-Datei enthält korrekte relative Pfade zu den Assets
+4. Sie können die Markdown-Datei mit jedem Markdown-fähigen Editor öffnen (z.B. Obsidian, Typora, VS Code)
+
+## Verzeichnisstruktur
+
+Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets verwenden können:
+- **sessions/**: Basis-Verzeichnis für alle Sessions
+- **[Event]/assets/**: Gemeinsame Assets für alle Sprachen des Events
+- **[Event]/[Sprache]/**: Sprachspezifische Markdown-Dateien
+- **[Event]/[Sprache]/[Track]/**: Nach Tracks organisierte Sessions
+
+## Ursprüngliche Daten
+
+- **Session-URL**: {session_data.url}
+- **Video-URL**: {session_data.video_url or 'Nicht verfügbar'}
+- **Anhänge-URL**: {session_data.attachments_url or 'Nicht verfügbar'}
+- **Verarbeitet am**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Sprache**: {session_data.target_language}
+- **Template**: {session_data.template}
+
+---
+*Generiert vom Secretary Services Session Processor*
+"""
+
     async def _generate_markdown(
         self,
         web_text: str,
@@ -420,6 +610,9 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
 
                 markdown_content = markdown_content.replace("{slides}", slides)
 
+                # Video-Platzhalter ersetzen
+                markdown_content = self._replace_video_placeholder(markdown_content, session_data.video_url)
+
                 # Sicherstellen, dass der Dateiname keine ungültigen Zeichen enthält
                 sanitized_filename = self._sanitize_filename(filename)
                 
@@ -447,7 +640,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         attachments_url: str,
         session_data: SessionInput,
         target_dir: str
-    ) -> Tuple[List[str], List[str]]:
+    ) -> Tuple[List[str], List[str], str]:
         """
         Verarbeitet die Anhänge einer Session.
         
@@ -457,7 +650,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             target_dir: Zielverzeichnis für die verarbeiteten Dateien
             
         Returns:
-            Tuple aus (Liste der Bildpfade, Liste der Seitentexte, LLM-Info)
+            Tuple aus (Liste der Bildpfade, Liste der Seitentexte, Asset-Verzeichnis)
             
         Raises:
             ProcessingError: Bei Fehlern in der Verarbeitung
@@ -583,9 +776,10 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 self.logger.debug("Anhänge verarbeitet",
                                 processing_time=processing_time,
                                 gallery_count=len(gallery_paths),
-                                page_count=len(page_texts))
+                                page_count=len(page_texts),
+                                asset_dir=str(assets_dir))
                 
-                return gallery_paths, page_texts
+                return gallery_paths, page_texts, str(assets_dir)
                 
         except Exception as e:
             self.logger.error("Fehler bei der Anhang-Verarbeitung", 
@@ -618,7 +812,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
         target_language: str = "de",
         target: Optional[str] = None,
         template: str = "Session",
-        use_cache: bool = True
+        use_cache: bool = True,
+        create_archive: bool = True
     ) -> SessionResponse:
         """
         Verarbeitet eine Session mit allen zugehörigen Medien.
@@ -640,9 +835,10 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             target: Optional, Zielgruppe der Session
             template: Optional, Name des Templates für die Markdown-Generierung (Standard: Session)
             use_cache: Optional, ob die Ergebnisse zwischengespeichert werden sollen
+            create_archive: Optional, ob ein ZIP-Archiv mit Markdown und Bildern erstellt werden soll (Standard: True)
             
         Returns:
-            SessionResponse mit Metadaten und erzeugtem Markdown
+            SessionResponse mit Metadaten, erzeugtem Markdown und optional ZIP-Archiv
         """
         # Hol den Performance-Tracker
         tracker: PerformanceTracker | None = get_performance_tracker()
@@ -674,7 +870,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 filename = self._sanitize_filename(filename)
 
                 # Verwende die zentrale Methode für Verzeichnis- und Übersetzungslogik
-                target_dir, _, _ = await self._get_translated_entity_directory(
+                
+                target_dir, translated_track, translated_event = await self._get_translated_entity_directory(
                     event_name=event,
                     track_name=track,
                     target_language=target_language,
@@ -708,6 +905,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 # 3. Anhänge verarbeiten falls vorhanden
                 attachment_paths = []
                 page_texts: List[str] = []
+                asset_dir = ""
 
                 # Verwende für Assets immer den originalen Session-Namen
                 
@@ -719,10 +917,10 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                 session_dir_name = self._sanitize_filename(session_dir_name)
 
                 if attachments_url:
-                    attachment_paths, page_texts = await self._process_attachments(
+                    attachment_paths, page_texts, asset_dir = await self._process_attachments(
                         attachments_url=attachments_url,
                         session_data=input_data,
-                        target_dir= event + "/assets/" + session_dir_name
+                        target_dir= translated_event + "/assets/" + session_dir_name
                     )
                 
                 # 4. Markdown generieren
@@ -755,7 +953,30 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     page_texts=page_texts
                 )
                 
-                # 5. Erstelle Output-Daten
+                # 5. ZIP-Archiv erstellen (falls gewünscht und Bilder vorhanden sind)
+                archive_data = None
+                archive_filename = None
+                
+                if create_archive and attachment_paths:
+                    try:
+                        # Erstelle relativen Pfad zur Markdown-Datei
+                        relative_markdown_path = str(markdown_file.relative_to(self.base_dir))
+                        
+                        archive_data, archive_filename = self._create_session_archive(
+                            markdown_content=markdown_content,
+                            markdown_file_path=relative_markdown_path,
+                            attachment_paths=attachment_paths,
+                            asset_dir=asset_dir,
+                            session_data=input_data
+                        )
+                        self.logger.info(f"ZIP-Archiv erstellt: {archive_filename}")
+                    except Exception as e:
+                        self.logger.warning(f"ZIP-Archiv konnte nicht erstellt werden: {str(e)}")
+                        # Fehlschlag ist nicht kritisch, Verarbeitung fortsetzen
+                elif create_archive and not attachment_paths:
+                    self.logger.debug("ZIP-Archiv wurde angefordert, aber keine Anhänge vorhanden")
+                
+                # 6. Erstelle Output-Daten
                 output_data = SessionOutput(
                     web_text=web_text,
                     video_transcript=video_transcript,
@@ -765,10 +986,13 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     target_dir=str(target_dir),
                     markdown_file=str(markdown_file),
                     markdown_content=markdown_content,
-                    structured_data=structured_data
+                    structured_data=structured_data,
+                    archive_data=archive_data,
+                    archive_filename=archive_filename,
+                    asset_dir=asset_dir
                 )
                 
-                # 6. Ergebnis im Cache speichern (wenn aktiviert)
+                # 7. Ergebnis im Cache speichern (wenn aktiviert)
                 if use_cache and self.is_cache_enabled():
                     result = SessionProcessingResult(
                         web_text=web_text,
@@ -790,7 +1014,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     )
                     self.logger.debug(f"Session-Ergebnis im Cache gespeichert: {cache_key}")
                 
-                # 7. Response erstellen
+                # 8. Response erstellen
                 return self.create_response(
                     processor_name=ProcessorType.SESSION.value,
                     result=SessionData(
@@ -875,7 +1099,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                         attachments_url=session_data.get("attachments_url"),
                         source_language=session_data.get("source_language", "en"),
                         target_language=session_data.get("target_language", "de"),
-                        template=session_data.get("template", "Session")
+                        template=session_data.get("template", "Session"),
+                        create_archive=session_data.get("create_archive", True)
                     )
                     
                     # Sammle erfolgreiche Ergebnisse
@@ -1186,6 +1411,8 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
             session["target_language"] = "de"
         if "template" not in session:
             session["template"] = "Session"
+        if "create_archive" not in session:
+            session["create_archive"] = True
         
         return session
 

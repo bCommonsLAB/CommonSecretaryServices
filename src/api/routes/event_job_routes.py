@@ -2,7 +2,7 @@
 Session-Job API-Routen.
 Enthält alle Endpoints zur Verwaltung von Session-Jobs in der MongoDB.
 """
-from flask import request, send_file
+from flask import request, send_file, Response
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields  # type: ignore
 from typing import Dict, Any, List, Union, Tuple, Optional
 import os
@@ -11,6 +11,8 @@ import traceback
 import json
 from datetime import datetime
 import time
+import base64
+import io
 
 from pymongo.results import UpdateResult
 
@@ -134,7 +136,10 @@ job_results_model: Model | OrderedModel = event_job_ns.model('JobResults', {  # 
     'markdown_content': fields.String(required=False, description='Der generierte Markdown-Inhalt'),
     'video_file': fields.String(required=False, description='Pfad zur heruntergeladenen Videodatei'),
     'attachments_url': fields.String(required=False, description='URL zu den Anhängen'),
-    'attachments': fields.List(fields.String, required=False, description='Liste der heruntergeladenen Anhänge')
+    'attachments': fields.List(fields.String, required=False, description='Liste der heruntergeladenen Anhänge'),
+    'archive_data': fields.String(required=False, description='Base64-kodiertes ZIP-Archiv mit Markdown und Bildern'),
+    'archive_filename': fields.String(required=False, description='Dateiname des ZIP-Archives'),
+    'page_texts': fields.List(fields.String, required=False, description='Extrahierte Texte der einzelnen Seiten')
 })
 
 job_error_model: Model | OrderedModel = event_job_ns.model('JobError', {  # type: ignore
@@ -1066,4 +1071,54 @@ class EventBatchFailAllEndpoint(Resource):
             })
                 
         except Exception as e:
-            return json_response(handle_error(e), 400) 
+            return json_response(handle_error(e), 400)
+
+# Neuer Endpoint für den ZIP-Download
+@event_job_ns.route('/jobs/<string:job_id>/download-archive')  # type: ignore
+class JobArchiveDownloadEndpoint(Resource):
+    @event_job_ns.doc(description='Lädt das ZIP-Archiv eines Jobs herunter')  # type: ignore
+    @event_job_ns.response(200, 'ZIP-Datei als Download')  # type: ignore
+    @event_job_ns.response(404, 'Job nicht gefunden')  # type: ignore
+    @event_job_ns.response(400, 'Kein Archiv verfügbar')  # type: ignore
+    def get(self, job_id: str) -> Union[Response, Tuple[Dict[str, Any], int]]:
+        """Lädt das ZIP-Archiv eines Jobs herunter"""
+        
+        try:
+            # Job aus der Datenbank holen
+            job_repo = get_job_repository()
+            job = job_repo.get_job(job_id)
+            
+            if not job:
+                return json_response({"error": "Job nicht gefunden"}, 404)
+            
+            # Prüfe, ob Ergebnisse vorhanden sind
+            if not job.results:
+                return json_response({"error": "Job hat keine Ergebnisse"}, 400)
+            
+            # Prüfe, ob ZIP-Archiv vorhanden ist
+            if not job.results.archive_data:
+                return json_response({"error": "Kein ZIP-Archiv für diesen Job verfügbar"}, 400)
+            
+            # Base64-Daten dekodieren
+            try:
+                archive_bytes = base64.b64decode(job.results.archive_data)
+            except Exception as e:
+                logger.error(f"Fehler beim Dekodieren der Archive-Daten für Job {job_id}: {str(e)}")
+                return json_response({"error": "Fehlerhafte Archive-Daten"}, 400)
+            
+            # Dateiname für Download bestimmen
+            filename = job.results.archive_filename or f"session-{job_id}.zip"
+            
+            # ZIP als Response zurückgeben
+            return Response(
+                archive_bytes,
+                mimetype='application/zip',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(len(archive_bytes))
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Download des ZIP-Archives für Job {job_id}: {str(e)}", exc_info=True)
+            return json_response({"error": f"Fehler beim Download: {str(e)}"}, 500) 

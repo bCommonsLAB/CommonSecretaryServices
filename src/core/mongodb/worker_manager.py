@@ -208,6 +208,9 @@ class SessionWorkerManager:
             target_language = str(getattr(params, "target_language", "de"))
             use_cache = bool(getattr(params, "use_cache", True))
             
+            # ZIP-Archiv-Parameter extrahieren (Standard: True für Job-Verarbeitung)
+            create_archive = bool(getattr(params, "create_archive", True))
+            
             # Verarbeite die Session
             result = await processor.process_session(
                 event=event,
@@ -223,7 +226,8 @@ class SessionWorkerManager:
                 attachments_url=attachments_url,
                 source_language=source_language,
                 target_language=target_language,
-                use_cache=use_cache
+                use_cache=use_cache,
+                create_archive=create_archive
             )
             
             # Performance-Metriken erfassen
@@ -240,11 +244,18 @@ class SessionWorkerManager:
             # Sichere Extraktion der Attribute
             markdown_file = getattr(output, 'markdown_file', None)
             markdown_content = getattr(output, 'markdown_content', None)
-            assets = getattr(output, 'assets', []) or []
+            assets = getattr(output, 'attachments', []) or []  # Korrigiert: attachments statt assets
             web_text = getattr(output, 'web_text', None)
             video_transcript = getattr(output, 'video_transcript', None)
             attachments_text = getattr(output, 'attachments_text', None)
             attachments_url = getattr(output, 'attachments_url', None)
+            # Neue Archive-Felder
+            archive_data = getattr(output, 'archive_data', None)
+            archive_filename = getattr(output, 'archive_filename', None)
+            structured_data = getattr(output, 'structured_data', None)
+            target_dir = getattr(output, 'target_dir', None)
+            page_texts = getattr(output, 'page_texts', []) or []
+            asset_dir = getattr(output, 'asset_dir', None)
             
             # Aktualisiere den Job-Status mit den Ergebnissen
             self.job_repo.update_job_status(
@@ -262,7 +273,13 @@ class SessionWorkerManager:
                     web_text=web_text,
                     video_transcript=video_transcript,
                     attachments_text=attachments_text,
-                    attachments_url=attachments_url
+                    attachments_url=attachments_url,
+                    archive_data=archive_data,
+                    archive_filename=archive_filename,
+                    structured_data=structured_data,
+                    target_dir=target_dir,
+                    page_texts=page_texts,
+                    asset_dir=asset_dir
                 )
             )
             

@@ -12,7 +12,7 @@ services:
       - mongodb
     environment:
       - OPENAI_API_KEY=sk-proj--
-      - MONGODB_URI=mongodb+srv://petervonzuhause
+      - MONGODB_URI=mongodb://mongodb:27017/
 
   mongodb:
     image: mongo:6

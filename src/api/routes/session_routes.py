@@ -50,7 +50,8 @@ session_input = cast(ModelType, session_ns.model('SessionInput', {  # type: igno
     'source_language': fields.String(required=False, default='en', description='Quellsprache'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache'),
     'target': fields.String(required=False, description='Zielgruppe der Session'),
-    'template': fields.String(required=False, default='Session', description='Name des Templates für die Markdown-Generierung')
+    'template': fields.String(required=False, default='Session', description='Name des Templates für die Markdown-Generierung'),
+    'create_archive': fields.Boolean(required=False, default=True, description='Ob ein ZIP-Archiv mit Markdown und Bildern erstellt werden soll')
 }))
 
 # Error-Modell
@@ -177,6 +178,7 @@ class SessionProcessEndpoint(Resource):
             target = data.get('target') 
             template = data.get('template', 'Session')
             use_cache = data.get('use_cache', True)
+            create_archive = data.get('create_archive', True)
             
             # Validiere Pflichtfelder
             if not all([event, session, url, filename, track]):
@@ -199,7 +201,8 @@ class SessionProcessEndpoint(Resource):
                 target_language=target_language,
                 target=target,
                 template=template,
-                use_cache=use_cache
+                use_cache=use_cache,
+                create_archive=create_archive
             ))
             
             # Füge Ressourcenverbrauch zum Tracker hinzu

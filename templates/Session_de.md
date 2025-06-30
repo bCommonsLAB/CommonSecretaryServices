@@ -18,7 +18,7 @@ cacheId: {{cache_key}}
 
 Quelle: [{{url}}]({{url}})
 
-<video src="{{video_url}}" controls></video>
+{videoplayer}
 
 ## Zusammenfassung & Highlights:
 
