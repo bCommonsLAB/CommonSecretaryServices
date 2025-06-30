@@ -374,22 +374,39 @@ def get_worker_manager() -> Optional[SessionWorkerManager]:
     
     # Worker-Manager nur initialisieren, wenn er aktiv sein soll
     if _worker_manager is None and is_active:
-        max_concurrent = worker_config.get('max_concurrent', 5)
-        poll_interval_sec = worker_config.get('poll_interval_sec', 5)
-        
-        # Repository und ResourceCalculator initialisieren
-        from src.core.mongodb import get_job_repository
-        from src.core.resource_tracking import ResourceCalculator
-        
-        job_repo = get_job_repository()
-        resource_calculator = ResourceCalculator()
-        
-        _worker_manager = SessionWorkerManager(
-            job_repo=job_repo,
-            resource_calculator=resource_calculator,
-            max_concurrent_workers=max_concurrent,
-            poll_interval_sec=poll_interval_sec
-        )
-        logger.info(f"SessionWorkerManager wurde initialisiert (active=True, max_workers={max_concurrent})")
+        try:
+            # Prüfe MongoDB-Konfiguration vor der Initialisierung
+            mongodb_config = config.get('mongodb', {})
+            mongodb_uri = mongodb_config.get('uri', '')
+            
+            if not mongodb_uri or mongodb_uri == '${MONGODB_URI}':
+                logger.error("MONGODB_URI Umgebungsvariable ist nicht gesetzt oder leer")
+                logger.error("Bitte setze die MONGODB_URI Umgebungsvariable in deiner .env Datei oder Umgebung")
+                return None
+            
+            logger.info(f"MongoDB URI gefunden: {mongodb_uri[:20]}...")
+            
+            max_concurrent = worker_config.get('max_concurrent', 5)
+            poll_interval_sec = worker_config.get('poll_interval_sec', 5)
+            
+            # Repository und ResourceCalculator initialisieren
+            from src.core.mongodb import get_job_repository
+            from src.core.resource_tracking import ResourceCalculator
+            
+            job_repo = get_job_repository()
+            resource_calculator = ResourceCalculator()
+            
+            _worker_manager = SessionWorkerManager(
+                job_repo=job_repo,
+                resource_calculator=resource_calculator,
+                max_concurrent_workers=max_concurrent,
+                poll_interval_sec=poll_interval_sec
+            )
+            logger.info(f"SessionWorkerManager wurde initialisiert (active=True, max_workers={max_concurrent})")
+            
+        except Exception as e:
+            logger.error(f"Fehler bei der Initialisierung des SessionWorkerManager: {str(e)}")
+            logger.error("Worker-Manager wird nicht gestartet")
+            return None
     
     return _worker_manager 

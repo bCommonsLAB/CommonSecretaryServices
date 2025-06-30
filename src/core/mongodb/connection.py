@@ -36,22 +36,33 @@ def get_mongodb_client() -> MongoClient[Any]:
         max_pool_size = mongodb_config.get('max_pool_size', 100)  # Erhöht für bessere Performance
         connect_timeout_ms = mongodb_config.get('connect_timeout_ms', 5000)
         
-        logger.info(f"Verbindung zur MongoDB wird hergestellt: {uri}")
+        # Prüfe URI auf Umgebungsvariablen-Ersetzung
+        if uri == '${MONGODB_URI}' or not uri:
+            logger.error("MONGODB_URI Umgebungsvariable ist nicht gesetzt")
+            logger.error("Bitte setze die MONGODB_URI Umgebungsvariable in deiner .env Datei oder Umgebung")
+            raise ValueError("MONGODB_URI Umgebungsvariable ist nicht gesetzt")
+        
+        logger.info(f"Verbindung zur MongoDB wird hergestellt: {uri[:30]}...")
         
         # Client erstellen
-        _mongo_client = MongoClient(
-            uri,
-            maxPoolSize=max_pool_size,
-            connectTimeoutMS=connect_timeout_ms
-        )
-        
-        # Verbindung testen
         try:
-            # Ping-Befehl ausführen
+            _mongo_client = MongoClient(
+                uri,
+                maxPoolSize=max_pool_size,
+                connectTimeoutMS=connect_timeout_ms
+            )
+            
+            # Verbindung testen
             _mongo_client.admin.command('ping')
             logger.info("MongoDB-Verbindung erfolgreich hergestellt")
+            
         except Exception as e:
             logger.error(f"Fehler bei der MongoDB-Verbindung: {str(e)}")
+            logger.error(f"URI: {uri[:30]}...")
+            logger.error("Bitte prüfe:")
+            logger.error("1. Ist die MONGODB_URI Umgebungsvariable korrekt gesetzt?")
+            logger.error("2. Ist die MongoDB-Instanz erreichbar?")
+            logger.error("3. Sind die Zugangsdaten korrekt?")
             raise
     
     return _mongo_client

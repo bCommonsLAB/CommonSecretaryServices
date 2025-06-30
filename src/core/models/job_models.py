@@ -321,22 +321,40 @@ class Job:
         progress = None
         if "progress" in data:
             progress_data = data["progress"]
-            # Schnellere direkte Erstellung ohne vollständige Validierung
-            progress = JobProgress(
-                step=progress_data.get("step", "unknown"),
-                percent=progress_data.get("percent", 0),
-                message=progress_data.get("message")
-            )
+            # Sichere Prüfung: progress_data kann None sein
+            if progress_data is not None:
+                # Schnellere direkte Erstellung ohne vollständige Validierung
+                progress = JobProgress(
+                    step=progress_data.get("step", "unknown"),
+                    percent=progress_data.get("percent", 0),
+                    message=progress_data.get("message")
+                )
+            else:
+                # Fallback für None progress_data
+                progress = JobProgress(
+                    step="unknown",
+                    percent=0,
+                    message="Kein Fortschritt verfügbar"
+                )
         
         # Nur Fehlermeldung extrahieren, wenn vorhanden
         error = None
         if "error" in data:
             error_data = data["error"]
-            error = JobError(
-                code=error_data.get("code", "unknown_error"),
-                message=error_data.get("message", "Ein unbekannter Fehler ist aufgetreten"),
-                details=error_data.get("details")
-            )
+            # Sichere Prüfung: error_data kann None sein
+            if error_data is not None:
+                error = JobError(
+                    code=error_data.get("code", "unknown_error"),
+                    message=error_data.get("message", "Ein unbekannter Fehler ist aufgetreten"),
+                    details=error_data.get("details")
+                )
+            else:
+                # Fallback für None error_data
+                error = JobError(
+                    code="unknown_error",
+                    message="Fehlerdaten nicht verfügbar",
+                    details=None
+                )
         
         # Ergebnisse nur bei Bedarf konvertieren
         results = None

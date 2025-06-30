@@ -96,6 +96,8 @@ processors:
     # Minimale yt-dlp Optionen - sinnvolle Standardwerte werden im Code gesetzt
     ydl_opts:
       format: bestaudio/best
+      # SSL-Probleme auf Windows beheben
+      nocheckcertificate: true
       postprocessors:
       - key: FFmpegExtractAudio
         preferredcodec: mp3
