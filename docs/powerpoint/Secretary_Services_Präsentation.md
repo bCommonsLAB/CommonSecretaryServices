@@ -8,7 +8,7 @@
 **Automatisierte Verarbeitung von Audio-, Video- und Mediendateien**
 
 - 🎵 **Audio-Verarbeitung** mit KI-Transkription
-- 🎥 **YouTube-Integration** für Videos
+- 🎥 **Video-Integration** für Videos
 - 📝 **Template-basierte Ausgabe** 
 - 🚀 **RESTful API** mit Web-Dashboard
 - 🤖 **OpenAI-Integration** (Whisper + GPT-4)
@@ -39,8 +39,8 @@
 - KI-Transkription mit Whisper
 - Übersetzung in mehrere Sprachen
 
-### 🎥 Video & YouTube
-- YouTube-Videos direkt verarbeiten
+### 🎥 Video & Video
+- Video-Videos direkt verarbeiten
 - Audio-Extraktion aus Videos
 - Metadaten-Integration
 - Automatische Untertitel
@@ -73,7 +73,7 @@ graph TB
     
     subgraph "Core Processing"
         I["🎵 Audio Processor"]
-        J["🎥 YouTube Processor"]
+        J["🎥 Video Processor"]
         K["🔄 Transformer Processor"]
         L["📊 Metadata Processor"]
     end
@@ -88,7 +88,7 @@ graph TB
     subgraph "External Services"
         Q["🤖 OpenAI Whisper"]
         R["🧠 OpenAI GPT-4"]
-        S["📺 YouTube API"]
+        S["📺 Video API"]
         T["🎬 FFmpeg"]
     end
     
@@ -158,7 +158,7 @@ graph TD
     subgraph "Main Processors"
         B["🎵 AudioProcessor<br/>• Audio Segmentation<br/>• Whisper Transcription<br/>• Multi-language Support<br/>• Chapter Processing"]
         
-        C["🎥 YouTubeProcessor<br/>• Video Download<br/>• Audio Extraction<br/>• Metadata Integration<br/>• URL Validation"]
+        C["🎥 VideoProcessor<br/>• Video Download<br/>• Audio Extraction<br/>• Metadata Integration<br/>• URL Validation"]
     end
     
     subgraph "Support Processors"
@@ -203,7 +203,7 @@ graph TD
 
 ### Kernkonzepte
 - **BaseProcessor**: Gemeinsame Basis mit einheitlichen Interfaces
-- **Hauptprozessoren**: Audio & YouTube für Medieneingabe
+- **Hauptprozessoren**: Audio & Video für Medieneingabe
 - **Support-Prozessoren**: Transformation & Metadaten für Ausgabe
 - **Parallele Verarbeitung**: Optimierte Performance durch Multitasking
 
@@ -217,7 +217,7 @@ graph TD
     A["🏗️ BaseProcessor<br/><i>Gemeinsame Basis</i>"]
     
     B["🎵 AudioProcessor<br/><i>Audio → Text</i>"]
-    C["🎥 YouTubeProcessor<br/><i>Video → Audio</i>"]
+    C["🎥 VideoProcessor<br/><i>Video → Audio</i>"]
     D["🔄 TransformerProcessor<br/><i>Text → Template</i>"]
     E["📊 MetadataProcessor<br/><i>Daten → Info</i>"]
     
@@ -239,7 +239,7 @@ flowchart LR
     A["📥 Input<br/>Audio/Video"]
     
     subgraph main["Hauptverarbeitung"]
-        B["🎥 YouTube<br/>Processor"]
+        B["🎥 Video<br/>Processor"]
         C["🎵 Audio<br/>Processor"]
     end
     
@@ -265,14 +265,14 @@ flowchart LR
 ```mermaid
 graph TD
     subgraph "🔥 Die 4 Prozessoren"
-        A["🎥 YouTube<br/>📥 Video URL<br/>📤 Audio File"]
+        A["🎥 Video<br/>📥 Video URL<br/>📤 Audio File"]
         B["🎵 Audio<br/>📥 Audio File<br/>📤 Transcript"]
         C["📊 Metadata<br/>📥 Raw Data<br/>📤 Structured Info"]
         D["🔄 Transformer<br/>📥 Text + Template<br/>📤 Final Document"]
     end
     
     subgraph "🔄 Workflow"
-        E["1️⃣ YouTube → Audio"]
+        E["1️⃣ Video → Audio"]
         F["2️⃣ Audio → Text"]
         G["3️⃣ Extract → Metadata"]
         H["4️⃣ Transform → Document"]
@@ -290,24 +290,24 @@ graph TD
 
 ---
 
-## Folie 7: Datenfluss am Beispiel YouTube
+## Folie 7: Datenfluss am Beispiel Video
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant API as API Gateway
-    participant YT as YouTubeProcessor
+    participant YT as VideoProcessor
     participant Audio as AudioProcessor
     participant Meta as MetadataProcessor
     participant Trans as TransformerProcessor
     participant Cache as MongoDB Cache
     participant OpenAI as OpenAI Services
     
-    Note over Client,OpenAI: YouTube Video Processing Flow
+    Note over Client,OpenAI: Video Video Processing Flow
     
-    Client->>API: POST /youtube/process<br/>{"url": "youtube.com/watch?v=..."}
+    Client->>API: POST /Video/process<br/>{"url": "Video.com/watch?v=..."}
     API->>API: Validate Request & Auth
-    API->>YT: process_youtube(url)
+    API->>YT: process_Video(url)
     
     YT->>YT: Download Video
     YT->>YT: Extract Audio (FFmpeg)
@@ -315,7 +315,7 @@ sequenceDiagram
     par Parallel Processing
         YT->>Audio: process_audio(audio_file)
         and
-        YT->>Meta: extract_youtube_metadata(video_info)
+        YT->>Meta: extract_Video_metadata(video_info)
     end
     
     Audio->>Audio: Segment Audio (5min chunks)
@@ -359,7 +359,7 @@ sequenceDiagram
 graph LR
     subgraph "Input Sources"
         A["🎵 Audio Files<br/>MP3, WAV, M4A"]
-        B["🎥 YouTube Videos<br/>Any public video"]
+        B["🎥 Video Videos<br/>Any public video"]
         C["📁 Local Videos<br/>MP4, AVI, MOV"]
     end
     
@@ -456,7 +456,7 @@ graph LR
 - 📋 Besprechung.md       → Meeting-Protokolle
 - 📰 Blogeintrag.md       → Blog-Artikel
 - 🎓 Session_de.md        → Konferenz-Sessions
-- 🎬 Youtube.md           → Video-Dokumentation
+- 🎬 Video.md           → Video-Dokumentation
 - 💭 Gedanken.md          → Reflexionen
 - 🔍 Metadata.md          → Technische Details
 ```
@@ -475,9 +475,9 @@ graph LR
 POST /api/v1/audio/process
 FILES: audio.mp3
 
-# YouTube-Video verarbeiten  
-POST /api/v1/youtube/process
-JSON: {"url": "https://youtube.com/watch?v=...", "template": "Youtube"}
+# Video-Video verarbeiten  
+POST /api/v1/Video/process
+JSON: {"url": "https://Video.com/watch?v=...", "template": "Video"}
 
 # Ergebnis abrufen
 GET /api/v1/process/{process_id}/result
@@ -537,7 +537,7 @@ Backend:
 
 KI & APIs:
   - OpenAI Whisper & GPT-4
-  - YouTube Data API
+  - Video Data API
   - Custom LLM-Integration
 
 Infrastructure:
@@ -666,6 +666,6 @@ python src/main.py
 1. Web-Dashboard Übersicht
 2. API-Test Interface
 3. Template-Auswahl
-4. Beispiel-Output (YouTube → Blog-Post)
+4. Beispiel-Output (Video → Blog-Post)
 5. Performance-Monitoring
 6. Konfiguration Interface 
