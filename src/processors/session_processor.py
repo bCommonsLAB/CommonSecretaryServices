@@ -957,11 +957,11 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     page_texts=page_texts
                 )
                 
-                # 5. ZIP-Archiv erstellen (falls gewünscht und Bilder vorhanden sind)
+                # 5. ZIP-Archiv erstellen (falls gewünscht)
                 archive_data = None
                 archive_filename = None
                 
-                if create_archive and attachment_paths:
+                if create_archive:
                     try:
                         # Erstelle relativen Pfad zur Markdown-Datei
                         relative_markdown_path = str(markdown_file.relative_to(self.base_dir))
@@ -977,8 +977,6 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     except Exception as e:
                         self.logger.warning(f"ZIP-Archiv konnte nicht erstellt werden: {str(e)}")
                         # Fehlschlag ist nicht kritisch, Verarbeitung fortsetzen
-                elif create_archive and not attachment_paths:
-                    self.logger.debug("ZIP-Archiv wurde angefordert, aber keine Anhänge vorhanden")
                 
                 # 6. Erstelle Output-Daten
                 output_data = SessionOutput(
