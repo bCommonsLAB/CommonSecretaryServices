@@ -453,7 +453,8 @@ class WhisperTranscriber:
         self, 
         text: str, 
         target_language: str,
-        template: str, 
+        template: Optional[str] = None, 
+        template_content: Optional[str] = None,
         context: Dict[str, Any] | None = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         logger: Optional[ProcessingLogger] = None,
@@ -480,35 +481,47 @@ class WhisperTranscriber:
             if logger:
                 logger.info(f"Starte Template-Transformation: {template}")
 
-            if not template:
-                raise ValueError("Template ist nicht definiert")
+            # Validierung: Entweder Template-Name oder Template-Inhalt muss angegeben werden
+            if not template and not template_content:
+                raise ValueError("Entweder template oder template_content muss angegeben werden")
 
-            # 1. Template-Datei lesen
-            try:
-                template_content: str = self._read_template_file(template, logger)
-            except Exception as e:
-                # Spezifischer Fehler für Template-Lesefehler
-                error_msg = f"Template '{template}' konnte nicht gelesen werden: {str(e)}"
+            if template and template_content:
+                raise ValueError("Nur entweder template oder template_content darf angegeben werden, nicht beide")
+
+            # 1. Template-Inhalt ermitteln
+            template_content_str: str
+            if template_content:
+                # Direkter Template-Inhalt wurde übergeben
+                template_content_str = template_content
                 if logger:
-                    logger.error(error_msg)
-                return TransformationResult(
-                    text="Fehler bei der Template-Transformation: Template konnte nicht gelesen werden",
-                    target_language=target_language,
-                    structured_data={
-                        "error": error_msg,
-                        "error_type": "TemplateReadError",
-                        "template": template,
-                        "exception": str(e)
-                    }
-                )
+                    logger.info(f"Verwende direkt übergebenes Template-Inhalt (Länge: {len(template_content_str)})")
+            else:
+                # Template-Datei lesen
+                try:
+                    template_content_str = self._read_template_file(template, logger)
+                except Exception as e:
+                    # Spezifischer Fehler für Template-Lesefehler
+                    error_msg = f"Template '{template}' konnte nicht gelesen werden: {str(e)}"
+                    if logger:
+                        logger.error(error_msg)
+                    return TransformationResult(
+                        text="Fehler bei der Template-Transformation: Template konnte nicht gelesen werden",
+                        target_language=target_language,
+                        structured_data={
+                            "error": error_msg,
+                            "error_type": "TemplateReadError",
+                            "template": template,
+                            "exception": str(e)
+                        }
+                    )
 
             # 2. Systemprompt extrahieren
-            template_content, system_prompt = self._extract_system_prompt(template_content, logger)
+            template_content_str, system_prompt = self._extract_system_prompt(template_content_str, logger)
 
             # 3. Kontext-Variablen ersetzen
             try:
                 # Einfache Variablen im Template mit Kontext-Werten ersetzen
-                template_content = self._replace_context_variables(template_content, context, text, logger)
+                template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
             except ValueError as ve:
                 # Detaillierter Fehler bei der Kontextersetzung
                 error_msg = str(ve)
@@ -526,7 +539,7 @@ class WhisperTranscriber:
                 )
             
             # 4. Strukturierte Variablen extrahieren und Model erstellen
-            field_definitions: TemplateFields = self._extract_structured_variables(template_content, logger)
+            field_definitions: TemplateFields = self._extract_structured_variables(template_content_str, logger)
             
             if not field_definitions.fields:
                 # Wenn keine strukturierten Variablen gefunden wurden, erstellen wir eine einfache Response
@@ -652,10 +665,10 @@ class WhisperTranscriber:
                     # Bereinige den Wert für YAML-Kompatibilität
                     value = self._clean_yaml_value(value)
                     
-                template_content = re.sub(pattern, value, template_content)
+                template_content_str = re.sub(pattern, value, template_content_str)
 
             # Einfache Kontext-Variablen ersetzen
-            template_content = self._replace_context_variables(template_content, context, text, logger)
+            template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
             
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
@@ -664,7 +677,7 @@ class WhisperTranscriber:
 
             # Response erstellen
             return TransformationResult(
-                text=template_content,
+                text=template_content_str,
                 target_language=target_language,
                 structured_data=result_json
             )
