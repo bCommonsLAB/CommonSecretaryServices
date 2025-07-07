@@ -794,9 +794,10 @@ Folgender Text soll verarbeitet werden:
     def transformByUrl(
         self,
         url: str,
-        template: str,
         source_language: str,
         target_language: str,
+        template: Optional[str] = None,
+        template_content: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         use_cache: bool = True
@@ -839,6 +840,7 @@ Folgender Text soll verarbeitet werden:
             return self.transformByTemplate(
                 text=text,
                 template=template,
+                template_content=template_content,
                 source_language=source_language,
                 target_language=target_language,
                 context=context,
@@ -905,9 +907,10 @@ Folgender Text soll verarbeitet werden:
     def transformByTemplate(
         self,
         text: str,
-        template: str,
         source_language: str,
         target_language: str,
+        template: Optional[str] = None,
+        template_content: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         use_cache: bool = True
@@ -918,6 +921,7 @@ Folgender Text soll verarbeitet werden:
             result: TransformationResult = self.transcriber.transform_by_template(
                 text=text,
                 template=template,
+                template_content=template_content,
                 target_language=target_language,
                 context=context,
                 additional_field_descriptions=additional_field_descriptions,
@@ -945,6 +949,7 @@ Folgender Text soll verarbeitet werden:
                     request_info={
                         "text": text[:100] + "..." if len(text) > 100 else text,
                         "template": template,
+                        "template_content": template_content[:100] + "..." if template_content and len(template_content) > 100 else template_content,
                         "source_language": source_language,
                         "target_language": target_language
                     },
@@ -970,6 +975,7 @@ Folgender Text soll verarbeitet werden:
                 request_info={
                     "text": text[:100] + "..." if len(text) > 100 else text,
                     "template": template,
+                    "template_content": template_content[:100] + "..." if template_content and len(template_content) > 100 else template_content,
                     "source_language": source_language,
                     "target_language": target_language,
                     "context": context,
@@ -1001,6 +1007,7 @@ Folgender Text soll verarbeitet werden:
                 request_info={
                     "text": text[:100] + "..." if len(text) > 100 else text,
                     "template": template,
+                    "template_content": template_content[:100] + "..." if template_content and len(template_content) > 100 else template_content,
                     "source_language": source_language,
                     "target_language": target_language
                 },

@@ -166,7 +166,8 @@ template_transform_parser.add_argument('text', type=str, location='form', requir
 template_transform_parser.add_argument('url', type=str, location='form', required=False, help='URL der Webseite (optional wenn Text angegeben)')
 template_transform_parser.add_argument('source_language', type=str, location='form', default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
 template_transform_parser.add_argument('target_language', type=str, location='form', default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
-template_transform_parser.add_argument('template', type=str, location='form', required=True, help='Name des Templates (ohne .md Endung)')
+template_transform_parser.add_argument('template', type=str, location='form', required=False, help='Name des Templates (ohne .md Endung) - optional wenn template_content angegeben')
+template_transform_parser.add_argument('template_content', type=str, location='form', required=False, help='Direkter Template-Inhalt (Markdown) - optional wenn template angegeben')
 template_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Template-Verarbeitung')
 template_transform_parser.add_argument('additional_field_descriptions', type=str, location='form', required=False, help='Optionaler JSON-String mit zusätzlichen Feldbeschreibungen')
 template_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
@@ -385,6 +386,7 @@ class TemplateTransformEndpoint(Resource):
             source_language = args.get('source_language', 'de')
             target_language = args.get('target_language', 'de')
             template = args.get('template', '')
+            template_content = args.get('template_content', '')
             context_str = args.get('context')
             additional_field_descriptions_str = args.get('additional_field_descriptions')
             use_cache = args.get('use_cache', True)
@@ -405,6 +407,25 @@ class TemplateTransformEndpoint(Resource):
                     'error': {
                         'code': 'InvalidRequest',
                         'message': 'Nur entweder text oder url darf angegeben werden, nicht beide.'
+                    }
+                }, 400
+
+            # Validierung: Entweder Template-Name oder Template-Inhalt muss angegeben werden
+            if not template and not template_content:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidRequest',
+                        'message': 'Entweder template oder template_content muss angegeben werden.'
+                    }
+                }, 400
+
+            if template and template_content:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidRequest',
+                        'message': 'Nur entweder template oder template_content darf angegeben werden, nicht beide.'
                     }
                 }, 400
 
@@ -444,9 +465,10 @@ class TemplateTransformEndpoint(Resource):
                 # URL-basierte Transformation
                 result: TransformerResponse = transformer_processor.transformByUrl(
                     url=url,
-                    template=template,
                     source_language=source_language,
                     target_language=target_language,
+                    template=template,
+                    template_content=template_content,
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
                     use_cache=use_cache
@@ -455,9 +477,10 @@ class TemplateTransformEndpoint(Resource):
                 # Text-basierte Transformation
                 result: TransformerResponse = transformer_processor.transformByTemplate(
                     text=text,
-                    template=template,
                     source_language=source_language,
                     target_language=target_language,
+                    template=template,
+                    template_content=template_content,
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
                     use_cache=use_cache
@@ -474,6 +497,7 @@ class TemplateTransformEndpoint(Resource):
                     'text': _truncate_text(text) if text else None,
                     'url': url if url else None,
                     'template': template,
+                    'template_content': _truncate_text(template_content) if template_content else None,
                     'source_language': source_language,
                     'target_language': target_language,
                     'context': context,
