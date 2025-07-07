@@ -1,6 +1,7 @@
 # ... andere Einträge
 .env 
 venv/
+venv312/
 logs/
 __pycache__/
 .pytest_cache/

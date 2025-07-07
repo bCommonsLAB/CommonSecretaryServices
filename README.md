@@ -47,6 +47,9 @@ git clone https://github.com/yourusername/CommonSecretaryServices.git
 cd CommonSecretaryServices
 
 # Virtuelle Umgebung erstellen und aktivieren
+
+py -3.12 -m venv venv312
+
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 venv\\Scripts\\activate   # Windows
