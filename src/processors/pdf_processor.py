@@ -1323,8 +1323,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     try:
                         image_path_obj = Path(image_path)
                         if image_path_obj.exists():
-                            # Bild mit strukturiertem Pfad zum ZIP hinzufügen
-                            zip_path = f"images/main/{image_path_obj.name}"
+                            # Bild flach ohne Verzeichnis zum ZIP hinzufügen
+                            zip_path = image_path_obj.name
                             zip_file.write(str(image_path_obj), zip_path)
                             successful_main_images += 1
                             self.logger.debug(f"Hauptbild zum ZIP hinzugefügt: {zip_path}")
@@ -1343,8 +1343,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     try:
                         preview_path_obj = Path(preview_path)
                         if preview_path_obj.exists():
-                            # Vorschaubild mit strukturiertem Pfad zum ZIP hinzufügen
-                            zip_path = f"images/previews/{preview_path_obj.name}"
+                            # Vorschaubild flach ohne Verzeichnis zum ZIP hinzufügen
+                            zip_path = preview_path_obj.name
                             zip_file.write(str(preview_path_obj), zip_path)
                             successful_preview_images += 1
                             self.logger.debug(f"Vorschaubild zum ZIP hinzugefügt: {zip_path}")
@@ -1354,15 +1354,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     except Exception as e:
                         self.logger.warning(f"Fehler beim Hinzufügen des Vorschaubilds {preview_path}: {str(e)}")
                         failed_preview_images += 1
-                
-                # 3. README mit Informationen hinzufügen
-                readme_content = self._create_images_archive_readme(
-                    file_name, 
-                    successful_main_images, 
-                    successful_preview_images,
-                    failed_main_images + failed_preview_images
-                )
-                zip_file.writestr("README.md", readme_content.encode('utf-8'))
                 
                 self.logger.info(
                     f"Bilder-Archiv erstellt: {successful_main_images} Hauptbilder, "
@@ -1383,73 +1374,3 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         finally:
             zip_buffer.close()
 
-    def _create_images_archive_readme(
-        self, 
-        file_name: str, 
-        main_images_count: int, 
-        preview_images_count: int,
-        failed_count: int
-    ) -> str:
-        """
-        Erstellt eine README-Datei für das Bilder-Archiv.
-        
-        Args:
-            file_name: Name der ursprünglichen PDF-Datei
-            main_images_count: Anzahl der Hauptbilder
-            preview_images_count: Anzahl der Vorschaubilder
-            failed_count: Anzahl fehlgeschlagener Bilder
-            
-        Returns:
-            README-Inhalt als String
-        """
-        return f"""# PDF Bilder-Archiv: {file_name}
-
-## Archiv-Inhalt
-
-Dieses Archiv enthält alle generierten Bilder aus der PDF-Verarbeitung:
-
-```
-images/
-├── main/                    # Hochauflösende Hauptbilder
-│   ├── page_001.png        # [{main_images_count} Hauptbilder]
-│   ├── page_002.png
-│   └── ...
-├── previews/               # Kleinere Vorschaubilder
-│   ├── preview_001.jpg     # [{preview_images_count} Vorschaubilder]
-│   ├── preview_002.jpg
-│   └── ...
-└── README.md (diese Datei)
-```
-
-## Bildqualität und -größen
-
-### Hauptbilder (main/)
-- **Format**: PNG (für OCR optimiert)
-- **Auflösung**: 300 DPI
-- **Verwendung**: Hochqualitative OCR-Verarbeitung, Detailansicht
-
-### Vorschaubilder (previews/)
-- **Format**: JPG
-- **Maximale Größe**: {self.preview_image_max_size}px
-- **Qualität**: {self.preview_image_quality}%
-- **Verwendung**: Schnelle Vorschau, Thumbnails
-
-## Verarbeitungsstatistiken
-
-- **Ursprüngliche Datei**: {file_name}
-- **Hauptbilder erstellt**: {main_images_count}
-- **Vorschaubilder erstellt**: {preview_images_count}
-- **Fehlgeschlagene Bilder**: {failed_count}
-- **Verarbeitet am**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-- **Extraktionsmethode**: OCR mit Bildgenerierung
-
-## Nutzung
-
-1. Entpacken Sie das Archiv in ein Verzeichnis Ihrer Wahl
-2. Die Hauptbilder in `main/` eignen sich für weitere OCR-Verarbeitung
-3. Die Vorschaubilder in `previews/` eignen sich für schnelle Übersichten
-4. Beide Bildtypen sind nach Seitennummern benannt (page_001, page_002, etc.)
-
----
-*Generiert vom Secretary Services PDF Processor*
-"""
