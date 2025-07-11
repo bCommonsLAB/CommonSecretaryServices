@@ -52,6 +52,11 @@ pdf_upload_parser.add_argument('useCache',  # type: ignore
                           type=inputs.boolean,  # type: ignore
                           default=True, 
                           help='Cache verwenden (default: True)')
+pdf_upload_parser.add_argument('includeImages',  # type: ignore
+                          location='form', 
+                          type=inputs.boolean,  # type: ignore
+                          default=False, 
+                          help='Base64-kodiertes ZIP-Archiv mit Bildern erstellen (default: False)')
 
 # PDF URL Parser
 pdf_url_parser = pdf_ns.parser()
@@ -81,6 +86,11 @@ pdf_url_parser.add_argument('useCache',  # type: ignore
                           type=inputs.boolean,  # type: ignore
                           default=True, 
                           help='Cache verwenden (default: True)')
+pdf_url_parser.add_argument('includeImages',  # type: ignore
+                          location='form', 
+                          type=inputs.boolean,  # type: ignore
+                          default=False, 
+                          help='Base64-kodiertes ZIP-Archiv mit Bildern erstellen (default: False)')
 
 # PDF Antwortmodell
 pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
@@ -117,7 +127,9 @@ pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
         })),
         'extracted_text': fields.String(description='Extrahierter Text'),
         'ocr_text': fields.String(description='OCR-Text'),
-        'process_id': fields.String(description='Prozess-ID')
+        'process_id': fields.String(description='Prozess-ID'),
+        'images_archive_data': fields.String(description='Base64-kodiertes ZIP-Archiv mit allen generierten Bildern'),
+        'images_archive_filename': fields.String(description='Dateiname des Bilder-Archives')
     })),
     'error': fields.Nested(pdf_ns.model('PDFError', {  # type: ignore
         'code': fields.String(description='Fehlercode'),
@@ -156,7 +168,7 @@ class PDFEndpoint(Resource):
     @pdf_ns.expect(pdf_upload_parser)  # type: ignore
     @pdf_ns.response(200, 'Erfolg', pdf_response)  # type: ignore
     @pdf_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
-    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
+    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei und extrahiert Informationen. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden. Mit includeImages=true wird ein Base64-kodiertes ZIP-Archiv mit allen generierten Bildern erstellt.')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
@@ -173,6 +185,7 @@ class PDFEndpoint(Resource):
                 context_str = str(args.get('context', '')) if args.get('context') else None  # type: ignore
                 context = json.loads(context_str) if context_str else None
                 use_cache = bool(args.get('useCache', True))  # type: ignore
+                include_images = bool(args.get('includeImages', False))  # type: ignore
                 
                 if not uploaded_file.filename:
                     raise ProcessingError("Kein Dateiname angegeben")
@@ -197,7 +210,8 @@ class PDFEndpoint(Resource):
                             context=context,
                             extraction_method=extraction_method,  # type: ignore
                             use_cache=use_cache,
-                            file_hash=file_hash
+                            file_hash=file_hash,
+                            include_images=include_images
                         )
                         tracker.eval_result(result)
                 else:
@@ -207,7 +221,8 @@ class PDFEndpoint(Resource):
                         context=context,
                         extraction_method=extraction_method,  # type: ignore
                         use_cache=use_cache,
-                        file_hash=file_hash
+                        file_hash=file_hash,
+                        include_images=include_images
                     )
                 
                 return result.to_dict()
@@ -241,7 +256,7 @@ class PDFUrlEndpoint(Resource):
     @pdf_ns.expect(pdf_url_parser)  # type: ignore
     @pdf_ns.response(200, 'Erfolg', pdf_response)  # type: ignore
     @pdf_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
-    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei von einer URL und extrahiert Informationen. Unterstützt HTTP/HTTPS URLs, die auf PDF- oder PowerPoint-Dateien (.pdf, .ppt, .pptx) verweisen. PowerPoint-Dateien werden automatisch zu PDF konvertiert. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Die Antwort enthält text_contents mit dem tatsächlichen Textinhalt jeder Seite. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')  # type: ignore
+    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei von einer URL und extrahiert Informationen. Unterstützt HTTP/HTTPS URLs, die auf PDF- oder PowerPoint-Dateien (.pdf, .ppt, .pptx) verweisen. PowerPoint-Dateien werden automatisch zu PDF konvertiert. Unterstützt verschiedene Extraktionsmethoden: native (Text), ocr (OCR), both (beides), preview (Vorschaubilder) oder preview_and_native (Vorschaubilder und Text). Die Antwort enthält text_contents mit dem tatsächlichen Textinhalt jeder Seite. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden. Mit includeImages=true wird ein Base64-kodiertes ZIP-Archiv mit allen generierten Bildern erstellt.')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei von einer URL (HTTP/HTTPS)"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
@@ -256,6 +271,7 @@ class PDFUrlEndpoint(Resource):
                 context_str = str(args.get('context', '')) if args.get('context') else None  # type: ignore
                 context = json.loads(context_str) if context_str else None
                 use_cache = bool(args.get('useCache', True))  # type: ignore
+                include_images = bool(args.get('includeImages', False))  # type: ignore
                 
                 if not url:
                     raise ProcessingError("Keine URL angegeben")
@@ -275,7 +291,8 @@ class PDFUrlEndpoint(Resource):
                             context=context,
                             extraction_method=extraction_method,  # type: ignore
                             use_cache=use_cache,
-                            file_hash=url_hash
+                            file_hash=url_hash,
+                            include_images=include_images
                         )
                         tracker.eval_result(result)
                 else:
@@ -285,7 +302,8 @@ class PDFUrlEndpoint(Resource):
                         context=context,
                         extraction_method=extraction_method,  # type: ignore
                         use_cache=use_cache,
-                        file_hash=url_hash
+                        file_hash=url_hash,
+                        include_images=include_images
                     )
                 
                 return result.to_dict()

@@ -79,6 +79,9 @@ class PDFProcessingResult:
     ocr_text: Optional[str] = None
     process_id: Optional[str] = None
     processed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    # Neue Felder für Bilder-Archiv
+    images_archive_data: Optional[str] = None  # Base64-kodiertes ZIP-Archiv mit Bildern
+    images_archive_filename: Optional[str] = None  # Dateiname des Bilder-Archives
     
     def __post_init__(self) -> None:
         """Validiert das Ergebnis nach der Initialisierung."""
@@ -97,7 +100,9 @@ class PDFProcessingResult:
             'extracted_text': self.extracted_text,
             'ocr_text': self.ocr_text,
             'process_id': self.process_id,
-            'processed_at': self.processed_at
+            'processed_at': self.processed_at,
+            'images_archive_data': self.images_archive_data,
+            'images_archive_filename': self.images_archive_filename
         }
     
     @classmethod
@@ -124,7 +129,9 @@ class PDFProcessingResult:
             extracted_text=data.get('extracted_text'),
             ocr_text=data.get('ocr_text'),
             process_id=data.get('process_id'),
-            processed_at=data.get('processed_at', datetime.now(UTC).isoformat())
+            processed_at=data.get('processed_at', datetime.now(UTC).isoformat()),
+            images_archive_data=data.get('images_archive_data'),
+            images_archive_filename=data.get('images_archive_filename')
         )
 
 @dataclass(frozen=True)
@@ -546,7 +553,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         extraction_method: Union[str, list[str]] = EXTRACTION_NATIVE,
         use_cache: bool = True,
         file_hash: Optional[str] = None,
-        force_overwrite: bool = False
+        force_overwrite: bool = False,
+        include_images: bool = False
     ) -> PDFResponse:
         """
         Verarbeitet ein PDF-Dokument.
@@ -559,6 +567,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             use_cache: Ob der Cache verwendet werden soll
             file_hash: Optional, der Hash der Datei (wenn bereits berechnet)
             force_overwrite: Ob die Datei neu heruntergeladen werden soll, auch wenn sie bereits existiert
+            include_images: Ob ein Base64-kodiertes ZIP-Archiv mit allen generierten Bildern erstellt werden soll
             
         Returns:
             PDFResponse: Die standardisierte Response
@@ -584,6 +593,10 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             extraction_method="_".join(methods_list),  # Kombinierte Methoden als Teil des Cache-Keys
             file_hash=file_hash
         )
+        
+        # include_images Parameter zum Cache-Key hinzufügen
+        if include_images:
+            cache_key += "_with_images"
                 
         # Initialisiere LLM-Info außerhalb des try-blocks
         
@@ -745,6 +758,10 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     format=original_format or "pdf"  # Speichere das Originalformat in den Metadaten
                 )
                 
+                # Listen für Bilder und Vorschaubilder
+                all_image_paths: List[str] = []
+                all_preview_paths: List[str] = []
+                
                 for page_num in range(page_count):
                     page = pdf[page_num]  # Zugriff auf PDF-Seite
                     page_start = time.time()
@@ -753,6 +770,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     if EXTRACTION_PREVIEW in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
                         # Vorschaubilder generieren
                         preview_path = self._generate_preview_image(page, page_num, extraction_dir)
+                        all_preview_paths.append(preview_path)
                         metadata.preview_paths.append(preview_path)
                         
                     if EXTRACTION_NATIVE in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
@@ -788,6 +806,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         
                         # Generiere auch Hauptbilder für die Visualisierung
                         image_path = self._generate_main_image(page, page_num, extraction_dir)
+                        all_image_paths.append(image_path)
                         metadata.image_paths.append(image_path)
                         
                     if EXTRACTION_OCR in methods_list:
@@ -801,6 +820,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
                         image_path = extraction_dir / f"page_{page_num+1}.png"
                         pix.save(str(image_path))  # type: ignore
+                        all_image_paths.append(str(image_path))
                         metadata.image_paths.append(str(image_path))
                         
                         # OCR mit Tesseract
@@ -902,6 +922,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
                         image_path = extraction_dir / f"page_{page_num+1}.png"
                         pix.save(str(image_path))  # type: ignore
+                        all_image_paths.append(str(image_path))
                         metadata.image_paths.append(str(image_path))
                         
                         # OCR mit Tesseract
@@ -1024,12 +1045,30 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     except Exception as e:
                         self.logger.warning(f"Fehler bei der Template-Transformation: {str(e)}")
                 
+                # Bilder-Archiv erstellen, falls gewünscht und Bilder vorhanden
+                images_archive_data = None
+                images_archive_filename = None
+                
+                if include_images and (metadata.image_paths or metadata.preview_paths):
+                    try:
+                        images_archive_data, images_archive_filename = self._create_images_archive(
+                            image_paths=metadata.image_paths,
+                            preview_paths=metadata.preview_paths,
+                            file_name=path.name
+                        )
+                        self.logger.info(f"Bilder-Archiv erstellt: {images_archive_filename}")
+                    except Exception as e:
+                        self.logger.warning(f"Bilder-Archiv konnte nicht erstellt werden: {str(e)}")
+                        # Fehlschlag ist nicht kritisch, Verarbeitung fortsetzen
+                
                 # Erstelle Endergebnis
                 result = PDFProcessingResult(
                     metadata=metadata,
                     extracted_text=result_text if EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list else None,
                     ocr_text=ocr_text if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list else None,
-                    process_id=self.process_id
+                    process_id=self.process_id,
+                    images_archive_data=images_archive_data,
+                    images_archive_filename=images_archive_filename
                 )
             
                 # Konvertiere Dateipfade in URLs für die API-Antwort
@@ -1243,3 +1282,174 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 continue
                 
         return text_contents
+
+    def _create_images_archive(
+        self,
+        image_paths: List[str],
+        preview_paths: List[str],
+        file_name: str
+    ) -> Tuple[str, str]:
+        """
+        Erstellt ein ZIP-Archiv mit allen generierten Bildern.
+        
+        Args:
+            image_paths: Liste der Pfade zu den Hauptbildern
+            preview_paths: Liste der Pfade zu den Vorschaubildern
+            file_name: Name der ursprünglichen PDF-Datei
+            
+        Returns:
+            Tuple aus (Base64-kodiertes ZIP-Archiv, Archiv-Dateiname)
+        """
+        import zipfile
+        import io
+        import base64
+        from pathlib import Path
+        
+        # ZIP-Archiv im Speicher erstellen
+        zip_buffer = io.BytesIO()
+        
+        # Archiv-Dateiname generieren
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        archive_filename = f"{Path(file_name).stem}_images_{timestamp}.zip"
+        
+        try:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                
+                # 1. Hauptbilder hinzufügen
+                successful_main_images = 0
+                failed_main_images = 0
+                
+                for image_path in image_paths:
+                    try:
+                        image_path_obj = Path(image_path)
+                        if image_path_obj.exists():
+                            # Bild mit strukturiertem Pfad zum ZIP hinzufügen
+                            zip_path = f"images/main/{image_path_obj.name}"
+                            zip_file.write(str(image_path_obj), zip_path)
+                            successful_main_images += 1
+                            self.logger.debug(f"Hauptbild zum ZIP hinzugefügt: {zip_path}")
+                        else:
+                            self.logger.warning(f"Hauptbild nicht gefunden: {image_path}")
+                            failed_main_images += 1
+                    except Exception as e:
+                        self.logger.warning(f"Fehler beim Hinzufügen des Hauptbilds {image_path}: {str(e)}")
+                        failed_main_images += 1
+                
+                # 2. Vorschaubilder hinzufügen
+                successful_preview_images = 0
+                failed_preview_images = 0
+                
+                for preview_path in preview_paths:
+                    try:
+                        preview_path_obj = Path(preview_path)
+                        if preview_path_obj.exists():
+                            # Vorschaubild mit strukturiertem Pfad zum ZIP hinzufügen
+                            zip_path = f"images/previews/{preview_path_obj.name}"
+                            zip_file.write(str(preview_path_obj), zip_path)
+                            successful_preview_images += 1
+                            self.logger.debug(f"Vorschaubild zum ZIP hinzugefügt: {zip_path}")
+                        else:
+                            self.logger.warning(f"Vorschaubild nicht gefunden: {preview_path}")
+                            failed_preview_images += 1
+                    except Exception as e:
+                        self.logger.warning(f"Fehler beim Hinzufügen des Vorschaubilds {preview_path}: {str(e)}")
+                        failed_preview_images += 1
+                
+                # 3. README mit Informationen hinzufügen
+                readme_content = self._create_images_archive_readme(
+                    file_name, 
+                    successful_main_images, 
+                    successful_preview_images,
+                    failed_main_images + failed_preview_images
+                )
+                zip_file.writestr("README.md", readme_content.encode('utf-8'))
+                
+                self.logger.info(
+                    f"Bilder-Archiv erstellt: {successful_main_images} Hauptbilder, "
+                    f"{successful_preview_images} Vorschaubilder, "
+                    f"{failed_main_images + failed_preview_images} fehlgeschlagen"
+                )
+            
+            # ZIP-Inhalt als Base64 kodieren
+            zip_buffer.seek(0)
+            zip_bytes = zip_buffer.read()
+            archive_data = base64.b64encode(zip_bytes).decode('utf-8')
+            
+            return archive_data, archive_filename
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen des Bilder-Archives: {str(e)}")
+            raise ProcessingError(f"Fehler beim Erstellen des Bilder-Archives: {str(e)}")
+        finally:
+            zip_buffer.close()
+
+    def _create_images_archive_readme(
+        self, 
+        file_name: str, 
+        main_images_count: int, 
+        preview_images_count: int,
+        failed_count: int
+    ) -> str:
+        """
+        Erstellt eine README-Datei für das Bilder-Archiv.
+        
+        Args:
+            file_name: Name der ursprünglichen PDF-Datei
+            main_images_count: Anzahl der Hauptbilder
+            preview_images_count: Anzahl der Vorschaubilder
+            failed_count: Anzahl fehlgeschlagener Bilder
+            
+        Returns:
+            README-Inhalt als String
+        """
+        return f"""# PDF Bilder-Archiv: {file_name}
+
+## Archiv-Inhalt
+
+Dieses Archiv enthält alle generierten Bilder aus der PDF-Verarbeitung:
+
+```
+images/
+├── main/                    # Hochauflösende Hauptbilder
+│   ├── page_001.png        # [{main_images_count} Hauptbilder]
+│   ├── page_002.png
+│   └── ...
+├── previews/               # Kleinere Vorschaubilder
+│   ├── preview_001.jpg     # [{preview_images_count} Vorschaubilder]
+│   ├── preview_002.jpg
+│   └── ...
+└── README.md (diese Datei)
+```
+
+## Bildqualität und -größen
+
+### Hauptbilder (main/)
+- **Format**: PNG (für OCR optimiert)
+- **Auflösung**: 300 DPI
+- **Verwendung**: Hochqualitative OCR-Verarbeitung, Detailansicht
+
+### Vorschaubilder (previews/)
+- **Format**: JPG
+- **Maximale Größe**: {self.preview_image_max_size}px
+- **Qualität**: {self.preview_image_quality}%
+- **Verwendung**: Schnelle Vorschau, Thumbnails
+
+## Verarbeitungsstatistiken
+
+- **Ursprüngliche Datei**: {file_name}
+- **Hauptbilder erstellt**: {main_images_count}
+- **Vorschaubilder erstellt**: {preview_images_count}
+- **Fehlgeschlagene Bilder**: {failed_count}
+- **Verarbeitet am**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Extraktionsmethode**: OCR mit Bildgenerierung
+
+## Nutzung
+
+1. Entpacken Sie das Archiv in ein Verzeichnis Ihrer Wahl
+2. Die Hauptbilder in `main/` eignen sich für weitere OCR-Verarbeitung
+3. Die Vorschaubilder in `previews/` eignen sich für schnelle Übersichten
+4. Beide Bildtypen sind nach Seitennummern benannt (page_001, page_002, etc.)
+
+---
+*Generiert vom Secretary Services PDF Processor*
+"""
