@@ -37,7 +37,6 @@ import subprocess
 import os
 from urllib.parse import urlparse
 import fitz  # type: ignore
-import pytesseract  # type: ignore
 import requests
 
 from src.processors.cacheable_processor import CacheableProcessor
@@ -47,6 +46,7 @@ from src.core.config import Config
 from src.core.models.base import ErrorInfo, BaseResponse, ProcessInfo
 from src.core.models.pdf import PDFMetadata
 from src.processors.transformer_processor import TransformerProcessor
+from src.processors.imageocr_processor import ImageOCRProcessor  # Neue Import
 from src.core.models.enums import ProcessingStatus
 
 # Konstanten für Processor-Typen
@@ -198,6 +198,12 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             parent_process_info=self.process_info
         )
         
+        # Initialisiere ImageOCR Processor für OCR-Aufgaben
+        self.imageocr_processor = ImageOCRProcessor(
+            resource_calculator,
+            process_id
+        )
+        
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
         """
         Erstellt und gibt das Verarbeitungsverzeichnis für eine PDF zurück.
@@ -229,7 +235,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             Path: Pfad zur gespeicherten Textdatei
         """
         # Erstelle die Textdatei
-        text_path = process_dir / f"page_{page_num+1}.txt"
+        text_path = process_dir / f"page_{page_num+1:03d}.txt"
         text_path.write_text(text, encoding='utf-8')
         
         # Gibt den Pfad zur Textdatei zurück
@@ -818,65 +824,59 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         matrix = fitz.Matrix(scale_factor, scale_factor)
                         
                         pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
-                        image_path = extraction_dir / f"page_{page_num+1}.png"
-                        pix.save(str(image_path))  # type: ignore
+                        image_path = extraction_dir / f"image_{page_num+1:03d}.{self.main_image_format}"
+                        pix.save(str(image_path), output="jpeg", jpg_quality=self.main_image_quality)  # type: ignore
                         all_image_paths.append(str(image_path))
                         metadata.image_paths.append(str(image_path))
                         
-                        # OCR mit Tesseract
+                        # OCR mit ImageOCR Processor (nutzt Caching)
                         try:
-                            import PIL.Image as Image
-                            img = Image.open(image_path)
-                            try:
-                                # Hinweis: pytesseract.image_to_string wird mit type-ignore markiert,
-                                # da die Typdefinitionen nicht mit der tatsächlichen Implementierung übereinstimmen
-                                page_ocr = str(pytesseract.image_to_string(  # type: ignore
-                                    image=img,
-                                    lang='deu',  # Deutsche Sprache
-                                    config='--psm 3'  # Standard Page Segmentation Mode
-                                ))
-                            except Exception as ocr_error:
-                                self.logger.warning(
-                                    "Fehler bei deutscher OCR, versuche Englisch als Fallback",
-                                    error=str(ocr_error)
-                                )
-                                page_ocr = str(pytesseract.image_to_string(  # type: ignore
-                                    image=img,
-                                    lang='eng',  # Englisch als Fallback
-                                    config='--psm 3'
-                                ))
-                            
-                            # OCR-Text speichern
-                            text_path = self.save_page_text(str(page_ocr), page_num, extraction_dir)
-                            
-                            # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
-                            text_paths_list = list(metadata.text_paths)
-                            text_paths_list.append(str(text_path))
-                            
-                            text_contents_list = list(metadata.text_contents)
-                            text_contents_list.append((page_num + 1, str(page_ocr)))
-                            
-                            metadata = PDFMetadata(
-                                file_name=metadata.file_name,
-                                file_size=metadata.file_size,
-                                page_count=metadata.page_count,
-                                format=metadata.format,
-                                process_dir=metadata.process_dir,
-                                image_paths=metadata.image_paths,
-                                preview_paths=metadata.preview_paths,
-                                preview_zip=metadata.preview_zip,
-                                text_paths=text_paths_list,
-                                text_contents=text_contents_list,
-                                extraction_method=metadata.extraction_method
+                            # Verwende den ImageOCR Processor für OCR mit Caching
+                            ocr_result = await self.imageocr_processor.process(
+                                file_path=str(image_path),
+                                template=None,  # Kein Template für PDF-Seiten
+                                context=context,
+                                extraction_method="ocr",
+                                use_cache=use_cache,  # Cache-Nutzung vom PDF-Processor übernehmen
+                                file_hash=None  # Hash wird vom ImageOCR Processor berechnet
                             )
                             
-                            ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
-                            
-                            # Ressourcen freigeben
-                            img.close()
-                        except ImportError:
-                            self.logger.error("PIL nicht installiert, OCR nicht möglich")
-                            raise ProcessingError("PIL nicht installiert, OCR nicht möglich")
+                            if ocr_result.data and ocr_result.data.extracted_text:
+                                page_ocr = str(ocr_result.data.extracted_text)
+                                
+                                # OCR-Text speichern
+                                text_path = self.save_page_text(page_ocr, page_num, extraction_dir)
+                                
+                                # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
+                                text_paths_list = list(metadata.text_paths)
+                                text_paths_list.append(str(text_path))
+                                
+                                text_contents_list = list(metadata.text_contents)
+                                text_contents_list.append((page_num + 1, page_ocr))
+                                
+                                metadata = PDFMetadata(
+                                    file_name=metadata.file_name,
+                                    file_size=metadata.file_size,
+                                    page_count=metadata.page_count,
+                                    format=metadata.format,
+                                    process_dir=metadata.process_dir,
+                                    image_paths=metadata.image_paths,
+                                    preview_paths=metadata.preview_paths,
+                                    preview_zip=metadata.preview_zip,
+                                    text_paths=text_paths_list,
+                                    text_contents=text_contents_list,
+                                    extraction_method=metadata.extraction_method
+                                )
+                                
+                                ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
+                                self.logger.debug(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
+                            else:
+                                self.logger.warning(f"Kein OCR-Text für Seite {page_num+1} extrahiert")
+                                page_ocr = ""
+                                
+                        except Exception as ocr_error:
+                            self.logger.error(f"Fehler bei OCR für Seite {page_num+1}: {str(ocr_error)}")
+                            page_ocr = ""
                         
                         # Ressourcen freigeben
                         del pix
@@ -920,63 +920,59 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         matrix = fitz.Matrix(scale_factor, scale_factor)
                         
                         pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
-                        image_path = extraction_dir / f"page_{page_num+1}.png"
-                        pix.save(str(image_path))  # type: ignore
+                        image_path = extraction_dir / f"image_{page_num+1:03d}.{self.main_image_format}"
+                        pix.save(str(image_path), output="jpeg", jpg_quality=self.main_image_quality)  # type: ignore
                         all_image_paths.append(str(image_path))
                         metadata.image_paths.append(str(image_path))
                         
-                        # OCR mit Tesseract
+                        # OCR mit ImageOCR Processor (nutzt Caching)
                         try:
-                            import PIL.Image as Image
-                            img = Image.open(image_path)
-                            try:
-                                page_ocr = str(pytesseract.image_to_string(  # type: ignore
-                                    image=img,
-                                    lang='deu',  # Deutsche Sprache
-                                    config='--psm 3'  # Standard Page Segmentation Mode
-                                ))
-                            except Exception as ocr_error:
-                                self.logger.warning(
-                                    "Fehler bei deutscher OCR, versuche Englisch als Fallback",
-                                    error=str(ocr_error)
-                                )
-                                page_ocr = str(pytesseract.image_to_string(  # type: ignore
-                                    image=img,
-                                    lang='eng',  # Englisch als Fallback
-                                    config='--psm 3'
-                                ))
-                            
-                            # OCR-Text speichern
-                            text_path = self.save_page_text(str(page_ocr), page_num, extraction_dir)
-                            
-                            # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
-                            text_paths_list = list(metadata.text_paths)
-                            text_paths_list.append(str(text_path))
-                            
-                            text_contents_list = list(metadata.text_contents)
-                            text_contents_list.append((page_num + 1, str(page_ocr)))
-                            
-                            metadata = PDFMetadata(
-                                file_name=metadata.file_name,
-                                file_size=metadata.file_size,
-                                page_count=metadata.page_count,
-                                format=metadata.format,
-                                process_dir=metadata.process_dir,
-                                image_paths=metadata.image_paths,
-                                preview_paths=metadata.preview_paths,
-                                preview_zip=metadata.preview_zip,
-                                text_paths=text_paths_list,
-                                text_contents=text_contents_list,
-                                extraction_method=metadata.extraction_method
+                            # Verwende den ImageOCR Processor für OCR mit Caching
+                            ocr_result = await self.imageocr_processor.process(
+                                file_path=str(image_path),
+                                template=None,  # Kein Template für PDF-Seiten
+                                context=context,
+                                extraction_method="ocr",
+                                use_cache=use_cache,  # Cache-Nutzung vom PDF-Processor übernehmen
+                                file_hash=None  # Hash wird vom ImageOCR Processor berechnet
                             )
                             
-                            ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
-                            
-                            # Ressourcen freigeben
-                            img.close()
-                        except ImportError:
-                            self.logger.error("PIL nicht installiert, OCR nicht möglich")
-                            raise ProcessingError("PIL nicht installiert, OCR nicht möglich")
+                            if ocr_result.data and ocr_result.data.extracted_text:
+                                page_ocr = str(ocr_result.data.extracted_text)
+                                
+                                # OCR-Text speichern
+                                text_path = self.save_page_text(page_ocr, page_num, extraction_dir)
+                                
+                                # Da PDFMetadata jetzt unveränderlich ist, müssen wir eine neue Instanz erstellen
+                                text_paths_list = list(metadata.text_paths)
+                                text_paths_list.append(str(text_path))
+                                
+                                text_contents_list = list(metadata.text_contents)
+                                text_contents_list.append((page_num + 1, page_ocr))
+                                
+                                metadata = PDFMetadata(
+                                    file_name=metadata.file_name,
+                                    file_size=metadata.file_size,
+                                    page_count=metadata.page_count,
+                                    format=metadata.format,
+                                    process_dir=metadata.process_dir,
+                                    image_paths=metadata.image_paths,
+                                    preview_paths=metadata.preview_paths,
+                                    preview_zip=metadata.preview_zip,
+                                    text_paths=text_paths_list,
+                                    text_contents=text_contents_list,
+                                    extraction_method=metadata.extraction_method
+                                )
+                                
+                                ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
+                                self.logger.debug(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
+                            else:
+                                self.logger.warning(f"Kein OCR-Text für Seite {page_num+1} extrahiert")
+                                page_ocr = ""
+                                
+                        except Exception as ocr_error:
+                            self.logger.error(f"Fehler bei OCR für Seite {page_num+1}: {str(ocr_error)}")
+                            page_ocr = ""
                         
                         # Ressourcen freigeben
                         del pix
