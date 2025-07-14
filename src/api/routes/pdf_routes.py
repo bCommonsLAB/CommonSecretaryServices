@@ -35,8 +35,8 @@ pdf_upload_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
 pdf_upload_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -69,8 +69,8 @@ pdf_url_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
 pdf_url_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',

@@ -48,6 +48,7 @@ from src.core.models.pdf import PDFMetadata
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.imageocr_processor import ImageOCRProcessor  # Neue Import
 from src.core.models.enums import ProcessingStatus
+from src.utils.image2text_utils import Image2TextService
 
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_PDF = "pdf"
@@ -58,6 +59,11 @@ EXTRACTION_OCR = "ocr"       # Nur OCR
 EXTRACTION_BOTH = "both"     # Beide Methoden kombinieren
 EXTRACTION_PREVIEW = "preview"
 EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und native Text-Extraktion
+
+# Neue Konstanten für LLM-basierte OCR
+EXTRACTION_LLM = "llm"  # LLM-basierte OCR mit Markdown-Output
+EXTRACTION_LLM_AND_NATIVE = "llm_and_native"  # LLM + native Text
+EXTRACTION_LLM_AND_OCR = "llm_and_ocr"  # LLM + Tesseract OCR
 
 # PyMuPDF Typendefinitionen für den Linter
 if TYPE_CHECKING:
@@ -70,6 +76,10 @@ if TYPE_CHECKING:
     class FitzPixmap:
         """Typ-Definitionen für PyMuPDF Pixmap-Objekte."""
         def save(self, filename: str, output: str = "", jpg_quality: int = 80) -> None: ...
+
+# Typ-Aliase für bessere Linter-Unterstützung
+FitzPageType = Any  # type: ignore
+FitzPixmapType = Any  # type: ignore
 
 @dataclass(frozen=True)
 class PDFProcessingResult:
@@ -148,6 +158,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
     - Extraktion von Metadaten
     - Strukturierte Dokumentenanalyse
     - Vorschaubilder generieren
+    - LLM-basierte OCR mit Markdown-Output
     
     Verwendet MongoDB-Caching zur effizienten Wiederverwendung von Verarbeitungsergebnissen.
     """
@@ -202,6 +213,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         self.imageocr_processor = ImageOCRProcessor(
             resource_calculator,
             process_id
+        )
+        
+        # Initialisiere Image2Text Service für LLM-basierte OCR
+        self.image2text_service = Image2TextService(
+            processor_name=f"PDFProcessor-{process_id}"
         )
         
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
@@ -644,7 +660,10 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     )
 
             # Validiere alle Extraktionsmethoden
-            valid_methods = [EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW]
+            valid_methods = [
+                EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW,
+                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR
+            ]
             for method in methods_list:
                 if method not in valid_methods:
                     raise ProcessingError(f"Ungültige Extraktionsmethode: {method}")
@@ -772,13 +791,20 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     page = pdf[page_num]  # Zugriff auf PDF-Seite
                     page_start = time.time()
                     
-                    # Verarbeite jede gewünschte Extraktionsmethode
+                    # ZENTRALE BILDGENERIERUNG - unabhängig von der Extraktionsmethode
+                    # Generiere Vorschaubilder, falls gewünscht
                     if EXTRACTION_PREVIEW in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
                         # Vorschaubilder generieren
                         preview_path = self._generate_preview_image(page, page_num, extraction_dir)
                         all_preview_paths.append(preview_path)
                         metadata.preview_paths.append(preview_path)
-                        
+                    
+                    # Generiere Hauptbilder für alle Methoden (wird für Archiv und Visualisierung benötigt)
+                    image_path = self._generate_main_image(page, page_num, extraction_dir)
+                    all_image_paths.append(image_path)
+                    metadata.image_paths.append(image_path)
+                    
+                    # Verarbeite jede gewünschte Extraktionsmethode
                     if EXTRACTION_NATIVE in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
                         # Native Text-Extraktion
                         page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
@@ -810,30 +836,13 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             extraction_method=metadata.extraction_method
                         )
                         
-                        # Generiere auch Hauptbilder für die Visualisierung
-                        image_path = self._generate_main_image(page, page_num, extraction_dir)
-                        all_image_paths.append(image_path)
-                        metadata.image_paths.append(image_path)
-                        
                     if EXTRACTION_OCR in methods_list:
-                        # OCR durchführen
-                        # Generiere Hauptbild mit höherer Auflösung für OCR
-                        page_rect = page.rect  # type: ignore
-                        # 300 DPI für OCR
-                        scale_factor = 300/72
-                        matrix = fitz.Matrix(scale_factor, scale_factor)
-                        
-                        pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
-                        image_path = extraction_dir / f"image_{page_num+1:03d}.{self.main_image_format}"
-                        pix.save(str(image_path), output="jpeg", jpg_quality=self.main_image_quality)  # type: ignore
-                        all_image_paths.append(str(image_path))
-                        metadata.image_paths.append(str(image_path))
-                        
+                        # OCR durchführen - verwende das bereits generierte Hauptbild
                         # OCR mit ImageOCR Processor (nutzt Caching)
                         try:
                             # Verwende den ImageOCR Processor für OCR mit Caching
                             ocr_result = await self.imageocr_processor.process(
-                                file_path=str(image_path),
+                                file_path=str(image_path),  # Verwende das bereits generierte Bild
                                 template=None,  # Kein Template für PDF-Seiten
                                 context=context,
                                 extraction_method="ocr",
@@ -877,9 +886,209 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         except Exception as ocr_error:
                             self.logger.error(f"Fehler bei OCR für Seite {page_num+1}: {str(ocr_error)}")
                             page_ocr = ""
+                    
+                    if EXTRACTION_LLM in methods_list:
+                        # LLM-basierte OCR mit Markdown-Output
+                        try:
+                            # Erstelle erweiterten Prompt basierend auf Kontext
+                            custom_prompt = None
+                            if context:
+                                document_type = context.get('document_type')
+                                language = context.get('language', 'de')
+                                custom_prompt = self.image2text_service.create_enhanced_prompt(
+                                    context=context,
+                                    document_type=document_type,
+                                    language=language
+                                )
+                            
+                            # LLM-OCR für diese Seite
+                            llm_text, llm_request = self.image2text_service.extract_text_from_pdf_page(
+                                page=page,
+                                page_num=page_num,
+                                custom_prompt=custom_prompt,
+                                logger=self.logger
+                            )
+                            
+                            # LLM-Request zum Tracking hinzufügen
+                            self.add_llm_requests([llm_request])
+                            
+                            # Text speichern
+                            text_path = self.save_page_text(text=llm_text, page_num=page_num, process_dir=extraction_dir)
+                            
+                            # Metadaten aktualisieren
+                            text_paths_list = list(metadata.text_paths)
+                            text_paths_list.append(str(text_path))
+                            
+                            text_contents_list = list(metadata.text_contents)
+                            text_contents_list.append((page_num + 1, llm_text))
+                            
+                            metadata = PDFMetadata(
+                                file_name=metadata.file_name,
+                                file_size=metadata.file_size,
+                                page_count=metadata.page_count,
+                                format=metadata.format,
+                                process_dir=metadata.process_dir,
+                                image_paths=metadata.image_paths,
+                                preview_paths=metadata.preview_paths,
+                                preview_zip=metadata.preview_zip,
+                                text_paths=text_paths_list,
+                                text_contents=text_contents_list,
+                                extraction_method=metadata.extraction_method
+                            )
+                            
+                            # Füge LLM-Text zum Gesamttext hinzu
+                            full_text += f"\n--- Seite {page_num+1} ---\n{llm_text}"
+                            
+                            self.logger.debug(f"LLM-OCR für Seite {page_num+1} abgeschlossen")
+                            
+                        except Exception as llm_error:
+                            self.logger.error(f"Fehler bei LLM-OCR für Seite {page_num+1}: {str(llm_error)}")
+                            # Fallback auf native Extraktion
+                            page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
+                            page_text = cast(str, page_text_raw)
+                            fallback_text = f"LLM-OCR fehlgeschlagen, Fallback auf native Extraktion:\n\n{page_text}"
+                            full_text += f"\n--- Seite {page_num+1} ---\n{fallback_text}"
+                    
+                    if EXTRACTION_LLM_AND_NATIVE in methods_list:
+                        # Kombiniere LLM-OCR mit nativer Text-Extraktion
+                        # Native Text-Extraktion
+                        page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
+                        page_text = cast(str, page_text_raw)
                         
-                        # Ressourcen freigeben
-                        del pix
+                        # LLM-OCR
+                        try:
+                            custom_prompt = None
+                            if context:
+                                document_type = context.get('document_type')
+                                language = context.get('language', 'de')
+                                custom_prompt = self.image2text_service.create_enhanced_prompt(
+                                    context=context,
+                                    document_type=document_type,
+                                    language=language
+                                )
+                            
+                            llm_text, llm_request = self.image2text_service.extract_text_from_pdf_page(
+                                page=page,
+                                page_num=page_num,
+                                custom_prompt=custom_prompt,
+                                logger=self.logger
+                            )
+                            
+                            # LLM-Request zum Tracking hinzufügen
+                            self.add_llm_requests([llm_request])
+                            
+                            # Kombiniere beide Texte
+                            combined_text = f"=== Native Text ===\n{page_text}\n\n=== LLM Markdown ===\n{llm_text}"
+                            
+                        except Exception as llm_error:
+                            self.logger.error(f"Fehler bei LLM-OCR für Seite {page_num+1}: {str(llm_error)}")
+                            combined_text = f"=== Native Text ===\n{page_text}\n\n=== LLM-OCR Fehler ===\n{str(llm_error)}"
+                        
+                        # Text speichern
+                        text_path = self.save_page_text(text=combined_text, page_num=page_num, process_dir=extraction_dir)
+                        
+                        # Metadaten aktualisieren
+                        text_paths_list = list(metadata.text_paths)
+                        text_paths_list.append(str(text_path))
+                        
+                        text_contents_list = list(metadata.text_contents)
+                        text_contents_list.append((page_num + 1, combined_text))
+                        
+                        metadata = PDFMetadata(
+                            file_name=metadata.file_name,
+                            file_size=metadata.file_size,
+                            page_count=metadata.page_count,
+                            format=metadata.format,
+                            process_dir=metadata.process_dir,
+                            image_paths=metadata.image_paths,
+                            preview_paths=metadata.preview_paths,
+                            preview_zip=metadata.preview_zip,
+                            text_paths=text_paths_list,
+                            text_contents=text_contents_list,
+                            extraction_method=metadata.extraction_method
+                        )
+                        
+                        # Füge kombinierten Text zum Gesamttext hinzu
+                        full_text += f"\n--- Seite {page_num+1} ---\n{combined_text}"
+                    
+                    if EXTRACTION_LLM_AND_OCR in methods_list:
+                        # Kombiniere LLM-OCR mit Tesseract OCR
+                        llm_text = ""
+                        tesseract_text = ""
+                        
+                        # LLM-OCR
+                        try:
+                            custom_prompt = None
+                            if context:
+                                document_type = context.get('document_type')
+                                language = context.get('language', 'de')
+                                custom_prompt = self.image2text_service.create_enhanced_prompt(
+                                    context=context,
+                                    document_type=document_type,
+                                    language=language
+                                )
+                            
+                            llm_text, llm_request = self.image2text_service.extract_text_from_pdf_page(
+                                page=page,
+                                page_num=page_num,
+                                custom_prompt=custom_prompt,
+                                logger=self.logger
+                            )
+                            
+                            # LLM-Request zum Tracking hinzufügen
+                            self.add_llm_requests([llm_request])
+                            
+                        except Exception as llm_error:
+                            self.logger.error(f"Fehler bei LLM-OCR für Seite {page_num+1}: {str(llm_error)}")
+                            llm_text = f"LLM-OCR Fehler: {str(llm_error)}"
+                        
+                        # Tesseract OCR - verwende das bereits generierte Hauptbild
+                        try:
+                            ocr_result = await self.imageocr_processor.process(
+                                file_path=str(image_path),  # Verwende das bereits generierte Bild
+                                template=None,
+                                context=context,
+                                extraction_method="ocr",
+                                use_cache=use_cache,
+                                file_hash=None
+                            )
+                            
+                            if ocr_result.data and ocr_result.data.extracted_text:
+                                tesseract_text = str(ocr_result.data.extracted_text)
+                            
+                        except Exception as ocr_error:
+                            self.logger.error(f"Fehler bei Tesseract OCR für Seite {page_num+1}: {str(ocr_error)}")
+                            tesseract_text = f"Tesseract OCR Fehler: {str(ocr_error)}"
+                        
+                        # Kombiniere beide OCR-Ergebnisse
+                        combined_ocr_text = f"=== LLM Markdown ===\n{llm_text}\n\n=== Tesseract OCR ===\n{tesseract_text}"
+                        
+                        # Text speichern
+                        text_path = self.save_page_text(text=combined_ocr_text, page_num=page_num, process_dir=extraction_dir)
+                        
+                        # Metadaten aktualisieren
+                        text_paths_list = list(metadata.text_paths)
+                        text_paths_list.append(str(text_path))
+                        
+                        text_contents_list = list(metadata.text_contents)
+                        text_contents_list.append((page_num + 1, combined_ocr_text))
+                        
+                        metadata = PDFMetadata(
+                            file_name=metadata.file_name,
+                            file_size=metadata.file_size,
+                            page_count=metadata.page_count,
+                            format=metadata.format,
+                            process_dir=metadata.process_dir,
+                            image_paths=metadata.image_paths,
+                            preview_paths=metadata.preview_paths,
+                            preview_zip=metadata.preview_zip,
+                            text_paths=text_paths_list,
+                            text_contents=text_contents_list,
+                            extraction_method=metadata.extraction_method
+                        )
+                        
+                        # Füge kombinierten Text zum OCR-Text hinzu
+                        ocr_text += f"\n--- Seite {page_num+1} ---\n{combined_ocr_text}"
                     
                     if EXTRACTION_BOTH in methods_list:
                         # Beide Extraktionsmethoden (native + OCR)
@@ -913,23 +1122,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             extraction_method=metadata.extraction_method
                         )
                         
-                        # Generiere auch Hauptbilder mit höherer Auflösung für OCR
-                        page_rect = page.rect  # type: ignore
-                        # 300 DPI für OCR
-                        scale_factor = 300/72
-                        matrix = fitz.Matrix(scale_factor, scale_factor)
-                        
-                        pix = page.get_pixmap(matrix=matrix)  # type: ignore # PyMuPDF Methode
-                        image_path = extraction_dir / f"image_{page_num+1:03d}.{self.main_image_format}"
-                        pix.save(str(image_path), output="jpeg", jpg_quality=self.main_image_quality)  # type: ignore
-                        all_image_paths.append(str(image_path))
-                        metadata.image_paths.append(str(image_path))
-                        
-                        # OCR mit ImageOCR Processor (nutzt Caching)
+                        # OCR mit ImageOCR Processor (nutzt Caching) - verwende das bereits generierte Hauptbild
                         try:
                             # Verwende den ImageOCR Processor für OCR mit Caching
                             ocr_result = await self.imageocr_processor.process(
-                                file_path=str(image_path),
+                                file_path=str(image_path),  # Verwende das bereits generierte Bild
                                 template=None,  # Kein Template für PDF-Seiten
                                 context=context,
                                 extraction_method="ocr",
@@ -973,9 +1170,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         except Exception as ocr_error:
                             self.logger.error(f"Fehler bei OCR für Seite {page_num+1}: {str(ocr_error)}")
                             page_ocr = ""
-                        
-                        # Ressourcen freigeben
-                        del pix
                     
                     # Logging
                     page_duration = time.time() - page_start
@@ -1060,7 +1254,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 # Erstelle Endergebnis
                 result = PDFProcessingResult(
                     metadata=metadata,
-                    extracted_text=result_text if EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list else None,
+                    extracted_text=result_text if (EXTRACTION_NATIVE in methods_list or 
+                                                  EXTRACTION_BOTH in methods_list or 
+                                                  EXTRACTION_LLM in methods_list or 
+                                                  EXTRACTION_LLM_AND_NATIVE in methods_list or 
+                                                  EXTRACTION_LLM_AND_OCR in methods_list) else None,
                     ocr_text=ocr_text if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list else None,
                     process_id=self.process_id,
                     images_archive_data=images_archive_data,

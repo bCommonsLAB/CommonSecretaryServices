@@ -46,6 +46,12 @@ processors:
         max_size: 360
         format: jpg
         quality: 80
+  
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    vision_model: "gpt-4o-mini"  # Modell für Vision API
+    max_image_size: 2048    # Maximale Bildgröße für Vision API
+    image_quality: 85       # JPEG-Qualität für Bildkompression
 
   obsidian:
     base_dir: sessions

@@ -47,6 +47,9 @@ from src.processors.cacheable_processor import CacheableProcessor
 from src.processors.transformer_processor import TransformerProcessor
 from src.core.models.enums import ProcessingStatus
 
+# Neue Imports hinzufügen
+from src.utils.image2text_utils import Image2TextService
+
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_IMAGEOCR = "imageocr"
 
@@ -56,6 +59,10 @@ EXTRACTION_NATIVE = "native"     # Native Bildanalyse (falls verfügbar)
 EXTRACTION_BOTH = "both"         # Kombination von OCR und nativer Analyse
 EXTRACTION_PREVIEW = "preview"   # Nur Vorschaubilder generieren
 EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und native Analyse
+
+# Neue Konstanten für LLM-basierte OCR
+EXTRACTION_LLM = "llm"  # LLM-basierte OCR mit Markdown-Output
+EXTRACTION_LLM_AND_OCR = "llm_and_ocr"  # LLM + Tesseract OCR
 
 @dataclass(frozen=True)
 class ImageOCRMetadata:
@@ -171,6 +178,7 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
     - Texterkennung in Bildern
     - Strukturerkennung (Tabellen, Listen)
     - Spracherkennung
+    - LLM-basierte OCR mit Markdown-Output
     
     Verwendet MongoDB-Caching zur effizienten Wiederverwendung von OCR-Ergebnissen.
     """
@@ -201,6 +209,11 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
             resource_calculator, 
             process_id,
             parent_process_info=self.process_info
+        )
+        
+        # Initialisiere Image2Text Service für LLM-basierte OCR
+        self.image2text_service = Image2TextService(
+            processor_name=f"ImageOCRProcessor-{process_id}"
         )
         
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
@@ -288,7 +301,10 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
         
         try:
             # Validiere die Extraktionsmethode
-            valid_methods = [EXTRACTION_OCR, EXTRACTION_NATIVE, EXTRACTION_BOTH, EXTRACTION_PREVIEW, EXTRACTION_PREVIEW_AND_NATIVE]
+            valid_methods = [
+                EXTRACTION_OCR, EXTRACTION_NATIVE, EXTRACTION_BOTH, EXTRACTION_PREVIEW, 
+                EXTRACTION_PREVIEW_AND_NATIVE, EXTRACTION_LLM, EXTRACTION_LLM_AND_OCR
+            ]
             if extraction_method not in valid_methods:
                 raise ProcessingError(f"Ungültige Extraktionsmethode: {extraction_method}")
             
@@ -485,6 +501,71 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                         )
                     extracted_text = str(raw_text)  # Explizite Konvertierung zu str
                     self.logger.debug(f"OCR-Text extrahiert ({len(extracted_text)} Zeichen)")
+
+                # LLM-basierte OCR durchführen, wenn benötigt
+                if extraction_method in [EXTRACTION_LLM, EXTRACTION_LLM_AND_OCR]:
+                    try:
+                        # Erstelle erweiterten Prompt basierend auf Kontext
+                        custom_prompt = None
+                        if context:
+                            document_type = context.get('document_type')
+                            language = context.get('language', 'de')
+                            custom_prompt = self.image2text_service.create_enhanced_prompt(
+                                context=context,
+                                document_type=document_type,
+                                language=language
+                            )
+                        
+                        # LLM-OCR für dieses Bild
+                        llm_text, llm_request = self.image2text_service.extract_text_from_image_file(
+                            image_path=Path(local_file_path),
+                            custom_prompt=custom_prompt,
+                            logger=self.logger
+                        )
+                        
+                        # LLM-Request zum Tracking hinzufügen
+                        self.add_llm_requests([llm_request])
+                        
+                        if extraction_method == EXTRACTION_LLM:
+                            # Nur LLM-OCR
+                            extracted_text = llm_text
+                        else:
+                            # LLM + Tesseract OCR kombinieren
+                            # Tesseract OCR
+                            try:
+                                tesseract_text = pytesseract.image_to_string(
+                                    image=img,
+                                    lang='deu',
+                                    config='--psm 3',
+                                    output_type=pytesseract.Output.STRING
+                                )
+                            except Exception as ocr_error:
+                                self.logger.warning(f"Fehler bei Tesseract OCR: {str(ocr_error)}")
+                                tesseract_text = f"Tesseract OCR Fehler: {str(ocr_error)}"
+                            
+                            # Kombiniere beide Ergebnisse
+                            extracted_text = f"=== LLM Markdown ===\n{llm_text}\n\n=== Tesseract OCR ===\n{tesseract_text}"
+                        
+                        self.logger.debug(f"LLM-OCR-Text extrahiert ({len(extracted_text)} Zeichen)")
+                        
+                    except Exception as llm_error:
+                        self.logger.warning(f"Fehler bei LLM-OCR: {str(llm_error)}")
+                        if extraction_method == EXTRACTION_LLM:
+                            # Bei reinem LLM-Modus Fallback auf Tesseract
+                            try:
+                                raw_text = pytesseract.image_to_string(
+                                    image=img,
+                                    lang='deu',
+                                    config='--psm 3',
+                                    output_type=pytesseract.Output.STRING
+                                )
+                                extracted_text = f"LLM-OCR fehlgeschlagen, Fallback auf Tesseract:\n\n{str(raw_text)}"
+                            except Exception as fallback_error:
+                                self.logger.error(f"Auch Tesseract-Fallback fehlgeschlagen: {str(fallback_error)}")
+                                extracted_text = f"Beide OCR-Methoden fehlgeschlagen:\nLLM: {str(llm_error)}\nTesseract: {str(fallback_error)}"
+                        else:
+                            # Bei Kombination nur den LLM-Fehler dokumentieren
+                            extracted_text = f"LLM-OCR Fehler: {str(llm_error)}"
 
                 # Native Analyse durchführen, falls benötigt
                 if extraction_method in [EXTRACTION_NATIVE, EXTRACTION_BOTH, EXTRACTION_PREVIEW_AND_NATIVE]:
