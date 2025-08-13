@@ -121,6 +121,7 @@ class WhisperTranscriber:
         self.model: str = config.get('model', 'gpt-4o')
         self.client: OpenAI = OpenAI(api_key=config.get('openai_api_key'))
         self.batch_size: int = config.get('batch_size', 10)
+        self.temperature: float = config.get('temperature', 0.7)
         
         # Stelle sicher dass die Verzeichnisse existieren
         self.debug_dir.mkdir(parents=True, exist_ok=True)
@@ -256,7 +257,8 @@ class WhisperTranscriber:
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
-                ]
+                ],
+                temperature=self.temperature
             )
 
             # Zeitmessung beenden und Dauer in Millisekunden berechnen
@@ -342,7 +344,8 @@ class WhisperTranscriber:
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
-                ]
+                ],
+                temperature=self.temperature
             )
 
             # Zeitmessung beenden und Dauer in Millisekunden berechnen
@@ -604,7 +607,7 @@ class WhisperTranscriber:
             response: ChatCompletion = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.5
+                temperature=self.temperature
             )
 
             # Zeitmessung beenden
