@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from src.core.models.job_models import Job, JobProgress, JobResults
 from src.core.resource_tracking import ResourceCalculator
+from src.core.models.enums import ProcessingStatus
 from src.processors.pdf_processor import PDFProcessor
 
 
@@ -51,16 +52,18 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 		include_images=include_images,
 	)
 
+	# Fehlerpfad: Response mit Status ERROR → Exception werfen, damit Manager FAILED setzt
+	status_value = getattr(result, "status", None)
+	if status_value == ProcessingStatus.ERROR:
+		err = getattr(result, "error", None)
+		err_msg = getattr(err, "message", "PDF-Verarbeitung fehlgeschlagen")
+		err_code = getattr(err, "code", "PROCESSING_ERROR")
+		raise RuntimeError(f"{err_code}: {err_msg}")
+
 	# Ergebnisse in Job speichern
 	data = getattr(result, "data", None)
 	if not data:
-		# defensiv: leeres Ergebnisobjekt in Results
-		repo.update_job_status(
-			job_id=job.job_id,
-			status="failed",
-			progress=JobProgress(step="error", percent=0, message="Keine Daten vom PDFProcessor"),
-		)
-		return
+		raise RuntimeError("Keine Daten vom PDFProcessor")
 
 	# Defensiv Metadaten extrahieren
 	metadata = getattr(data, "metadata", None)

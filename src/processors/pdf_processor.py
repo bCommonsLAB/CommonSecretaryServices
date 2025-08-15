@@ -1313,15 +1313,59 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 )
 
         except Exception as e:
+            # Benutzerfreundliche Fehlertexte an der Quelle
+            friendly_code = type(e).__name__
+            friendly_message = str(e)
+            details: Dict[str, Any] = {
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
+
+            # HTTP-/Netzwerkfehler benutzerfreundlich formulieren
+            if isinstance(e, requests.exceptions.HTTPError):
+                status_code = None
+                try:
+                    status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+                except Exception:
+                    status_code = None
+                url_hint = str(file_path)
+                if status_code == 404:
+                    friendly_code = "URL_NOT_FOUND"
+                    friendly_message = (
+                        f"Die angegebene URL wurde nicht gefunden (404). "
+                        f"Bitte prüfen Sie die Adresse: {url_hint}"
+                    )
+                else:
+                    friendly_code = "HTTP_ERROR"
+                    friendly_message = (
+                        f"Die Datei konnte nicht heruntergeladen werden"
+                        f"{f' (HTTP {status_code})' if status_code else ''}. "
+                        f"Bitte prüfen Sie die URL: {url_hint}"
+                    )
+                details.update({
+                    "status_code": status_code,
+                    "url": url_hint,
+                    "original_error": str(e)
+                })
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                friendly_code = "NETWORK_ERROR"
+                friendly_message = (
+                    "Es konnte keine Netzwerkverbindung zum Server aufgebaut werden. "
+                    "Bitte prüfen Sie Ihre Verbindung oder die Ziel-URL."
+                )
+            elif isinstance(e, requests.exceptions.Timeout):
+                friendly_code = "TIMEOUT"
+                friendly_message = (
+                    "Der Download der Datei hat zu lange gedauert (Timeout). "
+                    "Bitte versuchen Sie es später erneut oder prüfen Sie die URL."
+                )
+
             error_info = ErrorInfo(
-                code=type(e).__name__,
-                message=str(e),
-                details={
-                    "error_type": type(e).__name__,
-                    "traceback": traceback.format_exc()
-                }
+                code=friendly_code,
+                message=friendly_message,
+                details=details
             )
-            self.logger.error(f"Fehler bei der Verarbeitung: {str(e)}")
+            self.logger.error(f"Fehler bei der Verarbeitung: {friendly_message}")
             
             # Dummy-Result für den Fehlerfall
             dummy_result = PDFProcessingResult(

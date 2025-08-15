@@ -152,4 +152,18 @@ Hinweis: Pfade können als URLs aufbereitet werden (z. B. `/api/pdf/text-content
   - File‑Serving weiter über spezialisierte Endpoints (z. B. `GET /api/pdf/text-content/...`) oder optional generisch `GET /api/files/text/<path>` mit Whitelist (`cache/`) und Typkontrolle.
   - Empfehlung: Results konsequent mit API‑URLs ausliefern (nicht mit Rohpfaden), damit Clients einheitlich abrufen können.
 
+#### API-Endpunkte (Secretary Job Worker)
+
+- Enqueue einzelner Job:
+  - `POST /api/jobs` (Body siehe Beispiele)
+- Enqueue Batch:
+  - `POST /api/jobs/batch`
+- Status/Ergebnisse:
+  - `GET /api/jobs/{job_id}`
+  - `GET /api/batch/{batch_id}`
+- Archiv‑Download:
+  - `GET /api/jobs/{job_id}/download-archive`
+
+Beispielkörper siehe Überblicksseite `generic-worker.md` (PDF & Session).
+
 
