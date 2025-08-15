@@ -554,6 +554,8 @@ def get_recent_requests():
         logger.error(f"Error getting recent requests: {str(e)}", exc_info=True)
         return jsonify({'html': f'<div class="text-danger">Fehler beim Laden: {str(e)}</div>'}) 
 
+## Entfernt: iframe-basierte Docs-Ansicht, um doppelte Scrollbars zu vermeiden
+
 @main.route('/event-monitor')
 def event_monitor():
     """
@@ -577,20 +579,19 @@ def event_monitor():
         current_batches_url = f"{api_base_url}/api/event-job/batches?archived=false"
         if status_filter:
             current_batches_url += f"&status={status_filter}"
-        
+
+        # Standardwerte initialisieren, um Schattierung/Redeklaration zu vermeiden
+        current_batches_data: Dict[str, Any] = {"batches": [], "total": 0}
+        jobs_data: Dict[str, Any] = {}
+
         try:
             # HTTP-Request für aktuelle Batches
             current_batches_response: requests.Response = requests.get(current_batches_url)
             current_batches_response.raise_for_status()
-            current_batches_data: Dict[str, Any] = current_batches_response.json()
-            
+            current_batches_data = current_batches_response.json()
             # KEINE Jobs mehr vorab laden - das wird bei Bedarf über JavaScript gemacht
-            jobs_data = {}
-            
         except requests.RequestException as e:
             logger.error(f"Fehler beim Abrufen der aktuellen Batch-Daten: {str(e)}")
-            current_batches_data: Dict[str, Any] = {"batches": [], "total": 0}
-            jobs_data = {}
         
         # Daten für das Template vorbereiten
         event_data = {

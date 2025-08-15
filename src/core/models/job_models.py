@@ -108,6 +108,8 @@ class JobParameters:
     source_language: str = "en"
     target_language: str = "de"
     use_cache: bool = True
+    # Generische Zusatzparameter für neue job_types (z. B. pdf)
+    extra: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Parameter in ein Dictionary."""
@@ -117,6 +119,12 @@ class JobParameters:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "JobParameters":
         """Erstellt Parameter aus einem Dictionary."""
+        # bekannte Felder ziehen
+        known_keys = {
+            "event","session","url","filename","track","day","starttime","endtime",
+            "speakers","video_url","attachments_url","source_language","target_language","use_cache"
+        }
+        extra: Dict[str, Any] = {k: v for k, v in data.items() if k not in known_keys}
         return cls(
             event=data.get("event"),
             session=data.get("session"),
@@ -131,7 +139,8 @@ class JobParameters:
             attachments_url=data.get("attachments_url"),
             source_language=data.get("source_language", "en"),
             target_language=data.get("target_language", "de"),
-            use_cache=data.get("use_cache", True)
+            use_cache=data.get("use_cache", True),
+            extra=extra,
         )
 
 

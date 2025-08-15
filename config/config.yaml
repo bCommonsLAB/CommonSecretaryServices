@@ -12,6 +12,12 @@ session_worker:
   max_concurrent: 3
   poll_interval_sec: 5
 
+# Neuer generischer Worker (Secretary Job Worker)
+generic_worker:
+  active: false
+  max_concurrent: 3
+  poll_interval_sec: 5
+
 logging:
   backup_count: 5
   file: logs/dev_detailed.log

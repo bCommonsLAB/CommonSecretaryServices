@@ -1,0 +1,3906 @@
+
+<!doctype html>
+<html lang="de" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://example.local/_archive/n8nEventsProcessing/">
+      
+      
+        <link rel="prev" href="../mongodb_caching_implementation/">
+      
+      
+        <link rel="next" href="../optimizeProzessWithBaseprocess/">
+      
+      
+      <link rel="icon" href="../../assets/images/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
+    
+    
+      
+        <title>n8nEventsProcessing (alt) - Common Secretary Services</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#event-verarbeitung-mit-n8n-und-webhooks" class="md-skip">
+          Zum Inhalt
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Kopfzeile">
+    <a href="../.." title="Common Secretary Services" class="md-header__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Common Secretary Services
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              n8nEventsProcessing (alt)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Suche" placeholder="Suche" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Suche">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Zurücksetzen" aria-label="Zurücksetzen" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Suche wird initialisiert
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Common Secretary Services" class="md-nav__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    Common Secretary Services
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    « Zur Anwendung
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Development
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    UI
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            UI
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/ui/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    How‑Tos
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            How‑Tos
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/how-tos/session-archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session‑Archive
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Explanations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Explanations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architektur
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Architektur
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Details
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Async Events
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Async Events
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/how-to-n8n/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8n
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/caching/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Caching
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/templates/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Templates
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/types/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Typen & Dataclasses
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metaprocessor/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metaprocessor
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metadata/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metadaten
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/llm/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LLM‑Optimierung
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Processors
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Processors
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/audio/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Audio
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/video/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Video
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    PDF
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            PDF
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/ocr-refactoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCR-Refactoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PDF/ImageOCR Details
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/image-ocr/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Image-OCR
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/transformer/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Transformer
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/session/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/event-job/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event-Job
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/story/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Story
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/track/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Track
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/openapi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OpenAPI / Swagger
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Ops
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Ops
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Sicherheit
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Analysis
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Analysis
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/docs_inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Doku-Inventur
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/routes_index/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Routes-Index
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/drift_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Drift-Audit
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Archiv (nur intern)
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Archiv (nur intern)
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    01_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02_installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    02_installation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03_development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    03_development (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    04_api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05_webinterface/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    05_webinterface (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06_audio_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    06_audio_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_youtube/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_youtube (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing_implementation.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08_templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    08_templates (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../09_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    09_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10_development_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    10_development_guidelines (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_deployment (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../12_troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    12_troubleshooting (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_api_reference (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../14_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    14_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_faq (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CommonSecretaryServicesAPI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CommonSecretaryServicesAPI (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../HowToUseimageocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HowToUseimageocr (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../swagger_llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    swagger_llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vimeo_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    vimeo_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-responses-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    api-responses-concept (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concept_storytelling_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    concept_storytelling_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dataclasses-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    dataclasses-types (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generic_typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    generic_typing_improvements (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../historie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    historie
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linting_strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    linting_strategy (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_configuration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm-optimierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm-optimierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../localbrain_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    localbrain_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metadata-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    metadata-concept (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metaprocessor-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    metaprocessor-* (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mongodb_caching_implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    mongodb_caching_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    n8nEventsProcessing (alt)
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8nEventsProcessing (alt)
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      Übersicht
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Übersicht">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vorteile-der-auslagerung-an-n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      Vorteile der Auslagerung an N8N
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#einrichtung-der-n8n-umgebung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Einrichtung der N8N-Umgebung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Einrichtung der N8N-Umgebung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#voraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Voraussetzungen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguration-des-n8n-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration des N8N-Servers
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementierung-des-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Implementierung des Workflows
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementierung des Workflows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-workflow-ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Workflow-Übersicht
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-webhook-einrichtung" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Webhook-Einrichtung
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-laden-und-batching-der-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Laden und Batching der Events
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-api-anfrage-mit-http-request-knoten" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. API-Anfrage mit HTTP Request Knoten
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-verarbeitung-der-webhook-callbacks" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Verarbeitung der Webhook-Callbacks
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-timeout-uberwachung" class="md-nav__link">
+    <span class="md-ellipsis">
+      6. Timeout-Überwachung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#beispiel-mit-fosdem-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Beispiel mit FOSDEM-Events
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Beispiel mit FOSDEM-Events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-events-laden" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Events laden
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-kompletter-n8n-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Kompletter N8N-Workflow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skalierbarkeit-und-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Skalierbarkeit und Best Practices
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skalierbarkeit und Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verarbeitung-von-1000-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Verarbeitung von 1000+ Events
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uberwachung-der-verarbeitungszeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überwachung der Verarbeitungszeit
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fehlerbehebung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fehlerbehebung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fehlerbehebung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#haufige-probleme-und-losungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Häufige Probleme und Lösungen
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zusammenfassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Zusammenfassung
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimizeProzessWithBaseprocess/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    optimizeProzessWithBaseprocess (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    process_events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process-events-mongo-db/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    process-events-mongo-db (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ProcessorArchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ProcessorArchitecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../refact-metaprocessor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    refact-metaprocessor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scrape-notion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    scrape-notion (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../session_archive_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    session_archive_usage (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../storytelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    storytelling (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testroutine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    testroutine (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track-processor-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track-processor-api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transformer_mongodb_caching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    transformer_mongodb_caching (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../type-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    type-migration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../videoprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    videoprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../youtubeprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    youtubeprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      Übersicht
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Übersicht">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vorteile-der-auslagerung-an-n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      Vorteile der Auslagerung an N8N
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#einrichtung-der-n8n-umgebung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Einrichtung der N8N-Umgebung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Einrichtung der N8N-Umgebung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#voraussetzungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Voraussetzungen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguration-des-n8n-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration des N8N-Servers
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementierung-des-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Implementierung des Workflows
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementierung des Workflows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-workflow-ubersicht" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Workflow-Übersicht
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-webhook-einrichtung" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Webhook-Einrichtung
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-laden-und-batching-der-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Laden und Batching der Events
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-api-anfrage-mit-http-request-knoten" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. API-Anfrage mit HTTP Request Knoten
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-verarbeitung-der-webhook-callbacks" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Verarbeitung der Webhook-Callbacks
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-timeout-uberwachung" class="md-nav__link">
+    <span class="md-ellipsis">
+      6. Timeout-Überwachung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#beispiel-mit-fosdem-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Beispiel mit FOSDEM-Events
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Beispiel mit FOSDEM-Events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-events-laden" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Events laden
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-kompletter-n8n-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Kompletter N8N-Workflow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skalierbarkeit-und-best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Skalierbarkeit und Best Practices
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skalierbarkeit und Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verarbeitung-von-1000-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Verarbeitung von 1000+ Events
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uberwachung-der-verarbeitungszeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überwachung der Verarbeitungszeit
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fehlerbehebung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fehlerbehebung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fehlerbehebung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#haufige-probleme-und-losungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Häufige Probleme und Lösungen
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zusammenfassung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Zusammenfassung
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="event-verarbeitung-mit-n8n-und-webhooks">Event-Verarbeitung mit N8N und Webhooks<a class="headerlink" href="#event-verarbeitung-mit-n8n-und-webhooks" title="Permanent link">&para;</a></h1>
+<p>Diese Dokumentation beschreibt, wie die Stapelverarbeitung von Events mithilfe von <a href="https://n8n.io/">N8N</a> und der <code>/api/process-events-async</code> API umgesetzt werden kann.</p>
+<h2 id="ubersicht">Übersicht<a class="headerlink" href="#ubersicht" title="Permanent link">&para;</a></h2>
+<p>Die Common Secretary Services bieten eine API zum Verarbeiten von Events, die Informationen aus verschiedenen Quellen extrahiert und in strukturierte Markdown-Dateien umwandelt. Da die Verarbeitung eines einzelnen Events bis zu 10 Minuten dauern kann und wir bis zu 1000 Events verarbeiten müssen, wird ein robuster asynchroner Workflow benötigt.</p>
+<h3 id="vorteile-der-auslagerung-an-n8n">Vorteile der Auslagerung an N8N<a class="headerlink" href="#vorteile-der-auslagerung-an-n8n" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Fehlerisolierung</strong>: Server-Neustarts beeinträchtigen nicht die gesamte Verarbeitungswarteschlange</li>
+<li><strong>Skalierbarkeit</strong>: N8N kann Aufgaben bei Bedarf drosseln oder parallelisieren</li>
+<li><strong>Überwachung</strong>: Bessere Sichtbarkeit des Verarbeitungsstatus</li>
+<li><strong>Wiederholungsstrategien</strong>: Automatische Wiederholungsversuche bei fehlgeschlagenen Verarbeitungen</li>
+</ol>
+<h2 id="einrichtung-der-n8n-umgebung">Einrichtung der N8N-Umgebung<a class="headerlink" href="#einrichtung-der-n8n-umgebung" title="Permanent link">&para;</a></h2>
+<h3 id="voraussetzungen">Voraussetzungen<a class="headerlink" href="#voraussetzungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>N8N-Installation (v1.0.0 oder höher)</li>
+<li>Zugriff auf die Common Secretary Services API</li>
+<li>Webhook-Endpunkt für Ergebnisbenachrichtigungen</li>
+</ul>
+<h3 id="konfiguration-des-n8n-servers">Konfiguration des N8N-Servers<a class="headerlink" href="#konfiguration-des-n8n-servers" title="Permanent link">&para;</a></h3>
+<ol>
+<li>N8N installieren und starten</li>
+<li>Die Anwendung als Service einrichten, damit sie nach Server-Neustarts automatisch startet</li>
+<li>Sicherstellen, dass N8N über das Internet zugänglich ist (für Webhook-Callbacks)</li>
+</ol>
+<h2 id="implementierung-des-workflows">Implementierung des Workflows<a class="headerlink" href="#implementierung-des-workflows" title="Permanent link">&para;</a></h2>
+<h3 id="1-workflow-ubersicht">1. Workflow-Übersicht<a class="headerlink" href="#1-workflow-ubersicht" title="Permanent link">&para;</a></h3>
+<p>Der vollständige Workflow besteht aus mehreren Komponenten:</p>
+<ol>
+<li><strong>Trigger</strong>: Startet den Workflow manuell oder per Zeitplan</li>
+<li><strong>Events Laden</strong>: Lädt die zu verarbeitenden Events aus einer JSON-Datei</li>
+<li><strong>Batching</strong>: Teilt die Events in kleinere Batches auf</li>
+<li><strong>HTTP Request</strong>: Sendet Batches an die <code>/api/process-events-async</code> API</li>
+<li><strong>Webhook</strong>: Empfängt Verarbeitungsergebnisse von der API</li>
+<li><strong>Ergebnisverarbeitung</strong>: Speichert erfolgreiche Ergebnisse und behandelt Fehler</li>
+<li><strong>Monitoring</strong>: Überwacht den Fortschritt und sendet Benachrichtigungen</li>
+</ol>
+<h3 id="2-webhook-einrichtung">2. Webhook-Einrichtung<a class="headerlink" href="#2-webhook-einrichtung" title="Permanent link">&para;</a></h3>
+<p>Zuerst muss ein Webhook-Endpunkt in N8N erstellt werden, der die Callback-Ergebnisse empfängt:</p>
+<ol>
+<li>Füge einen <strong>Webhook-Knoten</strong> zum Workflow hinzu</li>
+<li>Wähle "Webhook" als Trigger</li>
+<li>Aktiviere "Respondent"</li>
+<li>Notiere die generierte URL (z.B. <code>https://deine-n8n-domain.de/webhook/abcdef123456</code>)</li>
+</ol>
+<p><img alt="Webhook Konfiguration" src="webhook_config.png" /></p>
+<h3 id="3-laden-und-batching-der-events">3. Laden und Batching der Events<a class="headerlink" href="#3-laden-und-batching-der-events" title="Permanent link">&para;</a></h3>
+<p>Um die große Menge an Events zu verarbeiten, teilen wir sie in Batches auf:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Code für den Function-Knoten in N8N</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">events</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">events</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">batchSize</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">5</span><span class="p">;</span><span class="w"> </span><span class="c1">// Bearbeite 5 Events pro Batch</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">batches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+
+<span class="c1">// Teile Events in Batches auf</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">let</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">events</span><span class="p">.</span><span class="nx">length</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="nx">batchSize</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">batch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">events</span><span class="p">.</span><span class="nx">slice</span><span class="p">(</span><span class="nx">i</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">batchSize</span><span class="p">);</span>
+<span class="w">  </span><span class="nx">batches</span><span class="p">.</span><span class="nx">push</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">batchId</span><span class="o">:</span><span class="w"> </span><span class="sb">`batch-</span><span class="si">${</span><span class="nb">Date</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span><span class="si">}</span><span class="sb">-</span><span class="si">${</span><span class="nx">i</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="nx">batch</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="p">}</span>
+
+<span class="k">return</span><span class="w"> </span><span class="nx">batches</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">batch</span><span class="p">,</span><span class="w"> </span><span class="nx">index</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">  </span><span class="nx">json</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">batch</span><span class="o">:</span><span class="w"> </span><span class="nx">batch</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">batchNumber</span><span class="o">:</span><span class="w"> </span><span class="nx">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">totalBatches</span><span class="o">:</span><span class="w"> </span><span class="nx">batches</span><span class="p">.</span><span class="nx">length</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}));</span>
+</code></pre></div>
+<h3 id="4-api-anfrage-mit-http-request-knoten">4. API-Anfrage mit HTTP Request Knoten<a class="headerlink" href="#4-api-anfrage-mit-http-request-knoten" title="Permanent link">&para;</a></h3>
+<p>Für jeden Batch senden wir eine Anfrage an den API-Endpunkt:</p>
+<ol>
+<li>Füge einen <strong>HTTP Request</strong> Knoten hinzu</li>
+<li>Konfiguriere die Anfrage:</li>
+<li><strong>Methode</strong>: POST</li>
+<li><strong>URL</strong>: <code>http://deine-api-domain.de/api/process-events-async</code></li>
+<li><strong>Header</strong>: <code>Content-Type: application/json</code></li>
+<li><strong>JSON-Body</strong>:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;={{ $json.batch.events }}&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;webhook_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://deine-n8n-domain.de/webhook/abcdef123456&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;webhook_headers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;X-Batch-ID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;={{ $json.batch.batchId }}&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;X-Batch-Number&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;={{ $json.batchNumber }}&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;X-Total-Batches&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;={{ $json.totalBatches }}&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;include_markdown&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;include_metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;batch_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;={{ $json.batch.batchId }}&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="5-verarbeitung-der-webhook-callbacks">5. Verarbeitung der Webhook-Callbacks<a class="headerlink" href="#5-verarbeitung-der-webhook-callbacks" title="Permanent link">&para;</a></h3>
+<p>Für jeden erfolgreich verarbeiteten Event erhält der Webhook einen Callback:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Code für die Verarbeitung der Webhook-Rückgaben</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">batchId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">headers</span><span class="p">[</span><span class="s1">&#39;x-batch-id&#39;</span><span class="p">];</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">eventId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">event_id</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">success</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">success</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">filePath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">file_path</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">metadata</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">{};</span>
+
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">success</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Speichere erfolgreiches Ergebnis in Datenbank oder Datei</span>
+<span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`Event </span><span class="si">${</span><span class="nx">eventId</span><span class="si">}</span><span class="sb"> erfolgreich verarbeitet: </span><span class="si">${</span><span class="nx">filePath</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Behandle Fehler</span>
+<span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">error</span><span class="p">(</span><span class="sb">`Fehler bei Event </span><span class="si">${</span><span class="nx">eventId</span><span class="si">}</span><span class="sb">: </span><span class="si">${</span><span class="nx">$input</span><span class="p">.</span><span class="nx">item</span><span class="p">.</span><span class="nx">json</span><span class="p">.</span><span class="nx">error</span><span class="o">?</span><span class="p">.</span><span class="nx">message</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// Füge Event zur Wiederholungsliste hinzu</span>
+<span class="p">}</span>
+
+<span class="c1">// Aktualisiere den Verarbeitungsfortschritt</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">progress</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">batchId</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">eventId</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">success</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">timestamp</span><span class="o">:</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">().</span><span class="nx">toISOString</span><span class="p">()</span>
+<span class="p">};</span>
+
+<span class="c1">// Speichere Fortschritt für Überwachung</span>
+<span class="nx">$node</span><span class="p">.</span><span class="nx">context</span><span class="p">.</span><span class="nx">progress</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$node</span><span class="p">.</span><span class="nx">context</span><span class="p">.</span><span class="nx">progress</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">{};</span>
+<span class="nx">$node</span><span class="p">.</span><span class="nx">context</span><span class="p">.</span><span class="nx">progress</span><span class="p">[</span><span class="nx">eventId</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">progress</span><span class="p">;</span>
+
+<span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">json</span><span class="o">:</span><span class="w"> </span><span class="nx">progress</span><span class="w"> </span><span class="p">};</span>
+</code></pre></div>
+<h3 id="6-timeout-uberwachung">6. Timeout-Überwachung<a class="headerlink" href="#6-timeout-uberwachung" title="Permanent link">&para;</a></h3>
+<p>Da Callbacks möglicherweise nie ankommen, müssen wir Timeouts überwachen:</p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Timeout-Überwachung im Interval-Knoten (läuft alle 10 Minuten)</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">now</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">();</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">progressData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">$node</span><span class="p">.</span><span class="nx">context</span><span class="p">.</span><span class="nx">progress</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">{};</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">timeoutMinutes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">30</span><span class="p">;</span><span class="w"> </span><span class="c1">// 30 Minuten Timeout</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">timedOutEvents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Object</span><span class="p">.</span><span class="nx">entries</span><span class="p">(</span><span class="nx">progressData</span><span class="p">)</span>
+<span class="w">  </span><span class="p">.</span><span class="nx">filter</span><span class="p">(([</span><span class="nx">eventId</span><span class="p">,</span><span class="w"> </span><span class="nx">data</span><span class="p">])</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Prüfe auf gesendete Events ohne Antwort</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">sent</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="nx">data</span><span class="p">.</span><span class="nx">received</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="kd">const</span><span class="w"> </span><span class="nx">sentTime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">sentTimestamp</span><span class="p">);</span>
+<span class="w">      </span><span class="kd">const</span><span class="w"> </span><span class="nx">diffMinutes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">now</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">sentTime</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="mf">1000</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">60</span><span class="p">);</span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="nx">diffMinutes</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">timeoutMinutes</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">  </span><span class="p">})</span>
+<span class="w">  </span><span class="p">.</span><span class="nx">map</span><span class="p">(([</span><span class="nx">eventId</span><span class="p">,</span><span class="w"> </span><span class="nx">data</span><span class="p">])</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">    </span><span class="nx">eventId</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">batchId</span><span class="o">:</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">batchId</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">sentTimestamp</span><span class="o">:</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">sentTimestamp</span>
+<span class="w">  </span><span class="p">}));</span>
+
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">timedOutEvents</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Benachrichtigung senden oder Events zur Wiederholung einreihen</span>
+<span class="p">}</span>
+
+<span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">json</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">timedOutEvents</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">};</span>
+</code></pre></div>
+<h2 id="beispiel-mit-fosdem-events">Beispiel mit FOSDEM-Events<a class="headerlink" href="#beispiel-mit-fosdem-events" title="Permanent link">&para;</a></h2>
+<p>Hier ist ein praktisches Beispiel, wie die Events aus der <code>fosdem-events.json</code> Datei verarbeitet werden:</p>
+<h3 id="1-events-laden">1. Events laden<a class="headerlink" href="#1-events-laden" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1">// Code für den Function-Knoten zum Laden der FOSDEM-Events</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">fs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">require</span><span class="p">(</span><span class="s1">&#39;fs&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">require</span><span class="p">(</span><span class="s1">&#39;path&#39;</span><span class="p">);</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">filePath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">path</span><span class="p">.</span><span class="nx">resolve</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;../tests/samples/fosdem-events.json&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">eventsData</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">fs</span><span class="p">.</span><span class="nx">readFileSync</span><span class="p">(</span><span class="nx">filePath</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;utf8&#39;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">events</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">eventsData</span><span class="p">);</span>
+
+<span class="c1">// Füge Trackingfeld hinzu</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">eventsWithTracking</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">events</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">event</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">  </span><span class="p">...</span><span class="nx">event</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">_tracking</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">attempts</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;pending&#39;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}));</span>
+
+<span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">json</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="nx">eventsWithTracking</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">};</span>
+</code></pre></div>
+<h3 id="2-kompletter-n8n-workflow">2. Kompletter N8N-Workflow<a class="headerlink" href="#2-kompletter-n8n-workflow" title="Permanent link">&para;</a></h3>
+<p>Hier ist die Struktur des vollständigen Workflows für die FOSDEM-Events:</p>
+<div class="highlight"><pre><span></span><code>[Manueller Trigger] → [FOSDEM Events Laden] → [Batching] → [HTTP Request]
+                                                              ↓
+[Ergebnisreport] ← [Ergebnisse speichern] ← [Webhook-Empfänger]
+</code></pre></div>
+<h2 id="skalierbarkeit-und-best-practices">Skalierbarkeit und Best Practices<a class="headerlink" href="#skalierbarkeit-und-best-practices" title="Permanent link">&para;</a></h2>
+<h3 id="verarbeitung-von-1000-events">Verarbeitung von 1000+ Events<a class="headerlink" href="#verarbeitung-von-1000-events" title="Permanent link">&para;</a></h3>
+<p>Um 1000 oder mehr Events zu verarbeiten, folgen Sie diesen Best Practices:</p>
+<ol>
+<li><strong>Progressive Batching</strong>: Beginnen Sie mit kleinen Batches (5-10 Events) und erhöhen Sie die Batchgröße basierend auf der Systemleistung</li>
+<li><strong>Zeitliche Staffelung</strong>: Verteilen Sie die Verarbeitung über einen längeren Zeitraum mit Pausen zwischen den Batches</li>
+<li><strong>Robuste Fehlerbehandlung</strong>: Implementieren Sie automatische Wiederholungsversuche für fehlgeschlagene Events</li>
+<li><strong>Ergebnispersistenz</strong>: Speichern Sie Ergebnisse sofort in einer externen Datenbank</li>
+</ol>
+<h3 id="uberwachung-der-verarbeitungszeit">Überwachung der Verarbeitungszeit<a class="headerlink" href="#uberwachung-der-verarbeitungszeit" title="Permanent link">&para;</a></h3>
+<p>Da einzelne Events bis zu 10 Minuten Verarbeitungszeit benötigen können:</p>
+<ol>
+<li><strong>Großzügige Timeouts</strong>: Setzen Sie Timeouts auf mindestens 15-20 Minuten</li>
+<li><strong>Asynchrone Verarbeitung</strong>: Nutzen Sie die vollständig asynchrone Verarbeitung</li>
+<li><strong>Status-Dashboard</strong>: Erstellen Sie ein Dashboard zur Überwachung der Verarbeitungsfortschritte</li>
+<li><strong>E-Mail/Slack-Benachrichtigungen</strong>: Senden Sie Fortschrittsberichte und Fehlermeldungen</li>
+</ol>
+<h2 id="fehlerbehebung">Fehlerbehebung<a class="headerlink" href="#fehlerbehebung" title="Permanent link">&para;</a></h2>
+<h3 id="haufige-probleme-und-losungen">Häufige Probleme und Lösungen<a class="headerlink" href="#haufige-probleme-und-losungen" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Webhook-Callbacks kommen nicht an</strong>:</li>
+<li>Überprüfen Sie die Netzwerkverbindung zwischen API und N8N</li>
+<li>Stellen Sie sicher, dass N8N öffentlich zugänglich ist</li>
+<li>
+<p>Prüfen Sie die Webhook-URL auf Tippfehler</p>
+</li>
+<li>
+<p><strong>Event-Verarbeitung hängt</strong>:</p>
+</li>
+<li>Implementieren Sie eine Timeout-Logik</li>
+<li>
+<p>Starten Sie fehlerhafte Events nach einer bestimmten Zeit neu</p>
+</li>
+<li>
+<p><strong>Zu viele gleichzeitige Anfragen</strong>:</p>
+</li>
+<li>Reduzieren Sie die Batch-Größe</li>
+<li>Implementieren Sie Pausen zwischen den Batches</li>
+</ol>
+<h2 id="zusammenfassung">Zusammenfassung<a class="headerlink" href="#zusammenfassung" title="Permanent link">&para;</a></h2>
+<p>Die Kombination aus N8N-Workflows und der asynchronen Event-Verarbeitung ermöglicht eine robuste und skalierbare Lösung für die Verarbeitung von tausenden Events. Durch die Verwendung von Batching, Webhooks und sorgfältiger Fehlerbehandlung können auch langwierige Verarbeitungsprozesse zuverlässig durchgeführt werden.</p>
+<p>Bei richtiger Konfiguration kann das System eine große Menge von Events verarbeiten und ist robust gegenüber Verbindungsabbrüchen, Server-Neustarts und anderen potenziellen Fehlerquellen. </p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "In Zwischenablage kopiert", "clipboard.copy": "In Zwischenablage kopieren", "search.result.more.one": "1 weiteres Suchergebnis auf dieser Seite", "search.result.more.other": "# weitere Suchergebnisse auf dieser Seite", "search.result.none": "Keine Suchergebnisse", "search.result.one": "1 Suchergebnis", "search.result.other": "# Suchergebnisse", "search.result.placeholder": "Suchbegriff eingeben", "search.result.term.missing": "Es fehlt", "select.version": "Version ausw\u00e4hlen"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.50899def.min.js"></script>
+      
+    
+  </body>
+</html>

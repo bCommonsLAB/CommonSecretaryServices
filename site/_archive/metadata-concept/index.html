@@ -1,0 +1,4212 @@
+
+<!doctype html>
+<html lang="de" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://example.local/_archive/metadata-concept/">
+      
+      
+        <link rel="prev" href="../localbrain_architecture/">
+      
+      
+        <link rel="next" href="../metaprocessor-concept/">
+      
+      
+      <link rel="icon" href="../../assets/images/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
+    
+    
+      
+        <title>metadata-concept (alt) - Common Secretary Services</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#metadaten-konzept-fur-wissenschaftliche-medienarchivierung" class="md-skip">
+          Zum Inhalt
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Kopfzeile">
+    <a href="../.." title="Common Secretary Services" class="md-header__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Common Secretary Services
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              metadata-concept (alt)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Suche" placeholder="Suche" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Suche">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Zurücksetzen" aria-label="Zurücksetzen" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Suche wird initialisiert
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Common Secretary Services" class="md-nav__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    Common Secretary Services
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    « Zur Anwendung
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Development
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    UI
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            UI
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/ui/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    How‑Tos
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            How‑Tos
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/how-tos/session-archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session‑Archive
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Explanations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Explanations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architektur
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Architektur
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Details
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Async Events
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Async Events
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/how-to-n8n/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8n
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/caching/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Caching
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/templates/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Templates
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/types/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Typen & Dataclasses
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metaprocessor/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metaprocessor
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metadata/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metadaten
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/llm/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LLM‑Optimierung
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Processors
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Processors
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/audio/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Audio
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/video/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Video
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    PDF
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            PDF
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/ocr-refactoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCR-Refactoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PDF/ImageOCR Details
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/image-ocr/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Image-OCR
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/transformer/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Transformer
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/session/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/event-job/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event-Job
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/story/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Story
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/track/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Track
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/openapi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OpenAPI / Swagger
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Ops
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Ops
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Sicherheit
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Analysis
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Analysis
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/docs_inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Doku-Inventur
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/routes_index/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Routes-Index
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/drift_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Drift-Audit
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Archiv (nur intern)
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Archiv (nur intern)
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    01_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02_installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    02_installation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03_development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    03_development (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    04_api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05_webinterface/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    05_webinterface (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06_audio_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    06_audio_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_youtube/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_youtube (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing_implementation.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08_templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    08_templates (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../09_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    09_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10_development_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    10_development_guidelines (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_deployment (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../12_troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    12_troubleshooting (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_api_reference (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../14_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    14_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_faq (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CommonSecretaryServicesAPI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CommonSecretaryServicesAPI (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../HowToUseimageocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HowToUseimageocr (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../swagger_llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    swagger_llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vimeo_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    vimeo_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-responses-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    api-responses-concept (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concept_storytelling_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    concept_storytelling_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dataclasses-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    dataclasses-types (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generic_typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    generic_typing_improvements (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../historie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    historie
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linting_strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    linting_strategy (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_configuration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm-optimierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm-optimierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../localbrain_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    localbrain_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    metadata-concept (alt)
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    metadata-concept (alt)
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-einfuhrung" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Einführung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Einführung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-ziele" class="md-nav__link">
+    <span class="md-ellipsis">
+      1.1 Ziele
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-designprinzipien" class="md-nav__link">
+    <span class="md-ellipsis">
+      1.2 Designprinzipien
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-grundlegende-metadatenstruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Grundlegende Metadatenstruktur
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Grundlegende Metadatenstruktur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-basis-metadaten-basemetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.1 Basis-Metadaten (BaseMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-technische-metadaten-technicalmetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.2 Technische Metadaten (TechnicalMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-inhaltliche-metadaten-contentmetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.3 Inhaltliche Metadaten (ContentMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-yaml-implementierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. YAML-Implementierung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. YAML-Implementierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-grundregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1 Grundregeln
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-beispiel-fur-ein-wissenschaftliches-buch" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2 Beispiel für ein wissenschaftliches Buch:
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-beispiel-social-media-beitrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3 Beispiel: Social Media Beitrag
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-beispiel-konferenz-vortrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4 Beispiel: Konferenz-Vortrag
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-beispiel-youtube-video" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.5 Beispiel: YouTube Video
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-beispiel-online-nachrichtenartikel" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.6 Beispiel: Online-Nachrichtenartikel
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-validierung-und-qualitatssicherung" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Validierung und Qualitätssicherung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Validierung und Qualitätssicherung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-pflichtfelder" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.1 Pflichtfelder
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-formatvorgaben" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.2 Formatvorgaben
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-validierungsregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.3 Validierungsregeln
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-erweiterbarkeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Erweiterbarkeit
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Erweiterbarkeit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-neue-medientypen" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.1 Neue Medientypen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-zusatzliche-standards" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.2 Zusätzliche Standards
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-versionierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.3 Versionierung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metaprocessor-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    metaprocessor-* (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mongodb_caching_implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    mongodb_caching_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../n8nEventsProcessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8nEventsProcessing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimizeProzessWithBaseprocess/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    optimizeProzessWithBaseprocess (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    process_events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process-events-mongo-db/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    process-events-mongo-db (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ProcessorArchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ProcessorArchitecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../refact-metaprocessor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    refact-metaprocessor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scrape-notion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    scrape-notion (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../session_archive_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    session_archive_usage (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../storytelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    storytelling (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testroutine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    testroutine (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track-processor-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track-processor-api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transformer_mongodb_caching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    transformer_mongodb_caching (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../type-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    type-migration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../videoprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    videoprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../youtubeprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    youtubeprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-einfuhrung" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Einführung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Einführung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-ziele" class="md-nav__link">
+    <span class="md-ellipsis">
+      1.1 Ziele
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-designprinzipien" class="md-nav__link">
+    <span class="md-ellipsis">
+      1.2 Designprinzipien
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-grundlegende-metadatenstruktur" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Grundlegende Metadatenstruktur
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Grundlegende Metadatenstruktur">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-basis-metadaten-basemetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.1 Basis-Metadaten (BaseMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-technische-metadaten-technicalmetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.2 Technische Metadaten (TechnicalMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-inhaltliche-metadaten-contentmetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      2.3 Inhaltliche Metadaten (ContentMetadata)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-yaml-implementierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. YAML-Implementierung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. YAML-Implementierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-grundregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.1 Grundregeln
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-beispiel-fur-ein-wissenschaftliches-buch" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.2 Beispiel für ein wissenschaftliches Buch:
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-beispiel-social-media-beitrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.3 Beispiel: Social Media Beitrag
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-beispiel-konferenz-vortrag" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.4 Beispiel: Konferenz-Vortrag
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-beispiel-youtube-video" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.5 Beispiel: YouTube Video
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-beispiel-online-nachrichtenartikel" class="md-nav__link">
+    <span class="md-ellipsis">
+      3.6 Beispiel: Online-Nachrichtenartikel
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-validierung-und-qualitatssicherung" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Validierung und Qualitätssicherung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Validierung und Qualitätssicherung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-pflichtfelder" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.1 Pflichtfelder
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-formatvorgaben" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.2 Formatvorgaben
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-validierungsregeln" class="md-nav__link">
+    <span class="md-ellipsis">
+      4.3 Validierungsregeln
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-erweiterbarkeit" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Erweiterbarkeit
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Erweiterbarkeit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-neue-medientypen" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.1 Neue Medientypen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-zusatzliche-standards" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.2 Zusätzliche Standards
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-versionierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      5.3 Versionierung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="metadaten-konzept-fur-wissenschaftliche-medienarchivierung">Metadaten-Konzept für wissenschaftliche Medienarchivierung<a class="headerlink" href="#metadaten-konzept-fur-wissenschaftliche-medienarchivierung" title="Permanent link">&para;</a></h1>
+<h2 id="1-einfuhrung">1. Einführung<a class="headerlink" href="#1-einfuhrung" title="Permanent link">&para;</a></h2>
+<p>Dieses Dokument beschreibt die Metadatenstruktur für die wissenschaftliche Medienarchivierung. Die Struktur wurde entwickelt, um verschiedene Medientypen (Bücher, Videos, Audio, etc.) mit standardisierten, maschinenlesbaren Metadaten zu versehen.</p>
+<h3 id="11-ziele">1.1 Ziele<a class="headerlink" href="#11-ziele" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Standardisierte Erfassung wissenschaftlicher Medien</li>
+<li>Kompatibilität mit bibliothekarischen Standards (Dublin Core, BibTeX)</li>
+<li>Flexible Erweiterbarkeit für verschiedene Medientypen</li>
+<li>Maschinenlesbare und durchsuchbare Metadaten</li>
+</ul>
+<h3 id="12-designprinzipien">1.2 Designprinzipien<a class="headerlink" href="#12-designprinzipien" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Flache Hierarchie für einfache Verarbeitung</li>
+<li>Präfix-basierte Gruppierung von Eigenschaften</li>
+<li>Strikte Typisierung aller Felder</li>
+<li>Klare Trennung von technischen und inhaltlichen Metadaten</li>
+<li>Listen werden als komma-separierte Strings gespeichert</li>
+</ul>
+<h2 id="2-grundlegende-metadatenstruktur">2. Grundlegende Metadatenstruktur<a class="headerlink" href="#2-grundlegende-metadatenstruktur" title="Permanent link">&para;</a></h2>
+<h3 id="21-basis-metadaten-basemetadata">2.1 Basis-Metadaten (BaseMetadata)<a class="headerlink" href="#21-basis-metadaten-basemetadata" title="Permanent link">&para;</a></h3>
+<p>Die Basis-Schnittstelle, von der alle anderen Metadaten-Typen erben:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">BaseMetadata</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">    </span><span class="c1">// Art der Metadaten</span>
+<span class="w">  </span><span class="nx">created</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// Erstellungszeitpunkt (ISO 8601)</span>
+<span class="w">  </span><span class="nx">modified</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// Letzter Änderungszeitpunkt (ISO 8601)</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="22-technische-metadaten-technicalmetadata">2.2 Technische Metadaten (TechnicalMetadata)<a class="headerlink" href="#22-technische-metadaten-technicalmetadata" title="Permanent link">&para;</a></h3>
+<p>Automatisch extrahierbare technische Informationen über die Mediendatei:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">TechnicalMetadata</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">BaseMetadata</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">file_size</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">           </span><span class="c1">// Dateigröße in Bytes</span>
+<span class="w">  </span><span class="nx">file_mime</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Dateityp (z.B. audio/mp3)</span>
+<span class="w">  </span><span class="nx">file_extension</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Dateiendung</span>
+
+<span class="w">  </span><span class="c1">// Medienspezifische Details</span>
+<span class="w">  </span><span class="nx">media_duration?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">     </span><span class="c1">// Länge des Mediums in Sekunden</span>
+<span class="w">  </span><span class="nx">media_bitrate?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">      </span><span class="c1">// Bitrate in kbps</span>
+<span class="w">  </span><span class="nx">media_codec?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Verwendeter Codec</span>
+<span class="w">  </span><span class="nx">media_resolution?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">   </span><span class="c1">// Auflösung (bei Video, z.B. &quot;1920x1080&quot;)</span>
+<span class="w">  </span><span class="nx">media_format?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// Medienformat (z.B. &quot;MP3&quot;, &quot;H.264&quot;)</span>
+<span class="w">  </span><span class="nx">media_channels?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">     </span><span class="c1">// Anzahl der Audiokanäle</span>
+<span class="w">  </span><span class="nx">media_samplerate?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">   </span><span class="c1">// Abtastrate in Hz</span>
+
+<span class="w">  </span><span class="c1">// Bildspezifische Details (für Bilder und Videos)</span>
+<span class="w">  </span><span class="nx">image_width?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">        </span><span class="c1">// Bildbreite in Pixeln</span>
+<span class="w">  </span><span class="nx">image_height?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">       </span><span class="c1">// Bildhöhe in Pixeln</span>
+<span class="w">  </span><span class="nx">image_colorspace?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">   </span><span class="c1">// Farbraum (z.B. &quot;RGB&quot;, &quot;CMYK&quot;)</span>
+<span class="w">  </span><span class="nx">image_dpi?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">         </span><span class="c1">// Auflösung in DPI</span>
+
+<span class="w">  </span><span class="c1">// Dokumentspezifische Details (für PDFs, etc.)</span>
+<span class="w">  </span><span class="nx">doc_pages?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">         </span><span class="c1">// Anzahl der Seiten</span>
+<span class="w">  </span><span class="nx">doc_wordcount?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">     </span><span class="c1">// Anzahl der Wörter</span>
+<span class="w">  </span><span class="nx">doc_software?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Erstellungssoftware</span>
+<span class="w">  </span><span class="nx">doc_encrypted?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w">    </span><span class="c1">// Verschlüsselungsstatus</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="23-inhaltliche-metadaten-contentmetadata">2.3 Inhaltliche Metadaten (ContentMetadata)<a class="headerlink" href="#23-inhaltliche-metadaten-contentmetadata" title="Permanent link">&para;</a></h3>
+<p>Beschreibende Metadaten für den Inhalt der Ressource:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ContentMetadata</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">BaseMetadata</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Bibliographische Grunddaten</span>
+<span class="w">  </span><span class="nx">title</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                    </span><span class="c1">// Haupttitel des Werks</span>
+<span class="w">  </span><span class="nx">subtitle?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                </span><span class="c1">// Untertitel</span>
+<span class="w">  </span><span class="nx">authors?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                 </span><span class="c1">// Komma-separierte Liste der Autoren</span>
+<span class="w">  </span><span class="nx">publisher?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">               </span><span class="c1">// Verlag</span>
+<span class="w">  </span><span class="nx">publicationDate?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Erscheinungsdatum</span>
+<span class="w">  </span><span class="nx">isbn?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                    </span><span class="c1">// ISBN (bei Büchern)</span>
+<span class="w">  </span><span class="nx">doi?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                     </span><span class="c1">// Digital Object Identifier</span>
+<span class="w">  </span><span class="nx">edition?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                 </span><span class="c1">// Auflage</span>
+<span class="w">  </span><span class="nx">language?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                </span><span class="c1">// Sprache (ISO 639-1)</span>
+
+<span class="w">  </span><span class="c1">// Wissenschaftliche Klassifikation</span>
+<span class="w">  </span><span class="nx">subject_areas?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Komma-separierte Liste der Fachgebiete</span>
+<span class="w">  </span><span class="nx">keywords?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                </span><span class="c1">// Komma-separierte Liste der Schlüsselwörter</span>
+<span class="w">  </span><span class="k">abstract</span><span class="nx">?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                </span><span class="c1">// Kurzzusammenfassung</span>
+
+<span class="w">  </span><span class="c1">// Räumliche und zeitliche Einordnung</span>
+<span class="w">  </span><span class="nx">temporal_start?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Beginn des behandelten Zeitraums</span>
+<span class="w">  </span><span class="nx">temporal_end?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Ende des behandelten Zeitraums</span>
+<span class="w">  </span><span class="nx">temporal_period?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Bezeichnung der Periode</span>
+<span class="w">  </span><span class="nx">spatial_location?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Ortsname</span>
+<span class="w">  </span><span class="nx">spatial_latitude?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">        </span><span class="c1">// Geografische Breite</span>
+<span class="w">  </span><span class="nx">spatial_longitude?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">       </span><span class="c1">// Geografische Länge</span>
+<span class="w">  </span><span class="nx">spatial_habitat?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Lebensraum/Biotop</span>
+<span class="w">  </span><span class="nx">spatial_region?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Region/Gebiet</span>
+
+<span class="w">  </span><span class="c1">// Rechte und Lizenzen</span>
+<span class="w">  </span><span class="nx">rights_holder?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Rechteinhaber</span>
+<span class="w">  </span><span class="nx">rights_license?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Lizenz</span>
+<span class="w">  </span><span class="nx">rights_access?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Zugriffsrechte</span>
+<span class="w">  </span><span class="nx">rights_usage?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Komma-separierte Liste der Nutzungsbedingungen</span>
+<span class="w">  </span><span class="nx">rights_attribution?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// Erforderliche Namensnennung</span>
+<span class="w">  </span><span class="nx">rights_commercial?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w">       </span><span class="c1">// Kommerzielle Nutzung erlaubt</span>
+<span class="w">  </span><span class="nx">rights_modifications?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w">    </span><span class="c1">// Modifikationen erlaubt</span>
+
+<span class="w">  </span><span class="c1">// Medienspezifische Metadaten</span>
+<span class="w">  </span><span class="nx">resource_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Art der Ressource</span>
+<span class="w">  </span><span class="nx">resource_format?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Physisches/digitales Format</span>
+<span class="w">  </span><span class="nx">resource_extent?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Umfang</span>
+
+<span class="w">  </span><span class="c1">// Quellenangaben</span>
+<span class="w">  </span><span class="nx">source_title?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Titel der Quelle</span>
+<span class="w">  </span><span class="nx">source_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">             </span><span class="c1">// Art der Quelle</span>
+<span class="w">  </span><span class="nx">source_identifier?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Eindeutige Kennung der Quelle</span>
+
+<span class="w">  </span><span class="c1">// Digitale Plattform</span>
+<span class="w">  </span><span class="nx">platform_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Art der Plattform</span>
+<span class="w">  </span><span class="nx">platform_url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// URL zur Ressource</span>
+<span class="w">  </span><span class="nx">platform_id?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">             </span><span class="c1">// Plattform-spezifische ID</span>
+<span class="w">  </span><span class="nx">platform_uploader?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Uploader/Kanal</span>
+<span class="w">  </span><span class="nx">platform_category?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Plattform-Kategorie</span>
+<span class="w">  </span><span class="nx">platform_language?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Komma-separierte Liste der unterstützten Sprachen</span>
+<span class="w">  </span><span class="nx">platform_region?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Komma-separierte Liste der verfügbaren Regionen</span>
+<span class="w">  </span><span class="nx">platform_age_rating?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Altersfreigabe</span>
+<span class="w">  </span><span class="nx">platform_subscription?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">    </span><span class="c1">// Erforderliches Abonnement</span>
+
+<span class="w">  </span><span class="c1">// Event-spezifische Details</span>
+<span class="w">  </span><span class="nx">event_type?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">              </span><span class="c1">// Art der Veranstaltung</span>
+<span class="w">  </span><span class="nx">event_start?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">             </span><span class="c1">// Startzeit (ISO 8601)</span>
+<span class="w">  </span><span class="nx">event_end?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">               </span><span class="c1">// Endzeit (ISO 8601)</span>
+<span class="w">  </span><span class="nx">event_timezone?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Zeitzone</span>
+<span class="w">  </span><span class="nx">event_format?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Veranstaltungsformat</span>
+<span class="w">  </span><span class="nx">event_platform?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Verwendete Plattform</span>
+<span class="w">  </span><span class="nx">event_recording_url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Link zur Aufzeichnung</span>
+
+<span class="w">  </span><span class="c1">// Social Media spezifisch</span>
+<span class="w">  </span><span class="nx">social_platform?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Plattform</span>
+<span class="w">  </span><span class="nx">social_handle?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Benutzername/Handle</span>
+<span class="w">  </span><span class="nx">social_post_id?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Original Post-ID</span>
+<span class="w">  </span><span class="nx">social_post_url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Permalink zum Beitrag</span>
+<span class="w">  </span><span class="nx">social_metrics_likes?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">    </span><span class="c1">// Anzahl der Likes</span>
+<span class="w">  </span><span class="nx">social_metrics_shares?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">   </span><span class="c1">// Anzahl der Shares</span>
+<span class="w">  </span><span class="nx">social_metrics_comments?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// Anzahl der Kommentare</span>
+<span class="w">  </span><span class="nx">social_metrics_views?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">    </span><span class="c1">// Anzahl der Aufrufe</span>
+<span class="w">  </span><span class="nx">social_thread?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// Komma-separierte Liste der IDs verknüpfter Beiträge</span>
+
+<span class="w">  </span><span class="c1">// Blog/Artikel spezifisch</span>
+<span class="w">  </span><span class="nx">blog_url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">               </span><span class="c1">// Permalink zum Artikel</span>
+<span class="w">  </span><span class="nx">blog_section?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">           </span><span class="c1">// Rubrik/Kategorie</span>
+<span class="w">  </span><span class="nx">blog_series?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Zugehörige Serie/Reihe</span>
+<span class="w">  </span><span class="nx">blog_reading_time?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">      </span><span class="c1">// Geschätzte Lesezeit in Minuten</span>
+<span class="w">  </span><span class="nx">blog_tags?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">              </span><span class="c1">// Komma-separierte Liste der Blog-spezifischen Tags</span>
+<span class="w">  </span><span class="nx">blog_comments_url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Link zu Kommentaren</span>
+
+<span class="w">  </span><span class="c1">// Community und Engagement</span>
+<span class="w">  </span><span class="nx">community_target?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// Komma-separierte Liste der Zielgruppen</span>
+<span class="w">  </span><span class="nx">community_hashtags?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">     </span><span class="c1">// Komma-separierte Liste der verwendeten Hashtags</span>
+<span class="w">  </span><span class="nx">community_mentions?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">     </span><span class="c1">// Komma-separierte Liste der erwähnten Accounts/Personen</span>
+<span class="w">  </span><span class="nx">community_context?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Kontext/Anlass</span>
+
+<span class="w">  </span><span class="c1">// Qualitätssicherung</span>
+<span class="w">  </span><span class="nx">quality_review_status?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">  </span><span class="c1">// Review-Status</span>
+<span class="w">  </span><span class="nx">quality_fact_checked?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w">  </span><span class="c1">// Faktencheck durchgeführt</span>
+<span class="w">  </span><span class="nx">quality_peer_reviewed?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w"> </span><span class="c1">// Peer-Review durchgeführt</span>
+<span class="w">  </span><span class="nx">quality_verified_by?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">    </span><span class="c1">// Komma-separierte Liste der Verifizierer</span>
+
+<span class="w">  </span><span class="c1">// Wissenschaftliche Zusatzinformationen</span>
+<span class="w">  </span><span class="nx">citations?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">              </span><span class="c1">// Komma-separierte Liste der zitierten Werke</span>
+<span class="w">  </span><span class="nx">methodology?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">            </span><span class="c1">// Verwendete Methodik</span>
+<span class="w">  </span><span class="nx">funding?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                </span><span class="c1">// Förderung/Finanzierung</span>
+
+<span class="w">  </span><span class="c1">// Verwaltung</span>
+<span class="w">  </span><span class="nx">collection?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">             </span><span class="c1">// Zugehörige Sammlung</span>
+<span class="w">  </span><span class="nx">archival_number?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Archivnummer</span>
+<span class="w">  </span><span class="nx">status?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                 </span><span class="c1">// Status</span>
+
+<span class="w">  </span><span class="c1">// Digitale Publikationsdetails</span>
+<span class="w">  </span><span class="nx">digital_published?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">      </span><span class="c1">// Erstveröffentlichung online (ISO 8601)</span>
+<span class="w">  </span><span class="nx">digital_modified?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// Letzte Online-Aktualisierung (ISO 8601)</span>
+<span class="w">  </span><span class="nx">digital_version?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">        </span><span class="c1">// Versionsnummer/Stand</span>
+<span class="w">  </span><span class="nx">digital_status?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">         </span><span class="c1">// Publikationsstatus</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="3-yaml-implementierung">3. YAML-Implementierung<a class="headerlink" href="#3-yaml-implementierung" title="Permanent link">&para;</a></h2>
+<p>Die Metadaten werden in YAML-Format im Header von Markdown-Dateien gespeichert:</p>
+<h3 id="31-grundregeln">3.1 Grundregeln<a class="headerlink" href="#31-grundregeln" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Flache Struktur mit Präfixen zur Gruppierung</li>
+<li>Klare Trennung durch Kommentare</li>
+<li>Konsistente Einrückung</li>
+<li>UTF-8 Kodierung</li>
+<li>Listen werden als komma-separierte Strings gespeichert</li>
+</ul>
+<h3 id="32-beispiel-fur-ein-wissenschaftliches-buch">3.2 Beispiel für ein wissenschaftliches Buch:<a class="headerlink" href="#32-beispiel-fur-ein-wissenschaftliches-buch" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="c1"># Bibliographische Grunddaten</span>
+<span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Ökosysteme</span><span class="nv"> </span><span class="s">der</span><span class="nv"> </span><span class="s">Nordsee&quot;</span>
+<span class="nt">subtitle</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Eine</span><span class="nv"> </span><span class="s">Bestandsaufnahme&quot;</span>
+<span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Dr.</span><span class="nv"> </span><span class="s">Maria</span><span class="nv"> </span><span class="s">Schmidt,</span><span class="nv"> </span><span class="s">Prof.</span><span class="nv"> </span><span class="s">Hans</span><span class="nv"> </span><span class="s">Meyer&quot;</span>
+<span class="nt">publisher</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Wissenschaftsverlag&quot;</span>
+<span class="nt">publicationDate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2023-05-15&quot;</span>
+<span class="nt">isbn</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;978-3-12345-678-9&quot;</span>
+<span class="nt">language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;de&quot;</span>
+
+<span class="c1"># Wissenschaftliche Klassifikation</span>
+<span class="nt">subject_areas</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Meeresbiologie,</span><span class="nv"> </span><span class="s">Ökologie&quot;</span>
+<span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Nordsee,</span><span class="nv"> </span><span class="s">Wattenmeer,</span><span class="nv"> </span><span class="s">Biodiversität&quot;</span>
+<span class="nt">abstract</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Eine</span><span class="nv"> </span><span class="s">umfassende</span><span class="nv"> </span><span class="s">Analyse</span><span class="nv"> </span><span class="s">der</span><span class="nv"> </span><span class="s">Ökosysteme</span><span class="nv"> </span><span class="s">im</span><span class="nv"> </span><span class="s">Wattenmeer...&quot;</span>
+
+<span class="c1"># Räumliche und zeitliche Einordnung</span>
+<span class="nt">temporal_start</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2020-01&quot;</span>
+<span class="nt">temporal_end</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2022-12&quot;</span>
+<span class="nt">spatial_location</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Sylt&quot;</span>
+<span class="nt">spatial_latitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">54.8985</span>
+<span class="nt">spatial_longitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.3125</span>
+<span class="nt">spatial_habitat</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Wattenmeer&quot;</span>
+<span class="nt">spatial_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Nordsee&quot;</span>
+
+<span class="c1"># Rechte und Lizenzen</span>
+<span class="nt">rights_holder</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Wissenschaftsverlag</span><span class="nv"> </span><span class="s">GmbH&quot;</span>
+<span class="nt">rights_license</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;CC</span><span class="nv"> </span><span class="s">BY-SA</span><span class="nv"> </span><span class="s">4.0&quot;</span>
+
+<span class="c1"># Medienspezifische Metadaten</span>
+<span class="nt">resource_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Book&quot;</span>
+<span class="nt">resource_format</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;PDF&quot;</span>
+<span class="nt">resource_extent</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;342</span><span class="nv"> </span><span class="s">Seiten&quot;</span>
+
+<span class="c1"># Verwaltung</span>
+<span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Meeresökologie&quot;</span>
+<span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;verified&quot;</span>
+<span class="nn">---</span>
+</code></pre></div>
+<h3 id="33-beispiel-social-media-beitrag">3.3 Beispiel: Social Media Beitrag<a class="headerlink" href="#33-beispiel-social-media-beitrag" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="c1"># Basis-Metadaten</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;social_media_post&quot;</span>
+<span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-03-15T14:30:00Z&quot;</span>
+<span class="nt">modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-03-15T14:30:00Z&quot;</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;post_2024_03_15_001&quot;</span>
+
+<span class="c1"># Technische Metadaten</span>
+<span class="nt">file_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048576</span>
+<span class="nt">file_mime</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;video/mp4&quot;</span>
+<span class="nt">file_created</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-03-15T14:25:00Z&quot;</span>
+<span class="nt">file_modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-03-15T14:28:00Z&quot;</span>
+<span class="nt">media_duration</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;00:02:45&quot;</span>
+<span class="nt">media_quality</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1080p&quot;</span>
+<span class="nt">media_framerate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;30fps&quot;</span>
+<span class="nt">media_codec</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;h264&quot;</span>
+
+<span class="c1"># Content Metadaten</span>
+<span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Klimawandel</span><span class="nv"> </span><span class="s">in</span><span class="nv"> </span><span class="s">den</span><span class="nv"> </span><span class="s">Alpen:</span><span class="nv"> </span><span class="s">Gletscherrückgang</span><span class="nv"> </span><span class="s">2024&quot;</span>
+<span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Dr.</span><span class="nv"> </span><span class="s">Sarah</span><span class="nv"> </span><span class="s">Schmidt&quot;</span>
+<span class="nt">language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;de&quot;</span>
+<span class="nt">subject_areas</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Klimatologie,</span><span class="nv"> </span><span class="s">Glaziologie&quot;</span>
+<span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Klimawandel,</span><span class="nv"> </span><span class="s">Gletscher,</span><span class="nv"> </span><span class="s">Alpen,</span><span class="nv"> </span><span class="s">Umweltmonitoring&quot;</span>
+<span class="nt">abstract</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Zeitrafferaufnahmen</span><span class="nv"> </span><span class="s">zeigen</span><span class="nv"> </span><span class="s">den</span><span class="nv"> </span><span class="s">dramatischen</span><span class="nv"> </span><span class="s">Rückgang</span><span class="nv"> </span><span class="s">des</span><span class="nv"> </span><span class="s">Hintereisferners</span><span class="nv"> </span><span class="s">im</span><span class="nv"> </span><span class="s">Vergleich</span><span class="nv"> </span><span class="s">zum</span><span class="nv"> </span><span class="s">Vorjahr.&quot;</span>
+
+<span class="c1"># Räumliche und zeitliche Einordnung</span>
+<span class="nt">temporal_start</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2023-03-15&quot;</span>
+<span class="nt">temporal_end</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2024-03-14&quot;</span>
+<span class="nt">spatial_location</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Hintereisferner&quot;</span>
+<span class="nt">spatial_latitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">46.798333</span>
+<span class="nt">spatial_longitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.770556</span>
+<span class="nt">spatial_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Ötztaler</span><span class="nv"> </span><span class="s">Alpen&quot;</span>
+
+<span class="c1"># Rechte und Lizenzen</span>
+<span class="nt">rights_holder</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Universität</span><span class="nv"> </span><span class="s">Innsbruck&quot;</span>
+<span class="nt">rights_license</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;CC</span><span class="nv"> </span><span class="s">BY-SA</span><span class="nv"> </span><span class="s">4.0&quot;</span>
+<span class="nt">rights_usage</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Bildungszwecke,</span><span class="nv"> </span><span class="s">Wissenschaftliche</span><span class="nv"> </span><span class="s">Nutzung&quot;</span>
+<span class="nt">rights_attribution</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;©</span><span class="nv"> </span><span class="s">Universität</span><span class="nv"> </span><span class="s">Innsbruck</span><span class="nv"> </span><span class="s">-</span><span class="nv"> </span><span class="s">Institut</span><span class="nv"> </span><span class="s">für</span><span class="nv"> </span><span class="s">Atmosphären-</span><span class="nv"> </span><span class="s">und</span><span class="nv"> </span><span class="s">Kryosphärenwissenschaften&quot;</span>
+
+<span class="c1"># Social Media spezifisch</span>
+<span class="nt">social_platform</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;twitter&quot;</span>
+<span class="nt">social_handle</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;@GlacierScience&quot;</span>
+<span class="nt">social_post_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;170125847392158720&quot;</span>
+<span class="nt">social_post_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://twitter.com/GlacierScience/status/170125847392158720&quot;</span>
+<span class="nt">social_metrics_likes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2453</span>
+<span class="nt">social_metrics_shares</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1876</span>
+<span class="nt">social_metrics_comments</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">342</span>
+<span class="nt">social_metrics_views</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">45678</span>
+<span class="nt">social_thread</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;170125847392158721,</span><span class="nv"> </span><span class="s">170125847392158722&quot;</span>
+
+<span class="c1"># Community und Engagement</span>
+<span class="nt">community_target</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Wissenschaftler,</span><span class="nv"> </span><span class="s">Umweltinteressierte,</span><span class="nv"> </span><span class="s">Klimaaktivisten&quot;</span>
+<span class="nt">community_hashtags</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#Klimawandel,</span><span class="nv"> </span><span class="s">#Gletscher,</span><span class="nv"> </span><span class="s">#Klimaforschung,</span><span class="nv"> </span><span class="s">#Alpen&quot;</span>
+<span class="nt">community_mentions</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;@UniInnsbruck,</span><span class="nv"> </span><span class="s">@Klimaforschung&quot;</span>
+<span class="nt">community_context</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Jährliche</span><span class="nv"> </span><span class="s">Dokumentation</span><span class="nv"> </span><span class="s">der</span><span class="nv"> </span><span class="s">Gletscherveränderungen&quot;</span>
+
+<span class="c1"># Qualitätssicherung</span>
+<span class="nt">quality_review_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;verified&quot;</span>
+<span class="nt">quality_fact_checked</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="nt">quality_verified_by</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Institut</span><span class="nv"> </span><span class="s">für</span><span class="nv"> </span><span class="s">Atmosphären-</span><span class="nv"> </span><span class="s">und</span><span class="nv"> </span><span class="s">Kryosphärenwissenschaften&quot;</span>
+
+<span class="c1"># Plattform-Details</span>
+<span class="nt">platform_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;twitter&quot;</span>
+<span class="nt">platform_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://twitter.com/GlacierScience/status/170125847392158720&quot;</span>
+<span class="nt">platform_category</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Wissenschaftskommunikation&quot;</span>
+<span class="nt">platform_language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;de,</span><span class="nv"> </span><span class="s">en&quot;</span>
+<span class="nt">platform_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;AT,</span><span class="nv"> </span><span class="s">DE,</span><span class="nv"> </span><span class="s">CH&quot;</span>
+<span class="nn">---</span>
+</code></pre></div>
+<h3 id="34-beispiel-konferenz-vortrag">3.4 Beispiel: Konferenz-Vortrag<a class="headerlink" href="#34-beispiel-konferenz-vortrag" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="c1"># Basis-Metadaten</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;conference_talk&quot;</span>
+<span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-02-02T12:10:00+01:00&quot;</span>
+<span class="nt">modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-02-02T12:10:00+01:00&quot;</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;fosdem_2025_5972&quot;</span>
+
+<span class="c1"># Content Metadaten</span>
+<span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Disrupting</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">destruction</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">our</span><span class="nv"> </span><span class="s">natural</span><span class="nv"> </span><span class="s">world</span><span class="nv"> </span><span class="s">with</span><span class="nv"> </span><span class="s">openness&quot;</span>
+<span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Tobias</span><span class="nv"> </span><span class="s">Augspurger&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;en&quot;</span>
+<span class="nt">subject_areas</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Open</span><span class="nv"> </span><span class="s">Source&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Umweltschutz&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Nachhaltigkeit&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;FOSS&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Klimawandel&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Biodiversität&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Open</span><span class="nv"> </span><span class="s">Science&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Nachhaltigkeit&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">abstract</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Despite</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">transformative</span><span class="nv"> </span><span class="s">power</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">free</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">open-source</span><span class="nv"> </span><span class="s">software</span><span class="nv"> </span><span class="s">(FOSS)</span><span class="nv"> </span><span class="s">across</span><span class="nv"> </span><span class="s">various</span><span class="nv"> </span><span class="s">sectors,</span><span class="nv"> </span><span class="s">its</span><span class="nv"> </span><span class="s">impact</span><span class="nv"> </span><span class="s">on</span><span class="nv"> </span><span class="s">environmental</span><span class="nv"> </span><span class="s">preservation</span><span class="nv"> </span><span class="s">remains</span><span class="nv"> </span><span class="s">largely</span><span class="nv"> </span><span class="s">invisible.</span><span class="nv"> </span><span class="s">The</span><span class="nv"> </span><span class="s">Open</span><span class="nv"> </span><span class="s">Sustainable</span><span class="nv"> </span><span class="s">Technology</span><span class="nv"> </span><span class="s">community</span><span class="nv"> </span><span class="s">has</span><span class="nv"> </span><span class="s">developed</span><span class="nv"> </span><span class="s">strategies</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">make</span><span class="nv"> </span><span class="s">FOSS</span><span class="nv"> </span><span class="s">essential</span><span class="nv"> </span><span class="s">in</span><span class="nv"> </span><span class="s">fighting</span><span class="nv"> </span><span class="s">climate</span><span class="nv"> </span><span class="s">change</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">biodiversity</span><span class="nv"> </span><span class="s">loss.&quot;</span>
+
+<span class="c1"># Event-spezifische Details</span>
+<span class="nt">event_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Lightning</span><span class="nv"> </span><span class="s">Talk&quot;</span>
+<span class="nt">event_start</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-02-02T12:10:00+01:00&quot;</span>
+<span class="nt">event_end</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-02-02T12:25:00+01:00&quot;</span>
+<span class="nt">event_timezone</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Europe/Brussels&quot;</span>
+<span class="nt">event_format</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;physical&quot;</span>
+<span class="nt">event_platform</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;FOSDEM</span><span class="nv"> </span><span class="s">2025&quot;</span>
+<span class="nt">event_recording_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://video.fosdem.org/2025/H.2215/&quot;</span>
+<span class="nt">event_room</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;H.2215</span><span class="nv"> </span><span class="s">(Ferrer)&quot;</span>
+
+<span class="c1"># Räumliche Einordnung</span>
+<span class="nt">spatial_location</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ULB</span><span class="nv"> </span><span class="s">Solbosch</span><span class="nv"> </span><span class="s">Campus&quot;</span>
+<span class="nt">spatial_latitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50.8137</span>
+<span class="nt">spatial_longitude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4.3843</span>
+<span class="nt">spatial_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Brussels,</span><span class="nv"> </span><span class="s">Belgium&quot;</span>
+
+<span class="c1"># Rechte und Lizenzen</span>
+<span class="nt">rights_holder</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;FOSDEM&quot;</span>
+<span class="nt">rights_license</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;CC</span><span class="nv"> </span><span class="s">BY</span><span class="nv"> </span><span class="s">2.0</span><span class="nv"> </span><span class="s">BE&quot;</span>
+<span class="nt">rights_usage</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bildungszwecke&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Öffentliche</span><span class="nv"> </span><span class="s">Vorführung&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">rights_attribution</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;FOSDEM</span><span class="nv"> </span><span class="s">2025&quot;</span>
+
+<span class="c1"># Community und Engagement</span>
+<span class="nt">community_target</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Entwickler&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Umweltaktivisten&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Open</span><span class="nv"> </span><span class="s">Source</span><span class="nv"> </span><span class="s">Community&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">community_hashtags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;#FOSDEM2025&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;#OpenSource&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;#Sustainability&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">community_context</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;FOSDEM</span><span class="nv"> </span><span class="s">2025</span><span class="nv"> </span><span class="s">Lightning</span><span class="nv"> </span><span class="s">Talk&quot;</span>
+
+<span class="c1"># Qualitätssicherung</span>
+<span class="nt">quality_review_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;accepted&quot;</span>
+<span class="nt">quality_verified_by</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;FOSDEM</span><span class="nv"> </span><span class="s">Program</span><span class="nv"> </span><span class="s">Committee&quot;</span><span class="p p-Indicator">]</span>
+
+<span class="c1"># Plattform-Details</span>
+<span class="nt">platform_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;conference&quot;</span>
+<span class="nt">platform_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://fosdem.org/2025/schedule/event/fosdem-2025-5972-disrupting-the-destruction-of-our-natural-world-with-openness/&quot;</span>
+<span class="nt">platform_category</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Lightning</span><span class="nv"> </span><span class="s">Talks&quot;</span>
+<span class="nt">platform_language</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;en&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">platform_region</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;BE&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;EU&quot;</span><span class="p p-Indicator">]</span>
+
+<span class="c1"># Verwandte Ressourcen</span>
+<span class="nt">related_resources</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Open</span><span class="nv"> </span><span class="s">Sustainable</span><span class="nv"> </span><span class="s">Technology&quot;</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://opensustain.tech/&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;OSS</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">Climate</span><span class="nv"> </span><span class="s">Podcast&quot;</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://ossforclimatepodcast.org/&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ClimateTriage&quot;</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://climatetriage.com/&quot;</span>
+<span class="nn">---</span>
+</code></pre></div>
+<h3 id="35-beispiel-youtube-video">3.5 Beispiel: YouTube Video<a class="headerlink" href="#35-beispiel-youtube-video" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="c1"># Basis-Metadaten</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;video&quot;</span>
+<span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-20T10:00:00Z&quot;</span>
+<span class="nt">modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-20T10:00:00Z&quot;</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;yt_WneT4gliSbY&quot;</span>
+
+<span class="c1"># Technische Metadaten</span>
+<span class="nt">file_mime</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;video/mp4&quot;</span>
+<span class="nt">media_duration</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;00:13:37&quot;</span>
+<span class="nt">media_quality</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1080p&quot;</span>
+<span class="nt">media_framerate</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;30fps&quot;</span>
+<span class="nt">media_codec</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;h264&quot;</span>
+
+<span class="c1"># Content Metadaten</span>
+<span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;NFL</span><span class="nv"> </span><span class="s">Sunday</span><span class="nv"> </span><span class="s">Ticket&quot;</span>
+<span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;NFL&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;en&quot;</span>
+<span class="nt">subject_areas</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Sport&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;American</span><span class="nv"> </span><span class="s">Football&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;NFL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Football&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Sunday</span><span class="nv"> </span><span class="s">Ticket&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Sport&quot;</span><span class="p p-Indicator">]</span>
+
+<span class="c1"># Rechte und Lizenzen</span>
+<span class="nt">rights_holder</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;NFL&quot;</span>
+<span class="nt">rights_license</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Standard</span><span class="nv"> </span><span class="s">YouTube</span><span class="nv"> </span><span class="s">License&quot;</span>
+<span class="nt">rights_usage</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Nur</span><span class="nv"> </span><span class="s">Ansicht&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">rights_attribution</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;©</span><span class="nv"> </span><span class="s">2025</span><span class="nv"> </span><span class="s">NFL&quot;</span>
+
+<span class="c1"># Plattform-Details</span>
+<span class="nt">platform_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;youtube&quot;</span>
+<span class="nt">platform_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://www.youtube.com/watch?v=WneT4gliSbY&quot;</span>
+<span class="nt">platform_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;WneT4gliSbY&quot;</span>
+<span class="nt">platform_uploader</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;NFL&quot;</span>
+<span class="nt">platform_category</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Sport&quot;</span>
+<span class="nt">platform_language</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;en&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">platform_region</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;US&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;INT&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">platform_age_rating</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Alle&quot;</span>
+
+<span class="c1"># Social Media Metriken</span>
+<span class="nt">social_metrics_likes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="nt">social_metrics_views</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="nt">social_metrics_comments</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+
+<span class="c1"># Community und Engagement</span>
+<span class="nt">community_target</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;NFL</span><span class="nv"> </span><span class="s">Fans&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Sportinteressierte&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">community_hashtags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;#NFL&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;#Football&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;#SundayTicket&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">community_context</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;NFL</span><span class="nv"> </span><span class="s">Programm-Ankündigung&quot;</span>
+
+<span class="c1"># Qualitätssicherung</span>
+<span class="nt">quality_review_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;verified&quot;</span>
+<span class="nt">quality_verified_by</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;YouTube</span><span class="nv"> </span><span class="s">Content</span><span class="nv"> </span><span class="s">ID&quot;</span><span class="p p-Indicator">]</span>
+
+<span class="c1"># Verwaltung</span>
+<span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;published&quot;</span>
+<span class="nt">digital_published</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-20T10:00:00Z&quot;</span>
+<span class="nt">digital_modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-20T10:00:00Z&quot;</span>
+<span class="nt">digital_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;published&quot;</span>
+<span class="nn">---</span>
+</code></pre></div>
+<h3 id="36-beispiel-online-nachrichtenartikel">3.6 Beispiel: Online-Nachrichtenartikel<a class="headerlink" href="#36-beispiel-online-nachrichtenartikel" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="c1"># Basis-Metadaten</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;article&quot;</span>
+<span class="nt">created</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-22T00:00:00+01:00&quot;</span>
+<span class="nt">modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-22T00:00:00+01:00&quot;</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;salto_2025_01_22_inklusion&quot;</span>
+
+<span class="c1"># Content Metadaten</span>
+<span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Inklusion</span><span class="nv"> </span><span class="s">wird</span><span class="nv"> </span><span class="s">belohnt&quot;</span>
+<span class="nt">subtitle</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Geld</span><span class="nv"> </span><span class="s">als</span><span class="nv"> </span><span class="s">Gegenleistung</span><span class="nv"> </span><span class="s">für</span><span class="nv"> </span><span class="s">Inklusion&quot;</span>
+<span class="nt">authors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Lukas</span><span class="nv"> </span><span class="s">Kafmann&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">language</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;de&quot;</span>
+<span class="nt">subject_areas</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Gesellschaft&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Arbeitsmarkt&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Sozialpolitik&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">keywords</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Inklusion&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Arbeitsmarkt&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Südtirol&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;ProAbility&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Behinderung&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">abstract</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Mit</span><span class="nv"> </span><span class="s">einem</span><span class="nv"> </span><span class="s">neuen</span><span class="nv"> </span><span class="s">Prämiensystem</span><span class="nv"> </span><span class="s">will</span><span class="nv"> </span><span class="s">das</span><span class="nv"> </span><span class="s">Land</span><span class="nv"> </span><span class="s">Südtirol</span><span class="nv"> </span><span class="s">Unternehmen</span><span class="nv"> </span><span class="s">unterstützen,</span><span class="nv"> </span><span class="s">die</span><span class="nv"> </span><span class="s">Menschen</span><span class="nv"> </span><span class="s">mit</span><span class="nv"> </span><span class="s">Beeinträchtigung</span><span class="nv"> </span><span class="s">einstellen.</span><span class="nv"> </span><span class="s">&quot;</span><span class="l l-Scalar l-Scalar-Plain">ProAbility&quot; startet im Februar.&quot;</span>
+
+<span class="c1"># Digitale Publikationsdetails</span>
+<span class="nt">digital_published</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-22T00:00:00+01:00&quot;</span>
+<span class="nt">digital_modified</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2025-01-22T00:00:00+01:00&quot;</span>
+<span class="nt">digital_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;published&quot;</span>
+
+<span class="c1"># Blog/Artikel spezifisch</span>
+<span class="nt">blog_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://salto.bz/de/article/22012025/geld-als-gegenleistung-fur-inklusion&quot;</span>
+<span class="nt">blog_section</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Gesellschaft&quot;</span>
+<span class="nt">blog_tags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Arbeitsmarkt&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Gesellschaft&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Südtirol&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">blog_reading_time</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+
+<span class="c1"># Räumliche Einordnung</span>
+<span class="nt">spatial_location</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Südtirol&quot;</span>
+<span class="nt">spatial_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Autonome</span><span class="nv"> </span><span class="s">Provinz</span><span class="nv"> </span><span class="s">Bozen&quot;</span>
+
+<span class="c1"># Rechte und Lizenzen</span>
+<span class="nt">rights_holder</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Demos</span><span class="nv"> </span><span class="s">2.0</span><span class="nv"> </span><span class="s">Gen./Soc.coop.&quot;</span>
+<span class="nt">rights_license</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;©</span><span class="nv"> </span><span class="s">2025</span><span class="nv"> </span><span class="s">by</span><span class="nv"> </span><span class="s">Demos</span><span class="nv"> </span><span class="s">2.0&quot;</span>
+<span class="nt">rights_attribution</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;salto.bz&quot;</span>
+
+<span class="c1"># Plattform-Details</span>
+<span class="nt">platform_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;news&quot;</span>
+<span class="nt">platform_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://salto.bz&quot;</span>
+<span class="nt">platform_category</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Nachrichten&quot;</span>
+<span class="nt">platform_language</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;de&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">platform_region</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;IT-BZ&quot;</span><span class="p p-Indicator">]</span>
+
+<span class="c1"># Quellenangaben</span>
+<span class="nt">source_title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;salto.bz&quot;</span>
+<span class="nt">source_type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Online-Nachrichtenportal&quot;</span>
+<span class="nt">source_identifier</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;MwSt.-Nr</span><span class="nv"> </span><span class="s">02765230210</span><span class="nv"> </span><span class="s">ISSN</span><span class="nv"> </span><span class="s">2704-6672&quot;</span>
+
+<span class="c1"># Community und Engagement</span>
+<span class="nt">community_target</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Allgemeine</span><span class="nv"> </span><span class="s">Öffentlichkeit&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Arbeitgeber&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;Sozialarbeiter&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">community_context</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Arbeitsmarktpolitische</span><span class="nv"> </span><span class="s">Maßnahme</span><span class="nv"> </span><span class="s">in</span><span class="nv"> </span><span class="s">Südtirol&quot;</span>
+
+<span class="c1"># Qualitätssicherung</span>
+<span class="nt">quality_review_status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;published&quot;</span>
+<span class="nt">quality_fact_checked</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="c1"># Verwaltung</span>
+<span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;published&quot;</span>
+<span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Gesellschaft&quot;</span>
+
+<span class="c1"># Verwandte Artikel</span>
+<span class="nt">related_resources</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Der</span><span class="nv"> </span><span class="s">Schulbus,</span><span class="nv"> </span><span class="s">der</span><span class="nv"> </span><span class="s">nicht</span><span class="nv"> </span><span class="s">kommt&quot;</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://salto.bz/de/article/transport-behinderung&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Inklusion,</span><span class="nv"> </span><span class="s">ein</span><span class="nv"> </span><span class="s">Privileg?&quot;</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://salto.bz/de/article/bildung&quot;</span>
+<span class="nn">---</span>
+</code></pre></div>
+<h2 id="4-validierung-und-qualitatssicherung">4. Validierung und Qualitätssicherung<a class="headerlink" href="#4-validierung-und-qualitatssicherung" title="Permanent link">&para;</a></h2>
+<h3 id="41-pflichtfelder">4.1 Pflichtfelder<a class="headerlink" href="#41-pflichtfelder" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>title</code>: Titel des Werks</li>
+<li><code>authors</code>: Liste der Autoren</li>
+<li><code>language</code>: ISO 639-1 Sprachcode</li>
+<li><code>resource_type</code>: Art der Ressource</li>
+</ul>
+<h3 id="42-formatvorgaben">4.2 Formatvorgaben<a class="headerlink" href="#42-formatvorgaben" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Datumsangaben: ISO 8601 (YYYY-MM-DD)</li>
+<li>Sprachen: ISO 639-1</li>
+<li>Koordinaten: Dezimalgrad</li>
+<li>URLs: Vollständige URLs mit Protokoll</li>
+</ul>
+<h3 id="43-validierungsregeln">4.3 Validierungsregeln<a class="headerlink" href="#43-validierungsregeln" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Typ-Überprüfung aller Felder</li>
+<li>Formatvalidierung für spezielle Felder</li>
+<li>Konsistenzprüfung zusammenhängender Felder</li>
+</ul>
+<h2 id="5-erweiterbarkeit">5. Erweiterbarkeit<a class="headerlink" href="#5-erweiterbarkeit" title="Permanent link">&para;</a></h2>
+<h3 id="51-neue-medientypen">5.1 Neue Medientypen<a class="headerlink" href="#51-neue-medientypen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Erweiterung der technischen Metadaten</li>
+<li>Spezifische Formatangaben</li>
+<li>Zusätzliche Qualitätsmetriken</li>
+</ul>
+<h3 id="52-zusatzliche-standards">5.2 Zusätzliche Standards<a class="headerlink" href="#52-zusatzliche-standards" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Integration weiterer Bibliotheksstandards</li>
+<li>Fachspezifische Erweiterungen</li>
+<li>Plattformspezifische Metadaten</li>
+</ul>
+<h3 id="53-versionierung">5.3 Versionierung<a class="headerlink" href="#53-versionierung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Semantic Versioning für Schemaänderungen</li>
+<li>Abwärtskompatibilität beachten</li>
+<li>Migrationspfade definieren </li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "In Zwischenablage kopiert", "clipboard.copy": "In Zwischenablage kopieren", "search.result.more.one": "1 weiteres Suchergebnis auf dieser Seite", "search.result.more.other": "# weitere Suchergebnisse auf dieser Seite", "search.result.none": "Keine Suchergebnisse", "search.result.one": "1 Suchergebnis", "search.result.other": "# Suchergebnisse", "search.result.placeholder": "Suchbegriff eingeben", "search.result.term.missing": "Es fehlt", "select.version": "Version ausw\u00e4hlen"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.50899def.min.js"></script>
+      
+    
+  </body>
+</html>

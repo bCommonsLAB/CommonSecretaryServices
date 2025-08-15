@@ -1,0 +1,4875 @@
+
+<!doctype html>
+<html lang="de" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://example.local/_archive/process-events-mongo-db/">
+      
+      
+        <link rel="prev" href="../process_events/">
+      
+      
+        <link rel="next" href="../ProcessorArchitecture/">
+      
+      
+      <link rel="icon" href="../../assets/images/logo.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
+    
+    
+      
+        <title>process-events-mongo-db (alt) - Common Secretary Services</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#konzept-event-verwaltung-mit-mongodb-und-externe-zugriffsmoglichkeit" class="md-skip">
+          Zum Inhalt
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Kopfzeile">
+    <a href="../.." title="Common Secretary Services" class="md-header__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Common Secretary Services
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              process-events-mongo-db (alt)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Suche" placeholder="Suche" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Suche">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Zurücksetzen" aria-label="Zurücksetzen" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Suche wird initialisiert
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Common Secretary Services" class="md-nav__button md-logo" aria-label="Common Secretary Services" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    Common Secretary Services
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://example.local/repo" title="Zum Repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Example
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    « Zur Anwendung
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Getting Started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/getting-started/development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Development
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    UI
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            UI
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/ui/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    How‑Tos
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            How‑Tos
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/how-tos/session-archive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session‑Archive
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Explanations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Explanations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Architektur
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Architektur
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/architecture/details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Details
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Async Events
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Async Events
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/async-events/how-to-n8n/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8n
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/caching/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Caching
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/templates/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Templates
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/types/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Typen & Dataclasses
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metaprocessor/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metaprocessor
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/metadata/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metadaten
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../explanations/llm/optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LLM‑Optimierung
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Processors
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Processors
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/audio/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Audio
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/video/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Video
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    PDF
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            PDF
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/ocr-refactoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCR-Refactoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/pdf/endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PDF/ImageOCR Details
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/image-ocr/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Image-OCR
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/transformer/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Transformer
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/session/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Session
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/event-job/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event-Job
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/story/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Story
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../processors/track/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Track
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API Überblick
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/openapi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OpenAPI / Swagger
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Ops
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Ops
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Sicherheit
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ops/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+    
+  
+  
+    <span class="md-status md-status--draft"></span>
+  
+
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Analysis
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Analysis
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/docs_inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Doku-Inventur
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/routes_index/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Routes-Index
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../_analysis/drift_audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Drift-Audit
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Archiv (nur intern)
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Archiv (nur intern)
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    01_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02_installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    02_installation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03_development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    03_development (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    04_api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05_webinterface/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    05_webinterface (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06_audio_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    06_audio_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_youtube/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_youtube (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07_async_event_processing_implementation.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    07_async_event_processing_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08_templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    08_templates (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../09_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    09_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10_development_guidelines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    10_development_guidelines (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_security (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11_deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    11_deployment (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../12_troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    12_troubleshooting (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_api_reference (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../13_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    13_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../14_changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    14_changelog (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_faq (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    15_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CommonSecretaryServicesAPI/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CommonSecretaryServicesAPI (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../HowToUseimageocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HowToUseimageocr (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../swagger_llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    swagger_llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vimeo_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    vimeo_support (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-responses-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    api-responses-concept (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concept_storytelling_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    concept_storytelling_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dataclasses-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    dataclasses-types (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generic_typing_improvements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    generic_typing_improvements (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../historie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    historie
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linting_strategy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    linting_strategy (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_configuration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm_ocr_integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm_ocr_integration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm-optimierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    llm-optimierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../localbrain_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    localbrain_architecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metadata-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    metadata-concept (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metaprocessor-concept/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    metaprocessor-* (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mongodb_caching_implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    mongodb_caching_implementation (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../n8nEventsProcessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    n8nEventsProcessing (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimizeProzessWithBaseprocess/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    optimizeProzessWithBaseprocess (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../process_events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    process_events (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    process-events-mongo-db (alt)
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    process-events-mongo-db (alt)
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#einleitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Einleitung
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problembeschreibung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Problembeschreibung
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architekturkonzept" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architekturkonzept
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architekturkonzept">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-mongodb-als-persistente-job-queue" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. MongoDB als persistente Job-Queue
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-datenbankschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Datenbankschema
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Datenbankschema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-job-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Job Collection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-batch-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Batch Collection
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-systemkomponenten" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Systemkomponenten
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Systemkomponenten">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-job-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Job-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-worker-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Worker-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-result-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Result-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      API-Erweiterungen
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementierungsplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Implementierungsplan
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementierungsplan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-datenzugriffslayer-fur-mongodb" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Datenzugriffslayer für MongoDB
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-eventworkermanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. EventWorkerManager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. API-Erweiterungen
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. API-Erweiterungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#neue-api-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      Neue API-Endpoints
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-in-bestehenden-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Integration in bestehenden Code
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uberwachung-und-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überwachung und Monitoring
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#konfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-uberlegungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deployment-Überlegungen
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fazit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fazit
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#erweiterungen-und-klarstellungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Erweiterungen und Klarstellungen
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Erweiterungen und Klarstellungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#benutzer-autorisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Benutzer-Autorisierung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benutzer-Autorisierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#datenbankschema-erweiterung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Datenbankschema-Erweiterung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uberflussige-api-endpunkte-und-prozesse" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überflüssige API-Endpunkte und Prozesse
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguration-in-configyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration in config.yaml
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architektur-der-datenbankkomponente" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architektur der Datenbankkomponente
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#umsetzungsplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Umsetzungsplan
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Umsetzungsplan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schritt-1-mongodb-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 1: MongoDB-Integration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2-benutzer-autorisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 2: Benutzer-Autorisierung
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-3-worker-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 3: Worker-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-4-api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 4: API-Erweiterungen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-5-monitoring-und-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 5: Monitoring und Dashboard
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-6-deployment-und-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 6: Deployment und Tests
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fazit_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fazit
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ProcessorArchitecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ProcessorArchitecture (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../refact-metaprocessor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    refact-metaprocessor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scrape-notion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    scrape-notion (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../session_archive_usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    session_archive_usage (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../storytelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    storytelling (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../template_content_feature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    template_content_feature (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testroutine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    testroutine (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track_processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track_processor (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../track-processor-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track-processor-api (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transformer_mongodb_caching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    transformer_mongodb_caching (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../type-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    type-migration (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../videoprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    videoprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../youtubeprocessor_typisierung/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    youtubeprocessor_typisierung (alt)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Inhaltsverzeichnis">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Inhaltsverzeichnis
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#einleitung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Einleitung
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problembeschreibung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Problembeschreibung
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architekturkonzept" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architekturkonzept
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architekturkonzept">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-mongodb-als-persistente-job-queue" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. MongoDB als persistente Job-Queue
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-datenbankschema" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Datenbankschema
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Datenbankschema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-job-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Job Collection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-batch-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Batch Collection
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-systemkomponenten" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Systemkomponenten
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Systemkomponenten">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-job-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Job-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-worker-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Worker-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-result-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Event-Result-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      API-Erweiterungen
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementierungsplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Implementierungsplan
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementierungsplan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-datenzugriffslayer-fur-mongodb" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Datenzugriffslayer für MongoDB
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-eventworkermanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. EventWorkerManager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. API-Erweiterungen
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. API-Erweiterungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#neue-api-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      Neue API-Endpoints
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-in-bestehenden-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Integration in bestehenden Code
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uberwachung-und-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überwachung und Monitoring
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#konfiguration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-uberlegungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deployment-Überlegungen
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fazit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fazit
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#erweiterungen-und-klarstellungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Erweiterungen und Klarstellungen
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Erweiterungen und Klarstellungen">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#benutzer-autorisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Benutzer-Autorisierung
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benutzer-Autorisierung">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#datenbankschema-erweiterung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Datenbankschema-Erweiterung
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uberflussige-api-endpunkte-und-prozesse" class="md-nav__link">
+    <span class="md-ellipsis">
+      Überflüssige API-Endpunkte und Prozesse
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguration-in-configyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Konfiguration in config.yaml
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#architektur-der-datenbankkomponente" class="md-nav__link">
+    <span class="md-ellipsis">
+      Architektur der Datenbankkomponente
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#umsetzungsplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      Umsetzungsplan
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Umsetzungsplan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schritt-1-mongodb-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 1: MongoDB-Integration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-2-benutzer-autorisierung" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 2: Benutzer-Autorisierung
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-3-worker-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 3: Worker-Manager
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-4-api-erweiterungen" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 4: API-Erweiterungen
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-5-monitoring-und-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 5: Monitoring und Dashboard
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schritt-6-deployment-und-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Schritt 6: Deployment und Tests
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fazit_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fazit
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="konzept-event-verwaltung-mit-mongodb-und-externe-zugriffsmoglichkeit">Konzept: Event-Verwaltung mit MongoDB und externe Zugriffsmöglichkeit<a class="headerlink" href="#konzept-event-verwaltung-mit-mongodb-und-externe-zugriffsmoglichkeit" title="Permanent link">&para;</a></h1>
+<h2 id="einleitung">Einleitung<a class="headerlink" href="#einleitung" title="Permanent link">&para;</a></h2>
+<p>Dieses Dokument beschreibt das Konzept für die Optimierung der Event-Verarbeitung des Common Secretary Services. Die aktuelle Implementierung speichert Event-Aufträge nur im Speicher und verliert bei einem Server-Neustart alle ausstehenden Aufträge. Außerdem sind die verarbeiteten Ergebnisse nur im lokalen Filesystem zugänglich und können nicht leicht von externen Systemen abgerufen werden.</p>
+<p>Die Lösung sieht vor:
+1. Speichern der Event-Aufträge in einer MongoDB
+2. Persistente Statusverwaltung der Event-Verarbeitung
+3. Bereitstellung der Ergebnisse über externe URLs
+4. REST-API für den Zugriff auf die verarbeiteten Events</p>
+<h2 id="problembeschreibung">Problembeschreibung<a class="headerlink" href="#problembeschreibung" title="Permanent link">&para;</a></h2>
+<p>Aktuell bestehen folgende Herausforderungen:</p>
+<ol>
+<li><strong>Fehlende Persistenz</strong>: Alle Event-Aufträge existieren nur im Arbeitsspeicher des Servers. Bei einem Neustart gehen alle Informationen über ausstehende und laufende Aufträge verloren.</li>
+<li><strong>Begrenzte Skalierbarkeit</strong>: Die sequentielle Verarbeitung ohne robustes Queueing-System limitiert die Möglichkeit, viele Events zu verarbeiten (z.B. 1000 Events mit je 5-10 Minuten Verarbeitungszeit).</li>
+<li><strong>Eingeschränkte Zugriffsmöglichkeit</strong>: Die verarbeiteten Events (Markdown-Dateien, Bilder) sind nur im lokalen Filesystem des Servers verfügbar.</li>
+<li><strong>Fehlendes zentrales Monitoring</strong>: Kein einfacher Überblick über den Status aller laufenden und abgeschlossenen Event-Verarbeitungen.</li>
+</ol>
+<h2 id="architekturkonzept">Architekturkonzept<a class="headerlink" href="#architekturkonzept" title="Permanent link">&para;</a></h2>
+<p>Das folgende Konzept adressiert diese Herausforderungen:</p>
+<h3 id="1-mongodb-als-persistente-job-queue">1. MongoDB als persistente Job-Queue<a class="headerlink" href="#1-mongodb-als-persistente-job-queue" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>+-------------+     +----------------+     +-------------+
+| API-Request |----&gt;| MongoDB Queue  |&lt;----| Worker      |
++-------------+     | - job_id       |     | Prozesse    |
+                    | - status       |     +-------------+
+                    | - parameters   |           |
+                    | - timestamps   |           |
+                    | - results      |           |
+                    +----------------+           |
+                            ^                    |
+                            |                    |
+                    +----------------+           |
+                    | Status-Updates |&lt;----------+
+                    +----------------+
+</code></pre></div>
+<h3 id="2-datenbankschema">2. Datenbankschema<a class="headerlink" href="#2-datenbankschema" title="Permanent link">&para;</a></h3>
+<h4 id="event-job-collection">Event-Job Collection<a class="headerlink" href="#event-job-collection" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ObjectId</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">                </span><span class="c1">// MongoDB ID</span>
+<span class="w">  </span><span class="s2">&quot;job_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;unique-job-id&quot;</span><span class="p">,</span><span class="w">            </span><span class="c1">// Eindeutige Job-ID</span>
+<span class="w">  </span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;pending&quot;</span><span class="p">,</span><span class="w">                   </span><span class="c1">// pending, processing, completed, failed</span>
+<span class="w">  </span><span class="s2">&quot;created_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">          </span><span class="c1">// Erstellungszeitpunkt</span>
+<span class="w">  </span><span class="s2">&quot;updated_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">          </span><span class="c1">// Letztes Update</span>
+<span class="w">  </span><span class="s2">&quot;started_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">          </span><span class="c1">// Startzeitpunkt (wenn gestartet)</span>
+<span class="w">  </span><span class="s2">&quot;completed_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">        </span><span class="c1">// Abschlusszeitpunkt (wenn abgeschlossen)</span>
+<span class="w">  </span><span class="s2">&quot;parameters&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                        </span><span class="c1">// Event-Parameter</span>
+<span class="w">    </span><span class="s2">&quot;event&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Event Name&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;session&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Session Name&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/event&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;filename&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;event.md&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;track&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Track Name&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;day&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;2023-01-01&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;starttime&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;10:00&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;endtime&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;11:00&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;speakers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Speaker 1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Speaker 2&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="s2">&quot;video_url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/video&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;attachments_url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/attachments&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;source_language&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;en&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;target_language&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;de&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;webhook&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                           </span><span class="c1">// Optional: Webhook-Konfiguration</span>
+<span class="w">    </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/webhook&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;include_markdown&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;include_metadata&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;batch_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;batch-123&quot;</span><span class="p">,</span><span class="w">               </span><span class="c1">// Optional: ID des Batches</span>
+<span class="w">  </span><span class="s2">&quot;progress&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                          </span><span class="c1">// Fortschrittsinformationen</span>
+<span class="w">    </span><span class="s2">&quot;step&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;downloading_video&quot;</span><span class="p">,</span><span class="w">         </span><span class="c1">// Aktueller Verarbeitungsschritt</span>
+<span class="w">    </span><span class="s2">&quot;percent&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">60</span><span class="p">,</span><span class="w">                       </span><span class="c1">// Prozentualer Fortschritt</span>
+<span class="w">    </span><span class="s2">&quot;message&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Video wird verarbeitet&quot;</span><span class="w">  </span><span class="c1">// Statusmeldung</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;results&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                           </span><span class="c1">// Ergebnisse (wenn abgeschlossen)</span>
+<span class="w">    </span><span class="s2">&quot;markdown_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/events/track/session/event.md&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// Dateipfad</span>
+<span class="w">    </span><span class="s2">&quot;markdown_url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/api/events/files/track/session/event.md&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// Externe URL</span>
+<span class="w">    </span><span class="s2">&quot;assets&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="w">                          </span><span class="c1">// Verarbeitete Assets</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;image&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/events/track/session/assets/image1.jpg&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/api/events/files/track/session/assets/image1.jpg&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="s2">&quot;metadata&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                        </span><span class="c1">// Sonstige Metadaten</span>
+<span class="w">      </span><span class="s2">&quot;processed_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span>
+<span class="w">      </span><span class="s2">&quot;duration&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">300</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;tokens_used&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1500</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;error&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                             </span><span class="c1">// Fehlerinformationen (wenn fehlgeschlagen)</span>
+<span class="w">    </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;PROCESSING_ERROR&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;message&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Fehler bei der Verarbeitung: ...&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;details&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{...}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;logs&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="w">                              </span><span class="c1">// Detaillierte Log-Einträge</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;timestamp&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span>
+<span class="w">      </span><span class="s2">&quot;level&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;message&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Event-Verarbeitung gestartet&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;timestamp&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span>
+<span class="w">      </span><span class="s2">&quot;level&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;message&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Fehler beim Herunterladen des Videos&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="s2">&quot;worker_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;worker-1&quot;</span><span class="p">,</span><span class="w">               </span><span class="c1">// ID des verarbeitenden Workers</span>
+<span class="w">  </span><span class="s2">&quot;retries&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">0</span><span class="p">,</span><span class="w">                          </span><span class="c1">// Anzahl der Wiederholungsversuche</span>
+<span class="w">  </span><span class="s2">&quot;priority&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w">                          </span><span class="c1">// Priorität des Jobs (optional)</span>
+<span class="w">  </span><span class="s2">&quot;user_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;user-123&quot;</span><span class="p">,</span><span class="w">                 </span><span class="c1">// ID des Benutzers, der den Job erstellt hat</span>
+<span class="w">  </span><span class="s2">&quot;access_control&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                    </span><span class="c1">// Zugriffssteuerung (optional)</span>
+<span class="w">    </span><span class="s2">&quot;visibility&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;private&quot;</span><span class="p">,</span><span class="w">             </span><span class="c1">// private, team, public</span>
+<span class="w">    </span><span class="s2">&quot;read_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-456&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;team-marketing&quot;</span><span class="p">],</span><span class="w"> </span><span class="c1">// Benutzer/Gruppen mit Lesezugriff</span>
+<span class="w">    </span><span class="s2">&quot;write_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-123&quot;</span><span class="p">],</span><span class="w">        </span><span class="c1">// Benutzer/Gruppen mit Schreibzugriff</span>
+<span class="w">    </span><span class="s2">&quot;admin_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-123&quot;</span><span class="p">]</span><span class="w">         </span><span class="c1">// Benutzer/Gruppen mit Admin-Zugriff</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h4 id="event-batch-collection">Event-Batch Collection<a class="headerlink" href="#event-batch-collection" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ObjectId</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">                </span><span class="c1">// MongoDB ID</span>
+<span class="w">  </span><span class="s2">&quot;batch_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;batch-123&quot;</span><span class="p">,</span><span class="w">               </span><span class="c1">// Eindeutige Batch-ID</span>
+<span class="w">  </span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;processing&quot;</span><span class="p">,</span><span class="w">                </span><span class="c1">// processing, completed, failed, partial</span>
+<span class="w">  </span><span class="s2">&quot;created_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">          </span><span class="c1">// Erstellungszeitpunkt</span>
+<span class="w">  </span><span class="s2">&quot;updated_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">ISODate</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span><span class="w">          </span><span class="c1">// Letztes Update</span>
+<span class="w">  </span><span class="s2">&quot;job_ids&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;job-1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;job-2&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;job-3&quot;</span><span class="p">],</span><span class="w"> </span><span class="c1">// IDs der zugehörigen Jobs</span>
+<span class="w">  </span><span class="s2">&quot;total_jobs&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">10</span><span class="p">,</span><span class="w">                      </span><span class="c1">// Gesamtzahl der Jobs</span>
+<span class="w">  </span><span class="s2">&quot;completed_jobs&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">3</span><span class="p">,</span><span class="w">                   </span><span class="c1">// Abgeschlossene Jobs</span>
+<span class="w">  </span><span class="s2">&quot;failed_jobs&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w">                      </span><span class="c1">// Fehlgeschlagene Jobs</span>
+<span class="w">  </span><span class="s2">&quot;webhook&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                           </span><span class="c1">// Optional: Webhook-Konfiguration</span>
+<span class="w">    </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/webhook&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;parameters&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{...},</span><span class="w">                   </span><span class="c1">// Gemeinsame Parameter</span>
+<span class="w">  </span><span class="s2">&quot;summary&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                           </span><span class="c1">// Zusammenfassung</span>
+<span class="w">    </span><span class="s2">&quot;duration&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1500</span><span class="p">,</span><span class="w">                    </span><span class="c1">// Gesamtdauer in Sekunden</span>
+<span class="w">    </span><span class="s2">&quot;tokens_used&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">15000</span><span class="w">                 </span><span class="c1">// Gesamtzahl verwendeter Tokens</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="3-systemkomponenten">3. Systemkomponenten<a class="headerlink" href="#3-systemkomponenten" title="Permanent link">&para;</a></h3>
+<h4 id="event-job-manager">Event-Job-Manager<a class="headerlink" href="#event-job-manager" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Verantwortlich für die Verwaltung der Event-Jobs</li>
+<li>Schnittstelle zur MongoDB</li>
+<li>CRUD-Operationen für Jobs</li>
+<li>Statusaktualisierungen</li>
+</ul>
+<h4 id="event-worker-manager">Event-Worker-Manager<a class="headerlink" href="#event-worker-manager" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Überwacht die Job-Queue</li>
+<li>Startet Worker-Prozesse für ausstehende Jobs</li>
+<li>Stellt sicher, dass nicht zu viele Jobs gleichzeitig bearbeitet werden</li>
+<li>Aktualisiert den Job-Status</li>
+</ul>
+<h4 id="event-result-manager">Event-Result-Manager<a class="headerlink" href="#event-result-manager" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Verwaltet die Speicherung der Verarbeitungsergebnisse</li>
+<li>Generiert URLs für den Zugriff auf die Ergebnisse</li>
+<li>Stellt die Schnittstelle für externe Zugriffe bereit</li>
+</ul>
+<h4 id="api-erweiterungen">API-Erweiterungen<a class="headerlink" href="#api-erweiterungen" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Endpunkte für die Jobverwaltung</li>
+<li>Endpunkte für den Zugriff auf Ergebnisse</li>
+<li>Endpunkte für Statusabfragen und Monitoring</li>
+</ul>
+<h2 id="implementierungsplan">Implementierungsplan<a class="headerlink" href="#implementierungsplan" title="Permanent link">&para;</a></h2>
+<h3 id="1-datenzugriffslayer-fur-mongodb">1. Datenzugriffslayer für MongoDB<a class="headerlink" href="#1-datenzugriffslayer-fur-mongodb" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># MongoDB-Integration</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pymongo</span><span class="w"> </span><span class="kn">import</span> <span class="n">MongoClient</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bson</span><span class="w"> </span><span class="kn">import</span> <span class="n">ObjectId</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">EventJobRepository</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mongo_uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">db_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client</span> <span class="o">=</span> <span class="n">MongoClient</span><span class="p">(</span><span class="n">mongo_uri</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="p">[</span><span class="n">db_name</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">event_jobs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batches</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">event_batches</span>
+
+        <span class="c1"># Indizes erstellen</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="s2">&quot;job_id&quot;</span><span class="p">,</span> <span class="n">unique</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="s2">&quot;batch_id&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="s2">&quot;created_at&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">create_index</span><span class="p">(</span><span class="s2">&quot;batch_id&quot;</span><span class="p">,</span> <span class="n">unique</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Erstellt einen neuen Job und gibt die Job-ID zurück.&quot;&quot;&quot;</span>
+        <span class="n">job_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;job-</span><span class="si">{</span><span class="n">ObjectId</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">job_data</span><span class="p">[</span><span class="s2">&quot;job_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">job_id</span>
+        <span class="n">job_data</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;pending&quot;</span>
+        <span class="n">job_data</span><span class="p">[</span><span class="s2">&quot;created_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span>
+        <span class="n">job_data</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">job_data</span><span class="p">[</span><span class="s2">&quot;created_at&quot;</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">insert_one</span><span class="p">(</span><span class="n">job_data</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">job_id</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_job_status</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">status</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> 
+                         <span class="n">progress</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> 
+                         <span class="n">results</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> 
+                         <span class="n">error</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Aktualisiert den Status eines Jobs.&quot;&quot;&quot;</span>
+        <span class="n">update_data</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="p">,</span>
+            <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;processing&quot;</span> <span class="ow">and</span> <span class="s2">&quot;started_at&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">):</span>
+            <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;started_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;completed&quot;</span> <span class="ow">or</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;failed&quot;</span><span class="p">:</span>
+            <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;completed_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">progress</span><span class="p">:</span>
+            <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;progress&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">progress</span>
+
+        <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+            <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;results&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">results</span>
+
+        <span class="k">if</span> <span class="n">error</span><span class="p">:</span>
+            <span class="n">update_data</span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">error</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">update_one</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job_id</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;$set&quot;</span><span class="p">:</span> <span class="n">update_data</span><span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">modified_count</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Gibt einen Job anhand seiner ID zurück.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job_id</span><span class="p">})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_pending_jobs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Gibt eine Liste ausstehender Jobs zurück.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">find</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;pending&quot;</span><span class="p">})</span>
+                   <span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="s2">&quot;created_at&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                   <span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="n">limit</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_log_entry</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">level</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Fügt einen Log-Eintrag zu einem Job hinzu.&quot;&quot;&quot;</span>
+        <span class="n">log_entry</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">(),</span>
+            <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">level</span><span class="p">,</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span>
+        <span class="p">}</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">update_one</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job_id</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;$push&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;logs&quot;</span><span class="p">:</span> <span class="n">log_entry</span><span class="p">}}</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">modified_count</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">create_batch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Erstellt einen neuen Batch und gibt die Batch-ID zurück.&quot;&quot;&quot;</span>
+        <span class="n">batch_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;batch-</span><span class="si">{</span><span class="n">ObjectId</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;batch_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">batch_id</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;processing&quot;</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;created_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;created_at&quot;</span><span class="p">]</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;completed_jobs&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">batch_data</span><span class="p">[</span><span class="s2">&quot;failed_jobs&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">insert_one</span><span class="p">(</span><span class="n">batch_data</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">batch_id</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_batch_progress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Aktualisiert den Fortschritt eines Batches.&quot;&quot;&quot;</span>
+        <span class="n">batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="s2">&quot;batch_id&quot;</span><span class="p">:</span> <span class="n">batch_id</span><span class="p">})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">batch</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+        <span class="c1"># Zähle Jobs nach Status</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">&quot;job_ids&quot;</span><span class="p">])</span>
+        <span class="n">completed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$in&quot;</span><span class="p">:</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;job_ids&quot;</span><span class="p">]},</span> <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;completed&quot;</span><span class="p">})</span>
+        <span class="n">failed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$in&quot;</span><span class="p">:</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;job_ids&quot;</span><span class="p">]},</span> <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;failed&quot;</span><span class="p">})</span>
+
+        <span class="c1"># Aktualisiere Batch-Status</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;processing&quot;</span>
+        <span class="k">if</span> <span class="n">completed</span> <span class="o">+</span> <span class="n">failed</span> <span class="o">==</span> <span class="n">total</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;completed&quot;</span> <span class="k">if</span> <span class="n">failed</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">else</span> <span class="s2">&quot;partial&quot;</span> <span class="k">if</span> <span class="n">completed</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="s2">&quot;failed&quot;</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">update_one</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;batch_id&quot;</span><span class="p">:</span> <span class="n">batch_id</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;$set&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">status</span><span class="p">,</span>
+                <span class="s2">&quot;completed_jobs&quot;</span><span class="p">:</span> <span class="n">completed</span><span class="p">,</span>
+                <span class="s2">&quot;failed_jobs&quot;</span><span class="p">:</span> <span class="n">failed</span><span class="p">,</span>
+                <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span>
+            <span class="p">}}</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">modified_count</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</code></pre></div>
+<h3 id="2-eventworkermanager">2. EventWorkerManager<a class="headerlink" href="#2-eventworkermanager" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">EventWorkerManager</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_repository</span><span class="p">:</span> <span class="n">EventJobRepository</span><span class="p">,</span> 
+                <span class="n">max_concurrent_workers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span> <span class="o">=</span> <span class="n">job_repository</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_concurrent_workers</span> <span class="o">=</span> <span class="n">max_concurrent_workers</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stop_flag</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Startet den Worker-Manager.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stop_flag</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_monitor_jobs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Stoppt den Worker-Manager.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stop_flag</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">monitor_thread</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_monitor_jobs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Überwacht die Job-Queue und startet Worker.&quot;&quot;&quot;</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">stop_flag</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># Bereinige beendete Worker</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cleanup_workers</span><span class="p">()</span>
+
+                <span class="c1"># Wenn noch Kapazität vorhanden ist, suche nach neuen Jobs</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_concurrent_workers</span><span class="p">:</span>
+                    <span class="n">available_slots</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_concurrent_workers</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="p">)</span>
+                    <span class="n">pending_jobs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">get_pending_jobs</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">available_slots</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">job</span> <span class="ow">in</span> <span class="n">pending_jobs</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_start_worker</span><span class="p">(</span><span class="n">job</span><span class="p">)</span>
+
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fehler im Job-Monitor: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Warte kurz vor dem nächsten Durchlauf</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_cleanup_workers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Entfernt beendete Worker aus der Liste.&quot;&quot;&quot;</span>
+        <span class="n">completed_workers</span> <span class="o">=</span> <span class="p">[</span><span class="n">job_id</span> <span class="k">for</span> <span class="n">job_id</span><span class="p">,</span> <span class="n">thread</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> 
+                            <span class="k">if</span> <span class="ow">not</span> <span class="n">thread</span><span class="o">.</span><span class="n">is_alive</span><span class="p">()]</span>
+        <span class="k">for</span> <span class="n">job_id</span> <span class="ow">in</span> <span class="n">completed_workers</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="p">[</span><span class="n">job_id</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_start_worker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Startet einen neuen Worker für einen Job.&quot;&quot;&quot;</span>
+        <span class="n">job_id</span> <span class="o">=</span> <span class="n">job</span><span class="p">[</span><span class="s2">&quot;job_id&quot;</span><span class="p">]</span>
+
+        <span class="c1"># Aktualisiere den Job-Status</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_job_status</span><span class="p">(</span>
+            <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;processing&quot;</span><span class="p">,</span>
+            <span class="n">progress</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="s2">&quot;initializing&quot;</span><span class="p">,</span> <span class="s2">&quot;percent&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Job wird initialisiert&quot;</span><span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Starte den Worker in einem eigenen Thread</span>
+        <span class="n">worker_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span>
+            <span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_run_worker_process</span><span class="p">,</span>
+            <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">job</span><span class="p">,)</span>
+        <span class="p">)</span>
+        <span class="n">worker_thread</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">worker_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="c1"># Speichere den Worker</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">running_workers</span><span class="p">[</span><span class="n">job_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">worker_thread</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_run_worker_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Führt den eigentlichen Worker-Prozess aus.&quot;&quot;&quot;</span>
+        <span class="n">job_id</span> <span class="o">=</span> <span class="n">job</span><span class="p">[</span><span class="s2">&quot;job_id&quot;</span><span class="p">]</span>
+        <span class="n">batch_id</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;batch_id&quot;</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Führe den Event-Processor aus</span>
+            <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_process_event</span><span class="p">(</span><span class="n">job</span><span class="p">))</span>
+
+            <span class="c1"># Aktualisiere den Batch-Status, falls vorhanden</span>
+            <span class="k">if</span> <span class="n">batch_id</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_batch_progress</span><span class="p">(</span><span class="n">batch_id</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Bei Fehler den Job-Status aktualisieren</span>
+            <span class="n">error_info</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+                <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;traceback&quot;</span><span class="p">:</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">()}</span>
+            <span class="p">}</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_job_status</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">status</span><span class="o">=</span><span class="s2">&quot;failed&quot;</span><span class="p">,</span>
+                <span class="n">error</span><span class="o">=</span><span class="n">error_info</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Log-Eintrag hinzufügen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">add_log_entry</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fehler bei der Verarbeitung: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Batch aktualisieren</span>
+            <span class="k">if</span> <span class="n">batch_id</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_batch_progress</span><span class="p">(</span><span class="n">batch_id</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_process_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Verarbeitet ein Event mit dem EventProcessor.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">src.processors.event_processor</span><span class="w"> </span><span class="kn">import</span> <span class="n">EventProcessor</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">src.core.resource_calculator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ResourceCalculator</span>
+
+        <span class="n">job_id</span> <span class="o">=</span> <span class="n">job</span><span class="p">[</span><span class="s2">&quot;job_id&quot;</span><span class="p">]</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="n">job</span><span class="p">[</span><span class="s2">&quot;parameters&quot;</span><span class="p">]</span>
+
+        <span class="c1"># Initialisiere den Event-Processor</span>
+        <span class="n">processor</span> <span class="o">=</span> <span class="n">EventProcessor</span><span class="p">(</span>
+            <span class="n">resource_calculator</span><span class="o">=</span><span class="n">ResourceCalculator</span><span class="p">(),</span>
+            <span class="n">process_id</span><span class="o">=</span><span class="n">job_id</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Aktualisiere den Job-Status</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_job_status</span><span class="p">(</span>
+            <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+            <span class="n">status</span><span class="o">=</span><span class="s2">&quot;processing&quot;</span><span class="p">,</span>
+            <span class="n">progress</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="s2">&quot;processing&quot;</span><span class="p">,</span> <span class="s2">&quot;percent&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Event-Verarbeitung läuft&quot;</span><span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Verarbeite das Event</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">process_event</span><span class="p">(</span>
+            <span class="n">event</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;event&quot;</span><span class="p">],</span>
+            <span class="n">session</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;session&quot;</span><span class="p">],</span>
+            <span class="n">url</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;url&quot;</span><span class="p">],</span>
+            <span class="n">filename</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;filename&quot;</span><span class="p">],</span>
+            <span class="n">track</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;track&quot;</span><span class="p">],</span>
+            <span class="n">day</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;day&quot;</span><span class="p">),</span>
+            <span class="n">starttime</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;starttime&quot;</span><span class="p">),</span>
+            <span class="n">endtime</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;endtime&quot;</span><span class="p">),</span>
+            <span class="n">speakers</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;speakers&quot;</span><span class="p">,</span> <span class="p">[]),</span>
+            <span class="n">video_url</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;video_url&quot;</span><span class="p">),</span>
+            <span class="n">attachments_url</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;attachments_url&quot;</span><span class="p">),</span>
+            <span class="n">source_language</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;source_language&quot;</span><span class="p">,</span> <span class="s2">&quot;en&quot;</span><span class="p">),</span>
+            <span class="n">target_language</span><span class="o">=</span><span class="n">params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;target_language&quot;</span><span class="p">,</span> <span class="s2">&quot;de&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Verarbeite das Ergebnis</span>
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+            <span class="c1"># Erstelle URLs für die Ergebnisse</span>
+            <span class="n">markdown_file</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">markdown_file</span>
+            <span class="n">base_path</span> <span class="o">=</span> <span class="s2">&quot;/events/&quot;</span>
+            <span class="n">relative_path</span> <span class="o">=</span> <span class="n">markdown_file</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">base_path</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">markdown_url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/api/events/files/</span><span class="si">{</span><span class="n">relative_path</span><span class="si">}</span><span class="s2">&quot;</span>
+
+            <span class="c1"># Sammle Asset-URLs</span>
+            <span class="n">assets</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="s2">&quot;gallery&quot;</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">asset_path</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;gallery&quot;</span><span class="p">]:</span>
+                    <span class="n">asset_url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/api/events/files/</span><span class="si">{</span><span class="n">relative_path</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">asset_path</span><span class="si">}</span><span class="s2">&quot;</span>
+                    <span class="n">assets</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;image&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="n">asset_path</span><span class="p">,</span>
+                        <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">asset_url</span>
+                    <span class="p">})</span>
+
+            <span class="c1"># Aktualisiere den Job-Status mit den Ergebnissen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_job_status</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">status</span><span class="o">=</span><span class="s2">&quot;completed&quot;</span><span class="p">,</span>
+                <span class="n">progress</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="s2">&quot;completed&quot;</span><span class="p">,</span> <span class="s2">&quot;percent&quot;</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Verarbeitung abgeschlossen&quot;</span><span class="p">},</span>
+                <span class="n">results</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;markdown_file&quot;</span><span class="p">:</span> <span class="n">markdown_file</span><span class="p">,</span>
+                    <span class="s2">&quot;markdown_url&quot;</span><span class="p">:</span> <span class="n">markdown_url</span><span class="p">,</span>
+                    <span class="s2">&quot;assets&quot;</span><span class="p">:</span> <span class="n">assets</span><span class="p">,</span>
+                    <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">metadata</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Log-Eintrag hinzufügen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">add_log_entry</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Event-Verarbeitung erfolgreich abgeschlossen&quot;</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Webhook-Callback senden, falls konfiguriert</span>
+            <span class="k">if</span> <span class="s2">&quot;webhook&quot;</span> <span class="ow">in</span> <span class="n">job</span><span class="p">:</span>
+                <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_webhook_callback</span><span class="p">(</span><span class="n">job</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Fehlerfall</span>
+            <span class="n">error_info</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">code</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span> <span class="k">else</span> <span class="s2">&quot;PROCESSING_ERROR&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">message</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span> <span class="k">else</span> <span class="s2">&quot;Unbekannter Fehler&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">details</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">,</span> <span class="s2">&quot;details&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+            <span class="p">}</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">update_job_status</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">status</span><span class="o">=</span><span class="s2">&quot;failed&quot;</span><span class="p">,</span>
+                <span class="n">error</span><span class="o">=</span><span class="n">error_info</span>
+            <span class="p">)</span>
+
+            <span class="c1"># Log-Eintrag hinzufügen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">job_repo</span><span class="o">.</span><span class="n">add_log_entry</span><span class="p">(</span>
+                <span class="n">job_id</span><span class="o">=</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="n">level</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Fehler bei der Verarbeitung: </span><span class="si">{</span><span class="n">error_info</span><span class="p">[</span><span class="s1">&#39;message&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_send_webhook_callback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">result</span><span class="p">:</span> <span class="n">Any</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Sendet einen Webhook-Callback.&quot;&quot;&quot;</span>
+        <span class="c1"># Implementierung ähnlich wie in EventProcessor._send_webhook_callback</span>
+        <span class="k">pass</span>
+</code></pre></div>
+<h3 id="3-api-erweiterungen">3. API-Erweiterungen<a class="headerlink" href="#3-api-erweiterungen" title="Permanent link">&para;</a></h3>
+<h4 id="neue-api-endpoints">Neue API-Endpoints<a class="headerlink" href="#neue-api-endpoints" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="nd">@api</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/events/jobs&#39;</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EventJobsEndpoint</span><span class="p">(</span><span class="n">Resource</span><span class="p">):</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">expect</span><span class="p">(</span><span class="n">api</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="s1">&#39;EventJobRequest&#39;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">,</span> <span class="n">api</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="s1">&#39;EventJobResponse&#39;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">post</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Erstellt einen neuen Event-Job.&quot;&quot;&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">get_json</span><span class="p">()</span>
+        <span class="c1"># Job erstellen und in MongoDB speichern</span>
+        <span class="n">job_id</span> <span class="o">=</span> <span class="n">event_job_repository</span><span class="o">.</span><span class="n">create_job</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;success&quot;</span><span class="p">,</span> <span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job_id</span><span class="p">}</span>
+
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">,</span> <span class="n">api</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="s1">&#39;EventJobsList&#39;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Gibt eine Liste aller Event-Jobs zurück.&quot;&quot;&quot;</span>
+        <span class="c1"># Parameter für Filterung und Paginierung</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">)</span>
+        <span class="n">batch_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;batch_id&quot;</span><span class="p">)</span>
+        <span class="n">limit</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;limit&quot;</span><span class="p">,</span> <span class="mi">100</span><span class="p">))</span>
+        <span class="n">skip</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+        <span class="c1"># Jobs abfragen</span>
+        <span class="c1"># ...</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;success&quot;</span><span class="p">,</span> <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total</span><span class="p">,</span> <span class="s2">&quot;jobs&quot;</span><span class="p">:</span> <span class="n">jobs</span><span class="p">}</span>
+
+<span class="nd">@api</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/events/jobs/&lt;string:job_id&gt;&#39;</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EventJobDetailsEndpoint</span><span class="p">(</span><span class="n">Resource</span><span class="p">):</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">,</span> <span class="n">api</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="s1">&#39;EventJobDetail&#39;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s1">&#39;Job nicht gefunden&#39;</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Gibt Details zu einem Event-Job zurück.&quot;&quot;&quot;</span>
+        <span class="n">job</span> <span class="o">=</span> <span class="n">event_job_repository</span><span class="o">.</span><span class="n">get_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">job</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Job nicht gefunden&quot;</span><span class="p">},</span> <span class="mi">404</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;success&quot;</span><span class="p">,</span> <span class="s2">&quot;job&quot;</span><span class="p">:</span> <span class="n">job</span><span class="p">}</span>
+
+    <span class="nd">@api</span><span class="o">.</span><span class="n">expect</span><span class="p">(</span><span class="n">api</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="s1">&#39;EventJobUpdate&#39;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">)</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s1">&#39;Job nicht gefunden&#39;</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">put</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Aktualisiert einen Event-Job.&quot;&quot;&quot;</span>
+        <span class="c1"># ...</span>
+
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">)</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s1">&#39;Job nicht gefunden&#39;</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Löscht einen Event-Job.&quot;&quot;&quot;</span>
+        <span class="c1"># ...</span>
+
+<span class="nd">@api</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/events/batches&#39;</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EventBatchesEndpoint</span><span class="p">(</span><span class="n">Resource</span><span class="p">):</span>
+    <span class="c1"># Ähnliche Implementierung wie für Jobs</span>
+    <span class="k">pass</span>
+
+<span class="nd">@api</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/events/files/&lt;path:file_path&gt;&#39;</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EventFilesEndpoint</span><span class="p">(</span><span class="n">Resource</span><span class="p">):</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s1">&#39;Erfolg&#39;</span><span class="p">)</span>
+    <span class="nd">@api</span><span class="o">.</span><span class="n">response</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s1">&#39;Datei nicht gefunden&#39;</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_path</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Gibt eine Event-Datei zurück.&quot;&quot;&quot;</span>
+        <span class="n">full_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;events&quot;</span><span class="p">,</span> <span class="n">file_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">full_path</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">full_path</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Datei nicht gefunden&quot;</span><span class="p">},</span> <span class="mi">404</span>
+
+        <span class="c1"># MIME-Typ bestimmen</span>
+        <span class="n">mime_type</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">mimetypes</span><span class="o">.</span><span class="n">guess_type</span><span class="p">(</span><span class="n">full_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">mime_type</span><span class="p">:</span>
+            <span class="n">mime_type</span> <span class="o">=</span> <span class="s1">&#39;application/octet-stream&#39;</span>
+
+        <span class="c1"># Datei senden</span>
+        <span class="k">return</span> <span class="n">send_file</span><span class="p">(</span>
+            <span class="n">full_path</span><span class="p">,</span>
+            <span class="n">mimetype</span><span class="o">=</span><span class="n">mime_type</span><span class="p">,</span>
+            <span class="n">as_attachment</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">download_name</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">full_path</span><span class="p">)</span>
+        <span class="p">)</span>
+</code></pre></div>
+<h2 id="integration-in-bestehenden-code">Integration in bestehenden Code<a class="headerlink" href="#integration-in-bestehenden-code" title="Permanent link">&para;</a></h2>
+<p>Die bestehende <code>_process_many_events_async_task</code>-Methode sollte durch eine MongoDB-basierte Implementierung ersetzt werden:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_process_many_events_async_task</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_data</span><span class="p">:</span> <span class="n">AsyncBatchEventInput</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Task für die asynchrone Verarbeitung mehrerer Events.</span>
+
+<span class="sd">    Erstellt Jobs in der MongoDB und startet den Worker-Manager.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        input_data: Eingabedaten für die Event-Verarbeitung</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">src.core.mongodb</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_job_repository</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="s2">&quot;Starte asynchrone Batchverarbeitung über MongoDB&quot;</span><span class="p">,</span>
+        <span class="n">event_count</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">input_data</span><span class="o">.</span><span class="n">events</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Job-Repository holen</span>
+    <span class="n">job_repo</span> <span class="o">=</span> <span class="n">get_job_repository</span><span class="p">()</span>
+
+    <span class="c1"># Batch erstellen</span>
+    <span class="n">batch_id</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">create_batch</span><span class="p">({</span>
+        <span class="s2">&quot;total_jobs&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_data</span><span class="o">.</span><span class="n">events</span><span class="p">),</span>
+        <span class="s2">&quot;webhook&quot;</span><span class="p">:</span> <span class="n">input_data</span><span class="o">.</span><span class="n">webhook</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">if</span> <span class="n">input_data</span><span class="o">.</span><span class="n">webhook</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;parameters&quot;</span><span class="p">:</span> <span class="p">{}</span>  <span class="c1"># Gemeinsame Parameter, falls vorhanden</span>
+    <span class="p">})</span>
+
+    <span class="c1"># Jobs für jedes Event erstellen</span>
+    <span class="k">for</span> <span class="n">event_index</span><span class="p">,</span> <span class="n">event</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">input_data</span><span class="o">.</span><span class="n">events</span><span class="p">):</span>
+        <span class="c1"># Event-Daten validieren</span>
+        <span class="n">event_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_event_data</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">event_data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Ungültige Event-Daten, überspringe Event </span><span class="si">{</span><span class="n">event_index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">event_id</span><span class="o">=</span><span class="n">event_index</span>
+            <span class="p">)</span>
+            <span class="k">continue</span>
+
+        <span class="c1"># Job erstellen</span>
+        <span class="n">job_repo</span><span class="o">.</span><span class="n">create_job</span><span class="p">({</span>
+            <span class="s2">&quot;batch_id&quot;</span><span class="p">:</span> <span class="n">batch_id</span><span class="p">,</span>
+            <span class="s2">&quot;parameters&quot;</span><span class="p">:</span> <span class="n">event_data</span><span class="p">,</span>
+            <span class="s2">&quot;webhook&quot;</span><span class="p">:</span> <span class="n">input_data</span><span class="o">.</span><span class="n">webhook</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">if</span> <span class="n">input_data</span><span class="o">.</span><span class="n">webhook</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">})</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;Batch-Job erstellt mit ID </span><span class="si">{</span><span class="n">batch_id</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">input_data</span><span class="o">.</span><span class="n">events</span><span class="p">)</span><span class="si">}</span><span class="s2"> Events in die Queue eingereiht&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span>
+</code></pre></div>
+<h2 id="uberwachung-und-monitoring">Überwachung und Monitoring<a class="headerlink" href="#uberwachung-und-monitoring" title="Permanent link">&para;</a></h2>
+<p>Für die Überwachung der Event-Jobs soll ein einfaches Monitoring-Dashboard implementiert werden:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/monitoring/events&#39;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">event_monitoring_dashboard</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Rendert das Event-Monitoring-Dashboard.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s1">&#39;event_monitoring.html&#39;</span><span class="p">)</span>
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s1">&#39;/api/monitoring/events/stats&#39;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">event_monitoring_stats</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Gibt Statistiken zu den Event-Jobs zurück.&quot;&quot;&quot;</span>
+    <span class="n">job_repo</span> <span class="o">=</span> <span class="n">get_job_repository</span><span class="p">()</span>
+
+    <span class="c1"># Statistiken abrufen</span>
+    <span class="n">total_jobs</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({})</span>
+    <span class="n">pending_jobs</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;pending&quot;</span><span class="p">})</span>
+    <span class="n">processing_jobs</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;processing&quot;</span><span class="p">})</span>
+    <span class="n">completed_jobs</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;completed&quot;</span><span class="p">})</span>
+    <span class="n">failed_jobs</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;failed&quot;</span><span class="p">})</span>
+
+    <span class="c1"># Batch-Statistiken</span>
+    <span class="n">total_batches</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({})</span>
+    <span class="n">active_batches</span> <span class="o">=</span> <span class="n">job_repo</span><span class="o">.</span><span class="n">batches</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;processing&quot;</span><span class="p">})</span>
+
+    <span class="c1"># Nach Track gruppieren</span>
+    <span class="n">track_stats</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">job_repo</span><span class="o">.</span><span class="n">jobs</span><span class="o">.</span><span class="n">aggregate</span><span class="p">([</span>
+        <span class="p">{</span><span class="s2">&quot;$group&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="s2">&quot;$parameters.track&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$sum&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
+            <span class="s2">&quot;completed&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$sum&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$cond&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;$eq&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;$status&quot;</span><span class="p">,</span> <span class="s2">&quot;completed&quot;</span><span class="p">]},</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]}},</span>
+            <span class="s2">&quot;failed&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$sum&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$cond&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;$eq&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;$status&quot;</span><span class="p">,</span> <span class="s2">&quot;failed&quot;</span><span class="p">]},</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]}}</span>
+        <span class="p">}}</span>
+    <span class="p">]))</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;success&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;stats&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;jobs&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total_jobs</span><span class="p">,</span>
+                <span class="s2">&quot;pending&quot;</span><span class="p">:</span> <span class="n">pending_jobs</span><span class="p">,</span>
+                <span class="s2">&quot;processing&quot;</span><span class="p">:</span> <span class="n">processing_jobs</span><span class="p">,</span>
+                <span class="s2">&quot;completed&quot;</span><span class="p">:</span> <span class="n">completed_jobs</span><span class="p">,</span>
+                <span class="s2">&quot;failed&quot;</span><span class="p">:</span> <span class="n">failed_jobs</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;batches&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total_batches</span><span class="p">,</span>
+                <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="n">active_batches</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;tracks&quot;</span><span class="p">:</span> <span class="n">track_stats</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+</code></pre></div>
+<h2 id="konfiguration">Konfiguration<a class="headerlink" href="#konfiguration" title="Permanent link">&para;</a></h2>
+<p>Die MongoDB-Konfiguration sollte in der Anwendungskonfiguration hinzugefügt werden:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Konfigurationsbeispiel</span>
+<span class="n">MONGODB_URI</span> <span class="o">=</span> <span class="s2">&quot;mongodb://localhost:27017/&quot;</span>
+<span class="n">MONGODB_DB_NAME</span> <span class="o">=</span> <span class="s2">&quot;event_processing&quot;</span>
+<span class="n">MONGODB_MAX_POOL_SIZE</span> <span class="o">=</span> <span class="mi">50</span>
+<span class="n">MONGODB_CONNECT_TIMEOUT_MS</span> <span class="o">=</span> <span class="mi">5000</span>
+
+<span class="c1"># Worker-Konfiguration</span>
+<span class="n">EVENT_WORKER_MAX_CONCURRENT</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="n">EVENT_WORKER_POLL_INTERVAL_SEC</span> <span class="o">=</span> <span class="mi">5</span>
+</code></pre></div>
+<h2 id="deployment-uberlegungen">Deployment-Überlegungen<a class="headerlink" href="#deployment-uberlegungen" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>MongoDB-Setup</strong>: Für Produktionsumgebungen sollte eine MongoDB mit Replikation eingerichtet werden.</li>
+<li><strong>Worker-Skalierung</strong>: Die Worker könnten in separaten Prozessen/Containern laufen, um die Verarbeitung zu skalieren.</li>
+<li><strong>Datensicherung</strong>: Regelmäßige Backups der MongoDB-Datenbank sollten eingerichtet werden.</li>
+<li><strong>Ressourcenplanung</strong>: Ausreichend Speicherplatz für die verarbeiteten Events (Markdown, Bilder) sicherstellen.</li>
+</ol>
+<h2 id="fazit">Fazit<a class="headerlink" href="#fazit" title="Permanent link">&para;</a></h2>
+<p>Die vorgeschlagene Lösung ermöglicht:</p>
+<ol>
+<li><strong>Robustheit</strong>: Keine Datenverluste bei Server-Neustarts</li>
+<li><strong>Skalierbarkeit</strong>: Effiziente Verarbeitung großer Event-Mengen</li>
+<li><strong>Zugänglichkeit</strong>: Einfacher externer Zugriff auf verarbeitete Events</li>
+<li><strong>Transparenz</strong>: Umfassende Überwachung des Verarbeitungsstatus</li>
+</ol>
+<p>Die Implementierung sollte schrittweise erfolgen, beginnend mit der MongoDB-Integration, gefolgt von den Worker-Komponenten und schließlich den API-Erweiterungen.</p>
+<h2 id="erweiterungen-und-klarstellungen">Erweiterungen und Klarstellungen<a class="headerlink" href="#erweiterungen-und-klarstellungen" title="Permanent link">&para;</a></h2>
+<h3 id="benutzer-autorisierung">Benutzer-Autorisierung<a class="headerlink" href="#benutzer-autorisierung" title="Permanent link">&para;</a></h3>
+<p>Um Event-Jobs mit unterschiedlichen Autorisierungsstufen zu verwalten, wird ein <code>userId</code> eingeführt. Dies ermöglicht eine benutzerbasierte Zugriffskontrolle.</p>
+<h4 id="datenbankschema-erweiterung">Datenbankschema-Erweiterung<a class="headerlink" href="#datenbankschema-erweiterung" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Bestehende Felder...</span>
+<span class="w">  </span><span class="s2">&quot;user_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;user-123&quot;</span><span class="p">,</span><span class="w">                 </span><span class="c1">// ID des Benutzers, der den Job erstellt hat</span>
+<span class="w">  </span><span class="s2">&quot;access_control&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w">                    </span><span class="c1">// Zugriffssteuerung (optional)</span>
+<span class="w">    </span><span class="s2">&quot;visibility&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;private&quot;</span><span class="p">,</span><span class="w">             </span><span class="c1">// private, team, public</span>
+<span class="w">    </span><span class="s2">&quot;read_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-456&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;team-marketing&quot;</span><span class="p">],</span><span class="w"> </span><span class="c1">// Benutzer/Gruppen mit Lesezugriff</span>
+<span class="w">    </span><span class="s2">&quot;write_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-123&quot;</span><span class="p">],</span><span class="w">        </span><span class="c1">// Benutzer/Gruppen mit Schreibzugriff</span>
+<span class="w">    </span><span class="s2">&quot;admin_access&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user-123&quot;</span><span class="p">]</span><span class="w">         </span><span class="c1">// Benutzer/Gruppen mit Admin-Zugriff</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="uberflussige-api-endpunkte-und-prozesse">Überflüssige API-Endpunkte und Prozesse<a class="headerlink" href="#uberflussige-api-endpunkte-und-prozesse" title="Permanent link">&para;</a></h3>
+<p>Folgende bestehende Komponenten werden durch die MongoDB-Lösung ersetzt oder modifiziert:</p>
+<ul>
+<li><strong>API-Endpunkte:</strong></li>
+<li><code>/process-events-async</code> (ersetzt durch <code>/events/jobs</code>)</li>
+<li><code>/process-many-events</code> (ersetzt durch <code>/events/batches</code>)</li>
+<li><code>/test-webhook-callback</code> (modifiziert für Tests)</li>
+<li>
+<p><code>/test-webhook-logs</code> (ersetzt durch Monitoring-API)</p>
+</li>
+<li>
+<p><strong>Prozesse:</strong></p>
+</li>
+<li><code>_process_many_events_async_task</code> (ersetzt durch MongoDB-basierte Job-Verwaltung)</li>
+<li>Isolierte Prozess-Verarbeitung via Subprocess (ersetzt durch Worker-Manager)</li>
+</ul>
+<h3 id="konfiguration-in-configyaml">Konfiguration in config.yaml<a class="headerlink" href="#konfiguration-in-configyaml" title="Permanent link">&para;</a></h3>
+<p>Die Datenbankparameter werden in der <code>config.yaml</code> gespeichert:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">mongodb</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">uri</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mongodb://localhost:27017/&quot;</span>
+<span class="w">  </span><span class="nt">db_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;event_processing&quot;</span>
+<span class="w">  </span><span class="nt">max_pool_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<span class="w">  </span><span class="nt">connect_timeout_ms</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+
+<span class="nt">event_worker</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">max_concurrent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w">  </span><span class="nt">poll_interval_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</code></pre></div>
+<h3 id="architektur-der-datenbankkomponente">Architektur der Datenbankkomponente<a class="headerlink" href="#architektur-der-datenbankkomponente" title="Permanent link">&para;</a></h3>
+<p>Die MongoDB-Komponente wird als Core-Komponente implementiert:</p>
+<div class="highlight"><pre><span></span><code>src/
+  core/
+    mongodb/
+      __init__.py
+      repository.py
+      connection.py
+  processors/
+    event_processor.py
+  utils/
+    performance_tracker.py
+</code></pre></div>
+<h2 id="umsetzungsplan">Umsetzungsplan<a class="headerlink" href="#umsetzungsplan" title="Permanent link">&para;</a></h2>
+<h3 id="schritt-1-mongodb-integration">Schritt 1: MongoDB-Integration<a class="headerlink" href="#schritt-1-mongodb-integration" title="Permanent link">&para;</a></h3>
+<ul>
+<li>MongoDB-Verbindung und Repository implementieren</li>
+<li>Datenbankschema definieren und Indizes erstellen</li>
+</ul>
+<h3 id="schritt-2-benutzer-autorisierung">Schritt 2: Benutzer-Autorisierung<a class="headerlink" href="#schritt-2-benutzer-autorisierung" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>userId</code> und Zugriffskontrolle implementieren</li>
+<li>API-Endpunkte anpassen</li>
+</ul>
+<h3 id="schritt-3-worker-manager">Schritt 3: Worker-Manager<a class="headerlink" href="#schritt-3-worker-manager" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Worker-Manager implementieren</li>
+<li>Job-Verarbeitung und Statusaktualisierung integrieren</li>
+</ul>
+<h3 id="schritt-4-api-erweiterungen">Schritt 4: API-Erweiterungen<a class="headerlink" href="#schritt-4-api-erweiterungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Neue API-Endpunkte für Job- und Batch-Verwaltung erstellen</li>
+<li>Externe URL-Zugriffe ermöglichen</li>
+</ul>
+<h3 id="schritt-5-monitoring-und-dashboard">Schritt 5: Monitoring und Dashboard<a class="headerlink" href="#schritt-5-monitoring-und-dashboard" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Monitoring-Dashboard implementieren</li>
+<li>Statistiken und Statusinformationen bereitstellen</li>
+</ul>
+<h3 id="schritt-6-deployment-und-tests">Schritt 6: Deployment und Tests<a class="headerlink" href="#schritt-6-deployment-und-tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>MongoDB-Setup und Worker-Skalierung planen</li>
+<li>Umfangreiche Tests durchführen</li>
+</ul>
+<h2 id="fazit_1">Fazit<a class="headerlink" href="#fazit_1" title="Permanent link">&para;</a></h2>
+<p>Die vorgeschlagene Lösung bietet eine robuste, skalierbare und transparente Event-Verwaltung mit benutzerbasierter Autorisierung und externem Zugriff auf Ergebnisse. Die schrittweise Implementierung gewährleistet eine reibungslose Integration in die bestehende Infrastruktur. </p>
+<h1 id="zusammenfassung-der-anforderungen">Zusammenfassung der Anforderungen<a class="headerlink" href="#zusammenfassung-der-anforderungen" title="Permanent link">&para;</a></h1>
+<h2 id="zielsetzung">Zielsetzung<a class="headerlink" href="#zielsetzung" title="Permanent link">&para;</a></h2>
+<p>Die Event-Verwaltung des Common Secretary Services soll optimiert werden, um:</p>
+<ol>
+<li>Persistente Speicherung der Event-Aufträge in einer MongoDB zu gewährleisten.</li>
+<li>Statusinformationen der Event-Verarbeitung dauerhaft zu speichern und zu aktualisieren.</li>
+<li>Ergebnisse (Markdown-Dateien, Bilder) über externe URLs zugänglich zu machen.</li>
+<li>Benutzerbasierte Autorisierung und Zugriffskontrolle zu ermöglichen.</li>
+<li>Ein zentrales Monitoring und eine REST-API für den Zugriff auf verarbeitete Events bereitzustellen.</li>
+</ol>
+<h2 id="anforderungen-im-detail">Anforderungen im Detail<a class="headerlink" href="#anforderungen-im-detail" title="Permanent link">&para;</a></h2>
+<h3 id="1-persistente-speicherung">1. Persistente Speicherung<a class="headerlink" href="#1-persistente-speicherung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Speicherung aller Event-Aufträge in einer MongoDB.</li>
+<li>Sicherstellung, dass bei Server-Neustarts keine Daten verloren gehen.</li>
+</ul>
+<h3 id="2-statusverwaltung">2. Statusverwaltung<a class="headerlink" href="#2-statusverwaltung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Speicherung und Aktualisierung des Verarbeitungsstatus (pending, processing, completed, failed).</li>
+<li>Speicherung detaillierter Fortschrittsinformationen und Logs.</li>
+</ul>
+<h3 id="3-externe-zuganglichkeit">3. Externe Zugänglichkeit<a class="headerlink" href="#3-externe-zuganglichkeit" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bereitstellung der Ergebnisse (Markdown-Dateien, Bilder) über externe URLs.</li>
+<li>Implementierung neuer API-Endpunkte für den Zugriff auf diese Ergebnisse.</li>
+</ul>
+<h3 id="4-benutzer-autorisierung">4. Benutzer-Autorisierung<a class="headerlink" href="#4-benutzer-autorisierung" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Einführung eines <code>userId</code> zur Verwaltung von Event-Jobs.</li>
+<li>Implementierung einer Zugriffssteuerung mit Sichtbarkeitsstufen (private, team, public).</li>
+<li>Verwaltung von Lese-, Schreib- und Admin-Zugriffen.</li>
+</ul>
+<h3 id="5-monitoring-und-dashboard">5. Monitoring und Dashboard<a class="headerlink" href="#5-monitoring-und-dashboard" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementierung eines zentralen Monitoring-Dashboards.</li>
+<li>Bereitstellung von Statistiken und Statusinformationen zu Event-Jobs und Batches.</li>
+</ul>
+<h3 id="6-api-erweiterungen">6. API-Erweiterungen<a class="headerlink" href="#6-api-erweiterungen" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Neue API-Endpunkte für Job- und Batch-Verwaltung.</li>
+<li>Anpassung bestehender API-Endpunkte und Entfernung überflüssiger Endpunkte.</li>
+</ul>
+<h3 id="7-konfiguration">7. Konfiguration<a class="headerlink" href="#7-konfiguration" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Speicherung der MongoDB- und Worker-Konfiguration in der <code>config.yaml</code>.</li>
+</ul>
+<h3 id="8-architektur">8. Architektur<a class="headerlink" href="#8-architektur" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementierung der MongoDB-Komponente als Core-Komponente.</li>
+<li>Klare Trennung zwischen Core-, Processor- und Utils-Komponenten.</li>
+</ul>
+<h2 id="umsetzungsplan_1">Umsetzungsplan<a class="headerlink" href="#umsetzungsplan_1" title="Permanent link">&para;</a></h2>
+<h3 id="schritt-1-mongodb-integration_1">Schritt 1: MongoDB-Integration<a class="headerlink" href="#schritt-1-mongodb-integration_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementierung der MongoDB-Verbindung und des Repositories.</li>
+<li>Definition des Datenbankschemas und Erstellung notwendiger Indizes.</li>
+</ul>
+<h3 id="schritt-2-benutzer-autorisierung_1">Schritt 2: Benutzer-Autorisierung<a class="headerlink" href="#schritt-2-benutzer-autorisierung_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementierung von <code>userId</code> und Zugriffskontrolle.</li>
+<li>Anpassung der API-Endpunkte für benutzerbasierte Zugriffe.</li>
+</ul>
+<h3 id="schritt-3-worker-manager_1">Schritt 3: Worker-Manager<a class="headerlink" href="#schritt-3-worker-manager_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementierung eines Worker-Managers zur Verwaltung der Job-Verarbeitung.</li>
+<li>Integration der Statusaktualisierung und Fortschrittsverfolgung.</li>
+</ul>
+<h3 id="schritt-4-api-erweiterungen_1">Schritt 4: API-Erweiterungen<a class="headerlink" href="#schritt-4-api-erweiterungen_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Erstellung neuer API-Endpunkte für Job- und Batch-Verwaltung.</li>
+<li>Implementierung externer URL-Zugriffe auf Ergebnisse.</li>
+</ul>
+<h3 id="schritt-5-monitoring-und-dashboard_1">Schritt 5: Monitoring und Dashboard<a class="headerlink" href="#schritt-5-monitoring-und-dashboard_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Entwicklung eines Monitoring-Dashboards.</li>
+<li>Bereitstellung von Statistiken und Statusinformationen.</li>
+</ul>
+<h3 id="schritt-6-deployment-und-tests_1">Schritt 6: Deployment und Tests<a class="headerlink" href="#schritt-6-deployment-und-tests_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Planung des MongoDB-Setups und der Worker-Skalierung.</li>
+<li>Durchführung umfangreicher Tests zur Sicherstellung der Stabilität.</li>
+</ul>
+<h2 id="fazit_2">Fazit<a class="headerlink" href="#fazit_2" title="Permanent link">&para;</a></h2>
+<p>Die Umsetzung dieser Anforderungen gewährleistet eine robuste, skalierbare und transparente Event-Verwaltung mit benutzerbasierter Autorisierung und externem Zugriff auf Ergebnisse. Die schrittweise Implementierung ermöglicht eine reibungslose Integration in die bestehende Infrastruktur. </p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "In Zwischenablage kopiert", "clipboard.copy": "In Zwischenablage kopieren", "search.result.more.one": "1 weiteres Suchergebnis auf dieser Seite", "search.result.more.other": "# weitere Suchergebnisse auf dieser Seite", "search.result.none": "Keine Suchergebnisse", "search.result.one": "1 Suchergebnis", "search.result.other": "# Suchergebnisse", "search.result.placeholder": "Suchbegriff eingeben", "search.result.term.missing": "Es fehlt", "select.version": "Version ausw\u00e4hlen"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.50899def.min.js"></script>
+      
+    
+  </body>
+</html>

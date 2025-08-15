@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid p-0" style="height: calc(100vh - 80px);">
+    <iframe
+        src="/docs/"
+        title="Dokumentation"
+        style="border: 0; width: 100%; height: 100%;"
+        referrerpolicy="no-referrer"
+        sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+    ></iframe>
+    <div class="text-muted small mt-2 px-3">
+        Hinweise: Die Dokumentation wird im iframe angezeigt. Externe Links können die App verlassen.
+    </div>
+{% endblock %}
+
+
