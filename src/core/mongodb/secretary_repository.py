@@ -86,7 +86,10 @@ class SecretaryJobRepository:
         # Level auf gültige Literale mappen
         valid = {"debug", "info", "warning", "error", "critical"}
         lvl = level if level in valid else "info"
-        entry = LogEntry(timestamp=datetime.datetime.now(datetime.UTC), level=lvl, message=message)
+        # Typ narrowing für Literal: casten über Literal-Typ
+        from typing import cast, Literal
+        literal_level = cast(Literal["debug", "info", "warning", "error", "critical"], lvl)
+        entry = LogEntry(timestamp=datetime.datetime.now(datetime.UTC), level=literal_level, message=message)
         result: UpdateResult = self.jobs.update_one(
             {"job_id": job_id}, {"$push": {"logs": entry.to_dict()}, "$set": {"updated_at": entry.timestamp}}
         )
