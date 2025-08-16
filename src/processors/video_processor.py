@@ -29,7 +29,7 @@ Der VideoProcessor trackt die LLM-Nutzung auf zwei Ebenen:
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, Tuple
+from typing import Dict, Any, Optional, Union, Tuple, List
 from datetime import datetime
 import uuid
 import hashlib
@@ -44,7 +44,10 @@ from src.core.models.video import (
     VideoSource,
     VideoMetadata,
     VideoProcessingResult,
-    VideoResponse
+    VideoResponse,
+    VideoFramesResult,
+    VideoFramesResponse,
+    FrameInfo
 )
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.transcription_utils import WhisperTranscriber
@@ -56,7 +59,11 @@ from .audio_processor import AudioProcessor
 # Typ-Alias für yt-dlp
 YDLDict = Dict[str, Any]
 
-class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
+from typing import Union as _UnionTypeAlias
+
+VideoAnyResult = _UnionTypeAlias[VideoProcessingResult, VideoFramesResult]
+
+class VideoProcessor(CacheableProcessor[VideoAnyResult]):
     """
     Prozessor für die Verarbeitung von Video-Dateien.
     Lädt Videos herunter, extrahiert Audio und transkribiert sie.
@@ -274,7 +281,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         # Hash aus dem kombinierten Schlüssel erzeugen
         return self.generate_cache_key(cache_key)
 
-    def serialize_for_cache(self, result: VideoProcessingResult) -> Dict[str, Any]:
+    def serialize_for_cache(self, result: Union[VideoProcessingResult, VideoFramesResult]) -> Dict[str, Any]:
         """
         Serialisiert das VideoProcessingResult für die Speicherung im Cache.
         
@@ -284,8 +291,10 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         Returns:
             Dict[str, Any]: Die serialisierten Daten
         """
-        # Hauptdaten speichern
+        # Hauptdaten speichern, inkl. Typ-Kennzeichnung
+        result_type = "video_frames" if isinstance(result, VideoFramesResult) else "video_processing"
         cache_data = {
+            "result_type": result_type,
             "result": result.to_dict(),
             "source_url": result.metadata.source.url if result.metadata.source else None,
             "processed_at": datetime.now().isoformat(),
@@ -297,7 +306,7 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
         
         return cache_data
 
-    def deserialize_cached_data(self, cached_data: Dict[str, Any]) -> VideoProcessingResult:
+    def deserialize_cached_data(self, cached_data: Dict[str, Any]) -> VideoAnyResult:
         """
         Deserialisiert die Cache-Daten zurück in ein VideoProcessingResult.
         
@@ -308,7 +317,227 @@ class VideoProcessor(CacheableProcessor[VideoProcessingResult]):
             VideoProcessingResult: Das rekonstruierte Ergebnis
         """
         result_data = cached_data.get("result", {})
+        result_type = cached_data.get("result_type", "video_processing")
+        if result_type == "video_frames":
+            return VideoFramesResult.from_dict(result_data)
         return VideoProcessingResult.from_dict(result_data)
+
+    def _create_cache_key_frames(
+        self,
+        source: Union[str, VideoSource],
+        interval_seconds: int,
+        width: Optional[int],
+        height: Optional[int],
+        image_format: str = "jpg"
+    ) -> str:
+        """Erstellt Cache-Key für Frame-Extraktion."""
+        if isinstance(source, VideoSource):
+            base_key = source.url or (source.file_name or "uploaded_file")
+        else:
+            base_key = source
+        size_part = f"size={width}x{height}" if width or height else "size=orig"
+        key_str = f"frames|{base_key}|interval={interval_seconds}|{size_part}|fmt={image_format}"
+        return self.generate_cache_key(key_str)
+
+    async def extract_frames(
+        self,
+        source: Union[str, VideoSource],
+        interval_seconds: int = 5,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        image_format: str = "jpg",
+        use_cache: bool = True,
+        binary_data: Optional[bytes] = None
+    ) -> VideoFramesResponse:
+        """Extrahiert Frames in festem Intervall und speichert sie lokal."""
+        working_dir: Path = Path(self.temp_dir) / "video" / str(uuid.uuid4())
+        working_dir.mkdir(parents=True, exist_ok=True)
+        frames_dir: Path = working_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+        temp_video_path: Optional[Path] = None
+        title: str = ""
+        duration: int = 0
+        video_id: str = ""
+
+        try:
+            # Quelle normalisieren
+            if isinstance(source, str):
+                video_source = VideoSource(url=source)
+            else:
+                video_source = source
+
+            cache_key = self._create_cache_key_frames(video_source,
+                                                      interval_seconds, width, height, image_format)
+            if use_cache and self.is_cache_enabled():
+                cache_hit, cached_result = self.get_from_cache(cache_key)
+                if cache_hit and isinstance(cached_result, VideoFramesResult):
+                    return self.create_response(
+                        processor_name="video",
+                        result=cached_result,
+                        request_info={
+                            'source': video_source.to_dict() if hasattr(video_source, 'to_dict') else str(video_source),
+                            'interval_seconds': interval_seconds,
+                            'width': width,
+                            'height': height,
+                            'format': image_format,
+                            'use_cache': use_cache
+                        },
+                        response_class=VideoFramesResponse,
+                        from_cache=True,
+                        cache_key=cache_key
+                    )
+
+            # Video vorbereiten (vollständiges Video, nicht nur Audio)
+            if video_source.url:
+                normalized_url = self._normalize_vimeo_url(video_source.url)
+                with yt_dlp.YoutubeDL({
+                    'quiet': True,
+                    'no_warnings': True,
+                    'format': 'bestvideo+bestaudio/best',
+                    'merge_output_format': 'mp4',
+                    'outtmpl': str(working_dir / '%(title)s.%(ext)s'),
+                    'retries': 10,
+                    'socket_timeout': 30,
+                    'nocheckcertificate': True,
+                }) as ydl:
+                    info: YDLDict = ydl.extract_info(normalized_url, download=True)  # type: ignore
+                    if not info:
+                        raise ValueError("Keine Video-Informationen gefunden")
+                    video_id = str(info.get('id'))
+                    title = str(info.get('title', 'video'))
+                    duration = int(info.get('duration', 0))
+                # Eingangsdatei finden
+                candidates = list(working_dir.glob("*.mp4")) + list(working_dir.glob("*.mkv")) + list(working_dir.glob("*.webm"))
+                if not candidates:
+                    raise ValueError("Heruntergeladenes Video nicht gefunden")
+                temp_video_path = candidates[0]
+            else:
+                # Upload-Fall
+                video_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
+                title = video_source.file_name or "uploaded_video"
+                if not video_source.file_name or not binary_data:
+                    raise ValueError("Dateiname und Binärdaten erforderlich für Upload")
+                temp_video_path = working_dir / video_source.file_name
+                temp_video_path.write_bytes(binary_data)
+
+            # ffmpeg-Filterkette aufbauen
+            filters: List[str] = []
+            # 1 Frame alle N Sekunden
+            filters.append(f"fps=1/{max(1, int(interval_seconds))}")
+            # Optional skalieren
+            if width or height:
+                w = width if width else -1
+                h = height if height else -1
+                filters.append(f"scale={w}:{h}:flags=lanczos")
+            filter_str = ",".join(filters)
+
+            # Ausgabeformat und Pfad
+            image_ext = image_format.lower()
+            if image_ext not in {"jpg", "jpeg", "png"}:
+                image_ext = "jpg"
+            output_pattern = frames_dir / f"frame_%06d.{image_ext}"
+
+            # ffmpeg ausführen
+            cmd = [
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-i', str(temp_video_path),
+                '-vf', filter_str,
+                str(output_pattern)
+            ]
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+            # erzeugte Dateien einsammeln
+            files = sorted(frames_dir.glob(f"*.{image_ext}"))
+            frames: List[FrameInfo] = []
+            for idx, fpath in enumerate(files, start=0):
+                frames.append(FrameInfo(
+                    index=idx,
+                    timestamp_s=float(idx * max(1, int(interval_seconds))),
+                    file_path=str(fpath),
+                    width=width,
+                    height=height
+                ))
+
+            # Metadaten
+            metadata = VideoMetadata(
+                title=title or "",
+                source=video_source,
+                duration=duration,
+                duration_formatted=self._format_duration(duration if duration else 0),
+                process_dir=str(working_dir),
+                video_id=video_id
+            )
+
+            frames_result = VideoFramesResult(
+                metadata=metadata,
+                process_id=self.process_id,
+                output_dir=str(frames_dir),
+                interval_seconds=int(interval_seconds),
+                frame_count=len(frames),
+                frames=frames
+            )
+
+            # Optional cachen
+            if use_cache and self.is_cache_enabled():
+                self.save_to_cache(cache_key=cache_key, result=frames_result)
+
+            return self.create_response(
+                processor_name="video",
+                result=frames_result,
+                request_info={
+                    'source': video_source.to_dict() if hasattr(video_source, 'to_dict') else str(video_source),
+                    'interval_seconds': interval_seconds,
+                    'width': width,
+                    'height': height,
+                    'format': image_format,
+                    'use_cache': use_cache
+                },
+                response_class=VideoFramesResponse,
+                from_cache=False,
+                cache_key=cache_key
+            )
+
+        except Exception as e:
+            self.logger.error("Fehler bei der Frame-Extraktion",
+                              error=e,
+                              error_type=type(e).__name__)
+            error_source = VideoSource()
+            return self.create_response(
+                processor_name="video",
+                result=VideoFramesResult(
+                    metadata=VideoMetadata(
+                        title="Error",
+                        source=error_source,
+                        duration=0,
+                        duration_formatted="00:00:00"
+                    ),
+                    process_id=self.process_id,
+                    output_dir=str(frames_dir),
+                    interval_seconds=int(interval_seconds),
+                    frame_count=0,
+                    frames=[]
+                ),
+                request_info={
+                    'source': str(source),
+                    'interval_seconds': interval_seconds,
+                    'width': width,
+                    'height': height,
+                    'format': image_format,
+                    'use_cache': use_cache
+                },
+                response_class=VideoFramesResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="VIDEO_FRAME_EXTRACTION_ERROR",
+                    message=str(e),
+                    details={"error_type": type(e).__name__}
+                )
+            )
+        finally:
+            # temp video optional nicht löschen, da frames im selben Ordner liegen; hier keine zusätzliche Bereinigung
+            pass
 
     def _create_specialized_indexes(self, collection: Any) -> None:
         """

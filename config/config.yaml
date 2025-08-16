@@ -34,7 +34,7 @@ mongodb:
 processors:
   pdf:
     max_file_size: 150000000
-    max_pages: 300
+    max_pages: 500
     cache_dir: cache/pdf
     cache:
       enabled: true

@@ -2,7 +2,7 @@
 Video-spezifische Typen und Modelle.
 """
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Protocol
+from typing import Optional, Dict, Any, Protocol, cast, List
 
 from .base import BaseResponse, ProcessingStatus, ProcessInfo, ErrorInfo
 from .audio import TranscriptionResult
@@ -162,9 +162,11 @@ class VideoProcessingResult(CacheableResult):
         if audio_result_dict and isinstance(audio_result_dict, dict):
             try:
                 # Explizite Typ-Konvertierung für den Linter
-                typed_dict: Dict[str, Any] = audio_result_dict
-                audio_result = AudioProcessingResult.from_dict(typed_dict)
-            except:
+                typed_audio: Dict[str, Any] = {}
+                for key, value in cast(Dict[Any, Any], audio_result_dict).items():
+                    typed_audio[str(key)] = value
+                audio_result = AudioProcessingResult.from_dict(typed_audio)
+            except Exception:
                 pass
                 
         # Transkription extrahieren
@@ -173,9 +175,11 @@ class VideoProcessingResult(CacheableResult):
         if transcription_dict and isinstance(transcription_dict, dict):
             try:
                 # Explizite Typ-Konvertierung für den Linter
-                typed_dict: Dict[str, Any] = transcription_dict
-                transcription = TranscriptionResult.from_dict(typed_dict)
-            except:
+                typed_transcription: Dict[str, Any] = {}
+                for key, value in cast(Dict[Any, Any], transcription_dict).items():
+                    typed_transcription[str(key)] = value
+                transcription = TranscriptionResult.from_dict(typed_transcription)
+            except Exception:
                 pass
                 
         return cls(
@@ -243,3 +247,136 @@ class VideoResponse(BaseResponse):
         object.__setattr__(response, 'status', ProcessingStatus.ERROR)
         object.__setattr__(response, 'error', error)
         return response 
+
+# Neue Modelle für Frame-Extraktion
+
+@dataclass
+class FrameInfo:
+    """Informationen zu einem extrahierten Frame."""
+    index: int
+    timestamp_s: float
+    file_path: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'index': self.index,
+            'timestamp_s': self.timestamp_s,
+            'file_path': self.file_path,
+            'width': self.width,
+            'height': self.height,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FrameInfo':
+        return cls(
+            index=int(data.get('index', 0)),
+            timestamp_s=float(data.get('timestamp_s', 0.0)),
+            file_path=str(data.get('file_path', '')),
+            width=data.get('width'),
+            height=data.get('height'),
+        )
+
+@dataclass
+class VideoFramesResult(CacheableResult):
+    """Ergebnis der Frame-Extraktion aus einem Video."""
+    metadata: VideoMetadata
+    process_id: str
+    output_dir: str
+    interval_seconds: int
+    frame_count: int
+    frames: List[FrameInfo] = field(default_factory=list)
+
+    @property
+    def status(self) -> ProcessingStatus:
+        # Erfolgreich, wenn mindestens ein Frame erzeugt wurde
+        return ProcessingStatus.SUCCESS if self.frame_count > 0 else ProcessingStatus.ERROR
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'metadata': self.metadata.to_dict(),
+            'process_id': self.process_id,
+            'output_dir': self.output_dir,
+            'interval_seconds': self.interval_seconds,
+            'frame_count': self.frame_count,
+            'frames': [f.to_dict() for f in self.frames],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'VideoFramesResult':
+        metadata_val: VideoMetadata = VideoMetadata.from_dict(cast(Dict[str, Any], data['metadata'])) if 'metadata' in data else VideoMetadata(
+                title="",
+                source=VideoSource(),
+                duration=0,
+                duration_formatted="00:00:00"
+            )
+        frames_list_raw: List[Any] = cast(List[Any], data.get('frames', []))
+        frames_typed: List[FrameInfo] = [FrameInfo.from_dict(cast(Dict[str, Any], fd)) for fd in frames_list_raw if isinstance(fd, dict)]
+        return cls(
+            metadata=metadata_val,
+            process_id=str(data.get('process_id', '')),
+            output_dir=str(data.get('output_dir', '')),
+            interval_seconds=int(data.get('interval_seconds', 0)),
+            frame_count=int(data.get('frame_count', 0)),
+            frames=frames_typed,
+        )
+
+@dataclass(frozen=True, init=False)
+class VideoFramesResponse(BaseResponse):
+    """Standardisierte API-Response für Video-Frame-Extraktion."""
+    data: Optional[VideoFramesResult] = field(default=None)
+
+    def __init__(
+        self,
+        data: VideoFramesResult,
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        object.__setattr__(self, 'data', data)
+        if process:
+            object.__setattr__(self, 'process', process)
+
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict['data'] = self.data.to_dict() if self.data else None
+        return base_dict
+
+    @classmethod
+    def create(
+        cls,
+        data: Optional[VideoFramesResult] = None,
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> 'VideoFramesResponse':
+        if data is None:
+            raise ValueError("data must not be None")
+        response = cls(data=data, process=process, **kwargs)
+        object.__setattr__(response, 'status', ProcessingStatus.SUCCESS)
+        return response
+
+    @classmethod
+    def create_error(
+        cls,
+        error: ErrorInfo,
+        process: Optional[ProcessInfo] = None,
+        **kwargs: Any
+    ) -> 'VideoFramesResponse':
+        empty_result = VideoFramesResult(
+            metadata=VideoMetadata(
+                title="",
+                source=VideoSource(),
+                duration=0,
+                duration_formatted="00:00:00"
+            ),
+            process_id="",
+            output_dir="",
+            interval_seconds=0,
+            frame_count=0,
+            frames=[],
+        )
+        response = cls(data=empty_result, process=process, **kwargs)
+        object.__setattr__(response, 'status', ProcessingStatus.ERROR)
+        object.__setattr__(response, 'error', error)
+        return response

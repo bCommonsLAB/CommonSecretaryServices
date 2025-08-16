@@ -17,7 +17,7 @@ from pathlib import Path
 
 from src.processors.video_processor import VideoProcessor
 from src.processors.youtube_processor import YoutubeProcessor
-from src.core.models.video import VideoSource, VideoResponse
+from src.core.models.video import VideoSource, VideoResponse, VideoFramesResponse
 from src.core.models.youtube import YoutubeResponse
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
@@ -43,6 +43,16 @@ video_upload_parser.add_argument('template', location='form', type=str, required
 video_upload_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
 video_upload_parser.add_argument('force_refresh', location='form', type=str, default='false', required=False, help='Cache ignorieren und Verarbeitung erzwingen (true/false)')
 
+# Parser für Frame-Extraktion (Form)
+frames_form_parser = video_ns.parser()
+frames_form_parser.add_argument('file', location='files', type=FileStorage, required=False, help='Video-Datei zum Hochladen')
+frames_form_parser.add_argument('url', location='form', type=str, required=False, help='URL des Videos (alternativ zur Datei)')
+frames_form_parser.add_argument('interval_seconds', location='form', type=int, default=5, required=False, help='Abstand zwischen Frames in Sekunden')
+frames_form_parser.add_argument('width', location='form', type=int, required=False, help='Zielbreite der Bilder (optional)')
+frames_form_parser.add_argument('height', location='form', type=int, required=False, help='Zielhöhe der Bilder (optional)')
+frames_form_parser.add_argument('format', location='form', type=str, default='jpg', required=False, help='Bildformat (jpg/png)')
+frames_form_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
+
 # Parser für JSON-Anfragen
 video_json_parser = video_ns.parser()
 video_json_parser.add_argument('url', location='json', type=str, required=True, help='URL des Videos')
@@ -51,6 +61,15 @@ video_json_parser.add_argument('source_language', location='json', type=str, def
 video_json_parser.add_argument('template', location='json', type=str, required=False, help='Optional Template für die Verarbeitung')
 video_json_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
 video_json_parser.add_argument('force_refresh', location='json', type=bool, default=False, required=False, help='Cache ignorieren und Verarbeitung erzwingen (default: False)')
+
+# Parser für Frame-Extraktion (JSON)
+frames_json_parser = video_ns.parser()
+frames_json_parser.add_argument('url', location='json', type=str, required=False, help='URL des Videos')
+frames_json_parser.add_argument('interval_seconds', location='json', type=int, default=5, required=False, help='Abstand zwischen Frames in Sekunden')
+frames_json_parser.add_argument('width', location='json', type=int, required=False, help='Zielbreite der Bilder (optional)')
+frames_json_parser.add_argument('height', location='json', type=int, required=False, help='Zielhöhe der Bilder (optional)')
+frames_json_parser.add_argument('format', location='json', type=str, default='jpg', required=False, help='Bildformat (jpg/png)')
+frames_json_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
 
 # Parser für YouTube-Anfragen
 youtube_parser = video_ns.parser()
@@ -230,6 +249,29 @@ async def process_video(source: VideoSource, binary_data: Optional[bytes] = None
     # Wenn force_refresh aktiviert ist, sollte die Prozessorlogik dies bereits berücksichtigt haben
     # In Zukunft kann hier zusätzliche Logik für force_refresh hinzugefügt werden, wenn der Prozessor dies unterstützt
     
+    return result
+
+# Hilfsfunktion für Frame-Extraktion
+async def process_video_frames(source: VideoSource, binary_data: Optional[bytes] = None,
+                               interval_seconds: int = 5,
+                               width: Optional[int] = None,
+                               height: Optional[int] = None,
+                               image_format: str = 'jpg',
+                               use_cache: bool = True,
+                               process_id: Optional[str] = None) -> VideoFramesResponse:
+    if not process_id:
+        process_id = str(uuid.uuid4())
+    processor: VideoProcessor = get_video_processor(process_id)
+    logger.info(f"Starte Frame-Extraktion mit Prozess-ID: {process_id}")
+    result: VideoFramesResponse = await processor.extract_frames(
+        source=source,
+        interval_seconds=interval_seconds,
+        width=width,
+        height=height,
+        image_format=image_format,
+        use_cache=use_cache,
+        binary_data=binary_data
+    )
     return result
 
 # YouTube-Endpunkt
@@ -474,3 +516,104 @@ class VideoProcessEndpoint(Resource):
                     }
                 }
             }, 500 
+
+# Video-Frames Endpunkt
+@video_ns.route('/frames')
+class VideoFramesEndpoint(Resource):
+    @video_ns.doc(id='extract_video_frames', description='Extrahiert Frames aus einem Video in festem Intervall und speichert sie lokal.')
+    @video_ns.response(200, 'Erfolg')
+    @video_ns.response(400, 'Validierungsfehler', error_model)
+    @video_ns.expect(frames_form_parser)
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        try:
+            source: VideoSource = None
+            binary_data: Optional[bytes] = None
+            interval_seconds: int = 5
+            width: Optional[int] = None
+            height: Optional[int] = None
+            image_format: str = 'jpg'
+            use_cache: bool = True
+            process_id = str(uuid.uuid4())
+
+            # Datei-Upload?
+            if request.files and 'file' in request.files and request.files['file'].filename:
+                uploaded_file: FileStorage = request.files['file']
+                binary_data = uploaded_file.read()
+                file_size = len(binary_data)
+                upload_timestamp = datetime.now().isoformat()
+                source = VideoSource(
+                    file_name=uploaded_file.filename,
+                    file_size=file_size,
+                    upload_timestamp=upload_timestamp
+                )
+                # Form-Parameter
+                interval_seconds = int(request.form.get('interval_seconds', 5))
+                width = int(request.form['width']) if 'width' in request.form and request.form['width'] else None
+                height = int(request.form['height']) if 'height' in request.form and request.form['height'] else None
+                image_format = request.form.get('format', 'jpg')
+                use_cache = (request.form.get('useCache', 'true').lower() == 'true')
+            elif request.form and 'url' in request.form and request.form['url']:
+                # URL per form-data
+                url = request.form.get('url')
+                source = VideoSource(url=url)
+                interval_seconds = int(request.form.get('interval_seconds', 5))
+                width = int(request.form['width']) if 'width' in request.form and request.form['width'] else None
+                height = int(request.form['height']) if 'height' in request.form and request.form['height'] else None
+                image_format = request.form.get('format', 'jpg')
+                use_cache = (request.form.get('useCache', 'true').lower() == 'true')
+            else:
+                # JSON Request
+                data = request.get_json() or {}
+                url = data.get('url')
+                if not url and not (request.files and 'file' in request.files):
+                    raise ProcessingError("Entweder URL oder Datei muss angegeben werden")
+                if url:
+                    source = VideoSource(url=url)
+                interval_seconds = int(data.get('interval_seconds', 5))
+                width = int(data['width']) if 'width' in data and data['width'] is not None else None
+                height = int(data['height']) if 'height' in data and data['height'] is not None else None
+                image_format = data.get('format', 'jpg')
+                use_cache = bool(data.get('useCache', True))
+
+            if not source:
+                raise ProcessingError("Keine gültige Video-Quelle gefunden")
+
+            result: VideoFramesResponse = asyncio.run(process_video_frames(
+                source=source,
+                binary_data=binary_data,
+                interval_seconds=interval_seconds,
+                width=width,
+                height=height,
+                image_format=image_format,
+                use_cache=use_cache,
+                process_id=process_id
+            ))
+
+            return result.to_dict()
+
+        except ProcessingError as e:
+            logger.error(f"Verarbeitungsfehler: {str(e)}", exc_info=True)
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'PROCESSING_ERROR',
+                    'message': str(e),
+                    'details': getattr(e, 'details', {})
+                }
+            }, 400
+        except Exception as e:
+            logger.error("Video-Frame-Extraktion Fehler",
+                        error=e,
+                        error_type=type(e).__name__,
+                        stack_trace=traceback.format_exc())
+            return {
+                'status': 'error',
+                'error': {
+                    'code': type(e).__name__,
+                    'message': str(e),
+                    'details': {
+                        'error_type': type(e).__name__,
+                        'traceback': traceback.format_exc()
+                    }
+                }
+            }, 500
