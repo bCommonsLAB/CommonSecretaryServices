@@ -283,6 +283,7 @@ class PDFEndpoint(Resource):
             # Initialisiere Variablen, die später innerhalb von try-except verwendet werden
             temp_file_path: str = ""  # Initialisierung für Linter
             callback_url: Optional[str] = None  # Für finally: entscheidet über Cleanup
+            job_enqueued: bool = False  # Cleanup nur, wenn kein Job angelegt wurde
             
             try:
                 # Reduzierte Logs: keine Header/Form-Dumps
@@ -377,6 +378,7 @@ class PDFEndpoint(Resource):
                 }
 
                 created_job_id: str = job_repo.create_job(job_data)
+                job_enqueued = True
                 try:
                     # Diagnose: Direkt nach Enqueue prüfen
                     enq_job = job_repo.get_job(created_job_id)
@@ -463,8 +465,8 @@ class PDFEndpoint(Resource):
                     }
                 }, 400
             finally:
-                # Nur synchron bereinigen. Bei asynchroner Verarbeitung übernimmt der Hintergrund-Task das Cleanup.
-                if not callback_url:
+                # Nur synchron bereinigen. Wenn ein Job angelegt wurde, Datei bestehen lassen.
+                if not job_enqueued and not callback_url:
                     if temp_file_path and os.path.exists(temp_file_path):
                         try:
                             os.unlink(temp_file_path)
