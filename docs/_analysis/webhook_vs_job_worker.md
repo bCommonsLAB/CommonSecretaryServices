@@ -67,3 +67,4 @@ Ziel: Eingehende PDF-Verarbeitungen (Upload/URL) sollen nicht direkt in Threads/
 ## Migrationshinweis
 - Bestehende Clients, die synchronen Response-Inhalt erwarten, müssen auf `job_id`-basiertes Polling/Callback umstellen.
 - Übergangsphase: Optionaler Query-Parameter `sync=true` könnte vorübergehend den alten Pfad aktivieren, wird aber nicht empfohlen.
+

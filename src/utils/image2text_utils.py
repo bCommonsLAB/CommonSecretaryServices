@@ -6,10 +6,13 @@ Konvertiert Bilder zu strukturiertem Markdown-Text.
 import base64
 import io
 import time
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 from pathlib import Path
 from PIL import Image
-import fitz  # PyMuPDF
+try:
+    import fitz  # type: ignore
+except Exception:  # pragma: no cover - optional dependency at runtime
+    fitz = None  # type: ignore
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
@@ -77,6 +80,8 @@ Antworte NUR mit dem Markdown-Text, ohne zusätzliche Erklärungen."""
             bytes: JPEG-Bilddaten
         """
         try:
+            if fitz is None:
+                raise ProcessingError("PyMuPDF (fitz) ist nicht installiert oder nicht verfügbar")
             # Berechne Skalierungsfaktor für gewünschte DPI
             scale_factor = dpi / 72  # PyMuPDF verwendet 72 DPI als Basis
             matrix = fitz.Matrix(scale_factor, scale_factor)
@@ -85,7 +90,7 @@ Antworte NUR mit dem Markdown-Text, ohne zusätzliche Erklärungen."""
             pix = page.get_pixmap(matrix=matrix)
             
             # Konvertiere zu PIL Image
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             
             # Größe prüfen und ggf. reduzieren
             if img.width > self.max_image_size or img.height > self.max_image_size:

@@ -298,23 +298,19 @@ class EventProcessor(CacheableProcessor[EventProcessingResult]):
         Args:
             config: Konfiguration für den Event-Prozessor
         """
-        # MongoDB-Konfiguration laden
-        app_config = Config()
-        mongodb_config = app_config.get('mongodb', {})
-        
-        # MongoDB-Verbindung herstellen
-        mongo_uri = mongodb_config.get('uri', 'mongodb://localhost:27017')
-        db_name = mongodb_config.get('database', 'common-secretary-service')
-        
-        # Eindeutige Namen für MongoDB-Instanzen verwenden, um Konflikte zu vermeiden
-        self._mongo_client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
-        self._mongo_db: Database[Dict[str, Any]] = self._mongo_client[db_name]
-        self._track_cache: Collection[Dict[str, Any]] = self._mongo_db.track_cache  # Collection für Track-Cache
-        
-        self.logger.debug("MongoDB-Verbindung initialisiert",
-                        uri=mongo_uri,
-                        database=db_name,
-                        collection=self._track_cache.name) # Zeige den tatsächlichen Collection-Namen
+        # Zentrale MongoDB-Verbindung verwenden (DB-Name aus URI)
+        from src.core.mongodb.connection import get_mongodb_database
+        db: Database[Dict[str, Any]] = get_mongodb_database()
+        self._mongo_db = db
+        from typing import cast
+        self._mongo_client = cast(MongoClient[Dict[str, Any]], db.client)  # type: ignore
+        self._track_cache = self._mongo_db.track_cache  # Collection für Track-Cache
+
+        self.logger.debug(
+            "MongoDB-Verbindung initialisiert",
+            database=self._mongo_db.name,
+            collection=self._track_cache.name
+        )
     
     @property
     def client(self) -> MongoClient[Dict[str, Any]]:

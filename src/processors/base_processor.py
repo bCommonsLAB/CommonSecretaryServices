@@ -64,7 +64,7 @@ class BaseProcessor(Generic[T]):
         self.base_dir: Path = Path("output")  # Basis-Verzeichnis für alle Ausgaben
         
         if parent_process_info:
-            self.process_info: ProcessInfo = parent_process_info
+            self.process_info = parent_process_info
             if self.__class__.__name__ not in self.process_info.sub_processors:
                 self.process_info.sub_processors.append(self.__class__.__name__)
         else:

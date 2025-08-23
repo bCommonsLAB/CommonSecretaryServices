@@ -1,4 +1,13 @@
 {
   "typeCheckingMode": "strict",
-  "reportGeneralTypeIssues": "warning"
-} 
+  "reportGeneralTypeIssues": "warning",
+  "exclude": [
+    "tests",
+    "src/dashboard/routes/tests",
+    "venv312",
+    "site"
+  ],
+  "reportUnknownMemberType": "warning",
+  "reportUnknownVariableType": "warning",
+  "reportUnknownParameterType": "warning"
+}

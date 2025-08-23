@@ -13,14 +13,14 @@ from pathlib import Path
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 from flask import request  # type: ignore
 from werkzeug.datastructures import FileStorage
-import threading
 import time
-import requests  # type: ignore
 
 from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
-from src.utils.performance_tracker import get_performance_tracker
+# Performance-Tracker wird in diesem Flow nicht benötigt
 from src.processors.pdf_processor import PDFProcessor
+from src.core.mongodb.secretary_repository import SecretaryJobRepository
+from src.core.models.job_models import JobStatus
 
 # Logger initialisieren
 logger = get_logger(process_id="pdf_routes", processor_name="pdf_routes")
@@ -126,6 +126,12 @@ pdf_upload_parser.add_argument('force_refresh',  # type: ignore
                           type=inputs.boolean,  # type: ignore
                           required=False,
                           help='Erzwinge Neuberechnung/kein Cache')
+pdf_upload_parser.add_argument('wait_ms',  # type: ignore
+                          location='form',
+                          type=int,  # type: ignore
+                          required=False,
+                          default=0,
+                          help='Optional: Wartezeit in Millisekunden auf Abschluss (nur ohne callback_url)')
 
 # PDF URL Parser
 pdf_url_parser = pdf_ns.parser()
@@ -185,6 +191,12 @@ pdf_url_parser.add_argument('force_refresh',  # type: ignore
                           type=inputs.boolean,  # type: ignore
                           required=False,
                           help='Erzwinge Neuberechnung/kein Cache')
+pdf_url_parser.add_argument('wait_ms',  # type: ignore
+                          location='form',
+                          type=int,  # type: ignore
+                          required=False,
+                          default=0,
+                          help='Optional: Wartezeit in Millisekunden auf Abschluss (nur ohne callback_url)')
 
 # PDF Antwortmodell
 pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
@@ -266,27 +278,17 @@ class PDFEndpoint(Resource):
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
-            tracker = get_performance_tracker()
+            # Worker-basierter Modus: kein lokaler Tracker erforderlich
             process_id = str(uuid.uuid4())
             # Initialisiere Variablen, die später innerhalb von try-except verwendet werden
             temp_file_path: str = ""  # Initialisierung für Linter
             callback_url: Optional[str] = None  # Für finally: entscheidet über Cleanup
             
             try:
-                # Eingehende Form-/Header-Daten für Debugging loggen (Token maskiert)
+                # Reduzierte Logs: keine Header/Form-Dumps
                 try:
-                    headers_data = _collect_headers_subset()
-                    form_data = _raw_form_with_redaction()
-                    print(f"[PDF-ROUTE] Eingehende PDF-Anfrage:")
-                    print(f"[PDF-ROUTE] Headers: {headers_data}")
-                    print(f"[PDF-ROUTE] Form: {form_data}")
-                    logger.info(
-                        "Eingehende PDF-Anfrage (multipart)",
-                        headers=headers_data,
-                        form=form_data
-                    )
-                except Exception as e:
-                    print(f"[PDF-ROUTE] Logger-Fehler: {e}")
+                    logger.info("Eingehende PDF-Anfrage (multipart)")
+                except Exception:
                     pass
 
                 # Lese jobId frühzeitig direkt aus dem Request, um Parser-Eigenheiten zu umgehen
@@ -296,173 +298,96 @@ class PDFEndpoint(Resource):
                 except Exception:
                     job_id_form_early = None
                 args = pdf_upload_parser.parse_args()  # type: ignore
+                args = cast(Dict[str, Any], args)
                 uploaded_file = cast(FileStorage, args['file'])
-                extraction_method = str(args.get('extraction_method', 'native'))  # type: ignore
-                template = str(args.get('template', '')) if args.get('template') else None  # type: ignore
-                context_str = str(args.get('context', '')) if args.get('context') else None  # type: ignore
+                extraction_method = str(args.get('extraction_method', 'native'))
+                template = str(args.get('template', '')) if args.get('template') else None
+                context_str = str(args.get('context', '')) if args.get('context') else None
                 context = json.loads(context_str) if context_str else None
-                use_cache = bool(args.get('useCache', True))  # type: ignore
-                include_images = bool(args.get('includeImages', False))  # type: ignore
-                target_language = str(args.get('target_language', '')) if args.get('target_language') else None  # type: ignore
-                callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None  # type: ignore
-                callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None  # type: ignore
+                use_cache = bool(args.get('useCache', True))
+                include_images = bool(args.get('includeImages', False))
+                target_language = str(args.get('target_language', '')) if args.get('target_language') else None
+                callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None
+                callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None
                 # Bevorzuge früh gelesene jobId; fallback auf Parser-Wert
                 job_id_form = None
                 if job_id_form_early and str(job_id_form_early).strip():
                     job_id_form = str(job_id_form_early).strip()
                 elif args.get('jobId'):
-                    job_id_form = str(args.get('jobId')).strip()  # type: ignore
-                force_refresh = bool(args.get('force_refresh', False))  # type: ignore
+                    job_id_form = str(args.get('jobId')).strip()
+                force_refresh = bool(args.get('force_refresh', False))
                 
                 if not uploaded_file.filename:
                     raise ProcessingError("Kein Dateiname angegeben")
                 
-                # Initialisiere Processor, damit wir die konfigurierten Temp-Verzeichnisse nutzen können
-                processor = get_pdf_processor(process_id)
-                
-                # Speichere Datei im Upload-Unterordner des Prozessors
+                # Speichere Datei in persistentes Upload-Verzeichnis
                 _ = Path(uploaded_file.filename).suffix
-                upload_dir = Path(processor.temp_dir) / "uploads"
+                upload_dir = Path("cache") / "uploads"
                 upload_dir.mkdir(parents=True, exist_ok=True)
                 temp_file_path = str(upload_dir / f"upload_{uuid.uuid4()}.pdf")
                 uploaded_file.save(temp_file_path)
+                # Reduzierte Logs: keine Pfad-/FS-Dumps
+                # WICHTIG: Absoluten Pfad als POSIX-Form persistieren (forward slashes)
+                temp_file_path = os.path.abspath(temp_file_path)
+                try:
+                    temp_file_path = Path(temp_file_path).as_posix()
+                except Exception:
+                    # Fallback: einfache Backslash-Ersetzung
+                    temp_file_path = temp_file_path.replace('\\', '/')
                 
-                # Berechne den Hash der Datei für Cache-Key
+                # Berechne optionalen Hash (nur für Logging/Cache-Key in Prozessdaten)
                 file_hash = calculate_file_hash(temp_file_path)
                 
-                # Wenn ein Callback angegeben ist, führen wir die Verarbeitung im Hintergrund aus
+                # Wartezeit optional aus Request
+                wait_ms: int = 0
+                try:
+                    wait_ms = int(args.get('wait_ms', 0))  # type: ignore
+                except Exception:
+                    wait_ms = 0
+
+                # Job anlegen
+                job_repo = SecretaryJobRepository()
+                job_webhook: Optional[Dict[str, Any]] = None
                 if callback_url:
-                    # Leite Job-ID ab (Form jobId bevorzugen)
-                    job_id: str = job_id_form or f"job-{uuid.uuid4()}"
-                    print(f"[PDF-ROUTE] jobId gewählt: {job_id} (form={job_id_form}, early={job_id_form_early})")
+                    job_webhook = {
+                        "url": callback_url,
+                        "token": callback_token,
+                        "jobId": job_id_form or job_id_form_early or None,
+                    }
 
-                    def _background_task() -> None:
-                        async def _run() -> None:
-                            local_tracker = get_performance_tracker()
-                            try:
-                                if local_tracker:
-                                    with processor.measure_operation('pdf_processing'):
-                                        result = await processor.process(
-                                            temp_file_path,
-                                            template=template,  # type: ignore
-                                            context=context,
-                                            extraction_method=extraction_method,  # type: ignore
-                                            use_cache=use_cache,
-                                            file_hash=file_hash,
-                                            force_overwrite=bool(force_refresh),
-                                            include_images=include_images
-                                        )
-                                        local_tracker.eval_result(result)
-                                else:
-                                    result = await processor.process(
-                                        temp_file_path,
-                                        template=template,  # type: ignore
-                                        context=context,
-                                        extraction_method=extraction_method,  # type: ignore
-                                        use_cache=use_cache,
-                                        file_hash=file_hash,
-                                        force_overwrite=bool(force_refresh),
-                                        include_images=include_images
-                                    )
+                # WICHTIG: Keine verschachtelte "extra"-Struktur setzen.
+                # Unbekannte Felder auf Top-Level von parameters platzieren,
+                # damit sie in JobParameters.extra landen und der Handler sie findet.
+                params_flat: Dict[str, Any] = {
+                    "filename": temp_file_path,  # absoluter Pfad
+                    "use_cache": use_cache,
+                    "target_language": target_language,
+                    "extraction_method": extraction_method,
+                    "template": template,
+                    "context": context,
+                    "include_images": include_images,
+                    "force_refresh": bool(force_refresh),
+                    "file_hash": file_hash,
+                }
+                if job_webhook:
+                    params_flat["webhook"] = job_webhook
+                job_data: Dict[str, Any] = {
+                    "job_type": "pdf",
+                    "parameters": params_flat,
+                }
 
-                                result_dict = result.to_dict()
-                                # Baue Webhook-Payload
-                                payload: Dict[str, Any] = {
-                                    'status': 'completed',
-                                    'worker': 'secretary',
-                                    'jobId': job_id,
-                                    'process': result_dict.get('process', {}),
-                                    'data': result_dict.get('data'),
-                                    'error': None
-                                }
-                                if callback_token:
-                                    # Kompatibilität: Token zusätzlich im Body mitsenden
-                                    payload['callback_token'] = callback_token
-                                headers: Dict[str, str] = {
-                                    'Content-Type': 'application/json'
-                                }
-                                try:
-                                    print(f"[PDF-ROUTE] Sende Webhook-Callback an {callback_url}")
-                                    print(f"[PDF-ROUTE] Job-ID: {job_id}, Hat Token: {bool(callback_token)}")
-                                    print(f"[PDF-ROUTE] Payload-Übersicht:")
-                                    print(f"[PDF-ROUTE]   - jobId: {payload.get('jobId')}")
-                                    print(f"[PDF-ROUTE]   - status: {payload.get('status')}")
-                                    print(f"[PDF-ROUTE]   - worker: {payload.get('worker')}")
-                                    # correlation wurde entfernt
-                                    print(f"[PDF-ROUTE]   - data keys: {list(payload.get('data', {}).keys()) if payload.get('data') else 'None'}")
-                                    print(f"[PDF-ROUTE] Headers: {headers}")
-                                    
-                                    # Vollständige Payload für Debug (gekürzt)
-                                    logger.info(
-                                        "Sende Webhook-Callback",
-                                        process_id=process_id,
-                                        job_id=job_id,
-                                        callback_url=callback_url,
-                                        has_token=bool(callback_token)
-                                    )
-                                    response = requests.post(url=callback_url, json=payload, headers=headers, timeout=30)
-                                    print(f"[PDF-ROUTE] Webhook-Antwort: Status {response.status_code}, OK: {response.ok}")
-                                    if response.text:
-                                        print(f"[PDF-ROUTE] Response Body: {response.text[:500]}...")
-                                    logger.info(
-                                        "Webhook-Callback Antwort",
-                                        status_code=getattr(response, 'status_code', None),
-                                        ok=getattr(response, 'ok', None)
-                                    )
-                                except Exception as post_err:
-                                    print(f"[PDF-ROUTE] Webhook-POST fehlgeschlagen: {str(post_err)}")
-                                    logger.error(f"Webhook-POST fehlgeschlagen: {str(post_err)}")
-                            except Exception as proc_err:
-                                # Fehler-Callback senden
-                                error_payload: Dict[str, Any] = {
-                                    'status': 'error',
-                                    'worker': 'secretary',
-                                    'jobId': job_id,
-                                    'process': {
-                                        'id': process_id,
-                                        'main_processor': 'pdf',
-                                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                                    },
-                                    'data': None,
-                                    'error': {
-                                        'code': type(proc_err).__name__,
-                                        'message': str(proc_err)
-                                    }
-                                }
-                                if callback_token:
-                                    error_payload['callback_token'] = callback_token
-                                headers_err: Dict[str, str] = {'Content-Type': 'application/json'}
-                                try:
-                                    print(f"[PDF-ROUTE] Sende Webhook-Error-Callback an {callback_url}")
-                                    print(f"[PDF-ROUTE] Job-ID: {job_id}")
-                                    logger.info(
-                                        "Sende Webhook-Error-Callback",
-                                        process_id=process_id,
-                                        job_id=job_id,
-                                        callback_url=callback_url
-                                    )
-                                    response_err = requests.post(url=callback_url, json=error_payload, headers=headers_err, timeout=30)
-                                    print(f"[PDF-ROUTE] Webhook-Error-Antwort: Status {response_err.status_code}, OK: {response_err.ok}")
-                                    logger.info(
-                                        "Webhook-Error-Callback Antwort",
-                                        status_code=getattr(response_err, 'status_code', None),
-                                        ok=getattr(response_err, 'ok', None)
-                                    )
-                                except Exception as post_err2:
-                                    logger.error(f"Webhook-Fehler-POST fehlgeschlagen: {str(post_err2)}")
-                            finally:
-                                # Aufräumen
-                                try:
-                                    if temp_file_path and os.path.exists(temp_file_path):
-                                        os.unlink(temp_file_path)
-                                except Exception as cleanup_err:
-                                    logger.warning(f"Cleanup-Fehler: {str(cleanup_err)}")
+                created_job_id: str = job_repo.create_job(job_data)
+                try:
+                    # Diagnose: Direkt nach Enqueue prüfen
+                    enq_job = job_repo.get_job(created_job_id)
+                    pending_after = len(job_repo.get_jobs(status=JobStatus.PENDING))
+                    print(f"[PDF-ROUTE] SecretaryJob erstellt: {created_job_id}, status={getattr(enq_job,'status',None)}")
+                    print(f"[PDF-ROUTE] Pending nach Enqueue: {pending_after}")
+                except Exception as _diag_err:
+                    print(f"[PDF-ROUTE] Diagnosefehler nach Enqueue: {_diag_err}")
 
-                        asyncio.run(_run())
-
-                    threading.Thread(target=_background_task, daemon=True).start()
-
-                    # Sofortiges ACK zurückgeben
+                # Mit Callback → sofortiges ACK, Worker sendet anschließend Webhook
+                if callback_url:
                     ack: Dict[str, Any] = {
                         'status': 'accepted',
                         'worker': 'secretary',
@@ -472,64 +397,56 @@ class PDFEndpoint(Resource):
                             'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                             'is_from_cache': False
                         },
-                        'job': {'id': job_id},
+                        # Für den Client die externe jobId (falls gesetzt) zurückgeben
+                        'job': {'id': job_id_form or job_id_form_early or created_job_id},
                         'webhook': {'delivered_to': callback_url},
                         'error': None
                     }
-                    try:
-                        print(f"[PDF-ROUTE] Webhook-ACK gesendet:")
-                        print(f"[PDF-ROUTE] Process-ID: {process_id}")
-                        print(f"[PDF-ROUTE] Job-ID: {job_id}")
-                        print(f"[PDF-ROUTE] Callback-URL: {callback_url}")
-                        print(f"[PDF-ROUTE] Args: extraction_method={extraction_method}, use_cache={use_cache}")
-                        logger.info(
-                            "Webhook-ACK gesendet",
-                            process_id=process_id,
-                            job_id=job_id,
-                            callback_url=callback_url,
-                            endpoint="/api/pdf/process",
-                            parsed_args={
-                                'extraction_method': extraction_method,
-                                'template': template,
-                                'use_cache': use_cache,
-                                'include_images': include_images,
-                                'target_language': target_language,
-                                'force_refresh': force_refresh,
-                                # deprecated: correlation entfernt
-                            }
-                        )
-                    except Exception as e:
-                        print(f"[PDF-ROUTE] Webhook-ACK Logger-Fehler: {e}")
-                        pass
+                    logger.info(
+                        "Webhook-ACK gesendet (Job enqueued)",
+                        process_id=process_id,
+                        job_id_external=(job_id_form or job_id_form_early),
+                        job_id_internal=created_job_id,
+                        callback_url=callback_url,
+                    )
                     return ack, 202
 
-                # Kein Callback -> synchron wie bisher
-                if tracker:
-                    with processor.measure_operation('pdf_processing'):
-                        result = await processor.process(
-                            temp_file_path,
-                            template=template,  # type: ignore
-                            context=context,
-                            extraction_method=extraction_method,  # type: ignore
-                            use_cache=use_cache,
-                            file_hash=file_hash,
-                            force_overwrite=bool(force_refresh),
-                            include_images=include_images
-                        )
-                        tracker.eval_result(result)
-                else:
-                    result = await processor.process(
-                        temp_file_path,
-                        template=template,  # type: ignore
-                        context=context,
-                        extraction_method=extraction_method,  # type: ignore
-                        use_cache=use_cache,
-                        file_hash=file_hash,
-                        force_overwrite=bool(force_refresh),
-                        include_images=include_images
-                    )
-                
-                return result.to_dict()
+                # Ohne Callback → optional auf Abschluss warten, sonst 202 mit job_id
+                if wait_ms > 0:
+                    deadline = time.time() + (wait_ms / 1000.0)
+                    while time.time() < deadline:
+                        job = job_repo.get_job(created_job_id)
+                        if job and job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                            break
+                        time.sleep(0.25)
+                    job = job_repo.get_job(created_job_id)
+                    if job and job.status == JobStatus.COMPLETED and job.results and job.results.structured_data:
+                        # Ergebnisstruktur direkt zurückgeben
+                        return job.results.structured_data  # type: ignore[return-value]
+                    if job and job.status == JobStatus.FAILED and job.error:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': job.error.code,
+                                'message': job.error.message,
+                                'details': job.error.details or {}
+                            }
+                        }, 400
+
+                # Fallback/Timeout → 202 mit job_id
+                return {
+                    'status': 'accepted',
+                    'worker': 'secretary',
+                    'process': {
+                        'id': process_id,
+                        'main_processor': 'pdf',
+                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        'is_from_cache': False
+                    },
+                    'job': {'id': created_job_id},
+                    'webhook': None,
+                    'error': None
+                }, 202
                 
             except Exception as e:
                 logger.error("Fehler bei der PDF-Verarbeitung", error=e)
@@ -566,7 +483,7 @@ class PDFUrlEndpoint(Resource):
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine PDF-Datei von einer URL (HTTP/HTTPS)"""
         async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
-            tracker = get_performance_tracker()
+            # Worker-basierter Modus: kein lokaler Tracker erforderlich
             process_id = str(uuid.uuid4())
             
             try:
@@ -581,18 +498,19 @@ class PDFUrlEndpoint(Resource):
                     pass
 
                 args = pdf_url_parser.parse_args()  # type: ignore
-                url = str(args.get('url', ''))  # type: ignore
-                extraction_method = str(args.get('extraction_method', 'native'))  # type: ignore
-                template = str(args.get('template', '')) if args.get('template') else None  # type: ignore
-                context_str = str(args.get('context', '')) if args.get('context') else None  # type: ignore
+                args = cast(Dict[str, Any], args)
+                url = str(args.get('url', ''))
+                extraction_method = str(args.get('extraction_method', 'native'))
+                template = str(args.get('template', '')) if args.get('template') else None
+                context_str = str(args.get('context', '')) if args.get('context') else None
                 context = json.loads(context_str) if context_str else None
-                use_cache = bool(args.get('useCache', True))  # type: ignore
-                include_images = bool(args.get('includeImages', False))  # type: ignore
-                target_language = str(args.get('target_language', '')) if args.get('target_language') else None  # type: ignore
-                callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None  # type: ignore
-                callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None  # type: ignore
-                job_id_form = str(args.get('jobId', '')) if args.get('jobId') else None  # type: ignore
-                force_refresh = bool(args.get('force_refresh', False))  # type: ignore
+                use_cache = bool(args.get('useCache', True))
+                include_images = bool(args.get('includeImages', False))
+                target_language = str(args.get('target_language', '')) if args.get('target_language') else None
+                callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None
+                callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None
+                job_id_form = str(args.get('jobId', '')) if args.get('jobId') else None
+                force_refresh = bool(args.get('force_refresh', False))
                 
                 if not url:
                     raise ProcessingError("Keine URL angegeben")
@@ -601,133 +519,50 @@ class PDFUrlEndpoint(Resource):
                 # (Bei URLs ist das besser als nichts, obwohl der Dateiinhalt sich ändern könnte)
                 url_hash = hashlib.md5(url.encode()).hexdigest()
                 
-                # Verarbeitung der PDF-Datei direkt von URL
-                processor: PDFProcessor = get_pdf_processor(process_id)
-                
+                # Wartezeit optional
+                wait_ms: int = 0
+                try:
+                    wait_ms = int(args.get('wait_ms', 0))  # type: ignore
+                except Exception:
+                    wait_ms = 0
+
+                # Job anlegen
+                job_repo = SecretaryJobRepository()
+                job_webhook: Optional[Dict[str, Any]] = None
                 if callback_url:
-                    job_id: str = job_id_form or f"job-{uuid.uuid4()}"
+                    job_webhook = {
+                        "url": callback_url,
+                        "token": callback_token,
+                        "jobId": job_id_form or None,
+                    }
+                params_flat_url: Dict[str, Any] = {
+                    "url": url,
+                    "use_cache": use_cache,
+                    "target_language": target_language,
+                    "extraction_method": extraction_method,
+                    "template": template,
+                    "context": context,
+                    "include_images": include_images,
+                    "force_refresh": bool(force_refresh),
+                    "file_hash": url_hash,
+                }
+                if job_webhook:
+                    params_flat_url["webhook"] = job_webhook
+                job_data: Dict[str, Any] = {
+                    "job_type": "pdf",
+                    "parameters": params_flat_url,
+                }
 
-                    def _background_task_url() -> None:
-                        async def _run() -> None:
-                            local_tracker = get_performance_tracker()
-                            try:
-                                if local_tracker:
-                                    with processor.measure_operation('pdf_processing'):
-                                        result = await processor.process(
-                                            file_path=url,  # type: ignore
-                                            template=template,  # type: ignore
-                                            context=context,
-                                            extraction_method=extraction_method,  # type: ignore
-                                            use_cache=use_cache,
-                                            file_hash=url_hash,
-                                            force_overwrite=bool(force_refresh),
-                                            include_images=include_images
-                                        )
-                                        local_tracker.eval_result(result)
-                                else:
-                                    result = await processor.process(
-                                        file_path=url,  # type: ignore
-                                        template=template,  # type: ignore
-                                        context=context,
-                                        extraction_method=extraction_method,  # type: ignore
-                                        use_cache=use_cache,
-                                        file_hash=url_hash,
-                                        force_overwrite=bool(force_refresh),
-                                        include_images=include_images
-                                    )
+                created_job_id: str = job_repo.create_job(job_data)
+                try:
+                    enq_job = job_repo.get_job(created_job_id)
+                    pending_after = len(job_repo.get_jobs(status=JobStatus.PENDING))
+                    print(f"[PDF-ROUTE] SecretaryJob(URL) erstellt: {created_job_id}, status={getattr(enq_job,'status',None)}")
+                    print(f"[PDF-ROUTE] Pending nach Enqueue (URL): {pending_after}")
+                except Exception as _diag_err:
+                    print(f"[PDF-ROUTE] Diagnosefehler nach Enqueue(URL): {_diag_err}")
 
-                                result_dict = result.to_dict()
-                                payload: Dict[str, Any] = {
-                                    'status': 'completed',
-                                    'worker': 'secretary',
-                                    'jobId': job_id,
-                                    'process': result_dict.get('process', {}),
-                                    'data': result_dict.get('data'),
-                                    'error': None
-                                }
-                                headers: Dict[str, str] = {'Content-Type': 'application/json'}
-                                if callback_token:
-                                    headers['Authorization'] = f"Bearer {callback_token}"
-                                    headers['X-Callback-Token'] = callback_token
-                                try:
-                                    print(f"[PDF-ROUTE] Sende Webhook-Callback an {callback_url}")
-                                    print(f"[PDF-ROUTE] Job-ID: {job_id}, Hat Token: {bool(callback_token)}")
-                                    print(f"[PDF-ROUTE] Payload-Übersicht:")
-                                    print(f"[PDF-ROUTE]   - jobId: {payload.get('jobId')}")
-                                    print(f"[PDF-ROUTE]   - status: {payload.get('status')}")
-                                    print(f"[PDF-ROUTE]   - worker: {payload.get('worker')}")
-                                    # correlation wurde entfernt
-                                    print(f"[PDF-ROUTE]   - data keys: {list(payload.get('data', {}).keys()) if payload.get('data') else 'None'}")
-                                    print(f"[PDF-ROUTE] Headers: {headers}")
-                                    
-                                    # Vollständige Payload für Debug (gekürzt)
-                                    import json as json_module
-                                    payload_str = json_module.dumps(payload, indent=2, ensure_ascii=False)
-                                    if len(payload_str) > 2000:
-                                        payload_preview = payload_str[:2000] + "...[GEKÜRZT]"
-                                    else:
-                                        payload_preview = payload_str
-                                    print(f"[PDF-ROUTE] Vollständige Payload:\n{payload_preview}")
-                                    
-                                    logger.info(
-                                        "Sende Webhook-Callback",
-                                        process_id=process_id,
-                                        job_id=job_id,
-                                        callback_url=callback_url,
-                                        has_token=bool(callback_token)
-                                    )
-                                    response = requests.post(url=callback_url, json=payload, headers=headers, timeout=30)
-                                    print(f"[PDF-ROUTE] Webhook-Antwort: Status {response.status_code}, OK: {response.ok}")
-                                    if response.text:
-                                        print(f"[PDF-ROUTE] Response Body: {response.text[:500]}...")
-                                    logger.info(
-                                        "Webhook-Callback Antwort",
-                                        status_code=getattr(response, 'status_code', None),
-                                        ok=getattr(response, 'ok', None)
-                                    )
-                                except Exception as post_err:
-                                    print(f"[PDF-ROUTE] Webhook-POST fehlgeschlagen: {str(post_err)}")
-                                    logger.error(f"Webhook-POST fehlgeschlagen: {str(post_err)}")
-                            except Exception as proc_err:
-                                error_payload: Dict[str, Any] = {
-                                    'status': 'error',
-                                    'worker': 'secretary',
-                                    'jobId': job_id,
-                                    'process': {
-                                        'id': process_id,
-                                        'main_processor': 'pdf',
-                                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                                    },
-                                    'data': None,
-                                    'error': {
-                                        'code': type(proc_err).__name__,
-                                        'message': str(proc_err)
-                                    }
-                                }
-                                headers_err: Dict[str, str] = {'Content-Type': 'application/json'}
-                                if callback_token:
-                                    headers_err['Authorization'] = f"Bearer {callback_token}"
-                                    headers_err['X-Callback-Token'] = callback_token
-                                try:
-                                    logger.info(
-                                        "Sende Webhook-Error-Callback",
-                                        process_id=process_id,
-                                        job_id=job_id,
-                                        callback_url=callback_url
-                                    )
-                                    response_err = requests.post(url=callback_url, json=error_payload, headers=headers_err, timeout=30)
-                                    logger.info(
-                                        "Webhook-Error-Callback Antwort",
-                                        status_code=getattr(response_err, 'status_code', None),
-                                        ok=getattr(response_err, 'ok', None)
-                                    )
-                                except Exception as post_err2:
-                                    logger.error(f"Webhook-Fehler-POST fehlgeschlagen: {str(post_err2)}")
-
-                        asyncio.run(_run())
-
-                    threading.Thread(target=_background_task_url, daemon=True).start()
-
+                if callback_url:
                     ack: Dict[str, Any] = {
                         'status': 'accepted',
                         'worker': 'secretary',
@@ -737,58 +572,46 @@ class PDFUrlEndpoint(Resource):
                             'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                             'is_from_cache': False
                         },
-                        'job': {'id': job_id},
+                        'job': {'id': created_job_id},
                         'webhook': {'delivered_to': callback_url},
                         'error': None
                     }
-                    try:
-                        logger.info(
-                            "Webhook-ACK gesendet",
-                            process_id=process_id,
-                            job_id=job_id,
-                            callback_url=callback_url,
-                            endpoint="/api/pdf/process-url",
-                            parsed_args={
-                                'extraction_method': extraction_method,
-                                'template': template,
-                                'use_cache': use_cache,
-                                'include_images': include_images,
-                                'target_language': target_language,
-                                'force_refresh': force_refresh,
-                                # deprecated: correlation entfernt,
-                                'url': url
-                            }
-                        )
-                    except Exception:
-                        pass
+                    logger.info("Webhook-ACK gesendet (Job enqueued)", process_id=process_id, job_id=created_job_id, callback_url=callback_url)
                     return ack, 202
 
-                if tracker:
-                    with processor.measure_operation('pdf_processing'):
-                        result = await processor.process(
-                            file_path=url,  # type: ignore
-                            template=template,  # type: ignore
-                            context=context,
-                            extraction_method=extraction_method,  # type: ignore
-                            use_cache=use_cache,
-                            file_hash=url_hash,
-                            force_overwrite=bool(force_refresh),
-                            include_images=include_images
-                        )
-                        tracker.eval_result(result)
-                else:
-                    result = await processor.process(
-                        file_path=url,  # type: ignore
-                        template=template,  # type: ignore
-                        context=context,
-                        extraction_method=extraction_method,  # type: ignore
-                        use_cache=use_cache,
-                        file_hash=url_hash,
-                        force_overwrite=bool(force_refresh),
-                        include_images=include_images
-                    )
-                
-                return result.to_dict()
+                if wait_ms > 0:
+                    deadline = time.time() + (wait_ms / 1000.0)
+                    while time.time() < deadline:
+                        job = job_repo.get_job(created_job_id)
+                        if job and job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                            break
+                        time.sleep(0.25)
+                    job = job_repo.get_job(created_job_id)
+                    if job and job.status == JobStatus.COMPLETED and job.results and job.results.structured_data:
+                        return job.results.structured_data  # type: ignore[return-value]
+                    if job and job.status == JobStatus.FAILED and job.error:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': job.error.code,
+                                'message': job.error.message,
+                                'details': job.error.details or {}
+                            }
+                        }, 400
+
+                return {
+                    'status': 'accepted',
+                    'worker': 'secretary',
+                    'process': {
+                        'id': process_id,
+                        'main_processor': 'pdf',
+                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        'is_from_cache': False
+                    },
+                    'job': {'id': created_job_id},
+                    'webhook': None,
+                    'error': None
+                }, 202
                 
             except Exception as e:
                 logger.error("Fehler bei der PDF-Verarbeitung von URL", error=e)
@@ -847,3 +670,4 @@ class PDFTextContentEndpoint(Resource):
             return {
                 'error': str(e)
             }, 500 
+

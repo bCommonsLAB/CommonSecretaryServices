@@ -1,6 +1,7 @@
 """
 API-Route für die OCR-Verarbeitung von Bildern.
 """
+# pyright: reportUnknownMemberType=warning, reportUnknownParameterType=warning, reportUnknownVariableType=warning
 import os
 import uuid
 import json
@@ -10,6 +11,7 @@ from typing import Dict, Any, Union, Optional, cast
 from pathlib import Path
 
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
+from flask_restx.reqparse import RequestParser  # type: ignore
 from werkzeug.datastructures import FileStorage
 
 from src.core.exceptions import ProcessingError
@@ -28,7 +30,7 @@ logger = get_logger(__name__)
 imageocr_ns = Namespace('imageocr', description='Bild-OCR-Verarbeitungs-Endpunkte')
 
 # ImageOCR Upload Parser
-imageocr_upload_parser = imageocr_ns.parser()
+imageocr_upload_parser: RequestParser = imageocr_ns.parser()
 imageocr_upload_parser.add_argument('file', type=FileStorage, location='files', required=True, help='Bilddatei')  # type: ignore
 imageocr_upload_parser.add_argument('template', type=str, location='form', required=False, help='Template für die Transformation')  # type: ignore
 imageocr_upload_parser.add_argument('context', type=str, location='form', required=False, help='JSON-Kontext für die Verarbeitung')  # type: ignore
@@ -38,7 +40,7 @@ imageocr_upload_parser.add_argument('extraction_method', type=str, location='for
                                    help='Extraktionsmethode: ocr=Tesseract OCR, native=Native Analyse, both=OCR+Native, preview=Vorschaubilder, preview_and_native=Vorschaubilder+Native, llm=LLM-basierte OCR, llm_and_ocr=LLM+OCR')  # type: ignore
 
 # ImageOCR URL Parser
-imageocr_url_parser = imageocr_ns.parser()
+imageocr_url_parser: RequestParser = imageocr_ns.parser()
 imageocr_url_parser.add_argument('url', type=str, location='form', required=True, help='URL zur Bilddatei')  # type: ignore
 imageocr_url_parser.add_argument('template', type=str, location='form', required=False, help='Template für die Transformation')  # type: ignore
 imageocr_url_parser.add_argument('context', type=str, location='form', required=False, help='JSON-Kontext für die Verarbeitung')  # type: ignore
@@ -143,9 +145,10 @@ class ImageOCREndpoint(Resource):
                 file_hash = calculate_file_hash(temp_file_path)
                 
                 # Verarbeite die Datei
+                processing_result: ImageOCRResponse
                 if tracker:
                     with tracker.measure_operation('imageocr_processing', 'ImageOCRProcessor'):
-                        processing_result: ImageOCRResponse = await imageocr_processor.process(
+                        processing_result = await imageocr_processor.process(
                             temp_file_path,
                             template=template,  # type: ignore
                             context=context,
@@ -155,7 +158,7 @@ class ImageOCREndpoint(Resource):
                         )
                         tracker.eval_result(processing_result)
                 else:
-                    processing_result: ImageOCRResponse = await imageocr_processor.process(
+                    processing_result = await imageocr_processor.process(
                         temp_file_path,
                         template=template,  # type: ignore
                         context=context,
@@ -164,7 +167,7 @@ class ImageOCREndpoint(Resource):
                         extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                     )
                 
-                result = processing_result
+                result: ImageOCRResponse = processing_result
                 
                 return result.to_dict()
                 
@@ -222,9 +225,10 @@ class ImageOCRUrlEndpoint(Resource):
                 tracker: Optional[PerformanceTracker] = get_performance_tracker()
                 
                 # Verarbeite das Bild direkt von der URL
+                url_processing_result: ImageOCRResponse
                 if tracker:
                     with tracker.measure_operation('imageocr_processing', 'ImageOCRProcessor'):
-                        url_processing_result: ImageOCRResponse = await imageocr_processor.process(
+                        url_processing_result = await imageocr_processor.process(
                             url,  # type: ignore
                             template=template,  # type: ignore
                             context=context,
@@ -234,7 +238,7 @@ class ImageOCRUrlEndpoint(Resource):
                         )
                         tracker.eval_result(url_processing_result)
                 else:
-                    url_processing_result: ImageOCRResponse = await imageocr_processor.process(
+                    url_processing_result = await imageocr_processor.process(
                         url,  # type: ignore
                         template=template,  # type: ignore
                         context=context,
@@ -243,7 +247,7 @@ class ImageOCRUrlEndpoint(Resource):
                         extraction_method=args.get('extraction_method', EXTRACTION_OCR)  # type: ignore
                     )
                 
-                result = url_processing_result
+                result: ImageOCRResponse = url_processing_result
                 
                 return result.to_dict()
                 

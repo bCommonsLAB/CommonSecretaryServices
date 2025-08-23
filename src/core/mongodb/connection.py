@@ -6,6 +6,7 @@ Stellt eine Verbindung zur MongoDB her und verwaltet diese.
 from pymongo import MongoClient
 from pymongo.database import Database
 from typing import Optional, Any, Set
+from pymongo.errors import ConfigurationError
 import logging
 import time
 
@@ -80,21 +81,18 @@ def get_mongodb_database(db_name: Optional[str] = None) -> Database[Any]:
     global _mongo_db
     
     if _mongo_db is None or db_name is not None:
-        # Wenn keine Datenbank angegeben ist, verwende die aus der Konfiguration
-        if db_name is None:
-            from src.core.config import Config
-            config = Config()
-            mongodb_config = config.get('mongodb', {})
-            db_name = mongodb_config.get('db_name', 'event_processing')
-        
-        # Client holen und Datenbank zurückgeben
-        client = get_mongodb_client()
-        
+        # Option A: Datenbank ausschließlich aus der URI beziehen
         if db_name is not None:
-            _mongo_db = client[db_name]
-            logger.debug(f"MongoDB-Datenbank ausgewählt: {db_name}")
-        else:
-            raise ValueError("Kein Datenbankname angegeben und keiner in der Konfiguration gefunden")
+            logger.warning("get_mongodb_database(db_name=...) wird ignoriert. DB-Name kommt aus der MONGODB_URI.")
+
+        client = get_mongodb_client()
+        try:
+            _mongo_db = client.get_default_database()
+        except ConfigurationError:
+            logger.error("Die MONGODB_URI enthält keinen Datenbanknamen. Bitte gib ihn direkt in der URI an (z.B. mongodb://host:port/deine_db).")
+            raise
+        # _mongo_db ist ein Database[Any]; None wäre hier nicht erwartbar
+        logger.debug(f"MongoDB-Datenbank ausgewählt (aus URI): {_mongo_db.name}")
     
     return _mongo_db
 

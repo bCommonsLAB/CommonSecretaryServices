@@ -771,7 +771,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     )
                 
                 # Text extrahieren und OCR durchführen
-                self.logger.debug(f"Starte Extraktion (Methoden: {methods_list})")
+                self.logger.info(f"Starte Extraktion (Methoden: {methods_list})")
                 full_text = ""
                 ocr_text = ""
                 metadata = PDFMetadata(
@@ -790,7 +790,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 for page_num in range(page_count):
                     page = pdf[page_num]  # Zugriff auf PDF-Seite
                     page_start = time.time()
-                    
+                    self.logger.info(f"verarbeite Seite {page_num+1}")
+
                     # ZENTRALE BILDGENERIERUNG - unabhängig von der Extraktionsmethode
                     # Generiere Vorschaubilder, falls gewünscht
                     if EXTRACTION_PREVIEW in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
@@ -878,7 +879,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 )
                                 
                                 ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
-                                self.logger.debug(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
+                                self.logger.info(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
                             else:
                                 self.logger.warning(f"Kein OCR-Text für Seite {page_num+1} extrahiert")
                                 page_ocr = ""
@@ -939,7 +940,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             # Füge LLM-Text zum Gesamttext hinzu
                             full_text += f"\n--- Seite {page_num+1} ---\n{llm_text}"
                             
-                            self.logger.debug(f"LLM-OCR für Seite {page_num+1} abgeschlossen")
+                            self.logger.info(f"LLM-OCR für Seite {page_num+1} abgeschlossen")
                             
                         except Exception as llm_error:
                             self.logger.error(f"Fehler bei LLM-OCR für Seite {page_num+1}: {str(llm_error)}")
@@ -1162,7 +1163,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 )
                                 
                                 ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
-                                self.logger.debug(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
                             else:
                                 self.logger.warning(f"Kein OCR-Text für Seite {page_num+1} extrahiert")
                                 page_ocr = ""
@@ -1173,7 +1173,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     
                     # Logging
                     page_duration = time.time() - page_start
-                    self.logger.debug(f"Seite {page_num + 1} verarbeitet",
+                    self.logger.info(f"Seite {page_num + 1} verarbeitet",
                                     duration=page_duration,
                                     extraction_methods=methods_list)
                 
@@ -1246,7 +1246,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             preview_paths=metadata.preview_paths,
                             file_name=path.name
                         )
-                        self.logger.info(f"Bilder-Archiv erstellt: {images_archive_filename}")
+                        self.logger.debug(f"Bilder-Archiv erstellt: {images_archive_filename}")
                     except Exception as e:
                         self.logger.warning(f"Bilder-Archiv konnte nicht erstellt werden: {str(e)}")
                         # Fehlschlag ist nicht kritisch, Verarbeitung fortsetzen

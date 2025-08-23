@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any, Union, Protocol
 from pathlib import Path
 import io
 
-from .base import BaseResponse, ProcessingStatus, ProcessInfo, ErrorInfo
+from .base import BaseResponse, ProcessInfo, ErrorInfo
 from .llm import LLMInfo
 from .enums import ProcessingStatus
 from ..exceptions import ProcessingError

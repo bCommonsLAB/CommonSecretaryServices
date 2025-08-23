@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 class SecretaryJobRepository:
     """Repository für generische Secretary-Jobs."""
 
-    def __init__(self, db_name: Optional[str] = None):
-        self.db: Database[Any] = get_mongodb_database(db_name)
+    def __init__(self) -> None:
+        # Option A: DB-Name ausschließlich aus der URI
+        self.db: Database[Any] = get_mongodb_database()
         self.jobs: Collection[Any] = self.db.jobs
         self.batches: Collection[Any] = self.db.batches
         self._create_indexes()

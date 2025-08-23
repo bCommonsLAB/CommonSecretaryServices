@@ -27,7 +27,6 @@ logging:
 
 mongodb:
   connect_timeout_ms: 5000
-  db_name: common-secretary-service
   max_pool_size: 50
   uri: ${MONGODB_URI}  # Wird aus der .env geladen
 

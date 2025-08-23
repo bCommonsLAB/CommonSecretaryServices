@@ -12,7 +12,6 @@ import json
 from datetime import datetime
 import time
 import base64
-import io
 
 from pymongo.results import UpdateResult
 

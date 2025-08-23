@@ -26,14 +26,12 @@ class SessionJobRepository:
     Verwendet typisierte Dataclasses für die Datenmodellierung.
     """
     
-    def __init__(self, db_name: Optional[str] = None):
+    def __init__(self) -> None:
         """
         Initialisiert das Repository.
-        
-        Args:
-            db_name: Optional, Name der Datenbank. Wenn nicht angegeben, wird der Name aus der Konfiguration verwendet.
         """
-        self.db: Database[Any] = get_mongodb_database(db_name)
+        # Option A: DB-Name ausschließlich aus der URI
+        self.db: Database[Any] = get_mongodb_database()
         self.jobs: Collection[Any] = self.db.event_jobs
         self.batches: Collection[Any] = self.db.event_batches
         

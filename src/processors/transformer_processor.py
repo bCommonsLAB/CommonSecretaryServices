@@ -168,13 +168,19 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                             
             # Zeit für Gesamtinitialisierung beenden
             init_end = time.time()
-            
-            # Log alle Zeitmessungen
-            self.logger.info(f"Zeit für Super-Initialisierung: {(super_init_end - super_init_start) * 1000:.2f} ms")
-            self.logger.info(f"Zeit für Konfiguration laden: {(config_load_end - config_load_start) * 1000:.2f} ms")
-            self.logger.info(f"Zeit für OpenAI Client-Initialisierung: {(client_init_end - client_init_start) * 1000:.2f} ms")
-            self.logger.info(f"Zeit für Transcriber-Initialisierung: {(transcriber_init_end - transcriber_init_start) * 1000:.2f} ms")
-            self.logger.info(f"Gesamte Initialisierungszeit: {(init_end - init_start) * 1000:.2f} ms")
+            # Nutze die gemessenen Zeiten für detailliertes Debugging
+            try:
+                init_timings = {
+                    "total_init_ms": round((init_end - init_start) * 1000, 2),
+                    "super_init_ms": round((super_init_end - super_init_start) * 1000, 2),
+                    "config_load_ms": round((config_load_end - config_load_start) * 1000, 2),
+                    "client_init_ms": round((client_init_end - client_init_start) * 1000, 2),
+                    "transcriber_init_ms": round((transcriber_init_end - transcriber_init_start) * 1000, 2),
+                }
+                self.logger.debug("Transformer Init Timings", **init_timings)
+            except Exception:
+                # Timing-Logging darf keine Exceptions verursachen
+                pass
                             
         except Exception as e:
             self.logger.error("Fehler bei der Initialisierung des TransformerProcessors",

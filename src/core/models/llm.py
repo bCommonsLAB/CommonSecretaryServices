@@ -144,11 +144,11 @@ class LLMInfo:
             Neues LLMInfo Objekt mit hinzugefügten Requests
         """
         if isinstance(request, list):
-            new_requests: List[LLMRequest] = [*self.requests, *request]
+            merged_requests: List[LLMRequest] = [*self.requests, *request]
         else:
-            new_requests: List[LLMRequest] = [*self.requests, request]
+            merged_requests = [*self.requests, request]
             
-        return LLMInfo(requests=new_requests)
+        return LLMInfo(requests=merged_requests)
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die LLM-Info in ein Dictionary."""

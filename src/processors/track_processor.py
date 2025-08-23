@@ -216,12 +216,12 @@ class TrackProcessingResult:
         
         # Track-Data erstellen
         track_data = TrackData(
-            input=track_input,
-            output=track_output,
-            sessions=self.sessions,
-            session_count=len(self.sessions),
-            query="",  # Wird nicht im Cache gespeichert
-            context={}  # Wird nicht im Cache gespeichert
+            track_input,
+            track_output,
+            self.sessions,
+            len(self.sessions),
+            "",
+            {}
         )
         
         return track_data
@@ -326,23 +326,20 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
         Args:
             config: Konfiguration für den Track-Prozessor
         """
-        # MongoDB-Konfiguration laden
-        app_config = Config()
-        mongodb_config = app_config.get('mongodb', {})
-        
-        # MongoDB-Verbindung herstellen
-        mongo_uri = mongodb_config.get('uri', 'mongodb://localhost:27017')
-        db_name = mongodb_config.get('database', 'common-secretary-service')
-        
-        # Eindeutige Namen für MongoDB-Instanzen verwenden, um Konflikte zu vermeiden
-        self._mongo_client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
-        self._mongo_db: Database[Dict[str, Any]] = self._mongo_client[db_name]
-        self._event_jobs: Collection[Dict[str, Any]] = self._mongo_db.event_jobs  # Collection für Events
-        
-        self.logger.debug("MongoDB-Verbindung initialisiert",
-                        uri=mongo_uri,
-                        database=db_name,
-                        collection=self._event_jobs.name) # Zeige den tatsächlichen Collection-Namen
+        # Zentrale MongoDB-Verbindung verwenden (DB-Name aus URI)
+        from src.core.mongodb.connection import get_mongodb_database
+        db: Database[Dict[str, Any]] = get_mongodb_database()
+        self._mongo_db = db
+        # Client aus Database ableiten
+        from typing import cast
+        self._mongo_client = cast(MongoClient[Dict[str, Any]], db.client)  # type: ignore
+        self._event_jobs = self._mongo_db.event_jobs  # Collection für Events
+
+        self.logger.debug(
+            "MongoDB-Verbindung initialisiert",
+            database=self._mongo_db.name,
+            collection=self._event_jobs.name
+        )
     
     @property
     def client(self) -> MongoClient[Dict[str, Any]]:
@@ -747,12 +744,12 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 )
                 
                 track_data = TrackData(
-                    input=track_input,
-                    output=track_output,
-                    sessions=optimized_sessions,
-                    session_count=len(sessions),
-                    query=all_markdown,
-                    context=context
+                    track_input,
+                    track_output,
+                    optimized_sessions,
+                    len(sessions),
+                    all_markdown,
+                    context
                 )
                 
                 # Response erstellen
@@ -937,7 +934,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                 obsidian_link_filename = translated_filename.replace(" ", "%20")
                 
                 # Session-Kontext mit übersetzten Werten erstellen
-                session_context: Dict[str, Any] = {
+                session_ctx_translated: Dict[str, Any] = {
                     "title": translated_session_name,  # Verwende übersetzten Sessionnamen
                     "original_title": original_session_name,  # Originaltitel für Referenz
                     "filename": translated_filename,  # Verwende übersetzten Dateinamen
@@ -949,13 +946,13 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                     "speakers": session.input.speakers or []
                 }
                 
-                context["sessions"].append(session_context)
+                context["sessions"].append(session_ctx_translated)
                 
             except Exception as e:
                 self.logger.warning(f"Fehler beim Übersetzen der Session-Daten: {str(e)}")
                 # Fallback: Verwende originale Werte
                 obsidian_link_filename = original_filename.replace(" ", "%20")
-                session_context: Dict[str, Any] = {
+                session_ctx_fallback: Dict[str, Any] = {
                     "title": original_session_name,
                     "filename": original_filename,
                     "obsidian_link": f"[{original_session_name}]({obsidian_link_filename})",  # Mit %20 für Leerzeichen
@@ -964,7 +961,7 @@ class TrackProcessor(CacheableProcessor[TrackProcessingResult]):
                     "date": session.input.day or "",
                     "speakers": session.input.speakers or []
                 }
-                context["sessions"].append(session_context)
+                context["sessions"].append(session_ctx_fallback)
         
         # Allgemeine Track-Informationen mit übersetzten Namen
         context["track_name"] = translated_track_name if translated_track_name else track_name

@@ -33,12 +33,12 @@ class TestEventJobRepository:
         Args:
             db_name: Optional, Name der Datenbank. Wenn nicht angegeben, wird der Name aus der Konfiguration verwendet.
         """
-        # MongoDB-Verbindung direkt herstellen
-        mongo_uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
-        db_name = db_name or os.environ.get("MONGODB_DB", "event_processor")
-        
-        self.client: MongoClient[Dict[str, Any]] = MongoClient(mongo_uri)
-        self.db: Database[Dict[str, Any]] = self.client[db_name]
+        # Zentrale MongoDB-Verbindung nutzen (DB-Name aus URI)
+        from src.core.mongodb.connection import get_mongodb_database
+        self.db = get_mongodb_database()
+        # Client aus Database ableiten
+        from typing import cast
+        self.client = cast(MongoClient[Dict[str, Any]], self.db.client)  # type: ignore
         self.jobs: Collection[Dict[str, Any]] = self.db.event_jobs
         self.batches: Collection[Dict[str, Any]] = self.db.event_batches
         

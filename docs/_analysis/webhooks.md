@@ -27,6 +27,9 @@ Neu/minimal für Webhook:
 - `callback_url`: absolute HTTPS/HTTP-URL zum Webhook des Clients
 - `callback_token`: opakes per‑Job Secret (authentisiert den Callback)
 
+Optional für synchrones Warten (nur wenn KEIN `callback_url` gesetzt ist):
+- `wait_ms`: Millisekunden, die der Server nach dem Enqueue des Jobs auf Abschluss wartet. Wenn der Job rechtzeitig fertig ist → direkte Ergebnis‑Response (200). Sonst → 202 mit `job_id`.
+
 Abgekündigt/entfernt:
 - `correlation` und sämtliche darin enthaltenen Felder (`libraryId`, `parentId`, `itemId`, `name`, `options`, …)
 
@@ -49,8 +52,10 @@ curl -X POST http://localhost:5001/api/pdf/process \
 
 ---
 
-#### 3) Synchrone Sofort-Antwort (Ack)
-Wenn `callback_url` gesetzt ist, antwortet der Endpunkt sofort mit einem Ack. Beispiel:
+#### 3) Antworten des Endpunkts
+
+3.1 Bei gesetzter `callback_url`: Sofortiges Ack (202)
+Der Endpunkt antwortet sofort mit einem Ack. Beispiel:
 ```json
 {
   "status": "accepted",
@@ -71,10 +76,15 @@ Hinweise:
 - `job.id` entspricht exakt der übergebenen `jobId`.
 - Daten (`data`) sind im Ack nicht enthalten; sie kommen ausschließlich per Webhook.
 
+3.2 Ohne `callback_url`: Optionales Warten mit `wait_ms`
+- Der Endpunkt legt immer einen Job an (Worker‑basiert). Wenn `wait_ms > 0`, wird bis zu dieser Dauer auf Abschluss gepollt:
+  - Erfolgreich innerhalb des Fensters: 200 mit vollständiger Ergebnisstruktur (siehe Abschnitt 5 `data`).
+  - Timeout oder noch in Bearbeitung: 202 mit `job_id` (Ack wie oben, aber ohne `webhook`).
+
 ---
 
-#### 4) Hintergrundverarbeitung
-- Der Server verarbeitet die Datei im Hintergrund-Thread/Task weiter.
+- #### 4) Hintergrundverarbeitung
+- Der Job wird immer in die Queue eingereiht und durch den `SecretaryWorkerManager` verarbeitet (konfigurierbare Parallelität).
 - Temporäre Dateien werden erst nach Abschluss des Webhook-Versands gelöscht (kein vorzeitiges Cleanup).
 - Cache-Handling bleibt unverändert; `is_from_cache`/`cache_key` werden wie gewohnt in `process` geführt.
 

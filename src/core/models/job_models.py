@@ -108,7 +108,15 @@ class JobParameters:
     source_language: str = "en"
     target_language: str = "de"
     use_cache: bool = True
-    # Generische Zusatzparameter für neue job_types (z. B. pdf)
+    # PDF-spezifische (und allgemein nützliche) Felder – flach, nicht in extra
+    extraction_method: Optional[str] = None
+    template: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+    include_images: bool = False
+    force_refresh: bool = False
+    file_hash: Optional[str] = None
+    webhook: Optional[Dict[str, Any]] = None
+    # Generische Zusatzparameter (nur für wirklich unbekannte Felder)
     extra: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
@@ -122,7 +130,9 @@ class JobParameters:
         # bekannte Felder ziehen
         known_keys = {
             "event","session","url","filename","track","day","starttime","endtime",
-            "speakers","video_url","attachments_url","source_language","target_language","use_cache"
+            "speakers","video_url","attachments_url","source_language","target_language","use_cache",
+            # neue flache Felder
+            "extraction_method","template","context","include_images","force_refresh","file_hash","webhook"
         }
         extra: Dict[str, Any] = {k: v for k, v in data.items() if k not in known_keys}
         return cls(
@@ -140,6 +150,13 @@ class JobParameters:
             source_language=data.get("source_language", "en"),
             target_language=data.get("target_language", "de"),
             use_cache=data.get("use_cache", True),
+            extraction_method=data.get("extraction_method"),
+            template=data.get("template"),
+            context=data.get("context"),
+            include_images=data.get("include_images", False),
+            force_refresh=data.get("force_refresh", False),
+            file_hash=data.get("file_hash"),
+            webhook=data.get("webhook"),
             extra=extra,
         )
 
@@ -376,9 +393,12 @@ class Job:
         # Minimale Log-Einträge übernehmen
         log_entries = data.get("log_entries", [])
         
+        # Debug: Was wird aus der DB gelesen?
+        raw_status = data.get("status", "pending")
+        print(f"[JOB-MODEL] Raw status aus DB: '{raw_status}' (type: {type(raw_status)})")
         return cls(
             job_id=data.get("job_id", f"job-{uuid.uuid4()}"),
-            status=JobStatus(data.get("status", "pending")),
+            status=JobStatus(raw_status),
             created_at=created_at,
             updated_at=updated_at,
             processing_started_at=processing_started_at,

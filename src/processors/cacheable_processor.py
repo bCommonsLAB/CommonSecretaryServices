@@ -110,8 +110,7 @@ class CacheableProcessor(BaseProcessor[T], Generic[T]):
         create_indexes = config.get('cache.mongodb.create_indexes', True)
         
         if not create_indexes:
-            self.logger.info("MongoDB-Index-Erstellung ist deaktiviert, überspringe Cache-Indices-Setup")
-            # Trotzdem die Collection für die Verwendung speichern
+             # Trotzdem die Collection für die Verwendung speichern
             from src.core.mongodb.connection import get_mongodb_database
             self._cache_collection = get_mongodb_database()[self.cache_collection_name]
             return

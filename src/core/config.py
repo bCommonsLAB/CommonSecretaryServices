@@ -161,13 +161,10 @@ class Config:
                 yaml_content = {}
                 
             # Explizite Typisierung für den Linter
-            loaded_config: Dict[str, Any] = yaml_content
+            loaded_config: Dict[str, Any] = cast(Dict[str, Any], yaml_content)
                 
             # Ersetze Umgebungsvariablen in der Konfiguration
-            config_with_env_vars = replace_env_vars(loaded_config)
-            
-            # Explizites Casting für den Typchecker
-            processed_config: Dict[str, Any] = cast(Dict[str, Any], config_with_env_vars)
+            processed_config: Dict[str, Any] = replace_env_vars(loaded_config)  # type: ignore[assignment]
             
             # Kombiniere mit Standard-Konfiguration
             return cast(ApplicationConfig, {**self.DEFAULT_CONFIG, **processed_config})

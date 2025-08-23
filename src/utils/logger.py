@@ -15,6 +15,8 @@ import sys
 import os
 import yaml
 from logging import Handler, LogRecord, Logger
+from threading import RLock
+from typing import Callable
 
 T = TypeVar('T')
 K = TypeVar('K')
@@ -48,6 +50,9 @@ class LoggerService:
     _loggers: Dict[str, 'ProcessingLogger'] = {}
     _console_handler: Optional[Handler] = None
     _detail_handler: Optional[Handler] = None
+    # Observer-Mechanismus pro process_id
+    _observers: Dict[str, list[Callable[[str, str, Dict[str, Any]], None]]] = {}
+    _obs_lock: RLock = RLock()
 
     def __new__(cls) -> 'LoggerService':
         if cls._instance is None:
@@ -239,6 +244,36 @@ class LoggerService:
         self._loggers[process_id] = logger
         return logger
 
+    # Observer-API
+    def register_observer(self, process_id: str, observer: Callable[[str, str, Dict[str, Any]], None]) -> None:
+        """Registriert einen Observer für Logs eines bestimmten process_id."""
+        with self._obs_lock:
+            if process_id not in self._observers:
+                self._observers[process_id] = []
+            self._observers[process_id].append(observer)
+
+    def unregister_observer(self, process_id: str, observer: Callable[[str, str, Dict[str, Any]], None]) -> None:
+        """Entfernt einen Observer für einen process_id, falls vorhanden."""
+        with self._obs_lock:
+            if process_id in self._observers:
+                try:
+                    self._observers[process_id].remove(observer)
+                    if not self._observers[process_id]:
+                        del self._observers[process_id]
+                except ValueError:
+                    pass
+
+    def notify_observers(self, process_id: str, level: str, message: str, kwargs: Dict[str, Any]) -> None:
+        """Benachrichtigt registrierte Observer mit einer Log-Nachricht."""
+        with self._obs_lock:
+            observers = list(self._observers.get(process_id, []))
+        for obs in observers:
+            try:
+                obs(level, message, kwargs)
+            except Exception:
+                # Observer-Fehler nicht eskalieren
+                pass
+
 class ProcessingLogger:
     """
     Logger für einzelne Prozesse
@@ -322,6 +357,8 @@ class ProcessingLogger:
         if kwargs:  # Nur wenn kwargs vorhanden sind
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.debug(message, extra=extra)
+        # Observer informieren
+        logger_service.notify_observers(self.process_id, "debug", message, kwargs)
 
     def info(self, message: str, **kwargs: Any) -> None:
         """Info-Level Logging mit optionalen strukturierten Daten."""
@@ -329,6 +366,7 @@ class ProcessingLogger:
         if kwargs:  # Nur wenn kwargs vorhanden sind
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.info(message, extra=extra)
+        logger_service.notify_observers(self.process_id, "info", message, kwargs)
 
     def error(self, message: str, error: Optional[Exception] = None, **kwargs: Any) -> None:
         """Error-Level Logging mit Exception-Details."""
@@ -338,6 +376,7 @@ class ProcessingLogger:
         if kwargs:  # Nur wenn kwargs vorhanden sind
             message = f"{message} - Args: {extra.get('kwargs', '{}')}"
         self.logger.error(message, extra=extra)
+        logger_service.notify_observers(self.process_id, "error", message, kwargs)
 
     def warning(self, message: str, **kwargs: Any) -> None:
         """Warning-Level Logging mit strukturierten Daten."""
@@ -350,3 +389,10 @@ logger_service = LoggerService()
 def get_logger(process_id: str, processor_name: Optional[str] = None) -> ProcessingLogger:
     """Helper function to get a logger instance"""
     return logger_service.get_logger(process_id, processor_name)
+
+# Convenience-Funktionen für Observer
+def register_log_observer(process_id: str, observer: Callable[[str, str, Dict[str, Any]], None]) -> None:
+    logger_service.register_observer(process_id, observer)
+
+def unregister_log_observer(process_id: str, observer: Callable[[str, str, Dict[str, Any]], None]) -> None:
+    logger_service.unregister_observer(process_id, observer)
