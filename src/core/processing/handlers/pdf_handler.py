@@ -7,6 +7,8 @@ Liest Parameter aus dem Job, führt PDF-Verarbeitung aus und speichert Results.
 from typing import Any, Dict, Optional, cast
 import requests  # type: ignore
 import os
+import base64
+import zipfile
 
 from src.core.models.job_models import Job, JobProgress, JobResults
 from src.core.resource_tracking import ResourceCalculator
@@ -142,6 +144,38 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 	process_dir = getattr(metadata, "process_dir", None) if metadata else None
 	text_paths = getattr(metadata, "text_paths", []) if metadata else []
 
+	# ZIP im Cache vorbereiten: wenn vom Processor bereits vorhanden (Base64), persistiere als Datei;
+	# andernfalls aus vorhandenen Bildern erstellen. Dadurch kann der Download-Endpoint direkt streamen.
+	try:
+		archive_filename_any: Any = getattr(data, "images_archive_filename", None)
+		archive_b64_any: Any = getattr(data, "images_archive_data", None)
+		if process_dir and archive_filename_any:
+			zip_filename: str = str(archive_filename_any)
+			zip_path = os.path.join(process_dir, zip_filename)
+			# Erzeuge Zielverzeichnis sicherheitshalber
+			os.makedirs(process_dir, exist_ok=True)
+			if isinstance(archive_b64_any, str) and archive_b64_any:
+				try:
+					with open(zip_path, "wb") as f:
+						f.write(base64.b64decode(archive_b64_any))
+				except Exception:
+					pass
+			# Wenn keine Base64-Daten vorliegen oder Datei nicht existiert, ZIP aus Bildern erstellen
+			if (not os.path.exists(zip_path)) and image_paths:
+				try:
+					with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+						for p in image_paths:
+							p_str = str(p)
+							full_path = p_str if os.path.isabs(p_str) else os.path.join(process_dir, p_str)
+							if os.path.exists(full_path) and os.path.isfile(full_path):
+								arcname = os.path.join('images', os.path.basename(full_path))
+								zf.write(full_path, arcname=arcname)
+				except Exception:
+					pass
+	except Exception:
+		# Fehler bei der ZIP-Vorbereitung sind nicht fatal
+		pass
+
 	# Volles Processor-Resultat zusätzlich in structured_data ablegen, damit API bei wait_ms direkt rückspiegeln kann
 	to_dict_attr: Any = getattr(result, "to_dict", None)
 	if callable(to_dict_attr):
@@ -149,6 +183,13 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 	else:
 		result_any = {}
 	result_dict: Dict[str, Any] = cast(Dict[str, Any], result_any) if isinstance(result_any, dict) else {}
+	# Große Felder entfernen, um MongoDB-Dokumentgröße klein zu halten
+	if result_dict:
+		data_obj_any_clean: Any = result_dict.get("data")
+		if isinstance(data_obj_any_clean, dict):
+			data_obj_dict_clean: Dict[str, Any] = cast(Dict[str, Any], data_obj_any_clean)
+			data_obj_dict_clean.pop("images_archive_data", None)
+			data_obj_dict_clean.pop("images_archive_filename", None)
 	repo.update_job_status(
 		job_id=job.job_id,
 		status="processing",
@@ -162,8 +203,9 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 			attachments_text=None,
 			context=None,
 			attachments_url=None,
-			archive_data=getattr(data, "images_archive_data", None),
-			archive_filename=getattr(data, "images_archive_filename", None),
+			# Keine großen Base64-Daten in MongoDB persistieren (nur Referenzen)
+			archive_data=None,
+			archive_filename=None,
 			structured_data=result_dict,
 			target_dir=process_dir,
 			page_texts=[str(p) for p in text_paths],
@@ -179,21 +221,22 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 			headers["X-Callback-Token"] = str(callback_token)
 		# Daten extrahieren für finales Event
 		data_section: Dict[str, Any] = {}
-		data_obj: Any = result_dict.get("data", {})
-		if isinstance(data_obj, dict):
-			if "extracted_text" in data_obj:
-				data_section["extracted_text"] = data_obj.get("extracted_text")
-			if "images_archive_data" in data_obj:
-				data_section["images_archive_data"] = data_obj.get("images_archive_data")
-			if "images_archive_filename" in data_obj:
-				data_section["images_archive_filename"] = data_obj.get("images_archive_filename")
+		data_obj_any_webhook: Any = result_dict.get("data", {})
+		if isinstance(data_obj_any_webhook, dict):
+			data_obj_dict_webhook: Dict[str, Any] = cast(Dict[str, Any], data_obj_any_webhook)
+			if "extracted_text" in data_obj_dict_webhook:
+				et_any: Any = data_obj_dict_webhook.get("extracted_text")
+				data_section["extracted_text"] = et_any
 			meta: Dict[str, Any] = {}
-			meta_src: Any = data_obj.get("metadata")
-			if isinstance(meta_src, dict) and "text_contents" in meta_src:
-				meta_src_dict: Dict[str, Any] = cast(Dict[str, Any], meta_src)
+			meta_src_any: Any = data_obj_dict_webhook.get("metadata")
+			if isinstance(meta_src_any, dict) and "text_contents" in meta_src_any:
+				meta_src_dict: Dict[str, Any] = cast(Dict[str, Any], meta_src_any)
 				meta["text_contents"] = meta_src_dict.get("text_contents")
 			if meta:
 				data_section["metadata"] = meta
+		# Download-URL für Bilder-Archiv bereitstellen (on-demand ZIP via API)
+		if include_images and image_paths:
+			data_section["images_archive_url"] = f"/api/jobs/{job.job_id}/download-archive"
 		payload_final: Dict[str, Any] = {
 			"phase": "completed",
 			"message": "Extraktion abgeschlossen",

@@ -14,6 +14,11 @@ import traceback
 from datetime import datetime, UTC
 from typing import Dict, Optional, Any, cast, Callable
 import requests  # type: ignore
+import json
+try:
+    from bson import BSON  # type: ignore
+except Exception:  # pragma: no cover
+    BSON = None  # type: ignore
 
 from src.core.models.job_models import Job, JobStatus, JobProgress, JobError
 from src.core.resource_tracking import ResourceCalculator
@@ -191,6 +196,53 @@ class SecretaryWorkerManager:
                         unregister_log_observer(job.job_id, observer_ref)
                     except Exception:
                         pass
+
+            # Vor Persistenz: Größe und größte Felder messen
+            try:
+                update_doc: Dict[str, Any] = {
+                    "status": JobStatus.COMPLETED,
+                    "progress": JobProgress(step="completed", percent=100, message="Verarbeitung abgeschlossen"),
+                }
+                # Heuristik: Hole aktuelles Resultat aus Repo, wenn vorhanden, um Feldergrößen abzuschätzen
+                current_doc = self.job_repo.get_job(job.job_id)  # type: ignore[attr-defined]
+                field_sizes: list[tuple[str, int]] = []
+                def _measure_field(path: str, val: Any) -> None:
+                    try:
+                        if val is None:
+                            size = 0
+                        elif isinstance(val, (str, bytes)):
+                            size = len(val)
+                        else:
+                            size = len(json.dumps(val))
+                        field_sizes.append((path, size))
+                    except Exception:
+                        pass
+                if isinstance(current_doc, dict):
+                    # Potentiell große Felder
+                    for key in ["data", "data.extracted_text", "data.images_archive_data", "data.metadata.text_contents"]:
+                        parts = key.split(".")
+                        ref: Any = current_doc
+                        for p in parts:
+                            if isinstance(ref, dict) and p in ref:
+                                ref = ref[p]
+                            else:
+                                ref = None
+                                break
+                        _measure_field(key, ref)
+                bson_size: Optional[int] = None
+                if BSON is not None:
+                    try:
+                        # Simuliertes $set für Schätzung
+                        bson_size = len(BSON.encode({"$set": update_doc}))
+                    except Exception:
+                        bson_size = None
+                largest = sorted(field_sizes, key=lambda x: x[1], reverse=True)[:5]
+                logger.info(
+                    f"Job {job.job_id} Persistenz-Check: bson_size={bson_size} largest_fields={largest}"
+                )
+            except Exception:
+                # Messfehler sollen Persistenz nicht verhindern
+                pass
 
             self.job_repo.update_job_status(
                 job_id=job.job_id,

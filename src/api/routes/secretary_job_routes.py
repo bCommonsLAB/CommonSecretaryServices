@@ -4,15 +4,17 @@ Secretary Job API-Routen (neues System)
 Minimal: Enqueue einzelner Job, Enqueue Batch, Get Job, Get Batch.
 """
 
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, cast
 
 from flask import request, Response
 from flask_restx import Namespace, Resource, fields  # type: ignore
 
 from src.core.mongodb import SecretaryJobRepository
-import base64
 import json
 from datetime import datetime
+import os
+import io
+import zipfile
 
 
 secretary_ns = Namespace('jobs', description='Secretary Job Worker – Routen')
@@ -115,17 +117,96 @@ class SecretaryJobArchiveDownloadEndpoint(Resource):
             if not job:
                 return json_response({"error": "Job nicht gefunden"}, 404)
             if not job.results:
+                # Wenn der Job noch läuft, signalisiere dem Client: später erneut versuchen
+                status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(status_any)
+                if status_str in ("pending", "processing"):
+                    return json_response({"status": "processing", "message": "Archiv noch nicht bereit, bitte später erneut versuchen"}, 202)
                 return json_response({"error": "Job hat keine Ergebnisse"}, 400)
-            if not job.results.archive_data:
-                return json_response({"error": "Kein ZIP-Archiv für diesen Job verfügbar"}, 400)
-
-            # Base64-Daten dekodieren
-            try:
-                archive_bytes = base64.b64decode(job.results.archive_data)
-            except Exception:
-                return json_response({"error": "Fehlerhafte Archive-Daten"}, 400)
-
-            filename = job.results.archive_filename or f"job-{job_id}.zip"
+            # On-demand ZIP aus dem Filesystem erstellen
+            asset_dir: Optional[str] = getattr(job.results, 'asset_dir', None)
+            assets: List[str] = list(getattr(job.results, 'assets', []) or [])
+            # Fallback: aus structured_data extrahieren, wenn assets leer sind
+            if not assets:
+                try:
+                    structured_data_any: Any = getattr(job.results, 'structured_data', {}) or {}
+                    structured_data: Dict[str, Any] = structured_data_any if isinstance(structured_data_any, dict) else {}
+                    data_section_any: Any = structured_data.get('data', {})
+                    data_section: Dict[str, Any] = data_section_any if isinstance(data_section_any, dict) else {}
+                    metadata_any: Any = data_section.get('metadata', {})
+                    metadata_dict: Dict[str, Any] = metadata_any if isinstance(metadata_any, dict) else {}
+                    img_paths_any: Any = metadata_dict.get('image_paths', [])
+                    img_paths: List[str]
+                    if isinstance(img_paths_any, list):
+                        img_paths = [str(path_item) for path_item in cast(List[Any], img_paths_any)]
+                    else:
+                        img_paths = []
+                    assets = img_paths
+                except Exception:
+                    assets = []
+            # Dateien zusammensuchen
+            buffer: io.BytesIO = io.BytesIO()
+            written_files = 0
+            # Wenn bereits ein ZIP im Cache liegt, direkt streamen
+            asset_dir_safe: Optional[str] = asset_dir if (asset_dir and os.path.isdir(asset_dir)) else None
+            zip_candidates: List[str] = []
+            if asset_dir_safe:
+                for fname in os.listdir(asset_dir_safe):
+                    if fname.lower().endswith('.zip'):
+                        zip_candidates.append(os.path.join(asset_dir_safe, fname))
+            if zip_candidates:
+                try:
+                    zip_path = sorted(zip_candidates, key=lambda p: os.path.getmtime(p), reverse=True)[0]
+                    with open(zip_path, 'rb') as f:
+                        archive_bytes = f.read()
+                    filename = os.path.basename(zip_path)
+                    return Response(
+                        archive_bytes,
+                        mimetype='application/zip',
+                        headers={
+                            'Content-Disposition': f'attachment; filename="{filename}"',
+                            'Content-Length': str(len(archive_bytes))
+                        }
+                    )
+                except Exception:
+                    # Fallback auf on-the-fly unten
+                    pass
+            # Fallback: wenn assets leer sind, alle Bild-Dateien im asset_dir rekursiv einsammeln
+            if not assets and asset_dir and os.path.isdir(asset_dir):
+                for root, _dirs, files in os.walk(asset_dir):
+                    for fname in files:
+                        lower = fname.lower()
+                        if lower.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                            assets.append(os.path.join(root, fname))
+            with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                for p in assets:
+                    try:
+                        path_str: str = str(p)
+                        full_path = path_str
+                        if asset_dir and not os.path.isabs(full_path):
+                            full_path = os.path.join(asset_dir, full_path)
+                        if os.path.exists(full_path) and os.path.isfile(full_path):
+                            arcname: str = os.path.join('images', os.path.basename(full_path))
+                            zf.write(full_path, arcname=arcname)
+                            written_files += 1
+                    except Exception:
+                        # Einzelne fehlende Dateien ignorieren
+                        continue
+            if written_files == 0:
+                # Status berücksichtigen – möglicherweise kommt der Request zu früh
+                status_any2: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str2: str = str(status_any2.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str2 = str(status_any2)
+                if status_str2 in ("pending", "processing"):
+                    return json_response({"status": "processing", "message": "Keine Bilddateien gefunden – Verarbeitung läuft noch"}, 202)
+                return json_response({"error": "Keine Bilddateien zum Archivieren gefunden"}, 400)
+            archive_bytes = buffer.getvalue()
+            filename = getattr(job.results, 'archive_filename', None) or f"job-{job_id}-images.zip"
             return Response(
                 archive_bytes,
                 mimetype='application/zip',
