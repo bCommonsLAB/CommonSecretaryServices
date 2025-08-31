@@ -558,8 +558,11 @@ class WhisperTranscriber:
                 else "No additional context."
             )
             
-            # Formatiere den Systemprompt mit der Zielsprache
-            system_prompt = system_prompt.format(target_language=target_language)
+            # Ersetze nur den expliziten Sprach-Platzhalter im Systemprompt.
+            # Wichtig: Kein str.format verwenden, da JSON-Klammern { } im Prompt sonst
+            # als Format-Keys interpretiert werden und KeyError auslösen können.
+            if "{target_language}" in system_prompt:
+                system_prompt = system_prompt.replace("{target_language}", target_language)
             
             # Extrahiere die Feldnamen und Beschreibungen
             field_descriptions = {

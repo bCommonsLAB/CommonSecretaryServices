@@ -22,6 +22,7 @@ api = Api(
 
 # Middleware: SECRETARY_SERVICE_API_KEY Check für alle /api-Requests
 _SERVICE_TOKEN = os.environ.get('SECRETARY_SERVICE_API_KEY')
+_ALLOW_LOCALHOST_NO_AUTH = os.environ.get('ALLOW_LOCALHOST_NO_AUTH', 'false').lower() in {'1', 'true', 'yes'}
 
 @blueprint.before_request
 def _check_service_token() -> ResponseReturnValue | None:
@@ -30,6 +31,17 @@ def _check_service_token() -> ResponseReturnValue | None:
     path = request.path
     if any(path.startswith(p) for p in exempt_paths):
         return None
+    # Localhost-Ausnahme erlauben, z. B. fr Swagger-Tests lokal
+    # Nur aktiv, wenn Env-Flag gesetzt ist
+    if _ALLOW_LOCALHOST_NO_AUTH:
+        try:
+            remote_addr = request.remote_addr or ''
+            host = request.host.split(':', 1)[0] if request.host else ''
+        except Exception:
+            remote_addr = ''
+            host = ''
+        if remote_addr in {'127.0.0.1', '::1'} or host in {'localhost', '127.0.0.1', '::1'}:
+            return None
     # Nur prüfen, wenn ein Token konfiguriert ist
     if not _SERVICE_TOKEN:
         return None
