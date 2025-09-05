@@ -79,8 +79,18 @@ pdf_upload_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr', 'mistral_ocr'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract, mistral_ocr=Mistral OCR API)')
+pdf_upload_parser.add_argument('page_start',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Startseite (1-basiert) für OCR (nur für mistral_ocr)')
+pdf_upload_parser.add_argument('page_end',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Endseite (1-basiert, inkl.) für OCR (nur für mistral_ocr)')
 pdf_upload_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -144,8 +154,18 @@ pdf_url_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
+                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr', 'mistral_ocr'],
+                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract, mistral_ocr=Mistral OCR API)')
+pdf_url_parser.add_argument('page_start',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Startseite (1-basiert) für OCR (nur für mistral_ocr)')
+pdf_url_parser.add_argument('page_end',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Endseite (1-basiert, inkl.) für OCR (nur für mistral_ocr)')
 pdf_url_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -370,6 +390,16 @@ class PDFEndpoint(Resource):
                     "force_refresh": bool(force_refresh),
                     "file_hash": file_hash,
                 }
+                # Seitenbereich, falls übergeben
+                try:
+                    ps = args.get('page_start')
+                    pe = args.get('page_end')
+                    if ps is not None:
+                        params_flat["page_start"] = int(ps)
+                    if pe is not None:
+                        params_flat["page_end"] = int(pe)
+                except Exception:
+                    pass
                 if job_webhook:
                     params_flat["webhook"] = job_webhook
                 job_data: Dict[str, Any] = {
@@ -548,6 +578,16 @@ class PDFUrlEndpoint(Resource):
                     "force_refresh": bool(force_refresh),
                     "file_hash": url_hash,
                 }
+                # Seitenbereich, falls übergeben
+                try:
+                    ps = args.get('page_start')
+                    pe = args.get('page_end')
+                    if ps is not None:
+                        params_flat_url["page_start"] = int(ps)
+                    if pe is not None:
+                        params_flat_url["page_end"] = int(pe)
+                except Exception:
+                    pass
                 if job_webhook:
                     params_flat_url["webhook"] = job_webhook
                 job_data: Dict[str, Any] = {

@@ -395,7 +395,7 @@ class Job:
         
         # Debug: Was wird aus der DB gelesen?
         raw_status = data.get("status", "pending")
-        print(f"[JOB-MODEL] Raw status aus DB: '{raw_status}' (type: {type(raw_status)})")
+        # Debug-Log reduziert: nur jede ~2s erlaubt; hier vollständig entfernt, Polling steuert Frequenz
         return cls(
             job_id=data.get("job_id", f"job-{uuid.uuid4()}"),
             status=JobStatus(raw_status),

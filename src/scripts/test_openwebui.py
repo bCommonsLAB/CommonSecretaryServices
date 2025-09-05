@@ -20,8 +20,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, TypedDict, cast, Union, Literal
 import base64
 import mimetypes
+from textwrap import dedent
 
 import requests
+import hashlib
 
 # Pfad zum Projektverzeichnis hinzufügen (robust wie in anderen Skripten)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -196,6 +198,33 @@ def image_file_to_data_url(path: str) -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def _sha256_of_file(path: str) -> str:
+    """Berechnet SHA256 des Dateiinhalts (hex)."""
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def build_image_debug_info(path: str, data_url: str) -> Dict[str, Any]:
+    """Erzeugt Debug-Infos zum Bild für Logging-Zwecke."""
+    abs_path: str = os.path.abspath(path)
+    size_bytes: int = os.path.getsize(path) if os.path.exists(path) else -1
+    mime, _ = mimetypes.guess_type(path)
+    if not mime:
+        mime = "image/png"
+    b64_part: str = data_url.split(",", 1)[1] if "," in data_url else ""
+    sha256_hex: str = _sha256_of_file(path)
+    return {
+        "abs_path": abs_path,
+        "size_bytes": size_bytes,
+        "mime": mime,
+        "b64_length": len(b64_part),
+        "sha256_hex": sha256_hex,
+    }
+
+
 # ----------------------------------- CLI -----------------------------------
 
 
@@ -211,6 +240,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Transformation-Anweisung",
     )
     parser.add_argument("--image", required=False, help="Pfad zu einem Bild, das in Markdown übertragen werden soll")
+    parser.add_argument("--b64-log-prefix-len", type=int, default=0, help="Optional: Anzahl Zeichen des Base64-Anfangs fürs Logging")
     parser.add_argument("--timeout", type=int, default=60, help="HTTP Timeout in Sekunden")
     return parser.parse_args(argv)
 
@@ -234,11 +264,56 @@ def main(argv: Optional[List[str]] = None) -> int:
         messages: List[ChatMessage] = []
         if args.image:
             # Multi-Modal: Text + Bild als data URL
-            instruction = (
-                
-                "Remake this invoice in markdown, remember that the table must be exactly the same as the input image but in markdown language, reply only in markdown."
-            )
+            instruction = dedent("""\
+Aufgabe:
+Konvertiere die gesamte Seite aus einem Bild oder PDF 1:1 in Markdown-Text.
+
+Regeln:
+
+Lesereihenfolge: Analysiere zuerst die Spalten und setze den Text in korrekter Reihenfolge zusammen (von links nach rechts, oben nach unten).
+
+Textübertragung: Übertrage den Text ohne Weglassen oder Hinzufügen – exakt wie ein OCR-Scanner. Keine inhaltlichen Änderungen, keine Zusammenfassungen.
+
+Formatierung:
+
+Überschriften → Markdown-Überschriften (#, ##, …).
+
+Tabellen → Markdown-Tabellen, Spalten korrekt zuordnen.
+
+Listen → mit - oder 1. darstellen.
+
+Hervorhebungen (fett, kursiv) beibehalten, falls erkennbar.
+
+Bilder und Grafiken:
+
+Füge sie als Markdown-Image-Platzhalter ein: ![Beschreibung](imageX.png).
+
+Erstelle zusätzlich eine kurze textuelle Beschreibung des Inhalts (z. B. „Diagramm mit Balken zu Umsatzzahlen 2023“).
+
+Treue: Erfinde nichts, interpretiere nichts. Wenn etwas unleserlich ist, markiere es als [unleserlich].
+
+Ziel: Ein perfektes, sauber formatiertes Markdown-Dokument, das die Seite so wiedergibt, wie sie im Original steht.Keine zusätzlichen anmerkungen.
+            """).strip()
             data_url = image_file_to_data_url(str(args.image))
+            # Debug-Infos zum Bild loggen (Pfad, Größe, MIME, SHA256, Base64-Länge)
+            info = build_image_debug_info(str(args.image), data_url)
+            self_logger = client.logger
+            self_logger.info(
+                "Bildinput vorbereitet",
+                image_path=info["abs_path"],
+                size_bytes=info["size_bytes"],
+                mime=info["mime"],
+                b64_length=info["b64_length"],
+                sha256=info["sha256_hex"],
+            )
+            # Optional: kurzes Base64-Präfix ins Log (zur eindeutigen Zuordnung)
+            try:
+                prefix_len: int = int(getattr(args, "b64_log_prefix_len", 0))
+            except Exception:
+                prefix_len = 0
+            if prefix_len > 0:
+                b64_part: str = data_url.split(",", 1)[1] if "," in data_url else ""
+                self_logger.debug("B64-Präfix", b64_prefix=b64_part[:prefix_len])
             parts: List[Union[ContentPartText, ContentPartImageUrl]] = [
                 {"type": "text", "text": instruction},
                 {"type": "image_url", "image_url": {"url": data_url}},
