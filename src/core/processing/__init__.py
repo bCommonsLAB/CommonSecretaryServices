@@ -15,6 +15,12 @@ try:
 except Exception:
     pass
 
+try:
+    from .handlers.transformer_handler import handle_transformer_template_job
+    register("transformer_template", handle_transformer_template_job)
+except Exception:
+    pass
+
 __all__ = ["register", "get_handler", "available_job_types"]
 
 

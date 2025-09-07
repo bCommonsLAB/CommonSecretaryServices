@@ -733,6 +733,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     files_url = "https://api.mistral.ai/v1/files"
                     headers_up: Dict[str, str] = {"Authorization": f"Bearer {api_key}"}
                     mime = "application/pdf"
+                    # Fortschritt: Upload startet
+                    self.logger.info("Mistral-OCR: Upload startet", progress=10)
                     with open(path, "rb") as fpdf:
                         files = {"file": (path.name, fpdf, mime)}
                         data_form = {"purpose": "ocr"}
@@ -742,6 +744,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     file_id: str = str(up_json.get("id") or up_json.get("file_id") or "")
                     if not file_id:
                         raise ProcessingError("Mistral Files Upload ohne file_id")
+                    # Fortschritt: Upload abgeschlossen
+                    self.logger.info("Mistral-OCR: Upload abgeschlossen", progress=30)
                     # OCR
                     ocr_url = "https://api.mistral.ai/v1/ocr"
                     headers_json: Dict[str, str] = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -758,8 +762,12 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     }
                     if pages_payload is not None:
                         payload["pages"] = pages_payload
+                    # Fortschritt: OCR-Anfrage wird gesendet
+                    self.logger.info("Mistral-OCR: OCR-Anfrage gesendet", progress=60)
                     ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
                     ocr_resp.raise_for_status()
+                    # Fortschritt: OCR-Antwort empfangen
+                    self.logger.info("Mistral-OCR: OCR-Antwort empfangen", progress=75)
                     ocr_json: Dict[str, Any] = ocr_resp.json()
                     # Markdown joinen
                     pages_any: Any = ocr_json.get("pages", [])
@@ -778,6 +786,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             text_contents.append((idx + 1, md))
                             md_parts.append(f"--- Seite {idx + 1} ---\n{md}")
                     result_text = "\n\n".join(md_parts)
+                    # Fortschritt: OCR-Ergebnis geparst
+                    try:
+                        self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
+                    except Exception:
+                        self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
                     metadata = PDFMetadata(
                         file_name=path.name,
                         file_size=path.stat().st_size,
@@ -799,6 +812,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     obj_dict['mistral_ocr_raw'] = ocr_json
                     # neue Instanz aus dict, damit frozen bleibt
                     result = PDFProcessingResult.from_dict(obj_dict)
+                    # Fortschritt: Verarbeitung im Processor abgeschlossen
+                    self.logger.info("Mistral-OCR: Verarbeitung abgeschlossen", progress=90)
                     return self.create_response(
                         processor_name=PROCESSOR_TYPE_PDF,
                         result=result,
@@ -813,6 +828,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         cache_key=cache_key
                     )
                 except Exception as e:
+                    # Fortschritt: Fehlerfall melden (Observer leitet als failed weiter)
+                    try:
+                        self.logger.error(f"Mistral-OCR: Fehler {str(e)}", progress=99)
+                    except Exception:
+                        pass
                     raise ProcessingError(f"Mistral OCR fehlgeschlagen: {str(e)}")
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
