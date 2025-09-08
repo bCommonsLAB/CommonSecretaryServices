@@ -662,7 +662,8 @@ class WhisperTranscriber:
 
             # Template mit extrahierten Daten füllen
             for field_name, field_value in result_json.items():
-                pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
+                # Feldnamen defensiv escapen (sollten zwar alphanumerisch sein, ist aber sicherer)
+                pattern: str = r'\{\{' + re.escape(str(field_name)) + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
                 
                 # Prüfe ob es sich um ein Frontmatter-Feld handelt
@@ -671,7 +672,9 @@ class WhisperTranscriber:
                     # Bereinige den Wert für YAML-Kompatibilität
                     value = self._clean_yaml_value(value)
                     
-                template_content_str = re.sub(pattern, value, template_content_str)
+                # Wichtig: Replacement als Funktion, damit Backslashes in value (z. B. \\B) NICHT
+                # als Regex-Escape im Replacement interpretiert werden (vermeidet "bad escape \\B ...")
+                template_content_str = re.sub(pattern, (lambda _m, s=value: s), template_content_str)
 
             # Einfache Kontext-Variablen ersetzen
             template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
