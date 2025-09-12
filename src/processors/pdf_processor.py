@@ -64,6 +64,8 @@ EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und nativ
 EXTRACTION_LLM = "llm"  # LLM-basierte OCR mit Markdown-Output
 EXTRACTION_LLM_AND_NATIVE = "llm_and_native"  # LLM + native Text
 EXTRACTION_LLM_AND_OCR = "llm_and_ocr"  # LLM + Tesseract OCR
+# Neue Methode: serverseitige Mistral-OCR ohne lokale Seitenrendering-Pipeline
+EXTRACTION_MISTRAL_OCR = "mistral_ocr"
 
 # PyMuPDF Typendefinitionen für den Linter
 if TYPE_CHECKING:
@@ -92,6 +94,8 @@ class PDFProcessingResult:
     # Neue Felder für Bilder-Archiv
     images_archive_data: Optional[str] = None  # Base64-kodiertes ZIP-Archiv mit Bildern
     images_archive_filename: Optional[str] = None  # Dateiname des Bilder-Archives
+    # Rohantwort der Mistral OCR API (nur bei extraction_method=mistral_ocr gesetzt)
+    mistral_ocr_raw: Optional[Dict[str, Any]] = None
     
     def __post_init__(self) -> None:
         """Validiert das Ergebnis nach der Initialisierung."""
@@ -112,7 +116,9 @@ class PDFProcessingResult:
             'process_id': self.process_id,
             'processed_at': self.processed_at,
             'images_archive_data': self.images_archive_data,
-            'images_archive_filename': self.images_archive_filename
+            'images_archive_filename': self.images_archive_filename,
+            # Rohantwort der Mistral OCR API (optional)
+            'mistral_ocr_raw': getattr(self, 'mistral_ocr_raw', None)
         }
     
     @classmethod
@@ -141,7 +147,9 @@ class PDFProcessingResult:
             process_id=data.get('process_id'),
             processed_at=data.get('processed_at', datetime.now(UTC).isoformat()),
             images_archive_data=data.get('images_archive_data'),
-            images_archive_filename=data.get('images_archive_filename')
+            images_archive_filename=data.get('images_archive_filename'),
+            # Mistral Rohdaten wenn vorhanden übernehmen
+            **({'mistral_ocr_raw': data.get('mistral_ocr_raw')} if 'mistral_ocr_raw' in data else {})
         )
 
 @dataclass(frozen=True)
@@ -576,7 +584,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         use_cache: bool = True,
         file_hash: Optional[str] = None,
         force_overwrite: bool = False,
-        include_images: bool = False
+        include_images: bool = False,
+        page_start: Optional[int] = None,
+        page_end: Optional[int] = None
     ) -> PDFResponse:
         """
         Verarbeitet ein PDF-Dokument.
@@ -662,11 +672,168 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             # Validiere alle Extraktionsmethoden
             valid_methods = [
                 EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW,
-                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR
+                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR,
+                EXTRACTION_MISTRAL_OCR
             ]
             for method in methods_list:
                 if method not in valid_methods:
                     raise ProcessingError(f"Ungültige Extraktionsmethode: {method}")
+
+            # Erstelle Arbeitsverzeichnis, falls es nicht existiert
+            if not working_dir.exists():
+                working_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.debug(f"Arbeitsverzeichnis angelegt: {str(working_dir)}")
+            
+            # Prüfe ob es sich um eine URL handelt
+            if str(file_path).startswith(('http://', 'https://')):
+                # Extrahiere Dateiendung aus URL
+                file_extension = self._get_file_extension(str(file_path))
+                # Validiere die Dateiendung für URLs
+                valid_extensions = ['.pdf', '.pptx', '.ppt']
+                if file_extension.lower() not in valid_extensions:
+                    raise ProcessingError(
+                        f"Ungültiges Dateiformat: {file_extension} "
+                        f"(Unterstützte Formate: {', '.join(valid_extensions)})"
+                    )
+                temp_file = working_dir / f"document{file_extension}"
+                # Prüfe, ob die Datei bereits existiert und nicht überschrieben werden soll
+                if temp_file.exists() and not force_overwrite:
+                    self.logger.info(f"Datei existiert bereits, überspringe Download: {temp_file}")
+                    path = temp_file
+                else:
+                    self.logger.info(f"Lade Datei herunter: {file_path} (Dateiendung: {file_extension})")
+                # Lade Datei von URL herunter
+                download_resp: requests.Response = requests.get(str(file_path), stream=True)
+                download_resp.raise_for_status()
+                with open(temp_file, 'wb') as f:
+                    for chunk in download_resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                    # Speichere den Originalnamen aus der URL
+                    original_name_file = working_dir / "original_name.txt"
+                    with open(original_name_file, 'w') as f2:
+                        f2.write(str(file_path))
+                path = temp_file
+            else:
+                # Lokale Datei wird direkt verwendet
+                path = Path(file_path)
+                # Speichere den Originalpfad
+                original_path_file = working_dir / "original_path.txt"
+                if not original_path_file.exists() or force_overwrite:
+                    with open(original_path_file, 'w') as f:
+                        f.write(str(file_path))
+
+            # Früher Exit: reine Mistral-OCR ohne lokale Seitenrendering-Pipeline
+            if methods_list == [EXTRACTION_MISTRAL_OCR]:
+                try:
+                    import os as _os
+                    api_key: str = _os.environ.get("MISTRAL_API_KEY", "")
+                    if not api_key:
+                        raise ProcessingError("MISTRAL_API_KEY nicht gesetzt")
+                    # Upload
+                    files_url = "https://api.mistral.ai/v1/files"
+                    headers_up: Dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+                    mime = "application/pdf"
+                    # Fortschritt: Upload startet
+                    self.logger.info("Mistral-OCR: Upload startet", progress=10)
+                    with open(path, "rb") as fpdf:
+                        files = {"file": (path.name, fpdf, mime)}
+                        data_form = {"purpose": "ocr"}
+                        up_resp = requests.post(files_url, headers=headers_up, files=files, data=data_form, timeout=180)
+                    up_resp.raise_for_status()
+                    up_json: Dict[str, Any] = up_resp.json() if up_resp.headers.get('content-type','').startswith('application/json') else {}
+                    file_id: str = str(up_json.get("id") or up_json.get("file_id") or "")
+                    if not file_id:
+                        raise ProcessingError("Mistral Files Upload ohne file_id")
+                    # Fortschritt: Upload abgeschlossen
+                    self.logger.info("Mistral-OCR: Upload abgeschlossen", progress=30)
+                    # OCR
+                    ocr_url = "https://api.mistral.ai/v1/ocr"
+                    headers_json: Dict[str, str] = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    pages_payload: Optional[List[int]] = None
+                    if page_start is not None or page_end is not None:
+                        ps0 = max(0, (page_start or 1) - 1)
+                        pe0 = (page_end - 1) if page_end is not None else ps0
+                        if pe0 < ps0:
+                            pe0 = ps0
+                        pages_payload = list(range(ps0, pe0 + 1))
+                    payload: Dict[str, Any] = {
+                        "model": _os.environ.get("MISTRAL_MODEL", "mistral-ocr-2505"),
+                        "document": {"type": "file", "file_id": file_id},
+                    }
+                    if pages_payload is not None:
+                        payload["pages"] = pages_payload
+                    # Fortschritt: OCR-Anfrage wird gesendet
+                    self.logger.info("Mistral-OCR: OCR-Anfrage gesendet", progress=60)
+                    ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
+                    ocr_resp.raise_for_status()
+                    # Fortschritt: OCR-Antwort empfangen
+                    self.logger.info("Mistral-OCR: OCR-Antwort empfangen", progress=75)
+                    ocr_json: Dict[str, Any] = ocr_resp.json()
+                    # Markdown joinen
+                    pages_any: Any = ocr_json.get("pages", [])
+                    text_contents: List[Tuple[int, str]] = []
+                    md_parts: List[str] = []
+                    if isinstance(pages_any, list):
+                        for p_any in pages_any:  # type: ignore[assignment]
+                            p_dict = cast(Dict[str, Any], p_any) if isinstance(p_any, dict) else {}
+                            idx_val: Any = p_dict.get("index", 0)
+                            try:
+                                idx = int(idx_val)
+                            except Exception:
+                                idx = 0
+                            md_val: Any = p_dict.get("markdown", "")
+                            md = str(md_val)
+                            text_contents.append((idx + 1, md))
+                            md_parts.append(f"--- Seite {idx + 1} ---\n{md}")
+                    result_text = "\n\n".join(md_parts)
+                    # Fortschritt: OCR-Ergebnis geparst
+                    try:
+                        self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
+                    except Exception:
+                        self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
+                    metadata = PDFMetadata(
+                        file_name=path.name,
+                        file_size=path.stat().st_size,
+                        page_count=len(text_contents) if text_contents else 0,
+                        process_dir=str(working_dir),
+                        extraction_method=EXTRACTION_MISTRAL_OCR,
+                        format="pdf"
+                    )
+                    result = PDFProcessingResult(
+                        metadata=metadata,
+                        extracted_text=result_text,
+                        ocr_text=None,
+                        process_id=self.process_id,
+                        images_archive_data=None,
+                        images_archive_filename=None,
+                    )
+                    # mistral_ocr_raw ins dict integrieren
+                    obj_dict = result.to_dict()
+                    obj_dict['mistral_ocr_raw'] = ocr_json
+                    # neue Instanz aus dict, damit frozen bleibt
+                    result = PDFProcessingResult.from_dict(obj_dict)
+                    # Fortschritt: Verarbeitung im Processor abgeschlossen
+                    self.logger.info("Mistral-OCR: Verarbeitung abgeschlossen", progress=90)
+                    return self.create_response(
+                        processor_name=PROCESSOR_TYPE_PDF,
+                        result=result,
+                        request_info={
+                            'file_path': str(file_path),
+                            'template': template,
+                            'context': context,
+                            'extraction_method': EXTRACTION_MISTRAL_OCR
+                        },
+                        response_class=PDFResponse,
+                        from_cache=False,
+                        cache_key=cache_key
+                    )
+                except Exception as e:
+                    # Fortschritt: Fehlerfall melden (Observer leitet als failed weiter)
+                    try:
+                        self.logger.error(f"Mistral-OCR: Fehler {str(e)}", progress=99)
+                    except Exception:
+                        pass
+                    raise ProcessingError(f"Mistral OCR fehlgeschlagen: {str(e)}")
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
             if not working_dir.exists():
@@ -695,11 +862,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 else:
                     self.logger.info(f"Lade Datei herunter: {file_path} (Dateiendung: {file_extension})")
                 # Lade Datei von URL herunter
-                response: requests.Response = requests.get(str(file_path), stream=True)
-                response.raise_for_status()
+                download_resp2 = requests.get(str(file_path), stream=True)
+                download_resp2.raise_for_status()
                 
                 with open(temp_file, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
+                    for chunk in download_resp2.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
                     # Speichere den Originalnamen aus der URL
@@ -789,7 +956,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 
                 for page_num in range(page_count):
                     page = pdf[page_num]  # Zugriff auf PDF-Seite
-                    page_start = time.time()
+                    page_started_at: float = time.time()
                     self.logger.info(f"verarbeite Seite {page_num+1}")
 
                     # ZENTRALE BILDGENERIERUNG - unabhängig von der Extraktionsmethode
@@ -879,7 +1046,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 )
                                 
                                 ocr_text += f"\n--- Seite {page_num+1} ---\n{page_ocr}"
-                                self.logger.info(f"OCR für Seite {page_num+1} mit ImageOCR Processor abgeschlossen")
                             else:
                                 self.logger.warning(f"Kein OCR-Text für Seite {page_num+1} extrahiert")
                                 page_ocr = ""
@@ -1172,7 +1338,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             page_ocr = ""
                     
                     # Logging
-                    page_duration = time.time() - page_start
+                    page_duration: float = time.time() - page_started_at
                     self.logger.info(f"Seite {page_num + 1} verarbeitet",
                                     duration=page_duration,
                                     extraction_methods=methods_list)

@@ -48,3 +48,20 @@ sequenceDiagram
 - Session: `POST /api/session/process`, `POST /api/session/process-async`
 - Event-Job: `POST/GET /api/event-job/jobs`, `GET /api/event-job/jobs/{id}`
 - Transformer: `POST /api/transformer/template`, `POST /api/transformer/text`, `POST /api/transformer/html-table`, `POST /api/transformer/text/file`, `POST /api/transformer/metadata`
+
+## Authentifizierung & Zugriffsausnahmen
+
+Die API erwartet standardmäßig einen gültigen Service-Token (Header `Authorization: Bearer <token>` oder `X-Secretary-Api-Key`).
+
+Für Entwicklungs-/Testzwecke oder betrieblich notwendige Ausnahmen sind folgende Umgebungsvariablen verfügbar:
+
+- `ALLOW_LOCALHOST_NO_AUTH` (default: `false`):
+  - Erlaubt Zugriffe ohne Token von `localhost`, `127.0.0.1`, `::1`.
+  - Nützlich für lokale Swagger-Tests.
+
+- `ALLOW_SWAGGER_WHITELIST` (default: leer):
+  - Komma-/Semikolon-/Leerzeichen-separierte Liste von IPs oder Hostnamen, die ohne Token zugreifen dürfen.
+  - Beispiel: `ALLOW_SWAGGER_WHITELIST="127.0.0.1, 203.0.113.10; office.example.com"`
+  - Hinter Reverse-Proxy werden `X-Forwarded-For` und `X-Real-IP` ausgewertet (erster Eintrag).
+
+Hinweis: Verwenden Sie Whitelists sparsam und nur für statische, vertrauenswürdige IPs. In Produktionsumgebungen sollte der reguläre Token-basiere Zugriff bevorzugt werden.

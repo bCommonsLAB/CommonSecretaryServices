@@ -662,7 +662,8 @@ class WhisperTranscriber:
 
             # Template mit extrahierten Daten füllen
             for field_name, field_value in result_json.items():
-                pattern: str = r'\{\{' + field_name + r'\|[^}]+\}\}'
+                # Feldnamen defensiv escapen (sollten zwar alphanumerisch sein, ist aber sicherer)
+                pattern: str = r'\{\{' + re.escape(str(field_name)) + r'\|[^}]+\}\}'
                 value: str = str(field_value) if field_value is not None else ""
                 
                 # Prüfe ob es sich um ein Frontmatter-Feld handelt
@@ -671,7 +672,9 @@ class WhisperTranscriber:
                     # Bereinige den Wert für YAML-Kompatibilität
                     value = self._clean_yaml_value(value)
                     
-                template_content_str = re.sub(pattern, value, template_content_str)
+                # Wichtig: Replacement als Funktion, damit Backslashes in value (z. B. \\B) NICHT
+                # als Regex-Escape im Replacement interpretiert werden (vermeidet "bad escape \\B ...")
+                template_content_str = re.sub(pattern, (lambda _m, s=value: s), template_content_str)
 
             # Einfache Kontext-Variablen ersetzen
             template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
@@ -728,7 +731,8 @@ class WhisperTranscriber:
             # Füge text als spezielle Variable hinzu
             if text:
                 # Ersetze {{text}} mit dem tatsächlichen Text
-                template_content = re.sub(r'\{\{text\}\}', text, template_content)
+                # WICHTIG: Replacement als Funktion, damit Backslashes im Text NICHT als Escape interpretiert werden
+                template_content = re.sub(r'\{\{text\}\}', lambda _m: text, template_content)
             
             # Finde alle einfachen Template-Variablen (ohne Description)
             simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
@@ -738,7 +742,8 @@ class WhisperTranscriber:
                     if value is not None and key in simple_variables:
                         pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
                         str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-                        template_content = re.sub(pattern, str_value, template_content)
+                        # Replacement als Funktion, damit Backslashes im Wert nicht als Escape interpretiert werden
+                        template_content = re.sub(pattern, (lambda _m, s=str_value: s), template_content)
                 except Exception as variable_error:
                     # Detaillierte Fehlerinformationen für eine spezifische Variable
                     # Bereite eine sichere String-Version des problematischen Werts vor
@@ -750,8 +755,48 @@ class WhisperTranscriber:
                             safe_value = str(value)[:100]
                     except:
                         safe_value = f"<Nicht darstellbarer Wert vom Typ {type(type_cast(object, value)).__name__}>"
-                        
-                    error_msg = f"Fehler beim Ersetzen der Variable '{key}': {str(variable_error)}. Problematischer Wert: {safe_value}"
+                    # Versuche Positions-Infos aus der Exception zu extrahieren (z. B. "at position 2843")
+                    detail_msg = str(variable_error)
+                    pos_idx: Optional[int] = None
+                    try:
+                        import re as _re
+                        m = _re.search(r"position\s+(\d+)", detail_msg)
+                        if m:
+                            pos_idx = int(m.group(1))
+                    except Exception:
+                        pos_idx = None
+                    # Wenn Position extrahiert werden konnte, bereite Zeile+Caret auf Basis des Ersatz-Strings vor
+                    caret_block = ""
+                    if pos_idx is not None:
+                        try:
+                            repl_str = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+                            # Begrenze extrem lange Strings für Darstellung
+                            idx = max(0, min(pos_idx, len(repl_str)))
+                            # Zeilennummer und Spalte bestimmen
+                            cumulative = 0
+                            line_no = 0
+                            col_no = 0
+                            for line_no_iter, line in enumerate(repl_str.splitlines(True)):
+                                if cumulative + len(line) > idx:
+                                    line_no = line_no_iter
+                                    col_no = idx - cumulative
+                                    line_text = line.rstrip("\r\n")
+                                    # Kürzen der Zeile für bessere Lesbarkeit
+                                    start = max(0, col_no - 100)
+                                    end = min(len(line_text), col_no + 100)
+                                    view = line_text[start:end]
+                                    caret_pos = col_no - start
+                                    caret_line = (" " * max(0, caret_pos)) + "^"
+                                    caret_block = f"\nZeile {line_no + 1}, Spalte {col_no + 1}:\n{view}\n{caret_line}"
+                                    break
+                                cumulative += len(line)
+                        except Exception:
+                            caret_block = ""
+                    
+                    error_msg = (
+                        f"Fehler beim Ersetzen der Variable '{key}': {detail_msg}. "
+                        f"Problematischer Wert (gekürzt): {safe_value}{caret_block}"
+                    )
                     if logger:
                         logger.error(error_msg, 
                                    variable=key, 

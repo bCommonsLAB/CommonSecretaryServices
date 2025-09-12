@@ -171,6 +171,10 @@ template_transform_parser.add_argument('template_content', type=str, location='f
 template_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Template-Verarbeitung')
 template_transform_parser.add_argument('additional_field_descriptions', type=str, location='form', required=False, help='Optionaler JSON-String mit zusätzlichen Feldbeschreibungen')
 template_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
+template_transform_parser.add_argument('callback_url', type=str, location='form', required=False, help='Absolute HTTPS-URL für den Webhook-Callback')
+template_transform_parser.add_argument('callback_token', type=str, location='form', required=False, help='Per-Job-Secret für den Webhook-Callback')
+template_transform_parser.add_argument('jobId', type=str, location='form', required=False, help='Eindeutige Job-ID für den Callback')
+template_transform_parser.add_argument('wait_ms', type=int, location='form', required=False, default=0, help='Optional: Wartezeit in Millisekunden auf Abschluss (nur ohne callback_url)')
 
 # Parser für den HTML-Tabellen-Transformations-Endpunkt
 html_table_transform_parser = transformer_ns.parser()
@@ -460,7 +464,57 @@ class TemplateTransformEndpoint(Resource):
             start_time: float = time.time()
             transformer_processor: TransformerProcessor = get_transformer_processor()
             
-            # Wähle die passende Transformationsmethode
+            # Optionaler Async-Modus: Wenn callback_url gesetzt ist → Job enqueuen wie bei PDF
+            callback_url = args.get('callback_url')
+            callback_token = args.get('callback_token')
+            job_id_form = args.get('jobId')
+            wait_ms: int = int(args.get('wait_ms') or 0)
+
+            if callback_url:
+                # Secretary-Job anlegen
+                from src.core.mongodb.secretary_repository import SecretaryJobRepository
+                job_repo = SecretaryJobRepository()
+                job_webhook: Optional[Dict[str, Any]] = {
+                    "url": callback_url,
+                    "token": callback_token,
+                    "jobId": job_id_form or None,
+                }
+                params_flat: Dict[str, Any] = {
+                    "text": text if text else None,
+                    "url": url if url else None,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "template": template,
+                    "template_content": template_content,
+                    "context": context,
+                    "additional_field_descriptions": additional_field_descriptions,
+                    "use_cache": use_cache,
+                    "webhook": job_webhook,
+                }
+                job_data: Dict[str, Any] = {
+                    "job_type": "transformer_template",
+                    "parameters": params_flat,
+                }
+                created_job_id: str = job_repo.create_job(job_data)
+
+                # Sofortiges ACK analog PDF
+                ack: Dict[str, Any] = {
+                    'status': 'accepted',
+                    'worker': 'secretary',
+                    'process': {
+                        'id': created_job_id,
+                        'main_processor': 'transformer_template',
+                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        'is_from_cache': False
+                    },
+                    'job': {'id': job_id_form or created_job_id},
+                    'webhook': {'delivered_to': callback_url},
+                    'error': None
+                }
+                logger.info("Webhook-ACK gesendet (Job enqueued)", process_id=created_job_id, callback_url=callback_url)
+                return ack, 202
+
+            # Wähle die passende Transformationsmethode (synchroner Pfad)
             if url:
                 # URL-basierte Transformation
                 result: TransformerResponse = transformer_processor.transformByUrl(

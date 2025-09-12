@@ -66,6 +66,9 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 	context: Optional[Dict[str, Any]] = getattr(params, "context", None)
 	use_cache: bool = bool(getattr(params, "use_cache", True))
 	include_images: bool = bool(getattr(params, "include_images", False))
+	# Seitenbereich (optional, für mistral_ocr)
+	page_start = getattr(params, "page_start", None)
+	page_end = getattr(params, "page_end", None)
 
 	processor = PDFProcessor(resource_calculator=resource_calculator, process_id=job.job_id)
 
@@ -121,6 +124,8 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 		use_cache=use_cache,
 		file_hash=None,
 		include_images=include_images,
+		page_start=int(page_start) if isinstance(page_start, int) else None,
+		page_end=int(page_end) if isinstance(page_end, int) else None,
 	)
 
 	_post_progress("postprocessing", 95, "Ergebnisse werden gespeichert")
