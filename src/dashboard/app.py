@@ -9,6 +9,13 @@ from types import FrameType
 from typing import NoReturn, Optional, Union
 
 from flask import Flask
+from dotenv import load_dotenv
+
+# .env früh laden, bevor die API-Routen (mit Env-Auswertung) importiert werden
+try:
+    load_dotenv()
+except Exception:
+    pass
 
 from src.api.routes import blueprint as api_blueprint
 from src.utils.logger import get_logger, logger_service
@@ -30,6 +37,32 @@ app = Flask(__name__)
 app_logger: ProcessingLogger = get_logger(process_id="flask-app")
 if os.environ.get('WERKZEUG_RUN_MAIN'):
     app_logger = get_logger(process_id="flask-app-reloader")
+
+# Logge Auth-relevante Env-Parameter beim Start, um effektive Konfiguration zu verifizieren
+try:
+    def _parse_ip_whitelist(raw_value: str) -> list[str]:
+        separators = [',', ';', ' ']
+        normalized = raw_value
+        for sep in separators[:-1]:
+            normalized = normalized.replace(sep, ' ')
+        return [p.strip() for p in normalized.split(' ') if p.strip()]
+
+    _service_token_present = bool(os.environ.get('SECRETARY_SERVICE_API_KEY'))
+    _allow_localhost = os.environ.get('ALLOW_LOCALHOST_NO_AUTH', 'false').lower() in {'1', 'true', 'yes'}
+    _whitelist_raw = os.environ.get('ALLOW_SWAGGER_WHITELIST', '')
+    _whitelist_list = _parse_ip_whitelist(_whitelist_raw)
+    _auth_log_decisions = os.environ.get('AUTH_LOG_DECISIONS', 'false').lower() in {'1', 'true', 'yes'}
+
+    app_logger.info(
+        "Auth-Startup-Konfiguration",
+        service_token_present=_service_token_present,
+        allow_localhost_no_auth=_allow_localhost,
+        allow_swagger_whitelist_raw=_whitelist_raw,
+        allow_swagger_whitelist=_whitelist_list,
+        auth_log_decisions=_auth_log_decisions
+    )
+except Exception:
+    pass
 
 # Register blueprints
 app.register_blueprint(main)

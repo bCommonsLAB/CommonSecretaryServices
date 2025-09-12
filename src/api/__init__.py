@@ -2,6 +2,7 @@
 API-Modul für den Processing Service.
 """
 from flask import Flask
+from dotenv import load_dotenv
 from src.dashboard.routes.main_routes import main as dashboard_blueprint
 from src.dashboard.routes.config_routes import config as config_blueprint
 from typing import Optional
@@ -21,6 +22,12 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     Returns:
         Die konfigurierte Flask-App
     """
+    # Lade .env sehr früh, damit Auth-Variablen (SECRETARY_SERVICE_API_KEY, ALLOW_*) sicher verfügbar sind
+    try:
+        load_dotenv()
+    except Exception as _:
+        pass
+
     # Importiere die API-Blueprint
     from src.api.routes import blueprint as api_blueprint
     
