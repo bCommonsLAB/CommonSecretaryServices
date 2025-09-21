@@ -328,12 +328,11 @@ class WhisperTranscriber:
             
             # Instruction basierend auf Modus erstellen
             base_instruction: str = f"Can you summarize this text in {target_language} in a more concise way?"
+            summary_instruction: str = base_instruction
             if max_words:
-                instruction: str = f"{base_instruction} Use at most {max_words} words."
-            else:
-                instruction: str = base_instruction
+                summary_instruction = f"{base_instruction} Use at most {max_words} words."
 
-            user_prompt: str = f"{instruction}\n\n{text}"
+            user_prompt: str = f"{summary_instruction}\n\n{text}"
 
             # Zeitmessung starten
             start_time: float = time.time()
@@ -415,6 +414,76 @@ class WhisperTranscriber:
             text=formatted,
             target_language=target_language
         )
+
+    @staticmethod
+    def _extract_json_substring(text: str) -> Optional[str]:
+        """Extrahiert den ersten gültigen JSON-Objekt-Substring aus freiem Text.
+
+        - Sucht das erste top-level '{' und matching '}' unter Beachtung von Strings und Escapes.
+        - Gibt None zurück, wenn keine balancierte Struktur gefunden wird.
+        """
+        in_string: bool = False
+        escape_next: bool = False
+        depth: int = 0
+        start_idx: Optional[int] = None
+
+        for idx, ch in enumerate(text):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if ch == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+
+            if ch == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if ch == '{':
+                if depth == 0:
+                    start_idx = idx
+                depth += 1
+            elif ch == '}':
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start_idx is not None:
+                        return text[start_idx: idx + 1]
+
+        return None
+
+    @staticmethod
+    def _sanitize_json_for_loading(s: str) -> str:
+        """Macht typische LLM-Ausgabe zu validerem JSON.
+
+        Fixes:
+        - Ungültige Backslash-Escapes: wandelt \\x (x nicht in JSON-Escape) in \\\\x um
+        - Entfernt trailing-Kommas vor } oder ]
+        - Trimmt unsichtbare BOM/Whitespace
+        """
+        # Entferne BOM und trimme
+        s = s.lstrip("\ufeff\n\r\t ").rstrip()
+
+        # Entferne Markdown-Codeblöcke, falls vorhanden
+        if s.startswith("```json"):
+            s = s[7:]
+        if s.startswith("```"):
+            s = s[3:]
+        if s.endswith("```"):
+            s = s[:-3]
+        s = s.strip()
+
+        # Entferne trailing Commas wie ,} oder ,]
+        s = re.sub(r",\s*([}\]])", r"\\1", s)
+
+        # Ersetze ungültige Backslash-Escapes (alles außer gültigen JSON-Escapes)
+        s = re.sub(r"\\(?![\\\"/bfnrtu])", r"\\\\", s)
+
+        return s
 
     def saveDebugOutput(
         self,
@@ -635,17 +704,32 @@ class WhisperTranscriber:
             content = content.strip()
 
             try:
+                # 1) Direkter Parse-Versuch
                 result_json = json.loads(content)
-            except json.JSONDecodeError as e:
-                if logger:
-                    logger.error("Ungültiges JSON vom LLM erhalten",
-                        error=e,
-                        content=content)
-                # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
-                result_json = {
-                    name: f"Fehler bei der Extraktion: {str(e)}"
-                    for name in field_definitions.fields.keys()
-                }
+            except json.JSONDecodeError as e_primary:
+                # 2) Versuche JSON-Objekt aus Text zu extrahieren und zu sanitisieren
+                candidate: str = _extract_json_substring(content) or content
+                sanitized: str = _sanitize_json_for_loading(candidate)
+                try:
+                    result_json = json.loads(sanitized)
+                    if logger:
+                        logger.warning(
+                            "LLM-JSON musste saniert werden; ursprünglicher Parse schlug fehl",
+                            primary_error=str(e_primary)
+                        )
+                except json.JSONDecodeError as e_secondary:
+                    if logger:
+                        logger.error(
+                            "Ungültiges JSON vom LLM (auch nach Sanitizing)",
+                            primary_error=str(e_primary),
+                            secondary_error=str(e_secondary),
+                            snippet=sanitized[:500]
+                        )
+                    # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
+                    result_json = {
+                        name: f"Fehler bei der Extraktion: {str(e_secondary)}"
+                        for name in field_definitions.fields.keys()
+                    }
 
             # LLM-Nutzung tracken mit zentraler Methode
             self.create_llm_request(
