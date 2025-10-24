@@ -48,6 +48,7 @@ class SessionInput:
     endtime: Optional[str] = None
     speakers: List[str] = field(default_factory=list)
     video_url: Optional[str] = None
+    video_transcript: Optional[str] = None
     attachments_url: Optional[str] = None
     source_language: str = "en"  # Standardmäßig Englisch
     target_language: str = "de"  # Standardmäßig Deutsch
@@ -89,6 +90,7 @@ class SessionInput:
             "endtime": self.endtime,
             "speakers": self.speakers,
             "video_url": self.video_url,
+            "video_transcript": self.video_transcript,
             "attachments_url": self.attachments_url,
             "source_language": self.source_language,
             "target_language": self.target_language,
@@ -110,6 +112,7 @@ class SessionInput:
             endtime=data.get("endtime"),
             speakers=data.get("speakers", []),
             video_url=data.get("video_url"),
+            video_transcript=data.get("video_transcript"),
             attachments_url=data.get("attachments_url"),
             source_language=data.get("source_language", "en"),
             target_language=data.get("target_language", "de"),

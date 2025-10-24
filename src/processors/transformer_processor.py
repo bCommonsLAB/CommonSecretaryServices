@@ -59,8 +59,8 @@ import json
 import requests
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup as BS, ResultSet, Tag
-from bs4.element import NavigableString, PageElement
+from bs4 import BeautifulSoup as BS, Tag
+from bs4.element import PageElement
 from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 
@@ -1043,13 +1043,12 @@ Folgender Text soll verarbeitet werden:
         if not links:
             return str(cell.get_text(strip=True))
             
-        if len(links) == 1 and isinstance(links[0], Tag):
+        if len(links) == 1:
             return self._extract_link_info(links[0], source_url)
             
         link_objects = [
             self._extract_link_info(link, source_url) 
-            for link in links 
-            if isinstance(link, Tag)
+            for link in links
         ]
         return link_objects if link_objects else str(cell.get_text(strip=True))
 
@@ -1133,24 +1132,19 @@ Folgender Text soll verarbeitet werden:
             tables_to_process = [tables[table_index]] if table_index is not None else tables
             
             for idx, table in enumerate(tables_to_process):
-                if not isinstance(table, Tag):
-                    continue
-                    
                 # Headers extrahieren
                 headers = [
                     th.get_text(strip=True) 
-                    for th in table.find_all('th') 
-                    if isinstance(th, Tag)
+                    for th in table.find_all('th')
                 ]
                 
                 # Wenn keine Headers gefunden wurden, erste Zeile als Header verwenden
                 if not headers:
-                    first_row: PageElement | Tag | NavigableString | None = table.find('tr')
-                    if first_row and isinstance(first_row, Tag):
+                    first_row = table.find('tr')
+                    if first_row:
                         headers: List[str] = [
                             td.get_text(strip=True) 
-                            for td in first_row.find_all('td') 
-                            if isinstance(td, Tag)
+                            for td in first_row.find_all('td')
                         ]
                 
                 rows: List[Dict[str, Any]] = []
@@ -1158,19 +1152,16 @@ Folgender Text soll verarbeitet werden:
                 
                 # Zeilen verarbeiten
                 for tr in table.find_all('tr')[1 if headers else 0:]:
-                    if not isinstance(tr, Tag):
-                        continue
-                        
-                    cells: ResultSet[PageElement | Tag | NavigableString] = tr.find_all('td')
+                    cells = tr.find_all('td')
                     if not cells:
                         continue
                         
                     # Gruppierungsinfo verarbeiten
                     first_cell = cells[0]
-                    if len(cells) == 1 and isinstance(first_cell, Tag):
+                    if len(cells) == 1:
                         if first_cell.get('colspan'):
-                            links: ResultSet[PageElement | Tag | NavigableString] = first_cell.find_all('a')
-                            if links and len(links) == 1 and isinstance(links[0], Tag):
+                            links = first_cell.find_all('a')
+                            if links and len(links) == 1:
                                 current_group_info = self._extract_link_info(links[0], source_url)
                             else:
                                 current_group_info = {"Name": first_cell.get_text(strip=True)}
@@ -1180,7 +1171,7 @@ Folgender Text soll verarbeitet werden:
                     row = {
                         headers[i]: self._process_cell_content(cell, source_url)
                         for i, cell in enumerate(cells)
-                        if i < len(headers) and isinstance(cell, Tag)
+                        if i < len(headers)
                     }
                     
                     if row and any(row.values()):

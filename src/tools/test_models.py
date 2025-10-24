@@ -6,7 +6,6 @@ Test-Skript für die Dataclasses der Job- und Batch-Modelle.
 import sys
 import os
 import logging
-from pathlib import Path
 from datetime import datetime, UTC
 
 # Logging konfigurieren

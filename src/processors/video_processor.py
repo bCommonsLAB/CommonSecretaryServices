@@ -35,6 +35,15 @@ import uuid
 import hashlib
 import subprocess  # Importiere subprocess für die FFmpeg-Integration
 import json
+import os
+import requests
+import re
+
+# Windows-TLS-Workaround: Deaktiviere SSL-Verifikation BEVOR yt-dlp geladen wird
+# Dies muss VOR dem yt-dlp-Import passieren, damit yt-dlp den gepatchten Context nutzt
+if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore
 
 import yt_dlp  # type: ignore
 
@@ -137,6 +146,8 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
             'sleep_interval': 3,
             'max_sleep_interval': 10,
             'nocheckcertificate': True,
+            'legacy_server_connect': True,  # Hilft bei TLS-Problemen auf Windows
+            'source_address': '0.0.0.0',  # Bindet an alle Interfaces (Windows-TLS-Workaround)
             'ignoreerrors': False,
             'no_playlist': True,
             'extract_flat': False,
@@ -157,6 +168,82 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
             'prefer_ffmpeg': True,
             'keepvideo': False
         }
+
+        # Optionale Authentifizierung/Cookies für Vimeo/Plattformen per Umgebung aktivieren
+        # Diese Konfiguration ist bewusst minimal und rückwärtskompatibel:
+        # - YTDLP_COOKIES_FROM_BROWSER: z.B. "chrome" oder "edge" (nur lokal sinnvoll)
+        # - YTDLP_COOKIES_FILE: Pfad zu cookies.txt im Netscape-Format (für Serverbetrieb)
+        # - VIMEO_USERNAME / VIMEO_PASSWORD: Konto-Login (falls notwendig/erlaubt)
+        # - YTDLP_NETRC=1: .netrc verwenden (Alternative zu USERNAME/PASSWORD)
+        try:
+            cookies_from_browser: Optional[str] = os.getenv('YTDLP_COOKIES_FROM_BROWSER')
+            cookies_file: Optional[str] = os.getenv('YTDLP_COOKIES_FILE')
+            vimeo_username: Optional[str] = os.getenv('VIMEO_USERNAME')
+            vimeo_password: Optional[str] = os.getenv('VIMEO_PASSWORD')
+            use_netrc: bool = os.getenv('YTDLP_NETRC', '').lower() in {'1', 'true', 'yes'}
+            # Optional: explizites CA-Bundle für yt-dlp (falls Standard nicht greift)
+            ca_bundle: Optional[str] = (
+                os.getenv('YTDLP_CA_BUNDLE')
+                or os.getenv('SSL_CERT_FILE')
+                or os.getenv('REQUESTS_CA_BUNDLE')
+            )
+            
+            # Debug-Logging: Zeige alle geladenen ENV-Variablen für Diagnose
+            self.logger.info(
+                "yt-dlp ENV-Variablen geladen",
+                YTDLP_COOKIES_FROM_BROWSER=cookies_from_browser,
+                YTDLP_COOKIES_FILE=cookies_file,
+                VIMEO_USERNAME=bool(vimeo_username),
+                VIMEO_PASSWORD=bool(vimeo_password),
+                YTDLP_NETRC=use_netrc,
+                YTDLP_CA_BUNDLE=os.getenv('YTDLP_CA_BUNDLE'),
+                SSL_CERT_FILE=os.getenv('SSL_CERT_FILE'),
+                REQUESTS_CA_BUNDLE=os.getenv('REQUESTS_CA_BUNDLE'),
+                PYTHONHTTPSVERIFY=os.getenv('PYTHONHTTPSVERIFY'),
+                ca_bundle_resolved=ca_bundle,
+                ca_bundle_exists=os.path.isfile(ca_bundle) if ca_bundle else False
+            )
+
+            # Browser-Cookies nur setzen, wenn explizit gewünscht
+            if cookies_from_browser:
+                # Einfacher Modus: nur den Browsernamen übergeben ("chrome"/"edge"/...)
+                # Für erweiterte Profile kann später auf Tuple erweitert werden
+                self.ydl_opts['cookiesfrombrowser'] = cookies_from_browser
+                self.logger.info("yt-dlp: Cookies aus Browser aktiviert", browser=cookies_from_browser)
+
+            # Cookie-Datei für Headless/Server-Betrieb
+            if cookies_file:
+                self.ydl_opts['cookiefile'] = cookies_file
+                self.logger.info("yt-dlp: Cookies-Datei aktiviert", cookiefile=cookies_file)
+
+            # .netrc Unterstützung
+            if use_netrc:
+                self.ydl_opts['usenetrc'] = True
+                self.logger.info("yt-dlp: NETRC aktiviert")
+
+            # Direkter Benutzer/Passwort-Login (wenn gesetzt)
+            if vimeo_username:
+                self.ydl_opts['username'] = vimeo_username
+            if vimeo_password:
+                self.ydl_opts['password'] = vimeo_password
+            if vimeo_username or vimeo_password:
+                self.logger.info("yt-dlp: Username/Password Login konfiguriert", username=bool(vimeo_username), password=bool(vimeo_password))
+
+            # CA-Bundle für yt-dlp: Setze Umgebungsvariable, die yt-dlp intern prüft
+            # yt-dlp nutzt SSL_CERT_FILE/REQUESTS_CA_BUNDLE automatisch, wenn gesetzt
+            # Zusätzlich: Falls PYTHONHTTPSVERIFY=0 gesetzt ist, wird TLS-Prüfung deaktiviert
+            if ca_bundle and os.path.isfile(ca_bundle):
+                # Stelle sicher, dass die Env-Variable auch für Subprozesse (yt-dlp) gesetzt ist
+                os.environ['SSL_CERT_FILE'] = ca_bundle
+                os.environ['REQUESTS_CA_BUNDLE'] = ca_bundle
+                self.logger.info("yt-dlp: CA-Bundle in Umgebung gesetzt", ca_bundle=ca_bundle)
+            
+            # Windows-TLS-Workaround: SSL-Context-Patch wird bereits beim Modul-Import gemacht (Zeile 42-44)
+            if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+                self.logger.warning("SSL-Verifikation global deaktiviert (PYTHONHTTPSVERIFY=0) - nur für Debug!")
+        except Exception as _e:
+            # Niemals Initialisierung brechen – nur loggen
+            self.logger.warning("yt-dlp Auth/Cookies Konfiguration konnte nicht angewendet werden", error=str(_e))
     
     def create_process_dir(self, identifier: str, use_temp: bool = True) -> Path:
         """
@@ -184,6 +271,28 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         seconds = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+    def _extract_vimeo_id(self, url: str) -> Optional[str]:
+        """
+        Extrahiert die Video-ID aus einer Vimeo-URL.
+        
+        Args:
+            url: Vimeo-URL (player oder direkt)
+            
+        Returns:
+            Video-ID oder None
+        """
+        patterns = [
+            r'https?://player\.vimeo\.com/video/(\d+)',
+            r'https?://vimeo\.com/(\d+)',
+            r'https?://vimeo\.com/video/(\d+)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+    
     def _normalize_vimeo_url(self, url: str) -> str:
         """
         Konvertiert Vimeo-Player-URLs in direkte Vimeo-URLs.
@@ -194,8 +303,6 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         Returns:
             str: Die normalisierte Vimeo-URL
         """
-        import re
-        
         # Vimeo-Player-URL-Muster
         player_pattern = r'https?://player\.vimeo\.com/video/(\d+)'
         match = re.match(player_pattern, url)
@@ -211,6 +318,155 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
             return url
             
         return url
+    
+    def _get_vimeo_video_via_api(self, video_id: str) -> Optional[Tuple[str, int, str]]:
+        """
+        Holt Video-Informationen und Download-Link via Vimeo API (Fallback für yt-dlp).
+        
+        Args:
+            video_id: Vimeo Video-ID
+            
+        Returns:
+            Tuple (title, duration, download_url) oder None bei Fehler
+        """
+        access_token = os.getenv('VIMEO_ACCESS_TOKEN')
+        if not access_token:
+            self.logger.warning("VIMEO_ACCESS_TOKEN nicht gesetzt, kann API nicht nutzen")
+            return None
+        
+        try:
+            # Hole Video-Informationen
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/vnd.vimeo.*+json;version=3.4'
+            }
+            
+            response = requests.get(
+                f'https://api.vimeo.com/videos/{video_id}',
+                headers=headers,
+                timeout=30,
+                verify=False if os.getenv('PYTHONHTTPSVERIFY') == '0' else True
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            title = data.get('name', 'Unbekanntes Video')
+            duration = data.get('duration', 0)
+            
+            # Debug: Logge verfügbare Felder UND play-Struktur
+            play_data = data.get('play', {})
+            self.logger.info(
+                "Vimeo API Response erhalten",
+                title=title,
+                duration=duration,
+                has_files=bool(data.get('files')),
+                has_play=bool(play_data),
+                play_keys=list(play_data.keys()) if play_data else [],
+                has_download=bool(data.get('download')),
+                privacy_view=data.get('privacy', {}).get('view', 'unknown')
+            )
+            
+            # Hole Download-Links - zuerst files Feld
+            files = data.get('files', [])
+            audio_url = None
+            
+            if files:
+                # Suche Audio-Datei oder kleinste Qualität in files
+                for file_info in files:
+                    quality = file_info.get('quality', '')
+                    link = file_info.get('link')
+                    
+                    # Bevorzuge Audio-only oder niedrige Qualität
+                    if 'audio' in quality.lower() or quality in ['hls', 'dash']:
+                        audio_url = link
+                        break
+                    elif link and not audio_url:
+                        audio_url = link  # Fallback: erster verfügbarer Link
+            
+            # Fallback: play.progressive (öffentliche Videos ohne Auth)
+            if not audio_url:
+                play_data = data.get('play', {})
+                progressive = play_data.get('progressive', [])
+                if progressive:
+                    # Nimm niedrigste Qualität (kleinste Datei)
+                    sorted_progressive = sorted(progressive, key=lambda x: x.get('width', 9999))
+                    if sorted_progressive:
+                        audio_url = sorted_progressive[0].get('link')
+                        self.logger.info("Nutze progressive Play-Link (niedrige Qualität)")
+                
+                # Fallback: HLS-Stream
+                if not audio_url:
+                    hls_data = play_data.get('hls', {})
+                    if hls_data and hls_data.get('link'):
+                        audio_url = hls_data.get('link')
+                        self.logger.info("Nutze HLS-Stream-Link")
+            
+            if not audio_url:
+                self.logger.warning(f"Keine Download/Stream-Links für Vimeo {video_id} gefunden")
+                return None
+            
+            self.logger.info(f"Vimeo API: Video-Info geholt", title=title, duration=duration)
+            return title, duration, audio_url
+            
+        except Exception as e:
+            self.logger.error(f"Vimeo API Fehler: {str(e)}", video_id=video_id)
+            return None
+    
+    def _download_vimeo_via_api(self, video_id: str, working_dir: Path) -> Optional[Path]:
+        """
+        Lädt Vimeo-Video via API herunter und konvertiert zu MP3.
+        
+        Args:
+            video_id: Vimeo Video-ID
+            working_dir: Arbeitsverzeichnis für Downloads
+            
+        Returns:
+            Path zur MP3-Datei oder None bei Fehler
+        """
+        api_result = self._get_vimeo_video_via_api(video_id)
+        if not api_result:
+            return None
+        
+        title, _duration, download_url = api_result
+        
+        try:
+            # Lade Video-Datei herunter
+            self.logger.info(f"Lade Video via Vimeo API: {title}")
+            response = requests.get(
+                download_url,
+                stream=True,
+                timeout=300,
+                verify=False if os.getenv('PYTHONHTTPSVERIFY') == '0' else True
+            )
+            response.raise_for_status()
+            
+            # Speichere als temporäre Videodatei
+            video_file = working_dir / f"{title[:50]}.mp4"
+            with open(video_file, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            self.logger.info(f"Video heruntergeladen: {video_file.stat().st_size} bytes")
+            
+            # Konvertiere zu MP3 mit ffmpeg
+            audio_file = working_dir / f"{title[:50]}.mp3"
+            cmd = [
+                'ffmpeg', '-i', str(video_file),
+                '-vn', '-acodec', 'libmp3lame',
+                '-q:a', '4', '-y', str(audio_file)
+            ]
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+            
+            self.logger.info(f"Audio extrahiert: {audio_file}")
+            
+            # Lösche Video-Datei
+            video_file.unlink()
+            
+            return audio_file
+            
+        except Exception as e:
+            self.logger.error(f"Vimeo API Download fehlgeschlagen: {str(e)}")
+            return None
 
     def _extract_video_info(self, url: str) -> Tuple[str, int, str]:
         """
@@ -225,6 +481,70 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         # URL normalisieren (besonders für Vimeo)
         normalized_url = self._normalize_vimeo_url(url)
         
+        # Windows-TLS-Workaround: Bei PYTHONHTTPSVERIFY=0 nutze yt-dlp CLI statt Python-API
+        # weil das CLI besser mit SSL-ENV-Variablen umgeht
+        if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+            try:
+                # Finde yt-dlp im venv oder System-PATH
+                import shutil
+                yt_dlp_exe = shutil.which('yt-dlp')
+                if not yt_dlp_exe:
+                    # Versuche venv/Scripts/yt-dlp.exe
+                    import sys
+                    venv_ytdlp = Path(sys.executable).parent / 'yt-dlp.exe'
+                    if venv_ytdlp.exists():
+                        yt_dlp_exe = str(venv_ytdlp)
+                
+                if not yt_dlp_exe:
+                    raise FileNotFoundError("yt-dlp CLI nicht im PATH gefunden")
+                
+                # Verwende yt-dlp CLI für Info-Extraktion
+                cmd = [yt_dlp_exe, '--no-check-certificate', '--dump-json', '--no-playlist', normalized_url]
+                cookies_file = os.getenv('YTDLP_COOKIES_FILE')
+                if cookies_file and os.path.isfile(cookies_file):
+                    cmd.extend(['--cookies', cookies_file])
+                
+                # Übergebe ENV-Variablen explizit an subprocess
+                env = os.environ.copy()
+                env['PYTHONHTTPSVERIFY'] = '0'
+                if os.getenv('SSL_CERT_FILE'):
+                    env['SSL_CERT_FILE'] = str(os.getenv('SSL_CERT_FILE'))
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30, env=env)
+                info_json = json.loads(result.stdout)
+                
+                video_id = str(info_json.get('id', hashlib.md5(normalized_url.encode()).hexdigest()))
+                title = str(info_json.get('title', 'Unbekanntes Video'))
+                duration = int(info_json.get('duration', 0))
+                
+                self.logger.info("Video-Info via CLI extrahiert (TLS-Workaround)", title=title, duration=duration)
+                return title, duration, video_id
+            except subprocess.CalledProcessError as cli_error:
+                self.logger.warning("CLI-Fallback fehlgeschlagen, versuche Python-API", 
+                                  error=str(cli_error),
+                                  stdout=cli_error.stdout[:500] if cli_error.stdout else None,
+                                  stderr=cli_error.stderr[:500] if cli_error.stderr else None)
+                # Fallback auf Python-API
+            except FileNotFoundError as fnf_error:
+                self.logger.warning("yt-dlp CLI nicht gefunden, versuche Python-API", error=str(fnf_error))
+                # Fallback auf Python-API
+            except Exception as cli_error:
+                self.logger.warning("CLI-Fallback fehlgeschlagen (unexpected), versuche Python-API", error=str(cli_error))
+                # Fallback auf Python-API
+        
+        # Vimeo-API-Fallback: Wenn es eine Vimeo-URL ist, versuche API
+        vimeo_id = self._extract_vimeo_id(url)
+        if vimeo_id and os.getenv('VIMEO_ACCESS_TOKEN'):
+            try:
+                api_result = self._get_vimeo_video_via_api(vimeo_id)
+                if api_result:
+                    title, duration, _download_url = api_result
+                    self.logger.info("Vimeo API Fallback erfolgreich", title=title)
+                    return title, duration, vimeo_id
+            except Exception as api_error:
+                self.logger.warning("Vimeo API Fallback fehlgeschlagen", error=str(api_error))
+        
+        # Standard-Pfad: Python-API
         with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
             info: YDLDict = ydl.extract_info(normalized_url, download=False)  # type: ignore
             if not info:
@@ -612,14 +932,63 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 normalized_url = self._normalize_vimeo_url(video_source.url)
                 title, duration, video_id = self._extract_video_info(normalized_url)
                 
-                # Video herunterladen
-                download_opts = self.ydl_opts.copy()
-                output_path = str(working_dir / "%(title)s.%(ext)s")
-                download_opts['outtmpl'] = output_path
+                # Video herunterladen - Vimeo API Fallback zuerst versuchen
+                vimeo_id = self._extract_vimeo_id(normalized_url)
+                download_success = False
                 
-                self.logger.info(f"Starte Download von: {normalized_url}")
-                with yt_dlp.YoutubeDL(download_opts) as ydl:
-                    ydl.download([normalized_url])  # type: ignore
+                # Versuch 1: Vimeo API (wenn Token vorhanden und Vimeo-URL)
+                if vimeo_id and os.getenv('VIMEO_ACCESS_TOKEN'):
+                    api_audio = self._download_vimeo_via_api(vimeo_id, working_dir)
+                    if api_audio and api_audio.exists():
+                        audio_path = api_audio
+                        download_success = True
+                        self.logger.info("Video erfolgreich via Vimeo API heruntergeladen")
+                
+                # Versuch 2: yt-dlp CLI (bei PYTHONHTTPSVERIFY=0)
+                if not download_success and os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+                    try:
+                        self.logger.info(f"Versuche Download via CLI (TLS-Workaround): {normalized_url}")
+                        
+                        import shutil
+                        import sys as _sys
+                        yt_dlp_exe = shutil.which('yt-dlp')
+                        if not yt_dlp_exe:
+                            venv_ytdlp = Path(_sys.executable).parent / 'yt-dlp.exe'
+                            if venv_ytdlp.exists():
+                                yt_dlp_exe = str(venv_ytdlp)
+                        
+                        if yt_dlp_exe:
+                            cmd = [
+                                yt_dlp_exe, '--no-check-certificate',
+                                '--extract-audio', '--audio-format', 'mp3',
+                                '--output', str(working_dir / "%(title)s.%(ext)s"),
+                                '--retries', '10',
+                                '--socket-timeout', '30'
+                            ]
+                            cookies_file = os.getenv('YTDLP_COOKIES_FILE')
+                            if cookies_file and os.path.isfile(cookies_file):
+                                cmd.extend(['--cookies', cookies_file])
+                            cmd.append(normalized_url)
+                            
+                            # Übergebe ENV-Variablen explizit
+                            env = os.environ.copy()
+                            env['PYTHONHTTPSVERIFY'] = '0'
+                            
+                            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300, env=env)
+                            download_success = True
+                            self.logger.info("Video erfolgreich via yt-dlp CLI heruntergeladen")
+                    except Exception as cli_err:
+                        self.logger.warning(f"CLI-Download fehlgeschlagen: {str(cli_err)}")
+                
+                # Versuch 3: yt-dlp Python API (Standard)
+                if not download_success:
+                    download_opts = self.ydl_opts.copy()
+                    output_path = str(working_dir / "%(title)s.%(ext)s")
+                    download_opts['outtmpl'] = output_path
+                    
+                    self.logger.info(f"Starte Download via yt-dlp Python-API: {normalized_url}")
+                    with yt_dlp.YoutubeDL(download_opts) as ydl:
+                        ydl.download([normalized_url])  # type: ignore
             else:
                 video_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
                 title = video_source.file_name or "Hochgeladenes Video"

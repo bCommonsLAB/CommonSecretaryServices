@@ -34,20 +34,11 @@ async def process_event(input_file_path: str, output_file_path: str):
         )
         
         # Verarbeite das Event
-        result = await processor.process_event(
-            event=input_data.get('event', ''),
-            session=input_data.get('session', ''),
-            url=input_data.get('url', ''),
-            filename=input_data.get('filename', ''),
-            track=input_data.get('track', ''),
-            day=input_data.get('day'),
-            starttime=input_data.get('starttime'),
-            endtime=input_data.get('endtime'),
-            speakers=input_data.get('speakers'),
-            video_url=input_data.get('video_url'),
-            attachments_url=input_data.get('attachments_url'),
-            source_language=input_data.get('source_language', 'en'),
-            target_language=input_data.get('target_language', 'de')
+        result = await processor.create_event_summary(
+            event_name=input_data.get('event', ''),
+            template=input_data.get('template', 'event-eco-social-summary'),
+            target_language=input_data.get('target_language', 'de'),
+            use_cache=input_data.get('use_cache', True)
         )
         
         # Speichere das Ergebnis
@@ -55,9 +46,9 @@ async def process_event(input_file_path: str, output_file_path: str):
             "success": True,
             "error": None,
             "data": {
-                "markdown": result.data.markdown if hasattr(result.data, 'markdown') else "",
-                "file_path": result.data.file_path if hasattr(result.data, 'file_path') else "",
-                "metadata": result.data.metadata if hasattr(result.data, 'metadata') else {}
+                "summary": result.data.output.summary if result.data and result.data.output else "",
+                "metadata": result.data.output.metadata if result.data and result.data.output else {},
+                "track_count": result.data.track_count if result.data else 0
             }
         }
         

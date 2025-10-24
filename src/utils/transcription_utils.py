@@ -569,6 +569,8 @@ class WhisperTranscriber:
                     logger.info(f"Verwende direkt übergebenes Template-Inhalt (Länge: {len(template_content_str)})")
             else:
                 # Template-Datei lesen
+                if not template:
+                    raise ValueError("Template-Name darf nicht leer sein")
                 try:
                     template_content_str = self._read_template_file(template, logger)
                 except Exception as e:
@@ -708,8 +710,8 @@ class WhisperTranscriber:
                 result_json = json.loads(content)
             except json.JSONDecodeError as e_primary:
                 # 2) Versuche JSON-Objekt aus Text zu extrahieren und zu sanitisieren
-                candidate: str = _extract_json_substring(content) or content
-                sanitized: str = _sanitize_json_for_loading(candidate)
+                candidate: str = self._extract_json_substring(content) or content
+                sanitized: str = self._sanitize_json_for_loading(candidate)
                 try:
                     result_json = json.loads(sanitized)
                     if logger:
@@ -1212,11 +1214,12 @@ class WhisperTranscriber:
             estimated_tokens: float = len(response.text.split()) * 1.5 if hasattr(response, 'text') else 0
             
             # Behebe das Usage-Objekt Problem - verwende direkte Attribute statt .get()
-            tokens = 0
-            if hasattr(response, 'usage'):
+            tokens: int = 0
+            if hasattr(response, 'usage') and response.usage:
                 usage = response.usage
-                if hasattr(usage, 'total_tokens'):
-                    tokens = usage.total_tokens
+                total_tokens_value = getattr(usage, 'total_tokens', None)
+                if total_tokens_value:
+                    tokens = int(total_tokens_value)
                 else:
                     tokens = int(estimated_tokens)
             else:

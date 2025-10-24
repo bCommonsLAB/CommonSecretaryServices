@@ -34,7 +34,6 @@ import shutil
 import zipfile
 import base64
 import io
-import os
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 
@@ -57,7 +56,6 @@ from src.processors.pdf_processor import PDFProcessor
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
-from src.utils.performance_tracker import PerformanceTracker
 
 # TypeVar für den Rückgabetyp von Tasks definieren
 T = TypeVar('T')
@@ -299,7 +297,10 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                              error=e,
                              video_url=video_url,
                              traceback=traceback.format_exc())
-            raise ProcessingError(f"Fehler bei der Video-Verarbeitung: {str(e)}")
+            # NICHT-FATAL: Wenn Video scheitert, geben wir leeres Transkript zurück
+            # und setzen die Session-Verarbeitung fort (web_text, PDFs, Markdown)
+            self.logger.warning("Video-Verarbeitung fehlgeschlagen - fahre ohne Transkript fort")
+            return ""  # Leeres Transkript statt Exception
 
     def _replace_video_placeholder(self, markdown_content: str, video_url: Optional[str]) -> str:
         """
@@ -678,7 +679,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 
                 if pdf_result.error:
                     self.logger.error(f"Fehler bei der PDF-Vorschau und -Textextraktion: {pdf_result.error.message}")
-                    return [], []
+                    return [], [], ""
                 
                 # Extrahiere Vorschaubilder
                 gallery_paths: List[str] = []
@@ -810,6 +811,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         endtime: Optional[str] = None,
         speakers: Optional[List[str]] = None,
         video_url: Optional[str] = None,
+        video_transcript: Optional[str] = None,
         attachments_url: Optional[str] = None,
         source_language: str = "en",
         target_language: str = "de",
@@ -832,6 +834,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
             endtime: Optional, Endzeit im Format HH:MM
             speakers: Optional, Liste der Vortragenden
             video_url: Optional, URL zum Video
+            video_transcript: Optional, bereits vorhandenes Video-Transkript (überspringt Video-Verarbeitung)
             attachments_url: Optional, URL zu Anhängen
             source_language: Optional, Quellsprache (Standard: en)
             target_language: Optional, Zielsprache (Standard: de)
@@ -861,6 +864,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     endtime=endtime,
                     speakers=speakers or [],
                     video_url=video_url,
+                    video_transcript=video_transcript,
                     attachments_url=attachments_url,
                     source_language=source_language,
                     target_language=target_language,
@@ -874,7 +878,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
 
                 # Verwende die zentrale Methode für Verzeichnis- und Übersetzungslogik
                 
-                target_dir, translated_track, translated_event = await self._get_translated_entity_directory(
+                target_dir, _, translated_event = await self._get_translated_entity_directory(
                     event_name=event,
                     track_name=track,
                     target_language=target_language,
@@ -895,10 +899,15 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 # 1. Session-Seite abrufen
                 web_text = await self._fetch_session_page(url)
                 
-                # 2. Video verarbeiten falls vorhanden
-                video_transcript = ""
-                if video_url:
-                    video_transcript = await self._process_video(
+                # 2. Video verarbeiten falls vorhanden, oder vorhandenes Transkript verwenden
+                video_transcript_text = ""
+                if video_transcript:
+                    # Verwende das bereits vorhandene Transkript
+                    video_transcript_text = video_transcript
+                    self.logger.info("Verwende vorhandenes Video-Transkript (Video-Verarbeitung übersprungen)")
+                elif video_url:
+                    # Verarbeite die Video-URL wie bisher
+                    video_transcript_text = await self._process_video(
                         video_url=video_url,
                         source_language=source_language,
                         target_language=source_language, # transcript bleibt aus performancegründen immer in originalsprache
@@ -948,7 +957,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 
                 markdown_file, markdown_content, structured_data = await self._generate_markdown(
                     web_text=web_text,
-                    video_transcript=video_transcript,
+                    video_transcript=video_transcript_text,
                     session_data=input_data,
                     target_dir=target_dir,
                     filename=translated_filename,  # Verwende den übersetzten Dateinamen
@@ -981,7 +990,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 # 6. Erstelle Output-Daten
                 output_data = SessionOutput(
                     web_text=web_text,
-                    video_transcript=video_transcript,
+                    video_transcript=video_transcript_text,
                     attachments=attachment_paths,
                     page_texts=page_texts,
                     input_data=input_data,
@@ -998,7 +1007,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 if use_cache and self.is_cache_enabled():
                     result = SessionProcessingResult(
                         web_text=web_text,
-                        video_transcript=video_transcript,
+                        video_transcript=video_transcript_text,
                         attachment_paths=attachment_paths,
                         page_texts=page_texts,
                         target_dir=str(target_dir),
@@ -1441,6 +1450,13 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         # Optionale Video-URL hinzufügen
         if session_input.video_url:
             base_key["video_url"] = session_input.video_url
+        
+        # Optionales Video-Transkript hinzufügen (Hash statt voller Text für Cache-Key)
+        if session_input.video_transcript:
+            # Verwende Hash des Transkripts für Cache-Key (voller Text wäre zu lang)
+            import hashlib
+            transcript_hash = hashlib.sha256(session_input.video_transcript.encode()).hexdigest()[:16]
+            base_key["video_transcript_hash"] = transcript_hash
         
         # Optionale Anhänge-URL hinzufügen
         if session_input.attachments_url:

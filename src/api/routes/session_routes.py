@@ -46,6 +46,7 @@ session_input = cast(ModelType, session_ns.model('SessionInput', {  # type: igno
     'endtime': fields.String(required=False, description='Endzeit im Format HH:MM'),
     'speakers': fields.List(fields.String, required=False, description='Liste der Vortragenden'),
     'video_url': fields.String(required=False, description='URL zum Video'),
+    'video_transcript': fields.String(required=False, description='Vorhandenes Video-Transkript (überspringt Video-Verarbeitung wenn gesetzt)'),
     'attachments_url': fields.String(required=False, description='URL zu Anhängen'),
     'source_language': fields.String(required=False, default='en', description='Quellsprache'),
     'target_language': fields.String(required=False, default='de', description='Zielsprache'),
@@ -172,6 +173,7 @@ class SessionProcessEndpoint(Resource):
             endtime = data.get('endtime')
             speakers = data.get('speakers', [])
             video_url = data.get('video_url')
+            video_transcript = data.get('video_transcript')
             attachments_url = data.get('attachments_url')
             source_language = data.get('source_language', 'en')
             target_language = data.get('target_language', 'de')
@@ -196,6 +198,7 @@ class SessionProcessEndpoint(Resource):
                 endtime=endtime,
                 speakers=speakers,
                 video_url=video_url,
+                video_transcript=video_transcript,
                 attachments_url=attachments_url,
                 source_language=source_language,
                 target_language=target_language,
