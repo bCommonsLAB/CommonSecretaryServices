@@ -747,20 +747,57 @@ class WhisperTranscriber:
             )
 
             # Template mit extrahierten Daten füllen
+            # Keys, die zwingend als JSON serialisiert werden müssen (Arrays/Objekte)
+            json_frontmatter_keys: set[str] = {
+                "chapters", "toc", "confidence", "provenance",
+                # zusätzlich häufig genutzte strukturierte Felder
+                "slides", "attachments", "speakers", "topics", "tags", "affiliations"
+            }
+
+            def _serialize_frontmatter(field: str, val: Any) -> str:
+                """Serialisiert Frontmatter-Werte gemäß strikter Parser-Regeln.
+                - Für json_frontmatter_keys immer val als gültiges JSON (mit Double-Quotes)
+                - Für andere Frontmatter-Felder als explizit gequoteten String
+                """
+                # JSON-Felder: Liste/Objekt erzwingen
+                if field in json_frontmatter_keys:
+                    try:
+                        if isinstance(val, (dict, list)):
+                            return json.dumps(val, ensure_ascii=False)
+                        # Falls bereits String: versuchen zu parsen und wieder sauber zu dumpen
+                        if isinstance(val, str):
+                            try:
+                                parsed = json.loads(val)
+                                return json.dumps(parsed, ensure_ascii=False)
+                            except Exception:
+                                # Notfalls als String belassen, aber JSON-String serialisieren
+                                return json.dumps(val, ensure_ascii=False)
+                        # Andere primitive Typen sauber als JSON serialisieren
+                        return json.dumps(val, ensure_ascii=False)
+                    except Exception:
+                        # Fallback: sichere String-Repräsentation als JSON-String
+                        return json.dumps(str(val), ensure_ascii=False)
+                # Einfache Strings: immer in Double-Quotes, ohne Auto-Typisierung
+                s = "" if val is None else str(val)
+                # Trimme CR/LF ans Ende, ersetze harte Zeilenumbrüche im Frontmatter
+                s = s.replace("\r", " ").replace("\n", " ")
+                # YAML-sicher: doppelte Anführungszeichen escapen
+                s = s.replace('"', '\\"')
+                return f'"{s}"'
+
             for field_name, field_value in result_json.items():
                 # Feldnamen defensiv escapen (sollten zwar alphanumerisch sein, ist aber sicherer)
                 pattern: str = r'\{\{' + re.escape(str(field_name)) + r'\|[^}]+\}\}'
-                value: str = str(field_value) if field_value is not None else ""
-                
-                # Prüfe ob es sich um ein Frontmatter-Feld handelt
+
                 field_def: TemplateField | None = field_definitions.fields.get(field_name)
                 if field_def and getattr(field_def, 'isFrontmatter', False):
-                    # Bereinige den Wert für YAML-Kompatibilität
-                    value = self._clean_yaml_value(value)
-                    
-                # Wichtig: Replacement als Funktion, damit Backslashes in value (z. B. \\B) NICHT
-                # als Regex-Escape im Replacement interpretiert werden (vermeidet "bad escape \\B ...")
-                template_content_str = re.sub(pattern, (lambda _m, s=value: s), template_content_str)
+                    value_str: str = _serialize_frontmatter(field_name, field_value)
+                else:
+                    # Nicht-Frontmatter: Wert direkt, aber sicher ersetzen
+                    value_str = "" if field_value is None else str(field_value)
+
+                # Wichtig: Replacement als Funktion, damit Backslashes in value NICHT als Regex-Escape wirken
+                template_content_str = re.sub(pattern, (lambda _m, s=value_str: s), template_content_str)
 
             # Einfache Kontext-Variablen ersetzen
             template_content_str = self._replace_context_variables(template_content_str, context, text, logger)

@@ -522,21 +522,27 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
             with tracker.measure_operation('generate_markdown', 'session') if tracker else nullcontext():
 
                 # Generiere zusätzliche Feldbeschreibungen für Seitenzusammenfassungen
-                additional_field_descriptions: Dict[str, str] = {}
+                #additional_field_descriptions: Dict[str, str] = {}
+                slides_descriptions: str = ""
                 for i, page_text in enumerate(page_texts, 1):
-                    field_name = f"attachment_page_{i}_summary"
-                    description = (
-                        f"Können wir den Beschreibenden Text der Folie {i} kurz zusammenfassen? "
-                        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
-                        f"{page_text}"
-                    )
-                    additional_field_descriptions[field_name] = description
+                    slides_descriptions += f"Description Slide {i}:\n {page_text} \n\n"
+                #        f"Description Slide {i}:\n {page_text} \n\n"
+                #        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
+                #        f"{page_text}"
+                #    )
+                #    field_name = f"attachment_page_{i}_summary"
+                #    description = (
+                #        f"Können wir den Beschreibenden Text der Folie {i} kurz zusammenfassen? "
+                #        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
+                #        f"{page_text}"
+                #    )
+                #    additional_field_descriptions[field_name] = description
 
 
                 self.logger.info("Generiere Markdown")
                 
                 # Korrigierter Aufruf von transformByTemplate mit korrekten Parameternamen
-                combined_text = f"Webtext:\n{web_text}\n\n-----\n\nVideotranscript:\n{video_transcript}"
+                combined_text = f"Webtext:\n{web_text}\n\n-----\n\nVideotranscript:\n{video_transcript}\n\n-----\n\nSlidesdescription:\n{slides_descriptions}"
                 
                 
                 # Template-Transformation mit korrekten Parametern
@@ -546,7 +552,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     source_language=session_data.source_language, 
                     target_language=session_data.target_language,
                     context=context,
-                    additional_field_descriptions=additional_field_descriptions,
+                    # additional_field_descriptions=additional_field_descriptions,
                     use_cache=False
                 )
                 
@@ -576,40 +582,34 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     if structured_data_raw is not None:
                         structured_data = dict(structured_data_raw)
 
-                # Slides mit Beschreibungen hinzufügen falls vorhanden
-                slides: str = "" 
-                if session_data.attachments_url and context and isinstance(context.get("attachment_paths"), list):
-                    slides += "\n## Slides:\n"
-                    slides += "|  |  | \n"
-                    slides += "| --- | --- | \n"
-                    # Prüfe ob context und attachment_paths existieren und stelle sicher, dass es eine Liste von Strings ist
-                    attachment_paths: List[str] = []
-                    if context and isinstance(context.get("attachment_paths"), list):
-                        attachment_paths = [str(path) for path in context["attachment_paths"] if path]
-                    
-                    # Für jedes Bild eine Tabellenzeile erstellen
-                    for i, image_path in enumerate(attachment_paths, 1):
-                        # Normalisierten Pfad erstellen
-                        normalized_path = image_path.replace("\\", "/")
-                        
-                        # Bild und Beschreibung in Tabelle einfügen
-                        slides += f"| ![[{normalized_path}\\|300]] | "
-                        
-                        # Beschreibungstext aus dem Template-Kontext holen
-                        description_key = f"attachment_page_{i}_summary"
-                        description = structured_data.get(description_key, "") if structured_data else ""
-                        
-                        if description:
-                            # Beschreibung einfügen
-                            description = description.replace("\n", "")
-                            slides += f"{description} \n"
+                if(markdown_content.find("{slides}") != -1):
+                    # Slides mit Beschreibungen hinzufügen
+                    slides: str = ""
+                    # Bevorzugt: strukturierte Slides aus structured_data["slides"] nutzen
+                    try:
+                        if structured_data and isinstance(structured_data.get("slides"), list) and structured_data.get("slides"):
+                            slides += "\n## Slides:\n"
+                            slides += "|  |  | \n"
+                            slides += "| --- | --- | \n"
+                            for slide in structured_data.get("slides", []):
+                                try:
+                                    image_url = str(slide.get("image_url", ""))
+                                    normalized_path = image_url.replace("\\", "/")
+                                    title = str(slide.get("title", "")).strip()
+                                    summary = str(slide.get("summary", "")).replace("\n", " ").strip()
+                                    description = summary
+                                    if title:
+                                        description = f"**{title}** — {summary}" if summary else f"**{title}**"
+                                    slides += f"| ![[{normalized_path}\\|300]] | {description} \n"
+                                except Exception:
+                                    # Wenn ein Slide-Objekt unvollständig ist, einfach überspringen
+                                    continue
                         else:
-                            slides += "|\n"
-                        
-                else:
-                    self.logger.warning("Keine Anhänge vorhanden, keine Slides generiert")
+                            self.logger.warning("Keine Slides-Daten gefunden, keine Slides generiert")
+                    except Exception:
+                        self.logger.warning("Fehler beim Generieren der Slides-Tabelle aus structured_data")
 
-                markdown_content = markdown_content.replace("{slides}", slides)
+                    markdown_content = markdown_content.replace("{slides}", slides)
 
                 # Video-Platzhalter ersetzen
                 markdown_content = self._replace_video_placeholder(markdown_content, session_data.video_url)
