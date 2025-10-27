@@ -8,21 +8,26 @@ speakers: {{speakers|Array of speakers, formatted “Lastname, Firstname” or o
 affiliations: {{affiliations|Array of speaker organizations or affiliations.}}
 tags: {{tags|Array of normalized keywords (lowercase, ASCII, deduplicated).}}
 topics: {{topics|Array of main technical or thematic areas, e.g. open-source, security, policy, ai, community, infrastructure.}}
-track: {{track|Conference track or thematic area.}}
-event: {{event|Full name of the conference or event.}}
+year: {{year|Year of the event}}
 date: {{date|YYYY-MM-DD}}
 starttime: {{starttime|HH:MM}}
 endtime: {{endtime|HH:MM}}
 location: {{location|Venue or city.}}
-language: {{language|e.g. "en" or "de"}}
 duration: {{duration|Minutes or null}}
-video_url: {{video_url|URL of the session recording.}}
-slides_url: {{slides_url|URL to the presentation (PDF).}}
-attachments: {{attachments|Array of additional materials or references.}}
 slides: {{slides|array should include slide-level title, summaries (≤1000, extraktiv), keywords (5–12), image URL}}
-cacheId: {{cacheId}}
+event: {{event}}
+track: {{track}}
+session: {{session}}
+url: {{url}}
+template: {{template}}
+language: {{source_language}}
+video_url: {{video_url}}
+attachments_url: {{attachments_url}}
+cache_key: {{cache_key}}
 ---
-# {{title|einen treffenden Titel der Session}}
+# {{title}}
+{{teaser}}
+
 
 > [! Hinweis]-
 > Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.
@@ -33,7 +38,7 @@ Quelle: [{{url}}]({{url}})
 
 ## Zusammenfassung & Highlights:
 
-{{summary|Bitte die Texte des video-transcripts, des web-texts und der slide-Texte sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter jeden Abschnitt ausführlich mit mindestens 120 Worte zusammenfassen. Absätze und Titel mit \n trennen.}}
+{{summaryInText|Bitte die Texte des video-transcripts, des web-texts und der slide-Texte sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter jeden Abschnitt ausführlich mit mindestens 120 Worte zusammenfassen. Absätze und Titel mit \n trennen.}}
 
 --- systemprompt
 Role:
@@ -62,18 +67,13 @@ Return a **single valid JSON object** matching this structure (no comments or ex
   "affiliations": ["string"],
   "tags": ["string"],
   "topics": ["string"],
-  "track": "string",
-  "event": "string",
+  "year": "string (YYYY)",
   "date": "string (YYYY-MM-DD)",
   "starttime": "string (HH:MM)",
   "endtime": "string (HH:MM)",
   "location": "string",
   "language": "string",
   "duration": "number|null",
-  "video_url": "string",
-  "slides_url": "string",
-  "attachments": ["string"],
-  "cacheId": "string",
   "slides": [
     {
       "page_num": 1,
@@ -84,5 +84,4 @@ Return a **single valid JSON object** matching this structure (no comments or ex
   ]
 }
 ```
-
 ---

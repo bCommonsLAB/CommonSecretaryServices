@@ -542,7 +542,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 self.logger.info("Generiere Markdown")
                 
                 # Korrigierter Aufruf von transformByTemplate mit korrekten Parameternamen
-                combined_text = f"Webtext:\n{web_text}\n\n-----\n\nVideotranscript:\n{video_transcript}\n\n-----\n\nSlidesdescription:\n{slides_descriptions}"
+                combined_text = f"# Webtext:\n{web_text}\n\n-----\n\n# Videotranscript:\n{video_transcript}\n\n-----\n\n# Slidesdescription:\n{slides_descriptions}"
                 
                 
                 # Template-Transformation mit korrekten Parametern
@@ -938,6 +938,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 
                 # 4. Markdown generieren
                 template_context = {
+                    "event": event,
                     "session": session,
                     "track": track,
                     "day": day,
@@ -950,7 +951,10 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     "attachments_url": attachments_url,
                     "attachment_paths": attachment_paths,
                     "page_count": len(page_texts),  # Anzahl der Seiten
-                    "cache_key": cache_key
+                    "cache_key": cache_key,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "template": template
                 }
 
                 template += "_" + target_language

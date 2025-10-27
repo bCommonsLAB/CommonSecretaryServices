@@ -592,10 +592,17 @@ class WhisperTranscriber:
             # 2. Systemprompt extrahieren
             template_content_str, system_prompt = self._extract_system_prompt(template_content_str, logger)
 
-            # 3. Kontext-Variablen ersetzen
+            # 3. Kontext-Variablen ersetzen (vor LLM) – nur im Body, nicht im FrontMatter
             try:
-                # Einfache Variablen im Template mit Kontext-Werten ersetzen
-                template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
+                fm_split = re.match(r'^---\n(.*?)\n---\n?(.*)$', template_content_str, flags=re.DOTALL)
+                if fm_split:
+                    fm_head = fm_split.group(1)
+                    body_part = fm_split.group(2)
+                    body_part = self._replace_context_variables(body_part, context, text, logger)
+                    template_content_str = f"---\n{fm_head}\n---\n" + body_part
+                else:
+                    # Kein FrontMatter – global ersetzen
+                    template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
             except ValueError as ve:
                 # Detaillierter Fehler bei der Kontextersetzung
                 error_msg = str(ve)
@@ -640,6 +647,18 @@ class WhisperTranscriber:
                 name: field.description 
                 for name, field in field_definitions.fields.items()
             }
+
+            # FrontMatter-Kontext-Only-Felder (nicht vom LLM anfordern)
+            fm_context_only: set[str] = {
+                name for name, field in field_definitions.fields.items()
+                if getattr(field, 'isFrontmatter', False) and str(getattr(field, 'description', '')).strip() == "YAML Frontmatter Variable"
+            }
+
+            # Nur Felder im Prompt, die nicht reine Kontext-FM-Felder sind
+            required_field_descriptions = {
+                name: desc for name, desc in field_descriptions.items()
+                if name not in fm_context_only
+            }
             
             # Füge zusätzliche Feldbeschreibungen hinzu, falls vorhanden
             if additional_field_descriptions:
@@ -650,7 +669,7 @@ class WhisperTranscriber:
                 f"TEXT:\n{text}\n\n"
                 f"CONTEXT:\n{context_str}\n\n"
                 f"REQUIRED FIELDS:\n"
-                f"{json.dumps(field_descriptions, indent=2, ensure_ascii=False)}\n\n"
+                f"{json.dumps(required_field_descriptions, indent=2, ensure_ascii=False)}\n\n"
                 f"INSTRUCTIONS:\n"
                 f"1. Extract all required information from the text\n"
                 f"2. Return a single JSON object where each key matches a field name\n"
@@ -759,23 +778,12 @@ class WhisperTranscriber:
                 - Für json_frontmatter_keys immer val als gültiges JSON (mit Double-Quotes)
                 - Für andere Frontmatter-Felder als explizit gequoteten String
                 """
-                # JSON-Felder: Liste/Objekt erzwingen
+                # JSON-Felder: immer als JSON serialisieren (Double-Quotes, mehrzeilig ok)
                 if field in json_frontmatter_keys:
                     try:
-                        if isinstance(val, (dict, list)):
-                            return json.dumps(val, ensure_ascii=False)
-                        # Falls bereits String: versuchen zu parsen und wieder sauber zu dumpen
-                        if isinstance(val, str):
-                            try:
-                                parsed = json.loads(val)
-                                return json.dumps(parsed, ensure_ascii=False)
-                            except Exception:
-                                # Notfalls als String belassen, aber JSON-String serialisieren
-                                return json.dumps(val, ensure_ascii=False)
-                        # Andere primitive Typen sauber als JSON serialisieren
-                        return json.dumps(val, ensure_ascii=False)
+                        # default=str sorgt für serielle Darstellung unbekannter Typen
+                        return json.dumps(val, ensure_ascii=False, default=lambda o: str(o))
                     except Exception:
-                        # Fallback: sichere String-Repräsentation als JSON-String
                         return json.dumps(str(val), ensure_ascii=False)
                 # Einfache Strings: immer in Double-Quotes, ohne Auto-Typisierung
                 s = "" if val is None else str(val)
@@ -799,8 +807,119 @@ class WhisperTranscriber:
                 # Wichtig: Replacement als Funktion, damit Backslashes in value NICHT als Regex-Escape wirken
                 template_content_str = re.sub(pattern, (lambda _m, s=value_str: s), template_content_str)
 
-            # Einfache Kontext-Variablen ersetzen
-            template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
+            # Danach: nackte Platzhalter {{field}} aus result_json ersetzen (Frontmatter und Body getrennt)
+            try:
+                fm_match = re.match(r'^---\n(.*?)\n---\n?', template_content_str, flags=re.DOTALL)
+                if fm_match:
+                    fm_content = fm_match.group(1)
+                    body_content = template_content_str[fm_match.end():]
+
+                    # Im Frontmatter mit strikter Serialisierung ersetzen
+                    for k, v in result_json.items():
+                        simple_pat = r'\{\{' + re.escape(str(k)) + r'\}\}'
+                        replacement = _serialize_frontmatter(str(k), v)
+                        fm_content = re.sub(simple_pat, (lambda _m, s=replacement: s), fm_content)
+
+                    # Im Body einfache Werte einsetzen
+                    for k, v in result_json.items():
+                        simple_pat = r'\{\{' + re.escape(str(k)) + r'\}\}'
+                        if isinstance(v, (dict, list)):
+                            rep_body = json.dumps(v, ensure_ascii=False)
+                        elif v is None:
+                            rep_body = ""
+                        else:
+                            rep_body = str(v)
+                        body_content = re.sub(simple_pat, (lambda _m, s=rep_body: s), body_content)
+
+                    template_content_str = f"---\n{fm_content}\n---" + body_content
+                else:
+                    # Kein Frontmatter, global ersetzen
+                    for k, v in result_json.items():
+                        simple_pat = r'\{\{' + re.escape(str(k)) + r'\}\}'
+                        if isinstance(v, (dict, list)):
+                            rep = json.dumps(v, ensure_ascii=False)
+                        elif v is None:
+                            rep = ""
+                        else:
+                            rep = str(v)
+                        template_content_str = re.sub(simple_pat, (lambda _m, s=rep: s), template_content_str)
+            except Exception:
+                pass
+
+            # Deterministischer FrontMatter-Rebuild aus Objekten mit Kontext-Override für FM-Kontextfelder
+            try:
+                fm_match3 = re.match(r'^---\n(.*?)\n---\n?(.*)$', template_content_str, flags=re.DOTALL)
+                if fm_match3:
+                    fm_block_current = fm_match3.group(1)
+                    body_part_current = fm_match3.group(2)
+
+                    # Keys im aktuellen FM bestimmen (linke Seite vor ':')
+                    fm_lines_present = [ln for ln in fm_block_current.split('\n') if ln.strip()]
+                    fm_keys: list[str] = []
+                    for ln in fm_lines_present:
+                        if ':' in ln:
+                            k = ln.split(':', 1)[0].strip()
+                            if k and k not in fm_keys:
+                                fm_keys.append(k)
+
+                    # FM-Objekt aus result_json + context aufbauen; Kontext-Felder überschreiben
+                    fm_obj: dict[str, Any] = {}
+                    for k in fm_keys:
+                        val = result_json.get(k)
+                        # Kontext-Only FM-Felder strikt aus context ziehen
+                        if k in fm_context_only and isinstance(context, dict):
+                            val = context.get(k, val)
+                        elif val is None and isinstance(context, dict):
+                            # allgemeiner Fallback auf context
+                            val = context.get(k, val)
+                        fm_obj[k] = val
+
+                    # Serialisieren gemäß Regeln
+                    json_frontmatter_keys_rebuild: set[str] = {
+                        "chapters", "toc", "confidence", "provenance",
+                        "slides", "attachments", "speakers", "topics", "tags", "affiliations"
+                    }
+                    fm_lines_out: list[str] = []
+                    for k in fm_keys:
+                        v = fm_obj.get(k)
+                        if k in json_frontmatter_keys_rebuild:
+                            fm_lines_out.append(f"{k}: {json.dumps(v, ensure_ascii=False, default=lambda o: str(o))}")
+                        else:
+                            s = "" if v is None else str(v)
+                            s = s.replace('"','\\"').replace("\r"," ").replace("\n"," ")
+                            fm_lines_out.append(f"{k}: \"{s}\"")
+
+                    fm_serialized = "---\n" + "\n".join(fm_lines_out) + "\n---\n"
+                    template_content_str = fm_serialized + body_part_current
+            except Exception:
+                # Im Fehlerfall unverändert lassen
+                pass
+
+            # Fallback: verbleibende einfache Platzhalter mit Kontext ersetzen
+            # Frontmatter und Body getrennt behandeln, damit FM-Strings korrekt gequotet werden
+            try:
+                fm_match_2 = re.match(r'^---\n(.*?)\n---\n?', template_content_str, flags=re.DOTALL)
+                if fm_match_2:
+                    fm_content_2 = fm_match_2.group(1)
+                    body_content_2 = template_content_str[fm_match_2.end():]
+
+                    # Ersetze im Frontmatter Kontext-Platzhalter mit strikter Serialisierung
+                    if isinstance(context, dict):
+                        for k, v in context.items():
+                            simple_pat_ctx = r'\{\{' + re.escape(str(k)) + r'\}\}'
+                            fm_repl = _serialize_frontmatter(str(k), v)
+                            fm_content_2 = re.sub(simple_pat_ctx, (lambda _m, s=fm_repl: s), fm_content_2)
+
+                    # Ersetze im Body verbleibende Kontext-Platzhalter normal
+                    body_content_2 = self._replace_context_variables(body_content_2, context, text, logger)
+
+                    template_content_str = f"---\n{fm_content_2}\n---\n" + body_content_2
+                else:
+                    # Kein Frontmatter – globaler Fallback
+                    template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
+            except Exception:
+                # Falls etwas schief geht, fallback auf globale Ersetzung
+                template_content_str = self._replace_context_variables(template_content_str, context, text, logger)
             
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
