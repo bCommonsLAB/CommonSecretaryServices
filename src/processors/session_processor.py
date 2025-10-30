@@ -491,7 +491,6 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
     async def _generate_markdown(
         self,
         web_text: str,
-        video_transcript: str,
         page_texts: List[str],
         session_data: SessionInput,
         target_dir: Path,
@@ -504,7 +503,6 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         
         Args:
             web_text: Extrahierter Text der Session-Seite
-            video_transcript: Transkription des Videos
             page_texts: Extrahierter Text der Anhänge
             session_data: Session-Metadaten
             target_dir: Zielverzeichnis für die erzeugte Markdown-Datei
@@ -542,7 +540,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 self.logger.info("Generiere Markdown")
                 
                 # Korrigierter Aufruf von transformByTemplate mit korrekten Parameternamen
-                combined_text = f"# Webtext:\n{web_text}\n\n-----\n\n# Videotranscript:\n{video_transcript}\n\n-----\n\n# Slidesdescription:\n{slides_descriptions}"
+                combined_text = f"# Webtext:\n{web_text}\n\n---\n\n# Slidesdescription:\n{slides_descriptions}"
                 
                 
                 # Template-Transformation mit korrekten Parametern
@@ -673,7 +671,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 # Verarbeite PDF direkt von der URL für Vorschaubilder und Textextraktion
                 pdf_result: PDFResponse = await self.pdf_processor.process(
                     file_path=attachments_url,
-                    extraction_method='preview_and_native',
+                    extraction_method='preview_and_mistral_ocr',
                     use_cache=use_cache
                 )
                 
@@ -875,6 +873,10 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 
                 self.logger.info(f"Starte Verarbeitung von Session: {session}")
                 filename = self._sanitize_filename(filename)
+# Stelle sicher, dass die Zieldatei die Endung .md hat
+                
+                if not filename.lower().endswith('.md'):
+                    filename = f"{filename}.md"
 
                 # Verwende die zentrale Methode für Verzeichnis- und Übersetzungslogik
                 
@@ -885,14 +887,13 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     source_language=source_language,
                     use_translated_names=True
                 )
-                
+
                 # Übersetze nur den Dateinamen mit der zentralen Methode
                 translated_filename = await self._translate_filename(
                     filename=filename,
                     target_language=target_language,
                     source_language=source_language
                 )
-                
                 # Zielverzeichnisstruktur erstellen:
                 # sessions/[session]/[track]/[time-session_dir]
                 
@@ -948,6 +949,7 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     "url": url,
                     "video_url": video_url,
                     "video_mp4_url": video_url.replace('.webm', '.mp4') if video_url else None,
+                    "video_transcript": video_transcript_text,
                     "attachments_url": attachments_url,
                     "attachment_paths": attachment_paths,
                     "page_count": len(page_texts),  # Anzahl der Seiten
@@ -961,7 +963,6 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 
                 markdown_file, markdown_content, structured_data = await self._generate_markdown(
                     web_text=web_text,
-                    video_transcript=video_transcript_text,
                     session_data=input_data,
                     target_dir=target_dir,
                     filename=translated_filename,  # Verwende den übersetzten Dateinamen

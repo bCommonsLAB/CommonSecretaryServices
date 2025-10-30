@@ -14,7 +14,7 @@ starttime: {{starttime|HH:MM}}
 endtime: {{endtime|HH:MM}}
 location: {{location|Venue or city.}}
 duration: {{duration|Minutes or null}}
-slides: {{slides|array should include slide-level title, summaries (≤1000, extraktiv), keywords (5–12), image URL}}
+slides: {{slides|array should include slide-level title, full original slide-text, summaries (≤1000, extraktiv), keywords (5–12), image URL}}
 event: {{event}}
 track: {{track}}
 session: {{session}}
@@ -22,6 +22,7 @@ url: {{url}}
 template: {{template}}
 language: {{source_language}}
 video_url: {{video_url}}
+video_transcript: {{video_transcript}}
 attachments_url: {{attachments_url}}
 cache_key: {{cache_key}}
 ---
@@ -52,7 +53,8 @@ Guidelines:
 - Use neutral tone. Avoid personal opinions, evaluation, or advocacy.
 - Preserve all factual details (names, organizations, tools, data, examples).
 - The `"summary"` field must include well-formatted markdown sections that describe the talk’s content using slides content and Transcriptions in order (e.g., **Introduction**, **Main Ideas**, **Examples**, **Conclusion**).
-- The `"slides"` array should include slide-level summaries (title, summarize is a briefly summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription, image URL).
+- The 
+- The `"slides"` array should include slide-level informations (title, slide_text is the original complete text on that slide including titel, summarize is a briefly summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription, image URL).
 
 Return a **single valid JSON object** matching this structure (no comments or extra text):
 
@@ -78,6 +80,7 @@ Return a **single valid JSON object** matching this structure (no comments or ex
     {
       "page_num": 1,
       "title": "string",
+      "slide_text": "string (original text)",
       "summary": "string (≤800 characters, extractive summary)",
       "image_url": "string"
     }

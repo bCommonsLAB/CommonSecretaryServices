@@ -59,6 +59,7 @@ EXTRACTION_OCR = "ocr"       # Nur OCR
 EXTRACTION_BOTH = "both"     # Beide Methoden kombinieren
 EXTRACTION_PREVIEW = "preview"
 EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und native Text-Extraktion
+EXTRACTION_PREVIEW_AND_MISTRAL_OCR = "preview_and_mistral_ocr"
 
 # Neue Konstanten für LLM-basierte OCR
 EXTRACTION_LLM = "llm"  # LLM-basierte OCR mit Markdown-Output
@@ -673,7 +674,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             valid_methods = [
                 EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW,
                 EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR,
-                EXTRACTION_MISTRAL_OCR
+                EXTRACTION_MISTRAL_OCR, EXTRACTION_PREVIEW_AND_MISTRAL_OCR
             ]
             for method in methods_list:
                 if method not in valid_methods:
@@ -722,8 +723,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     with open(original_path_file, 'w') as f:
                         f.write(str(file_path))
 
-            # Früher Exit: reine Mistral-OCR ohne lokale Seitenrendering-Pipeline
-            if methods_list == [EXTRACTION_MISTRAL_OCR]:
+            # Früher Exit: Mistral-OCR (optional kombiniert mit Preview-Bildern)
+            if methods_list == [EXTRACTION_MISTRAL_OCR] or methods_list == [EXTRACTION_PREVIEW_AND_MISTRAL_OCR]:
                 try:
                     import os as _os
                     api_key: str = _os.environ.get("MISTRAL_API_KEY", "")
@@ -791,13 +792,56 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
                     except Exception:
                         self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
+                    # Wenn Previews gewünscht sind, erzeuge sie jetzt
+                    preview_paths: List[str] = []
+                    extraction_method_value = EXTRACTION_MISTRAL_OCR if methods_list == [EXTRACTION_MISTRAL_OCR] else EXTRACTION_PREVIEW_AND_MISTRAL_OCR
+                    preview_zip_path_local: Optional[str] = None
+                    if methods_list == [EXTRACTION_PREVIEW_AND_MISTRAL_OCR]:
+                        try:
+                            with fitz.open(path) as _pdf_for_preview:
+                                total_pages = len(_pdf_for_preview)
+                                # Seitenbereich berücksichtigen, falls gesetzt
+                                if page_start is not None or page_end is not None:
+                                    ps0 = max(0, (page_start or 1) - 1)
+                                    pe0 = (page_end - 1) if page_end is not None else ps0
+                                    if pe0 < ps0:
+                                        pe0 = ps0
+                                    page_indices = range(ps0, min(pe0 + 1, total_pages))
+                                else:
+                                    page_indices = range(0, total_pages)
+
+                                # Arbeits-Unterverzeichnis wie im Hauptpfad anlegen
+                                extraction_subdir_name = f"{'_'.join(methods_list)}"
+                                extraction_dir = working_dir / extraction_subdir_name
+                                extraction_dir.mkdir(parents=True, exist_ok=True)
+
+                                for i in page_indices:
+                                    page_obj = _pdf_for_preview[i]
+                                    p = self._generate_preview_image(page_obj, i, extraction_dir)
+                                    preview_paths.append(p)
+
+                                # Optional ZIP der Previews erzeugen (wie im Hauptpfad)
+                                if preview_paths:
+                                    import zipfile
+                                    zip_path_local: Path = extraction_dir / "previews.zip"
+                                    with zipfile.ZipFile(zip_path_local, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                        for _pp in preview_paths:
+                                            _pp_obj = Path(_pp)
+                                            if _pp_obj.exists():
+                                                zipf.write(str(_pp_obj), _pp_obj.name)
+                                    preview_zip_path_local = str(zip_path_local)
+                        except Exception as _pv_err:
+                            self.logger.warning(f"Fehler beim Erzeugen der Preview-Bilder: {str(_pv_err)}")
+
                     metadata = PDFMetadata(
                         file_name=path.name,
                         file_size=path.stat().st_size,
                         page_count=len(text_contents) if text_contents else 0,
                         process_dir=str(working_dir),
-                        extraction_method=EXTRACTION_MISTRAL_OCR,
-                        format="pdf"
+                        extraction_method=extraction_method_value,
+                        format="pdf",
+                        preview_paths=preview_paths,
+                        preview_zip=preview_zip_path_local
                     )
                     result = PDFProcessingResult(
                         metadata=metadata,
@@ -812,6 +856,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     obj_dict['mistral_ocr_raw'] = ocr_json
                     # neue Instanz aus dict, damit frozen bleibt
                     result = PDFProcessingResult.from_dict(obj_dict)
+                    # Vor Rückgabe: Pfade konvertieren und ggf. text_contents aus extracted_text extrahieren
+                    self._convert_paths_to_urls(result)
                     # Fortschritt: Verarbeitung im Processor abgeschlossen
                     self.logger.info("Mistral-OCR: Verarbeitung abgeschlossen", progress=90)
                     return self.create_response(
@@ -821,7 +867,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             'file_path': str(file_path),
                             'template': template,
                             'context': context,
-                            'extraction_method': EXTRACTION_MISTRAL_OCR
+                            'extraction_method': extraction_method_value
                         },
                         response_class=PDFResponse,
                         from_cache=False,
