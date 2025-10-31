@@ -28,6 +28,8 @@ class SessionInput:
         starttime: Startzeit der Session (z.B. "09:00")
         endtime: Endzeit der Session (z.B. "10:00")
         speakers: Liste der Vortragenden
+        speakers_url: Liste der URLs zu den Vortragenden Websites
+        speakers_image_url: Liste der URLs zu den Vortragenden Bildern
         video_url: URL zum Video
         attachments_url: URL zu Anhängen
         source_language: Quellsprache (Standardmäßig Englisch)
@@ -47,6 +49,8 @@ class SessionInput:
     starttime: Optional[str] = None
     endtime: Optional[str] = None
     speakers: List[str] = field(default_factory=list)
+    speakers_url: List[str] = field(default_factory=list)
+    speakers_image_url: List[str] = field(default_factory=list)
     video_url: Optional[str] = None
     video_transcript: Optional[str] = None
     attachments_url: Optional[str] = None

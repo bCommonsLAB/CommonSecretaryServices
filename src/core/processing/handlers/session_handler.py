@@ -30,6 +30,8 @@ async def handle_session_job(job: Job, repo: Any, resource_calculator: ResourceC
     starttime = getattr(params, "starttime", None)
     endtime = getattr(params, "endtime", None)
     speakers: List[str] = list(getattr(params, "speakers", []) or [])
+    speakers_url: List[str] = list(getattr(params, "speakers_url", []) or [])
+    speakers_image_url: List[str] = list(getattr(params, "speakers_image_url", []) or [])
     video_url = str(getattr(params, "video_url", "") or "")
     attachments_url = str(getattr(params, "attachments_url", "") or "")
     source_language = str(getattr(params, "source_language", "en") or "en")
@@ -58,6 +60,8 @@ async def handle_session_job(job: Job, repo: Any, resource_calculator: ResourceC
         starttime=starttime,
         endtime=endtime,
         speakers=speakers,
+        speakers_url=speakers_url,
+        speakers_image_url=speakers_image_url,
         video_url=video_url,
         attachments_url=attachments_url,
         source_language=source_language,

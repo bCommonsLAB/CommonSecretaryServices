@@ -172,6 +172,8 @@ class SessionProcessEndpoint(Resource):
             starttime = data.get('starttime')
             endtime = data.get('endtime')
             speakers = data.get('speakers', [])
+            speakers_url = data.get('speakers_url', [])
+            speakers_image_url = data.get('speakers_image_url', [])
             video_url = data.get('video_url')
             video_transcript = data.get('video_transcript')
             attachments_url = data.get('attachments_url')
@@ -197,6 +199,8 @@ class SessionProcessEndpoint(Resource):
                 starttime=starttime,
                 endtime=endtime,
                 speakers=speakers,
+                speakers_url=speakers_url,
+                speakers_image_url=speakers_image_url,
                 video_url=video_url,
                 video_transcript=video_transcript,
                 attachments_url=attachments_url,

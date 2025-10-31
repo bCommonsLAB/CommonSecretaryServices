@@ -808,6 +808,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         starttime: Optional[str] = None,
         endtime: Optional[str] = None,
         speakers: Optional[List[str]] = None,
+        speakers_url: Optional[List[str]] = None,
+        speakers_image_url: Optional[List[str]] = None,
         video_url: Optional[str] = None,
         video_transcript: Optional[str] = None,
         attachments_url: Optional[str] = None,
@@ -831,6 +833,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
             starttime: Optional, Startzeit im Format HH:MM
             endtime: Optional, Endzeit im Format HH:MM
             speakers: Optional, Liste der Vortragenden
+            speakers_url: Optional, Liste der URLs zu den Vortragenden Websites
+            speakers_image_url: Optional, Liste der URLs zu den Vortragenden Bildern
             video_url: Optional, URL zum Video
             video_transcript: Optional, bereits vorhandenes Video-Transkript (überspringt Video-Verarbeitung)
             attachments_url: Optional, URL zu Anhängen
@@ -861,6 +865,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     starttime=starttime,
                     endtime=endtime,
                     speakers=speakers or [],
+                    speakers_url=speakers_url or [],
+                    speakers_image_url=speakers_image_url or [],
                     video_url=video_url,
                     video_transcript=video_transcript,
                     attachments_url=attachments_url,
@@ -946,6 +952,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     "starttime": starttime,
                     "endtime": endtime,
                     "speakers": speakers or [],
+                    "speakers_url": speakers_url or [],
+                    "speakers_image_url": speakers_image_url or [],
                     "url": url,
                     "video_url": video_url,
                     "video_mp4_url": video_url.replace('.webm', '.mp4') if video_url else None,
@@ -1111,6 +1119,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                         starttime=session_data.get("starttime"),
                         endtime=session_data.get("endtime"),
                         speakers=session_data.get("speakers", []),
+                        speakers_url=session_data.get("speakers_url", []),
+                        speakers_image_url=session_data.get("speakers_image_url", []),
                         video_url=session_data.get("video_url"),
                         attachments_url=session_data.get("attachments_url"),
                         source_language=session_data.get("source_language", "en"),
@@ -1658,6 +1668,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                                 "starttime": input_data.get("starttime", ""),
                                 "endtime": input_data.get("endtime", ""),
                                 "speakers": ", ".join(input_data.get("speakers", [])),
+                                "speakers_url": ", ".join(input_data.get("speakers_url", [])),
+                                "speakers_image_url": ", ".join(input_data.get("speakers_image_url", [])),
                                 "video_url": input_data.get("video_url", ""),
                                 "attachments_url": input_data.get("attachments_url", ""),
                                 "source_language": input_data.get("source_language", "")

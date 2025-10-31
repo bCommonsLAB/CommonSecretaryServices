@@ -4,7 +4,6 @@ shortTitle: {{shortTitle|Short version ≤40 characters}}
 slug: {{slug|ASCII, lowercase, kebab-case; normalize diacritics; max 80}}
 summary: {{summary|Full markdown-formatted summary of the session, rewritten in clear and accessible language but faithful to the original content.}}
 teaser: {{teaser|2–3 short sentences introducing the topic of this session for a general audience.}}
-speakers: {{speakers|Array of speakers, formatted “Lastname, Firstname” or organization names.}}
 affiliations: {{affiliations|Array of speaker organizations or affiliations.}}
 tags: {{tags|Array of normalized keywords (lowercase, ASCII, deduplicated).}}
 topics: {{topics|Array of main technical or thematic areas, e.g. open-source, security, policy, ai, community, infrastructure.}}
@@ -23,6 +22,9 @@ template: {{template}}
 language: {{source_language}}
 video_url: {{video_url}}
 video_transcript: {{video_transcript}}
+speakers: {{speakers}}
+speakers_url: {{speakers_url}}
+speakers_image_url: {{speakers_image_url}}
 attachments_url: {{attachments_url}}
 cache_key: {{cache_key}}
 ---
@@ -65,7 +67,6 @@ Return a **single valid JSON object** matching this structure (no comments or ex
   "slug": "string",
   "summary": "string (markdown, plain and clear language)",
   "teaser": "string",
-  "speakers": ["string"],
   "affiliations": ["string"],
   "tags": ["string"],
   "topics": ["string"],
