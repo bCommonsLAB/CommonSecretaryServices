@@ -30,6 +30,7 @@ import asyncio
 import uuid
 from contextlib import nullcontext
 import json
+import re
 import shutil
 import zipfile
 import base64
@@ -524,24 +525,12 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                 slides_descriptions: str = ""
                 for i, page_text in enumerate(page_texts, 1):
                     slides_descriptions += f"Description Slide {i}:\n {page_text} \n\n"
-                #        f"Description Slide {i}:\n {page_text} \n\n"
-                #        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
-                #        f"{page_text}"
-                #    )
-                #    field_name = f"attachment_page_{i}_summary"
-                #    description = (
-                #        f"Können wir den Beschreibenden Text der Folie {i} kurz zusammenfassen? "
-                #        f"Bitte auch den entsprechenden Inhalt der Audiotranscription berücksichtigen: \n"
-                #        f"{page_text}"
-                #    )
-                #    additional_field_descriptions[field_name] = description
 
 
                 self.logger.info("Generiere Markdown")
                 
                 # Korrigierter Aufruf von transformByTemplate mit korrekten Parameternamen
                 combined_text = f"# Webtext:\n{web_text}\n\n---\n\n# Slidesdescription:\n{slides_descriptions}"
-                
                 
                 # Template-Transformation mit korrekten Parametern
                 result: TransformerResponse = self.transformer_processor.transformByTemplate(
@@ -579,6 +568,149 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                     structured_data_raw = result.data.structured_data
                     if structured_data_raw is not None:
                         structured_data = dict(structured_data_raw)
+
+                # Erstelle finales Slide-Array mit originalen Texten und Image-URLs
+                # Kombiniere strukturierte Slides-Daten mit page_texts und attachment_paths
+                if structured_data and isinstance(structured_data.get("slides"), list):
+                    attachment_paths: List[str] = []
+                    if context and isinstance(context.get("attachment_paths"), list):
+                        attachment_paths = context.get("attachment_paths", [])
+                    
+                    final_slides: List[Dict[str, Any]] = []
+                    
+                    for slide in structured_data.get("slides", []):
+                        try:
+                            # Extrahiere page_num, title und summary aus dem strukturierten Slide
+                            page_num: int = int(slide.get("page_num", 0))
+                            title: str = str(slide.get("title", "")).strip()
+                            summary: str = str(slide.get("summary", "")).strip()
+                            
+                            # Hole den originalen Text aus page_texts (page_num ist 1-basiert, Liste ist 0-basiert)
+                            slide_text: str = ""
+                            if page_num > 0 and page_num <= len(page_texts):
+                                slide_text = page_texts[page_num - 1]
+                            
+                            # Hole die entsprechende Image-URL aus attachment_paths
+                            # Verwende das erste Bild für diese Seite (page_num - 1 als Index)
+                            image_url: str = ""
+                            if page_num > 0 and page_num <= len(attachment_paths):
+                                image_url = attachment_paths[page_num - 1]
+                            
+                            # Erstelle finales Slide-Objekt
+                            final_slide: Dict[str, Any] = {
+                                "page_num": page_num,
+                                "title": title,
+                                "slide_text": slide_text,
+                                "summary": summary,
+                                "image_url": image_url
+                            }
+                            
+                            final_slides.append(final_slide)
+                            
+                        except (ValueError, IndexError, TypeError) as e:
+                            # Bei Fehlern beim Verarbeiten eines Slides, logge Warnung und überspringe
+                            self.logger.warning(
+                                "Fehler beim Zusammenführen eines Slides",
+                                error=str(e),
+                                slide_data=slide
+                            )
+                            continue
+                    
+                    # Aktualisiere structured_data mit dem finalen Slide-Array
+                    structured_data["slides"] = final_slides
+                    
+                    self.logger.info(
+                        "Finales Slide-Array erstellt",
+                        slide_count=len(final_slides),
+                        page_texts_count=len(page_texts),
+                        attachment_paths_count=len(attachment_paths)
+                    )
+                    
+                    # Aktualisiere das FrontMatter im Markdown-Content mit dem finalen Slide-Array
+                    try:
+                        # Extrahiere FrontMatter aus dem Markdown-Content
+                        # Pattern identisch zu transcription_utils.py für Konsistenz
+                        # Erfasst: ---\n...frontmatter...\n---\n?
+                        # Body-Content wird mit fm_match.end() extrahiert
+                        fm_match = re.match(r'^---\n(.*?)\n---\n?', markdown_content, flags=re.DOTALL)
+                        if fm_match:
+                            fm_content = fm_match.group(1)
+                            # Body-Content: Alles nach dem schließenden --- (inklusive Newlines)
+                            # Verwende fm_match.end() wie in transcription_utils.py
+                            body_content = markdown_content[fm_match.end():]
+                            
+                            # Debug-Logging für Troubleshooting
+                            if not body_content:
+                                # Falls body_content leer ist, versuche alternative Extraktion
+                                # Manchmal kann es sein, dass das Pattern den Body nicht erfasst
+                                alternative_match = re.match(r'^---\n(.*?)\n---(\n+)(.*)$', markdown_content, flags=re.DOTALL)
+                                if alternative_match and len(alternative_match.groups()) >= 3:
+                                    body_content = alternative_match.group(3)
+                            
+                            self.logger.debug(
+                                "FrontMatter extrahiert",
+                                fm_content_length=len(fm_content),
+                                body_content_length=len(body_content) if body_content else 0,
+                                body_content_preview=body_content[:100] if body_content else ""
+                            )
+                            
+                            # Ersetze das slides-Feld im FrontMatter
+                            # slides wird als JSON serialisiert (siehe transcription_utils.py)
+                            slides_json = json.dumps(final_slides, ensure_ascii=False, default=lambda o: str(o))
+                            
+                            # Versuche, das slides-Feld zu finden und zu ersetzen
+                            # slides kann einzeilig oder mehrzeilig sein (JSON)
+                            fm_lines = fm_content.split('\n')
+                            updated_fm_lines: List[str] = []
+                            slides_replaced = False
+                            in_slides_field = False
+                            
+                            for line in fm_lines:
+                                # Prüfe, ob dies der Start der slides-Zeile ist
+                                if re.match(r'^slides:\s*', line):
+                                    updated_fm_lines.append(f"slides: {slides_json}")
+                                    slides_replaced = True
+                                    in_slides_field = True
+                                elif in_slides_field:
+                                    # Prüfe, ob wir noch im mehrzeiligen slides-Feld sind
+                                    # (JSON kann mehrzeilig sein, aber YAML-Felder beginnen ohne Einrückung)
+                                    if line.strip() and not re.match(r'^\w+:', line):
+                                        # Fortsetzung des mehrzeiligen slides-Felds, überspringe
+                                        continue
+                                    else:
+                                        # Neues Feld oder Leerzeile - slides-Feld ist beendet
+                                        in_slides_field = False
+                                        # Füge die Zeile hinzu (auch Leerzeilen, um Formatierung zu erhalten)
+                                        updated_fm_lines.append(line)
+                                else:
+                                    # Normale Zeile, behalte sie bei
+                                    updated_fm_lines.append(line)
+                            
+                            # Falls slides-Feld nicht gefunden wurde, füge es hinzu
+                            if not slides_replaced:
+                                # Füge slides-Feld am Ende des FrontMatter hinzu
+                                updated_fm_lines.append(f"slides: {slides_json}")
+                            
+                            # Baue den aktualisierten Markdown-Content zusammen
+                            updated_fm_content = '\n'.join(updated_fm_lines)
+                            
+                            # Stelle sicher, dass die Formatierung korrekt ist:
+                            # - Body-Content bleibt unverändert erhalten (inklusive aller Newlines)
+                            # - FrontMatter wird korrekt geschlossen mit ---
+                            # body_content wurde mit markdown_content[fm_match.end():] extrahiert
+                            # und enthält bereits alle notwendigen Newlines (oder nicht, je nach Original-Format)
+                            markdown_content = f"---\n{updated_fm_content}\n---{body_content}"
+                            
+                            self.logger.info("FrontMatter slides-Feld aktualisiert", slide_count=len(final_slides))
+                        else:
+                            self.logger.warning("Kein FrontMatter im Markdown-Content gefunden, kann slides nicht aktualisieren")
+                    except Exception as e:
+                        # Bei Fehlern beim Aktualisieren des FrontMatter, logge Warnung aber fahre fort
+                        self.logger.warning(
+                            "Fehler beim Aktualisieren des FrontMatter slides-Felds",
+                            error=str(e),
+                            traceback=traceback.format_exc()
+                        )
 
                 if(markdown_content.find("{slides}") != -1):
                     # Slides mit Beschreibungen hinzufügen

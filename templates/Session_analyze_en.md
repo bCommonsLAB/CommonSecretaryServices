@@ -2,7 +2,7 @@
 title: {{title|Full session title (main topic or concept presented)}}
 shortTitle: {{shortTitle|Short version ≤40 characters}}
 slug: {{slug|ASCII, lowercase, kebab-case; normalize diacritics; max 80}}
-summary: {{summary|Full markdown-formatted summary of the session, rewritten in clear and accessible language but faithful to the original content.}}
+summary: {{summary|summary of the session, rewritten in clear and accessible language but faithful to the original content.}}
 teaser: {{teaser|2–3 short sentences introducing the topic of this session for a general audience.}}
 affiliations: {{affiliations|Array of speaker organizations or affiliations.}}
 tags: {{tags|Array of normalized keywords (lowercase, ASCII, deduplicated).}}
@@ -13,7 +13,7 @@ starttime: {{starttime|HH:MM}}
 endtime: {{endtime|HH:MM}}
 location: {{location|Venue or city.}}
 duration: {{duration|Minutes or null}}
-slides: {{slides|array should include slide-level title, full original slide-text, summaries (≤1000, extraktiv), keywords (5–12), image URL}}
+slides: {{slides|array should include a title and extractive slide-level summaries}}
 event: {{event}}
 track: {{track}}
 session: {{session}}
@@ -28,20 +28,7 @@ speakers_image_url: {{speakers_image_url}}
 attachments_url: {{attachments_url}}
 cache_key: {{cache_key}}
 ---
-# {{title}}
-{{teaser}}
-
-
-> [! Hinweis]-
-> Der Inhalt dieser Seite ist durch Audio/Video-Transkribtion und Text-Transformation aus dem Inhalt und Links dieser Quelle generiert.
-
-Quelle: [{{url}}]({{url}})
-
-{videoplayer}
-
-## Zusammenfassung & Highlights:
-
-{{summaryInText|Bitte die Texte des video-transcripts, des web-texts und der slide-Texte sinnvoll auswerten. Zuerst eine kurze Zusammenfassung. Darunter möchte ich den Text in treffenden Abschnitten gliedern. Für jeden Abschnitt einen passenden Titel in Fett darstellen und darunter jeden Abschnitt ausführlich mit mindestens 120 Worte zusammenfassen. Absätze und Titel mit \n trennen.}}
+{{summaryInText|describe the talk using slides content and video Transcriptions in a meaningful way in well-formatted markdown. First, provide a brief summary. Below that divide the text into appropriate sections. For each section, provide a suitable title in bold and summarize each section in detail with at least 120 words. Separate paragraphs and titles with \n}}
 
 --- systemprompt
 Role:
@@ -54,9 +41,8 @@ Guidelines:
 - Work in the same language as the source material (usually English).
 - Use neutral tone. Avoid personal opinions, evaluation, or advocacy.
 - Preserve all factual details (names, organizations, tools, data, examples).
-- The `"summary"` field must include well-formatted markdown sections that describe the talk’s content using slides content and Transcriptions in order (e.g., **Introduction**, **Main Ideas**, **Examples**, **Conclusion**).
-- The 
-- The `"slides"` array should include slide-level informations (title, slide_text is the original complete text on that slide including titel, summarize is a briefly summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription, image URL).
+- The `"summary"` field describe the talk’s content using slides content and video Transcriptions in a meaningful way.
+- The `"slides"` array should include slide-level information (title, summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription).
 
 Return a **single valid JSON object** matching this structure (no comments or extra text):
 
@@ -81,9 +67,7 @@ Return a **single valid JSON object** matching this structure (no comments or ex
     {
       "page_num": 1,
       "title": "string",
-      "slide_text": "string (original text)",
       "summary": "string (≤800 characters, extractive summary)",
-      "image_url": "string"
     }
   ]
 }
