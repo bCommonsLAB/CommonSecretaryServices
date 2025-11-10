@@ -1,179 +1,103 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://example.local/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/architecture/module-hierarchy/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.07.14_1_aufgaben_im_pdf_und_image_prozes/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/explanations/async-events/handlers/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.07.14_2_unterschied_zwischen_pdf_verarbe/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/explanations/async-events/secretary-job-worker-detailed/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.08.15_dokumentation_f_r_komplexes_proj/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/reference/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.08.15_hintergrundprozess_f_r_mongodb_s/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/reference/code-index/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.08.15_integration_von_mkdocs_in_python/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/reference/configuration/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/_historie/cursor_25.08.15_verbesserung_der_dokumentationss/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/_historie/history/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/assets/powerpoint/Secretary_Services_Pr%C3%A4sentation/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/assets/powerpoint/slides/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/architecture/details/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/architecture/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/async-events/generic-worker/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/async-events/how-to-n8n/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/async-events/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/async-events/secretary-job-worker-concept/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/caching/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/llm/optimization/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/metadata/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/metaprocessor/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/templates/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/explanations/types/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/guide/getting-started/development/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/guide/getting-started/installation/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/guide/how-tos/session-archive/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/guide/ui/dashboard/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/ops/deployment/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/ops/security/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/ops/troubleshooting/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/audio/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/event-job/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/image-ocr/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/metadata/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/pdf/endpoints/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/pdf/ocr-refactoring/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/pdf/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/session/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/story/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/track/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/transformer/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
-    </url>
-    <url>
-         <loc>https://example.local/processors/video/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/reference/environment-variables/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/openapi/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/overview/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <lastmod>2025-11-09</lastmod>
     </url>
     <url>
-         <loc>https://example.local/reference/api/response-structure/</loc>
-         <lastmod>2025-08-15</lastmod>
+         <loc>https://example.local/reference/api/endpoints/audio/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/common/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/event-job/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/event/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/imageocr/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/jobs/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/pdf/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/session/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/story/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/track/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/transformer/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/api/endpoints/video/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/data-models/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/data-models/base/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/data-models/job/</loc>
+         <lastmod>2025-11-09</lastmod>
+    </url>
+    <url>
+         <loc>https://example.local/reference/data-models/llm/</loc>
+         <lastmod>2025-11-09</lastmod>
     </url>
 </urlset>

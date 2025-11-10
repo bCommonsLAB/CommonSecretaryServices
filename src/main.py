@@ -1,5 +1,29 @@
 """
-Hauptmodul für den Start des Servers.
+@fileoverview Server Entry Point - Starts the Flask application
+
+@description
+Main module for starting the Common Secretary Services server. This file is the entry
+point for the application and performs the following initialization steps:
+1. Loads environment variables from .env file
+2. Configures SSL verification for Windows (optional)
+3. Imports and starts the Flask app from dashboard.app
+4. Starts the server on port 5001
+
+The file handles special Windows configurations for SSL/TLS and yt-dlp.
+
+@module main
+
+@exports
+- (no direct exports, executed as script)
+
+@usedIn
+- Direct execution: python src/main.py
+- Docker container: CMD ["python", "-m", "src.main"]
+
+@dependencies
+- External: dotenv - Loading environment variables
+- Internal: src.dashboard.app - Main Flask application
+- Internal: src.utils.logger - Logging system
 """
 
 import sys

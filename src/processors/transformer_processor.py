@@ -1,55 +1,47 @@
 """
-Transformer processor module.
-Handles text transformation using LLM models.
+@fileoverview Transformer Processor - Text transformation with LLM models
 
-LLM-Tracking Logik:
------------------
-Der Prozessor trackt die LLM-Nutzung auf zwei Ebenen:
+@description
+Transformer processor module. Handles text transformation using LLM models.
+This processor performs various text transformations with LLM models:
+- Translation between languages
+- Template-based transformation (e.g., meeting minutes, blog article)
+- Summarization and structuring of texts
+- HTML to Markdown conversion
+- Table extraction and formatting
 
-1. Aggregierte Informationen (LLMInfo):
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
+LLM tracking logic:
+The processor tracks LLM usage on two levels:
+1. Aggregated information (LLMInfo): Total tokens, duration, costs
+2. Individual requests (LLMRequest): Per operation with details (model, purpose, tokens, duration)
 
-2. Einzelne Requests (LLMRequest):
-   - Pro Operation (Übersetzung, Zusammenfassung, etc.)
-   - Mit Details wie Model, Zweck, Tokens, Dauer
-   - Zeitstempel für Nachverfolgbarkeit
+Features:
+- Template-based transformation with custom templates
+- Support for various output formats (Markdown, HTML, JSON, etc.)
+- Caching of transformation results in MongoDB
+- Detailed LLM tracking for cost analysis
+- HTML parsing and cleaning
+- Table extraction from HTML
 
-Ablauf:
-1. LLMInfo wird für den Gesamtprozess initialisiert
-2. Jede LLM-Operation (translate, summarize, etc.) erstellt LLMRequests
-3. Diese werden zum LLMInfo hinzugefügt und aggregiert
-4. Die Response enthält beide Informationsebenen
+@module processors.transformer_processor
 
-Beispiel Response:
-{
-  "llm_info": {
-    "requests_count": 3,
-    "total_tokens": 1500,
-    "total_duration": 2500,
-    "total_cost": 0.15,
-    "requests": [
-      {
-        "model": "gpt-4",
-        "purpose": "translation",
-        "tokens": 500,
-        "duration": 800,
-        "timestamp": "2024-01-20T10:15:30Z"
-      },
-      {
-        "model": "gpt-4", 
-        "purpose": "summarization",
-        "tokens": 400,
-        "duration": 700,
-        "timestamp": "2024-01-20T10:15:31Z"
-      }
-    ]
-  }
-}
+@exports
+- TransformerProcessor: Class - Text transformation processor
+
+@usedIn
+- src.processors.audio_processor: Uses TransformerProcessor for template transformation
+- src.processors.pdf_processor: Uses TransformerProcessor for PDF text transformation
+- src.processors.session_processor: Uses TransformerProcessor for session documentation
+- src.api.routes.transformer_routes: API endpoint for text transformation
+
+@dependencies
+- External: openai - OpenAI GPT models for text transformation
+- External: beautifulsoup4 - HTML parsing and cleaning
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.core.config_keys - ConfigKeys for API key management
+- Internal: src.core.models.transformer - Transformer models (TransformerResponse, etc.)
+- Internal: src.core.config - Configuration
 """
-
 import hashlib
 from typing import Dict, Any, Optional, Tuple,List, Union, cast, TYPE_CHECKING
 from datetime import datetime, UTC

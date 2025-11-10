@@ -1,6 +1,43 @@
 """
-Cache-Management für Video-Verarbeitungsergebnisse. hallo 
-Ermöglicht das Speichern und Laden von Video-Verarbeitungsergebnissen und zugehörigen Dateien.
+@fileoverview Video Cache - Cache management for video processing results
+
+@description
+Cache management for video processing results. This module provides the VideoCache
+class for storing and loading video processing results and associated files.
+
+Main functionality:
+- Store video processing results with metadata
+- Load cached results by video source hash
+- Cache file management (JSON + video files)
+- Automatic cache cleanup (TTL-based)
+- Cache metadata tracking
+
+Features:
+- Video-specific caching (source hash, language, template)
+- File-based caching (JSON + video files)
+- TTL-based cache expiration
+- Automatic cleanup of expired entries
+- Cache versioning support
+- Video source tracking
+
+@module utils.video_cache
+
+@exports
+- VideoCache: Class - Cache manager for video processing results
+- CacheMetadata: Dataclass - Metadata for cache entries
+
+@usedIn
+- Can be used by video processors for file-based caching
+- Video processing result caching
+
+@dependencies
+- Standard: json - JSON serialization
+- Standard: pathlib - File path handling
+- Standard: hashlib - Cache key generation
+- Standard: datetime - Timestamp handling
+- Standard: dataclasses - CacheMetadata dataclass
+- Internal: src.core.models.video - VideoProcessingResult, VideoSource
+- Internal: src.core.config - Config for cache configuration
 """
 
 import json

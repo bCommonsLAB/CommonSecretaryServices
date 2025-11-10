@@ -1,5 +1,38 @@
 """
-Track-spezifische Typen und Modelle für die Verarbeitung von Event-Tracks.
+@fileoverview Track Models - Dataclasses for track processing and session aggregation
+
+@description
+Track-specific types and models for event track processing. This file defines all
+dataclasses for track processing, including session aggregation and track summarization.
+
+Main classes:
+- TrackInput: Input data for track processing (frozen=True)
+- TrackOutput: Output data of track processing
+- TrackData: Container for input/output data with sessions
+- TrackResponse: API response for track processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Session aggregation (list of SessionData)
+- Integration with BaseResponse for standardized API responses
+
+@module core.models.track
+
+@exports
+- TrackInput: Dataclass - Track input data (frozen=True)
+- TrackOutput: Dataclass - Track output data
+- TrackData: Dataclass - Track data container
+- TrackResponse: Dataclass - API response for track processing
+
+@usedIn
+- src.processors.track_processor: Uses all track models
+- src.processors.event_processor: Uses TrackData for event tracks
+- src.api.routes.track_routes: Uses TrackResponse for API responses
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse
+- Internal: src.core.models.session - SessionData
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Any

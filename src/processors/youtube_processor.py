@@ -1,26 +1,51 @@
 """
-YouTube Processor für die Verarbeitung von YouTube-Videos.
+@fileoverview YouTube Processor - Processing of YouTube videos with download and transcription
 
-LLM-Tracking Logik:
------------------
-Der YoutubeProcessor trackt die LLM-Nutzung auf zwei Ebenen:
+@description
+YouTube Processor for processing YouTube videos. This processor processes YouTube
+videos by:
+- Video download with yt-dlp
+- Metadata extraction (title, description, duration, etc.)
+- Audio extraction from videos
+- Transcription of audio via AudioProcessor
+- Optional: Template-based transformation via TransformerProcessor
+- Optional: Translation into various languages
 
-1. Aggregierte Informationen in ProcessInfo:
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
+LLM tracking logic:
+The YoutubeProcessor tracks LLM usage on two levels:
+1. Aggregated information in ProcessInfo: Total tokens, duration, costs
+2. Hierarchical tracking via sub-processors:
+   - AudioProcessor: Own ProcessInfo, integrated
+   - TransformerProcessor: Own ProcessInfo, integrated
 
-2. Hierarchisches Tracking über Sub-Prozessoren:
-   a) AudioProcessor (Audio-Verarbeitung):
-      - Eigene ProcessInfo
-      - Wird in Haupt-ProcessInfo integriert
+Features:
+- YouTube video download with yt-dlp
+- Metadata extraction (uploader, views, likes, etc.)
+- Chapter detection from YouTube metadata
+- Integration with AudioProcessor for transcription
+- Caching of processing results
+- Support for playlists (optional)
 
-   b) TransformerProcessor (Template/Übersetzung):
-      - Eigene ProcessInfo
-      - Wird in Haupt-ProcessInfo integriert
+@module processors.youtube_processor
+
+@exports
+- YoutubeProcessor: Class - YouTube processing processor
+- YoutubeDLInfo: TypedDict - YouTube-DL info structure
+- YoutubeDLOpts: TypedDict - YouTube-DL options structure
+- ExtractOpts: TypedDict - Extraction options structure
+
+@usedIn
+- src.api.routes.video_routes: API endpoint for YouTube processing
+- Can be used for direct YouTube URL processing
+
+@dependencies
+- External: yt-dlp - YouTube video download
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.audio_processor - AudioProcessor for audio processing
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.core.models.youtube - YouTube models (YoutubeResponse, YoutubeProcessingResult, etc.)
+- Internal: src.core.config - Configuration
 """
-
 from pathlib import Path
 from typing import Dict, Any, Optional, List, TypedDict, cast, NotRequired
 from datetime import datetime

@@ -1,5 +1,49 @@
 """
-Erweiterter Prozessor mit MongoDB-Caching-Funktionalität.
+@fileoverview Cacheable Processor - Extended base class with MongoDB caching
+
+@description
+Extended processor with MongoDB caching functionality. This class extends BaseProcessor
+with comprehensive caching functionality using MongoDB as backend.
+
+Features:
+- Automatic caching of processing results in MongoDB
+- Cache key generation based on input parameters
+- TTL-based cache management (max_age_days)
+- Cache validation and invalidation
+- Thread-safe cache operations
+- Indexing for fast cache lookups
+
+The class uses a generic type system to ensure type-safe cache operations.
+All cacheable processors inherit from CacheableProcessor.
+
+Cache strategy:
+- Cache keys are generated from hash values of input parameters
+- Results are stored with metadata (timestamp, TTL)
+- Automatic cleanup of expired cache entries
+- Configurable cache enabling/disabling per processor
+
+@module processors.cacheable_processor
+
+@exports
+- CacheableProcessor: Generic class - Base class for cacheable processors
+- CacheableResult: Protocol - Protocol for cacheable results
+
+@usedIn
+- src.processors.audio_processor: Inherits from CacheableProcessor
+- src.processors.video_processor: Inherits from CacheableProcessor
+- src.processors.pdf_processor: Inherits from CacheableProcessor
+- src.processors.imageocr_processor: Inherits from CacheableProcessor
+- src.processors.transformer_processor: Inherits from CacheableProcessor
+- src.processors.session_processor: Inherits from CacheableProcessor
+- All cacheable processors: Inherit from CacheableProcessor
+
+@dependencies
+- External: pymongo - MongoDB database access
+- Internal: src.core.config - Config, ApplicationConfig
+- Internal: src.core.models.enums - ProcessingStatus
+- Internal: src.core.models.base - ProcessInfo
+- Internal: src.processors.base_processor - BaseProcessor
+- Internal: src.core.mongodb.connection - MongoDB connection (lazy imported)
 """
 import hashlib
 from datetime import datetime, UTC, timedelta

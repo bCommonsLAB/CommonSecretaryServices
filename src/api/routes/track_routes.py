@@ -1,5 +1,33 @@
 """
-API-Routen für den Track-Prozessor.
+@fileoverview Track API Routes - Flask-RESTX endpoints for track processing
+
+@description
+API routes for the Track Processor. This file defines REST API endpoints for track
+processing with Flask-RESTX, including session aggregation and track summarization.
+
+Main endpoints:
+- POST /api/tracks/process: Track processing with session aggregation
+- GET /api/tracks/health: Health check for track service
+
+Features:
+- JSON-based request/response
+- Track session aggregation from MongoDB
+- Template-based track summarization
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.track_routes
+
+@exports
+- track_ns: Namespace - Flask-RESTX namespace for track endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers track_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- Internal: src.processors.track_processor - TrackProcessor
+- Internal: src.core.models.track - TrackResponse
 """
 # type: ignore
 

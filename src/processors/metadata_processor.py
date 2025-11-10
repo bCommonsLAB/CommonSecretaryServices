@@ -1,6 +1,42 @@
 """
-Metadata processor module.
-Handles metadata extraction from various media types.
+@fileoverview Metadata Processor - Metadata extraction from various media types
+
+@description
+Metadata processor module. Handles metadata extraction from various media types.
+This processor extracts metadata from various media types:
+- Audio files (MP3, WAV, M4A): Duration, bitrate, sample rate, etc.
+- Video files (MP4, MOV, WebM): Duration, resolution, codec, etc.
+- Image files (JPG, PNG, WebP): Dimensions, format, DPI, etc.
+- PDF files: Page count, author, title, etc.
+- Text files: Character count, line count, etc.
+
+Features:
+- Technical metadata extraction (file size, format, etc.)
+- Content metadata extraction (with LLM analysis)
+- Support for various MIME types
+- Configurable features (technical_enabled, content_enabled)
+- Integration with TransformerProcessor for content analysis
+
+@module processors.metadata_processor
+
+@exports
+- MetadataProcessor: Class - Metadata extraction processor
+- MetadataFeatures: Dataclass - Feature configuration
+- AudioSegmentProtocol: Protocol - Protocol for audio segments
+- FileStorageProtocol: Protocol - Protocol for FileStorage objects
+
+@usedIn
+- src.api.routes.*: Can be used for metadata extraction
+- All processors: Can use MetadataProcessor for metadata extraction
+
+@dependencies
+- External: PyMuPDF (fitz) - PDF metadata extraction
+- External: pydub - Audio metadata extraction
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.base_processor - BaseProcessor base class
+- Internal: src.processors.transformer_processor - TransformerProcessor for content analysis
+- Internal: src.core.models.metadata - Metadata models (MetadataResponse, ContentMetadata, etc.)
+- Internal: src.core.exceptions - ProcessingError, UnsupportedMimeTypeError, etc.
 """
 import fnmatch
 import mimetypes

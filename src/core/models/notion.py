@@ -1,7 +1,35 @@
 """
-Datenmodelle für die Notion-Integration.
-"""
+@fileoverview Notion Models - Dataclasses for Notion integration
 
+@description
+Data models for Notion integration. This file defines dataclasses for integration with
+Notion, including block structure and page processing.
+
+Main classes:
+- NotionBlock: Represents a single Notion block (frozen=True)
+- NotionPage: Represents a Notion page with blocks
+- NotionResponse: API response for Notion processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Support for various block types (paragraph, image, child_page)
+- Hierarchical block structure (parent_id, has_children)
+
+@module core.models.notion
+
+@exports
+- NotionBlock: Dataclass - Notion block (frozen=True)
+- NotionPage: Dataclass - Notion page
+- NotionResponse: Dataclass - API response for Notion processing
+
+@usedIn
+- src.api.routes.common_routes: Uses Notion models for Notion block processing
+- Can be used for Notion integration
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse
+"""
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 from .base import BaseResponse

@@ -1,5 +1,43 @@
 """
-Basis-Typen und Interfaces für die Common Secretary Services.
+@fileoverview Base Models - Fundamental dataclasses for API responses and processing info
+
+@description
+Base types and interfaces for Common Secretary Services. This file defines the
+fundamental dataclasses used by all processors and API routes.
+
+Important classes:
+- BaseResponse: Base class for all API responses with standardized format
+- ErrorInfo: Structured error information
+- RequestInfo: Information about a processing request
+- ProcessInfo: Information about a processing process (including LLM tracking)
+- ProcessingLogger: Protocol for logger interface
+
+All response classes follow the standardized format:
+- status: ProcessingStatus
+- request: RequestInfo
+- process: ProcessInfo (with LLM tracking)
+- error: ErrorInfo (optional)
+- data: Processor-specific data
+
+@module core.models.base
+
+@exports
+- BaseResponse: Dataclass - Base class for all API responses
+- ErrorInfo: Dataclass - Error information
+- RequestInfo: Dataclass - Request information
+- ProcessInfo: Dataclass - Process information with LLM tracking
+- ProcessingLogger: Protocol - Logger interface
+
+@usedIn
+- src.processors.*: All processors inherit from BaseResponse
+- src.api.routes.*: All API routes use BaseResponse format
+- src.core.models.*: Specific response classes inherit from BaseResponse
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: typing - Type annotations
+- Internal: src.core.models.enums - ProcessingStatus
+- Internal: src.core.models.llm - LLMInfo
 """
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional

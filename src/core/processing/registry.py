@@ -1,8 +1,41 @@
 """
-Registry für generische Job-Handler.
+@fileoverview Processor Registry - Registry for generic job handlers
 
-Mappt `job_type` auf asynchrone Handlerfunktionen mit Signatur:
+@description
+Processor registry for generic job handlers. This module provides a registry system
+that maps job_type strings to asynchronous handler functions. Handlers are registered
+at module import time and can be retrieved by job_type.
+
+Main functionality:
+- Register handlers for specific job types
+- Retrieve handlers by job_type
+- List available job types
+- Type-safe handler function signatures
+
+Handler signature:
     handler(job: Job, repo: Any, resource_calculator: ResourceCalculator) -> Awaitable[None]
+
+Features:
+- Centralized handler registration
+- Type-safe handler function signatures
+- Read-only access to registered handlers
+- Default handler fallback (session)
+
+@module core.processing.registry
+
+@exports
+- HandlerType: TypeAlias - Type alias for handler function signature
+- register(): None - Register a handler for a job_type
+- get_handler(): Optional[HandlerType] - Get handler for a job_type
+- available_job_types(): Dict[str, HandlerType] - Get all registered job types
+
+@usedIn
+- src.core.mongodb.secretary_worker_manager: Uses registry to route jobs to handlers
+- Handler modules: Register themselves via register() function
+
+@dependencies
+- Internal: src.core.models.job_models - Job model
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 
 from typing import Awaitable, Callable, Dict, Optional, Any

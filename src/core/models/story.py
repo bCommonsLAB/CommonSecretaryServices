@@ -1,9 +1,43 @@
 """
-Story-Modell-Definitionen
--------------------------
-Dieses Modul enthält die Datenmodelle für die Story-Verarbeitung.
-"""
+@fileoverview Story Models - Dataclasses for story generation from sessions
 
+@description
+Story model definitions. This module contains data models for story processing.
+This file defines all dataclasses for story generation, including topic-based aggregation,
+target group-specific templates, and multilingual output.
+
+Main classes:
+- StoryProcessorInput: Input data for story processing (frozen=True)
+- StoryProcessorOutput: Output data of story processing
+- StoryData: Container for input/output data
+- StoryResponse: API response for story processing
+- StoryProcessingResult: Cacheable processing result
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict, asdict)
+- Deserialization from dictionary (from_dict)
+- Support for multiple languages
+- Detail level configuration (1-5)
+- Topic-based session filtering
+
+@module core.models.story
+
+@exports
+- StoryProcessorInput: Dataclass - Story input data (frozen=True)
+- StoryProcessorOutput: Dataclass - Story output data
+- StoryData: Dataclass - Story data container
+- StoryResponse: Dataclass - API response for story processing
+- StoryProcessingResult: Class - Cacheable processing result
+
+@usedIn
+- src.processors.story_processor: Uses all story models
+- src.api.routes.story_routes: Uses StoryResponse for API responses
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: datetime - Timestamp serialization
+"""
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, TypeVar, cast
 from datetime import datetime

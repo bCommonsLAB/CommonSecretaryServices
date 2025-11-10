@@ -1,6 +1,35 @@
 """
-Utility functions for the dashboard application.
-Contains helper functions used across different routes.
+@fileoverview Dashboard Utilities - Helper functions for dashboard application
+
+@description
+Utility functions for the dashboard application. This module provides helper
+functions used across different dashboard routes, including system information
+retrieval and common utilities.
+
+Main functionality:
+- System information retrieval (version, OS, CPU, memory, disk)
+- Platform information gathering
+- System resource monitoring
+
+Features:
+- System version detection
+- Platform information (OS, Python version)
+- Resource usage monitoring (CPU, memory, disk)
+- Cross-platform support
+
+@module dashboard.utils
+
+@exports
+- get_system_info(): Dict[str, Any] - Get system information dictionary
+
+@usedIn
+- src.dashboard.routes.main_routes: Uses get_system_info for dashboard display
+- src.dashboard.routes.config_routes: Uses get_system_info for config page
+
+@dependencies
+- External: psutil - System and process utilities
+- Standard: platform - Platform identification
+- Standard: sys - System-specific parameters
 """
 import psutil
 import platform

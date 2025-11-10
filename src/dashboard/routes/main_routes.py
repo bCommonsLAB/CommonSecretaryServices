@@ -1,6 +1,42 @@
 """
-Main routes for the dashboard application.
-Contains the main dashboard view and test routes.
+@fileoverview Main Routes - Dashboard routes for main application views
+
+@description
+Main routes for the dashboard application. This module provides the primary web
+routes for the dashboard, including the main dashboard view, job management,
+test endpoints, and system monitoring.
+
+Main functionality:
+- Main dashboard view with job overview
+- Job management (create, view, monitor)
+- Test endpoints for processors
+- Log viewing and filtering
+- System monitoring and statistics
+
+Features:
+- Real-time job status monitoring
+- Job creation and management interface
+- Processor test endpoints (audio, video, transformer, YouTube)
+- Log aggregation and filtering
+- Markdown rendering support
+- Batch job management
+
+@module dashboard.routes.main_routes
+
+@exports
+- main: Blueprint - Flask blueprint for main routes
+
+@usedIn
+- src.dashboard.app: Registers main blueprint
+
+@dependencies
+- External: flask - Flask web framework
+- External: markdown - Markdown to HTML conversion
+- External: requests - HTTP requests for API calls
+- Internal: src.core.config - Config for configuration access
+- Internal: src.core.models.job_models - Job, Batch, JobStatus models
+- Internal: src.core.mongodb.repository - SessionJobRepository
+- Internal: src.utils.logger - Logging system
 """
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
 from datetime import datetime, timedelta, timezone

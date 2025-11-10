@@ -1,8 +1,34 @@
 """
-Dataclass-Modell für Übersetzungsverwaltung.
-Verwaltet Übersetzungen von Entitäten für die Verzeichnisstruktur.
-"""
+@fileoverview Translation Models - Dataclasses for translation management
 
+@description
+Dataclass model for translation management. Manages translations of entities for directory
+structure. This file defines dataclasses for managing translations of various entities
+(tracks, sessions, etc.).
+
+Main classes:
+- Translation: Translation entry for an entity (slots=True)
+
+Features:
+- Serialization to dictionary (to_dict, asdict)
+- Deserialization from dictionary (from_dict)
+- Support for multiple languages per entity
+- Timestamp tracking (created_at, updated_at)
+- Entity type-based organization
+
+@module core.models.translation
+
+@exports
+- Translation: Dataclass - Translation entry (slots=True)
+
+@usedIn
+- src.core.mongodb.translation_repository: Uses Translation for translation management
+- Can be used for translation management
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: datetime - Timestamps
+"""
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any
 import datetime

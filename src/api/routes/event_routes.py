@@ -1,5 +1,33 @@
 """
-API-Routen für den Event-Prozessor.
+@fileoverview Event API Routes - Flask-RESTX endpoints for event processing
+
+@description
+API routes for the Event Processor. This file defines REST API endpoints for event
+processing with Flask-RESTX, including track aggregation and event summarization.
+
+Main endpoints:
+- POST /api/events/process: Event processing with track aggregation
+- GET /api/events/health: Health check for event service
+
+Features:
+- JSON-based request/response
+- Event track aggregation from MongoDB
+- Template-based event summarization
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.event_routes
+
+@exports
+- event_ns: Namespace - Flask-RESTX namespace for event endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers event_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- Internal: src.processors.event_processor - EventProcessor
+- Internal: src.core.models.event - EventResponse
 """
 # type: ignore
 

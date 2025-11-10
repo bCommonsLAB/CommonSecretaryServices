@@ -1,6 +1,34 @@
 """
-Log routes for the dashboard application.
-Handles log viewing and filtering functionality.
+@fileoverview Log Routes - Dashboard routes for log viewing and filtering
+
+@description
+Log routes for the dashboard application. This module provides web routes for
+viewing and filtering application logs from the detailed log file.
+
+Main functionality:
+- Display log entries with pagination
+- Filter logs by level, date, search query
+- Session-based log filtering
+- Log entry parsing and formatting
+
+Features:
+- Paginated log display
+- Multiple filter options (level, date, search)
+- Session-based filtering
+- Structured log entry parsing
+- Typed log response structures
+
+@module dashboard.routes.log_routes
+
+@exports
+- logs: Blueprint - Flask blueprint for log routes
+
+@usedIn
+- src.dashboard.app: Registers logs blueprint
+
+@dependencies
+- External: flask - Flask web framework
+- Internal: src.core.config - Config for log file path
 """
 from flask import Blueprint, render_template, request
 import os

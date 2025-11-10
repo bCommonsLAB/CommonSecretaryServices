@@ -1,6 +1,49 @@
 """
-Datenmodelle für Jobs und Batches.
-Definiert die Struktur von Jobs und Batches in der MongoDB-Datenbank.
+@fileoverview Job Models - Dataclasses for asynchronous job processing and batch management
+
+@description
+Data models for jobs and batches. Defines the structure of jobs and batches in the MongoDB
+database. This file defines all dataclasses for asynchronous job processing, including
+job status tracking, progress monitoring, and access control.
+
+Main classes:
+- JobStatus: Enum - Status of a job (PENDING, PROCESSING, COMPLETED, FAILED)
+- AccessVisibility: Enum - Visibility of an object (PRIVATE, PUBLIC)
+- AccessControl: Access control for an object (frozen=True)
+- LogEntry: A log entry for a job (frozen=True)
+- JobProgress: Progress information for a job
+- SecretaryJob: Main job model for asynchronous processing
+- BatchJob: Batch job model for batch processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict, asdict)
+- Deserialization from dictionary (from_dict)
+- Access control with visibility and access lists
+- Logging integration for job tracking
+- Progress tracking with percentages
+
+@module core.models.job_models
+
+@exports
+- JobStatus: Enum - Job status values
+- AccessVisibility: Enum - Visibility values
+- AccessControl: Dataclass - Access control (frozen=True)
+- LogEntry: Dataclass - Log entry (frozen=True)
+- JobProgress: Dataclass - Progress information
+- SecretaryJob: Dataclass - Main job model
+- BatchJob: Dataclass - Batch job model
+
+@usedIn
+- src.core.mongodb.secretary_repository: Uses SecretaryJob for job management
+- src.core.mongodb.secretary_worker_manager: Uses job models for job processing
+- src.api.routes.secretary_job_routes: Uses job models for API responses
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: enum - Enum definitions
+- Standard: datetime - Timestamps
+- Standard: uuid - Unique job IDs
 """
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Any, Optional, Literal

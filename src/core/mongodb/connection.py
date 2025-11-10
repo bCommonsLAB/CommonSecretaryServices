@@ -1,8 +1,46 @@
 """
-MongoDB-Verbindungsmodul.
-Stellt eine Verbindung zur MongoDB her und verwaltet diese.
-"""
+@fileoverview MongoDB Connection - Singleton management of MongoDB connection
 
+@description
+MongoDB connection module. Establishes and manages a connection to MongoDB.
+This module implements a singleton pattern for the MongoDB connection to ensure
+only one connection exists per application.
+
+Main functionality:
+- Singleton MongoDB client management
+- Automatic connection initialization on first access
+- Database selection from MongoDB URI
+- Connection testing and error handling
+- Collection initialization tracking
+- Connection closure on shutdown
+
+Features:
+- Lazy initialization: Connection is created only on first access
+- Connection pooling: Configurable pool size for better performance
+- Error handling: Detailed error messages for connection problems
+- URI validation: Checks for correct MONGODB_URI configuration
+
+@module core.mongodb.connection
+
+@exports
+- get_mongodb_client(): MongoClient - Singleton MongoDB client
+- get_mongodb_database(): Database - MongoDB database instance
+- setup_mongodb_connection(): None - Initializes MongoDB connection
+- close_mongodb_connection(): None - Closes MongoDB connection
+- is_collection_initialized(): bool - Checks if collection was initialized
+
+@usedIn
+- src.processors.cacheable_processor: Uses get_mongodb_database for cache collections
+- src.core.mongodb.repository: Uses get_mongodb_database for repository access
+- src.core.mongodb.cache_setup: Uses setup_mongodb_connection for cache setup
+- src.dashboard.app: Calls setup_mongodb_connection on app start
+- All modules requiring MongoDB access: Use get_mongodb_database
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.config - Config for MongoDB configuration
+- System: os.environ - MONGODB_URI environment variable
+"""
 from pymongo import MongoClient
 from pymongo.database import Database
 from typing import Optional, Any, Set

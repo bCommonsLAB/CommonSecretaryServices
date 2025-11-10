@@ -1,8 +1,47 @@
+"""
+@fileoverview Video API Routes - Flask-RESTX endpoints for video and YouTube processing
+
+@description
+Video Processor API routes. Contains all endpoints for processing video files and
+YouTube videos. This file defines REST API endpoints for video processing with Flask-RESTX,
+including upload, audio extraction, transcription, and frame extraction.
+
+Main endpoints:
+- POST /api/video/upload: Video file upload and processing
+- POST /api/video/process: Video processing with various options
+- POST /api/video/frames: Frame extraction from videos
+- POST /api/video/youtube: YouTube video processing
+- GET /api/video/health: Health check for video service
+
+Features:
+- Multipart form upload for video files
+- URL-based video processing
+- YouTube video download and processing
+- Audio extraction and transcription
+- Frame extraction at specific timestamps
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.video_routes
+
+@exports
+- video_ns: Namespace - Flask-RESTX namespace for video endpoints
+- video_upload_parser: RequestParser - Parser for video upload parameters
+- frames_form_parser: RequestParser - Parser for frame extraction parameters
+
+@usedIn
+- src.api.routes.__init__: Registers video_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.video_processor - VideoProcessor
+- Internal: src.processors.youtube_processor - YoutubeProcessor
+- Internal: src.core.models.video - VideoResponse, VideoFramesResponse
+- Internal: src.core.models.youtube - YoutubeResponse
+- Internal: src.utils.performance_tracker - Performance tracking
+"""
 # type: ignore
-"""
-Video-Prozessor API-Routen.
-Enthält alle Endpoints zur Verarbeitung von Video-Dateien und YouTube-Videos.
-"""
 from flask import request
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 from typing import Dict, Any, Union, Optional

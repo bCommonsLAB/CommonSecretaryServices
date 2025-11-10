@@ -1,6 +1,33 @@
 """
-Validierungs-Utilities für Dataclasses.
-Stellt Dekoratoren und Funktionen für die Validierung von Feldern bereit.
+@fileoverview Validation Utilities - Decorators and functions for dataclass validation
+
+@description
+Validation utilities for dataclasses. This file provides decorators and functions
+used for validating dataclass fields.
+
+Validation is performed via __post_init__ methods that are automatically called
+after dataclass initialization.
+
+Features:
+- validate_field: Decorator for single field validation
+- validate_fields: Decorator for multiple field validations
+- Various validation functions (URL, Email, etc.)
+
+@module core.validation
+
+@exports
+- validate_field(): Callable - Decorator for field validation
+- validate_fields(): Callable - Decorator for multiple field validations
+- Various validation functions
+
+@usedIn
+- src.core.models.*: Dataclass models use validation decorators
+- All model definitions: Validate fields on initialization
+
+@dependencies
+- Standard: dataclasses - Dataclass functionality
+- Standard: typing - Type annotations and Protocols
+- Standard: re - Regular expressions for validation
 """
 
 from typing import (

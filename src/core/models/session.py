@@ -1,8 +1,48 @@
 """
-Datenmodelle für den Session-Processor.
-Verarbeitet und speichert Session-Informationen mit zugehörigen Medien.
-"""
+@fileoverview Session Models - Dataclasses for session processing and media management
 
+@description
+Data models for the Session Processor. Processes and stores session information with
+associated media. This file defines all dataclasses for session processing, including
+input/output data, batch processing, and webhook configuration.
+
+Main classes:
+- SessionInput: Input data for session processing (frozen=True)
+- SessionOutput: Output data of session processing
+- SessionData: Container for input/output data
+- SessionResponse: API response for session processing
+- BatchSessionInput/Output/Data/Response: Batch processing models
+- WebhookConfig: Configuration for webhook notifications
+- AsyncBatchSessionInput: Asynchronous batch processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Support for batch processing
+- Webhook support for asynchronous processing
+- Integration with BaseResponse for standardized API responses
+
+@module core.models.session
+
+@exports
+- SessionInput: Dataclass - Session input data (frozen=True)
+- SessionOutput: Dataclass - Session output data
+- SessionData: Dataclass - Session data container
+- SessionResponse: Dataclass - API response for session processing
+- BatchSessionInput/Output/Data/Response: Dataclasses - Batch processing models
+- WebhookConfig: Dataclass - Webhook configuration
+- AsyncBatchSessionInput: Dataclass - Asynchronous batch input
+
+@usedIn
+- src.processors.session_processor: Uses all session models
+- src.api.routes.session_routes: Uses SessionResponse for API responses
+- src.processors.event_processor: Uses SessionData for event sessions
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse
+- Standard: dataclasses - Dataclass definitions
+- Standard: datetime - Timestamp validation
+"""
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 from datetime import datetime

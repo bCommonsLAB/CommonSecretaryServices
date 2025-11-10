@@ -1,7 +1,38 @@
 """
-Datenmodelle für die PDF-Verarbeitung.
-"""
+@fileoverview PDF Models - Dataclasses for PDF processing and text extraction
 
+@description
+Data models for PDF processing. This file defines all dataclasses for PDF processing,
+including text extraction, OCR, metadata, and preview image generation.
+
+Main classes:
+- PDFMetadata: Metadata of a processed PDF file
+- PDFProcessingResult: Cacheable processing result
+- PDFResponse: API response for PDF processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Deserialization from dictionary (from_dict)
+- Support for various extraction methods (native, OCR, LLM)
+- Preview image management (preview_paths, preview_zip)
+
+@module core.models.pdf
+
+@exports
+- PDFMetadata: Dataclass - PDF metadata (frozen=True for immutability)
+- PDFProcessingResult: Class - Cacheable processing result
+- PDFResponse: Dataclass - API response for PDF processing
+
+@usedIn
+- src.processors.pdf_processor: Uses all PDF models
+- src.processors.session_processor: Uses PDFResponse for session PDFs
+- src.api.routes.pdf_routes: Uses PDFResponse for API responses
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: typing - Type annotations
+"""
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Tuple, cast
 

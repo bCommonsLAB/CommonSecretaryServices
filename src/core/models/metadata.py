@@ -1,5 +1,40 @@
 """
-Metadaten-spezifische Typen und Modelle.
+@fileoverview Metadata Models - Dataclasses for metadata extraction from various media types
+
+@description
+Metadata-specific types and models. This file defines all dataclasses for metadata extraction,
+including technical metadata (file size, format, etc.) and content metadata (title, author, etc.).
+
+Main classes:
+- ContentMetadata: Content metadata (frozen=True, slots=True)
+- TechnicalMetadata: Technical metadata
+- MetadataData: Container for content and technical metadata
+- MetadataResponse: API response for metadata extraction
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Support for various media types (audio, video, PDF, image, text)
+- Spatial and temporal metadata
+- Rights and license information
+- Integration with LLMInfo for content analysis tracking
+
+@module core.models.metadata
+
+@exports
+- ContentMetadata: Dataclass - Content metadata (frozen=True, slots=True)
+- TechnicalMetadata: Dataclass - Technical metadata
+- MetadataData: Dataclass - Metadata container
+- MetadataResponse: Dataclass - API response for metadata extraction
+
+@usedIn
+- src.processors.metadata_processor: Uses all metadata models
+- src.api.routes.*: Can use MetadataResponse for metadata API
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse, ProcessInfo, ErrorInfo
+- Internal: src.core.models.llm - LLMInfo for content analysis tracking
+- Internal: src.core.models.enums - ProcessingStatus
 """
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Type, TypeVar

@@ -1,30 +1,54 @@
 """
-PDF Processor für die Verarbeitung von PDF-Dateien.
+@fileoverview PDF Processor - Processing of PDF files with text extraction and OCR
 
-LLM-Tracking Logik:
------------------
-Der PDFProcessor trackt die LLM-Nutzung auf zwei Ebenen:
+@description
+PDF Processor for processing PDF files. This processor processes PDF files and
+supports various extraction methods:
+- Native text extraction (directly from PDF structure)
+- OCR-based extraction (Tesseract)
+- LLM-based OCR (Mistral API, OpenAI Vision)
+- Combined methods (native + OCR, LLM + native, etc.)
+- Preview image generation for PDF pages
+- PowerPoint conversion (PPTX → PDF)
 
-1. Aggregierte Informationen (LLMInfo):
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
+LLM tracking logic:
+The PDFProcessor tracks LLM usage on two levels:
+1. Aggregated information (LLMInfo): Total tokens, duration, costs
+2. Individual requests (LLMRequest):
+   - Text extraction: pdf-extraction model
+   - OCR extraction: tesseract model
+   - Template transformation: gpt-4 model (via TransformerProcessor)
 
-2. Einzelne Requests (LLMRequest):
-   a) Text-Extraktion:
-      - Model: pdf-extraction
-      - Purpose: text_extraction
-      
-   b) OCR-Extraktion:
-      - Model: tesseract
-      - Purpose: ocr_extraction
-      
-   c) Template-Transformation (wenn Template verwendet):
-      - Model: gpt-4
-      - Purpose: template_transform
+Features:
+- Multiple extraction methods (native, OCR, LLM-based)
+- Automatic selection of best method
+- Preview image generation for PDF pages
+- Metadata extraction (page count, author, etc.)
+- Integration with TransformerProcessor for template transformation
+- Caching of extraction results
+
+@module processors.pdf_processor
+
+@exports
+- PDFProcessor: Class - PDF processing processor
+- PDFResponse: Dataclass - PDF processing response
+
+@usedIn
+- src.processors.session_processor: Uses PDFProcessor for PDF processing in sessions
+- src.api.routes.pdf_routes: API endpoint for PDF processing
+
+@dependencies
+- External: PyMuPDF (fitz) - PDF parsing and text extraction
+- External: tesseract - OCR functionality
+- External: mistralai - Mistral OCR API
+- External: requests - HTTP requests for external APIs
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.transformer_processor - TransformerProcessor for template transformation
+- Internal: src.processors.imageocr_processor - ImageOCRProcessor for image OCR
+- Internal: src.utils.image2text_utils - Image2TextService for LLM OCR
+- Internal: src.core.models.pdf - PDF models (PDFResponse, PDFMetadata, etc.)
+- Internal: src.core.config - Configuration
 """
-
 import traceback
 import time
 import json

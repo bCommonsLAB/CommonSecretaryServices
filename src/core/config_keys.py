@@ -1,6 +1,33 @@
 """
-Verwaltung von sensitiven Konfigurationswerten wie API-Keys.
-Diese werden ausschließlich aus Umgebungsvariablen geladen.
+@fileoverview API Key Management - Manages sensitive configuration values from environment variables
+
+@description
+Management of sensitive configuration values such as API keys. This class provides
+secure access to API keys that are loaded exclusively from environment variables or
+the .env file.
+
+The class uses the singleton pattern to ensure that API keys are only loaded once.
+All values are read from environment variables at runtime, never from configuration files.
+
+Features:
+- Singleton pattern for global instance
+- Automatic loading of .env file
+- Validation of API key formats
+- Secure storage in environment variables
+
+@module core.config_keys
+
+@exports
+- ConfigKeys: Class - Singleton for API key management
+
+@usedIn
+- src.processors.transformer_processor: Loads OpenAI API key
+- src.dashboard.routes.config_routes: Manages API key via web interface
+- All processors using LLM APIs: Load API keys
+
+@dependencies
+- External: dotenv - Loading .env file
+- System: os.environ - Environment variable access
 """
 import os
 

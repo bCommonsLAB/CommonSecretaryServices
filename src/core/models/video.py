@@ -1,5 +1,45 @@
 """
-Video-spezifische Typen und Modelle.
+@fileoverview Video Models - Dataclasses for video processing and audio extraction
+
+@description
+Video-specific types and models. This file defines all dataclasses for video processing,
+including audio extraction, frame extraction, and transcription.
+
+Main classes:
+- VideoProcessingError: Video-specific exception class
+- VideoSource: Source of a video (URL or file)
+- VideoMetadata: Metadata of a video (duration, resolution, etc.)
+- VideoProcessingResult: Cacheable processing result
+- VideoResponse: API response for video processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Deserialization from dictionary (from_dict)
+- Integration with audio models for transcription
+- Protocol-based typing for dynamic attributes
+
+@module core.models.video
+
+@exports
+- VideoProcessingError: Class - Video-specific exception
+- VideoSource: Dataclass - Video source (URL/file)
+- VideoMetadataProtocol: Protocol - Protocol for video metadata
+- VideoMetadata: Dataclass - Video metadata
+- VideoProcessingResult: Class - Cacheable processing result
+- VideoResponse: Dataclass - API response for video processing
+
+@usedIn
+- src.processors.video_processor: Uses all video models
+- src.processors.session_processor: Uses VideoResponse for session videos
+- src.api.routes.video_routes: Uses VideoResponse for API responses
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse, ProcessInfo, ErrorInfo
+- Internal: src.core.models.audio - TranscriptionResult
+- Internal: src.core.models.enums - ProcessingStatus
+- Internal: src.core.exceptions - ProcessingError
+- Internal: src.processors.cacheable_processor - CacheableResult Protocol
 """
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Protocol, cast, List

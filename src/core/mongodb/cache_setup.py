@@ -1,5 +1,40 @@
 """
-Setup-Skript für MongoDB-Cache-Collections und -Indizes.
+@fileoverview MongoDB Cache Setup - Setup script for MongoDB cache collections and indexes
+
+@description
+Setup script for MongoDB cache collections and indexes. This module provides functions
+to initialize and configure MongoDB cache collections for all processors that support
+caching. Creates necessary indexes for performance optimization.
+
+Main functionality:
+- Creates cache collections for all processors
+- Sets up TTL indexes for automatic cache expiration
+- Creates performance indexes (cache_key, created_at)
+- Configurable index creation (can be disabled)
+- Supports force recreation of indexes
+
+Features:
+- Automatic collection creation
+- TTL-based cache expiration
+- Performance-optimized indexes
+- Configurable via config.yaml
+- Error handling and logging
+
+@module core.mongodb.cache_setup
+
+@exports
+- setup_cache_collections(): Dict[str, List[str]] - Sets up all cache collections
+- setup_mongodb_caching(): None - Main setup function for MongoDB caching
+
+@usedIn
+- src.dashboard.app: Calls setup_mongodb_caching on app initialization
+- Cache initialization: Used during application startup
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.config - Config for cache configuration
+- Internal: src.core.mongodb.connection - get_mongodb_database
+- Internal: src.utils.logger - Logging system
 """
 from typing import Dict, List, Optional, Any
 from pymongo import IndexModel, ASCENDING

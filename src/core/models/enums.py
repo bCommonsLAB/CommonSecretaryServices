@@ -1,5 +1,39 @@
 """
-Enums und Type-Aliases für die Common Secretary Services.
+@fileoverview Enums and Type Aliases - Central enum definitions and type aliases
+
+@description
+Enums and type aliases for Common Secretary Services. This file defines all central
+enum classes and type aliases used throughout the application.
+
+Defined enums:
+- ProcessorType: Available processor types (PDF, VIDEO, AUDIO, etc.)
+- ProcessingStatus: Status of a processing (SUCCESS, ERROR, PENDING, etc.)
+- OutputFormat: Available output formats (TEXT, HTML, MARKDOWN, JSON, etc.)
+- EventFormat: Format of an event (ONLINE, HYBRID, PHYSICAL)
+- PublicationStatus: Status of a publication (DRAFT, PUBLISHED, ARCHIVED)
+
+Type aliases:
+- LanguageCode: ISO 639-1 language codes as Literal type
+
+@module core.models.enums
+
+@exports
+- ProcessorType: Enum - Processor types
+- ProcessingStatus: Enum - Processing status
+- OutputFormat: Enum - Output formats
+- EventFormat: Enum - Event formats
+- PublicationStatus: Enum - Publication status
+- LanguageCode: TypeAlias - Language codes
+
+@usedIn
+- src.core.models.base: Uses ProcessingStatus
+- src.processors.*: All processors use ProcessorType and ProcessingStatus
+- src.api.routes.*: API routes use enums for validation
+- All model definitions: Use enums for typing
+
+@dependencies
+- Standard: enum - Enum definitions
+- Standard: typing - Literal type for LanguageCode
 """
 from enum import Enum
 from typing import Literal

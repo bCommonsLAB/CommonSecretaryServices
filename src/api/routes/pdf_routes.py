@@ -1,5 +1,39 @@
 """
-API-Route für die PDF-Verarbeitung.
+@fileoverview PDF API Routes - Flask-RESTX endpoints for PDF processing
+
+@description
+API route for PDF processing. This file defines REST API endpoints for PDF processing
+with Flask-RESTX, including upload, text extraction, OCR, and preview image generation.
+
+Main endpoints:
+- POST /api/pdf/upload: PDF file upload and processing
+- POST /api/pdf/process: PDF processing with various extraction methods
+- POST /api/pdf/job: Asynchronous PDF processing as job
+- GET /api/pdf/health: Health check for PDF service
+
+Features:
+- Multipart form upload for PDF files
+- Various extraction methods (native, OCR, LLM-based)
+- Preview image generation for PDF pages
+- Asynchronous job processing
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.pdf_routes
+
+@exports
+- pdf_ns: Namespace - Flask-RESTX namespace for PDF endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers pdf_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.pdf_processor - PDFProcessor
+- Internal: src.core.mongodb.secretary_repository - SecretaryJobRepository for asynchronous jobs
+- Internal: src.core.models.job_models - JobStatus
+- Internal: src.utils.logger - Logging system
 """
 import os
 import traceback

@@ -1,3 +1,34 @@
+"""
+@fileoverview Resource Tracking - Calculates and tracks resource consumption for performance monitoring
+
+@description
+Resource tracking system for Common Secretary Services. This file provides classes
+and functions to calculate and track resource consumption.
+
+The system tracks various resource types:
+- Storage: Storage consumption (MB)
+- Compute: Computation time (seconds)
+- API Calls: Number of API calls
+- Tokens: LLM token consumption
+
+The ResourceCalculator class also calculates costs based on configured prices per unit.
+
+@module core.resource_tracking
+
+@exports
+- ResourceUsage: Dataclass - Represents a resource usage
+- ResourceCalculator: Class - Calculates and tracks resource consumption
+
+@usedIn
+- src.processors.base_processor: Tracks resource consumption for each processor
+- src.processors.*: All processors use ResourceCalculator
+- Performance monitoring: Uses ResourceCalculator for metrics
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: typing - Type annotations
+- Standard: datetime - Timestamps
+"""
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 from datetime import datetime

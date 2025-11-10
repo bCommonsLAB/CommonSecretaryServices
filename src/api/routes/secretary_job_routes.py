@@ -1,9 +1,39 @@
 """
-Secretary Job API-Routen (neues System)
+@fileoverview Secretary Job API Routes - Flask-RESTX endpoints for generic job management
 
-Minimal: Enqueue einzelner Job, Enqueue Batch, Get Job, Get Batch.
+@description
+Secretary Job API routes (new system). Minimal: Enqueue single job, Enqueue batch,
+Get job, Get batch. This file defines REST API endpoints for generic job management
+with Flask-RESTX, including job enqueue, status query, and batch management.
+
+Main endpoints:
+- POST /api/jobs/enqueue: Enqueue single job
+- POST /api/jobs/enqueue-batch: Enqueue batch of jobs
+- GET /api/jobs/{job_id}: Retrieve job status
+- GET /api/jobs/batch/{batch_id}: Retrieve batch status
+- GET /api/jobs/health: Health check for secretary job service
+
+Features:
+- JSON-based request/response
+- Generic job types (job_type + parameters)
+- Batch job management
+- Job status tracking
+- Swagger UI documentation
+
+@module api.routes.secretary_job_routes
+
+@exports
+- secretary_ns: Namespace - Flask-RESTX namespace for secretary job endpoints
+- DateTimeEncoder: Class - JSON encoder for datetime objects
+- get_repo(): SecretaryJobRepository - Factory function for repository
+
+@usedIn
+- src.api.routes.__init__: Registers secretary_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- Internal: src.core.mongodb - SecretaryJobRepository
 """
-
 from typing import Any, Dict, List, Optional, Union, Tuple, cast
 
 from flask import request, Response

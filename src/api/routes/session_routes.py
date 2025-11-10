@@ -1,6 +1,38 @@
 """
-Session-Prozessor API-Routen.
-Enthält alle Endpoints zur Verarbeitung von Session-Informationen und zugehörigen Medien.
+@fileoverview Session API Routes - Flask-RESTX endpoints for session processing
+
+@description
+Session Processor API routes. Contains all endpoints for processing session information
+and associated media. This file defines REST API endpoints for session processing with
+Flask-RESTX, including web scraping, media download, and Markdown generation.
+
+Main endpoints:
+- POST /api/session/process: Session processing with URL
+- POST /api/session/batch: Batch processing of multiple sessions
+- GET /api/session/cached: Retrieve cached sessions
+- GET /api/session/health: Health check for session service
+
+Features:
+- JSON-based request/response
+- Web scraping of session pages
+- Parallel media processing (videos, PDFs)
+- Batch processing of multiple sessions
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.session_routes
+
+@exports
+- session_ns: Namespace - Flask-RESTX namespace for session endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers session_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- Internal: src.processors.session_processor - SessionProcessor
+- Internal: src.core.models.session - SessionResponse
+- Internal: src.utils.performance_tracker - Performance tracking
 """
 from flask import request
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields  # type: ignore

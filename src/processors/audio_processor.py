@@ -1,24 +1,49 @@
-"""Audio Processor für die Verarbeitung von Audio-Dateien.
+"""
+@fileoverview Audio Processor - Processing of audio files with transcription and transformation
 
-LLM-Tracking Logik:
------------------
-Der AudioProcessor trackt die LLM-Nutzung über die ProcessInfo:
+@description
+Audio Processor for processing audio files. This processor processes audio files
+(MP3, WAV, M4A) and performs the following operations:
+- Audio segmentation into manageable chunks
+- Transcription with OpenAI Whisper API
+- Optional: Template-based transformation via TransformerProcessor
+- Optional: Translation into various languages
+- Metadata extraction (duration, format, etc.)
 
-1. Aggregierte Informationen in ProcessInfo:
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
+LLM tracking logic:
+The AudioProcessor tracks LLM usage via ProcessInfo:
+1. Aggregated information in ProcessInfo (total tokens, duration, costs)
+2. Hierarchical tracking via sub-processors:
+   - Whisper API (transcription): whisper-1 model, one request per segment
+   - TransformerProcessor (template/translation): Own ProcessInfo, integrated
 
-2. Hierarchisches Tracking über Sub-Prozessoren:
-   a) Whisper API (Transkription):
-      - Model: whisper-1
-      - Purpose: transcription
-      - Pro Audio-Segment ein Request
+Features:
+- Automatic segmentation of large audio files
+- Caching of transcription results
+- Support for various audio formats
+- Chapter detection and structuring
+- Integration with TransformerProcessor for text transformation
 
-   b) TransformerProcessor (Template/Übersetzung):
-      - Eigene ProcessInfo
-      - Wird in Haupt-ProcessInfo integriert
+@module processors.audio_processor
+
+@exports
+- AudioProcessor: Class - Audio processing processor
+- AudioSegmentProtocol: Protocol - Protocol for audio segments
+- WhisperTranscriberProtocol: Protocol - Protocol for Whisper transcriber
+
+@usedIn
+- src.processors.video_processor: Uses AudioProcessor for audio extraction from videos
+- src.api.routes.audio_routes: API endpoint for audio processing
+- src.processors.session_processor: Uses AudioProcessor for session processing
+
+@dependencies
+- External: pydub - Audio manipulation and segmentation
+- External: openai - Whisper API for transcription
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.utils.transcription_utils - WhisperTranscriber
+- Internal: src.core.models.audio - Audio models (AudioResponse, AudioProcessingResult, etc.)
+- Internal: src.core.config - Configuration
 """
 import os
 import shutil

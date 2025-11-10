@@ -1,5 +1,38 @@
 """
-API-Route für die OCR-Verarbeitung von Bildern.
+@fileoverview ImageOCR API Routes - Flask-RESTX endpoints for image OCR processing
+
+@description
+API route for OCR processing of images. This file defines REST API endpoints for image
+OCR processing with Flask-RESTX, including upload, OCR extraction, and template transformation.
+
+Main endpoints:
+- POST /api/imageocr/upload: Image upload and OCR processing
+- POST /api/imageocr/url: OCR processing of image URLs
+- GET /api/imageocr/health: Health check for ImageOCR service
+
+Features:
+- Multipart form upload for image files
+- URL-based image processing
+- Various OCR methods (Tesseract, LLM-based)
+- Template-based transformation
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.imageocr_routes
+
+@exports
+- imageocr_ns: Namespace - Flask-RESTX namespace for ImageOCR endpoints
+- imageocr_upload_parser: RequestParser - Parser for upload parameters
+- imageocr_url_parser: RequestParser - Parser for URL parameters
+
+@usedIn
+- src.api.routes.__init__: Registers imageocr_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.imageocr_processor - ImageOCRProcessor
+- Internal: src.utils.performance_tracker - Performance tracking
 """
 # pyright: reportUnknownMemberType=warning, reportUnknownParameterType=warning, reportUnknownVariableType=warning
 import os

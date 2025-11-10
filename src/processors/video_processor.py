@@ -1,33 +1,50 @@
 """
-Video Processor für die Verarbeitung von Video-Dateien.
+@fileoverview Video Processor - Processing of video files with audio extraction and transcription
 
-LLM-Tracking Logik:
------------------
-Der VideoProcessor trackt die LLM-Nutzung auf zwei Ebenen:
+@description
+Video Processor for processing video files. This processor processes video files
+(MP4, MOV, WebM) and performs the following operations:
+- Audio extraction from videos with FFmpeg
+- Frame extraction at specific timestamps
+- Transcription of extracted audio with Whisper API
+- Optional: Template-based transformation via TransformerProcessor
+- Metadata extraction (duration, resolution, codec, etc.)
 
-1. Aggregierte Informationen (LLMInfo):
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
+LLM tracking logic:
+The VideoProcessor tracks LLM usage on two levels:
+1. Aggregated information (LLMInfo): Total tokens, duration, costs
+2. Individual requests (LLMRequest):
+   - Transcription: whisper-1 model, one request per audio segment
+   - Template transformation: gpt-4 model (via TransformerProcessor)
+   - Translation: gpt-4 model (via TransformerProcessor)
 
-2. Einzelne Requests (LLMRequest):
-   a) Transkription (Whisper API):
-      - Model: whisper-1
-      - Purpose: transcription
-      - Pro Audio-Segment ein Request
+Features:
+- Audio extraction with FFmpeg
+- Frame extraction at specific timestamps
+- Integration with AudioProcessor for transcription
+- Support for various video formats
+- Caching of processing results
+- Metadata extraction from video files
 
-   b) Template-Transformation (wenn Template verwendet):
-      - Model: gpt-4
-      - Purpose: template_transform
-      - Requests vom TransformerProcessor
+@module processors.video_processor
 
-   c) Übersetzung (wenn Zielsprache != Quellsprache):
-      - Model: gpt-4
-      - Purpose: translation
-      - Requests vom TransformerProcessor
+@exports
+- VideoProcessor: Class - Video processing processor
+
+@usedIn
+- src.processors.session_processor: Uses VideoProcessor for video processing in sessions
+- src.api.routes.video_routes: API endpoint for video processing
+
+@dependencies
+- External: yt-dlp - Video download (for YouTube videos)
+- External: ffmpeg - Audio/video processing (system binary)
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.audio_processor - AudioProcessor for audio processing
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.utils.transcription_utils - WhisperTranscriber
+- Internal: src.core.models.video - Video models (VideoResponse, VideoProcessingResult, etc.)
+- Internal: src.core.config - Configuration
 """
-
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, Tuple, List
 from datetime import datetime

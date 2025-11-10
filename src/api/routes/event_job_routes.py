@@ -1,6 +1,38 @@
 """
-Session-Job API-Routen.
-Enthält alle Endpoints zur Verwaltung von Session-Jobs in der MongoDB.
+@fileoverview Event Job API Routes - Flask-RESTX endpoints for session job management
+
+@description
+Session Job API routes. Contains all endpoints for managing session jobs in MongoDB.
+This file defines REST API endpoints for managing session jobs with Flask-RESTX,
+including job creation, status query, and result retrieval.
+
+Main endpoints:
+- POST /api/event-job/create: Create session job
+- GET /api/event-job/{job_id}: Retrieve job status
+- GET /api/event-job/{job_id}/result: Retrieve job result
+- GET /api/event-job/health: Health check for event job service
+
+Features:
+- JSON-based request/response
+- Job status tracking
+- Result download (Markdown, ZIP)
+- Batch job management
+- Swagger UI documentation
+
+@module api.routes.event_job_routes
+
+@exports
+- event_job_ns: Namespace - Flask-RESTX namespace for event job endpoints
+- DateTimeEncoder: Class - JSON encoder for datetime objects
+
+@usedIn
+- src.api.routes.__init__: Registers event_job_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: pymongo - MongoDB access
+- Internal: src.core.mongodb.repository - SessionJobRepository
+- Internal: src.core.models.job_models - Batch, Job
 """
 from flask import request, send_file, Response
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields  # type: ignore

@@ -1,5 +1,45 @@
 """
-Konfigurationsmanagement für die Anwendung.
+@fileoverview Central Configuration Management - Loads and manages application configuration
+
+@description
+Central configuration management for Common Secretary Services. This file provides the
+Config class that loads and manages the entire application configuration from config.yaml
+as a singleton.
+
+Configuration is defined as TypedDict structures to ensure type safety. Sensitive data
+like API keys are NOT managed here, but loaded via ConfigKeys from environment variables.
+
+Features:
+- Singleton pattern for global configuration instance
+- TypedDict definitions for all configuration areas
+- Automatic loading of config.yaml
+- Replacement of environment variables in configuration values (${VAR})
+- Default configuration as fallback
+
+@module core.config
+
+@exports
+- Config: Class - Singleton configuration management
+- ApplicationConfig: TypedDict - Type definition for overall configuration
+- ServerConfig: TypedDict - Server configuration
+- ProcessorsConfig: TypedDict - Processor configurations
+- RateLimitingConfig: TypedDict - Rate limiting configuration
+- LoggingConfig: TypedDict - Logging configuration
+- CacheConfig: TypedDict - Cache configuration
+
+@usedIn
+- src.processors.base_processor: Loads processor configurations
+- src.processors.cacheable_processor: Loads cache configurations
+- src.dashboard.routes.main_routes: Loads application configuration for dashboard
+- src.core.mongodb.connection: Loads MongoDB configuration
+- src.core.mongodb.cache_setup: Loads cache setup configuration
+- All processors: Load specific processor configurations
+- All utilities: Load configuration for their functionality
+
+@dependencies
+- External: yaml - YAML file parsing
+- External: dotenv - Loading environment variables
+- Internal: src.core.config_utils - replace_env_vars, load_dotenv
 """
 from typing import Dict, Any, Optional, TypedDict, cast, Union
 from pathlib import Path

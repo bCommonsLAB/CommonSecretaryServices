@@ -1,5 +1,48 @@
 """
-Transformer-spezifische Typen und Modelle.
+@fileoverview Transformer Models - Dataclasses for text transformation and templates
+
+@description
+Transformer-specific types and models. This file defines all dataclasses for text
+transformation, including translation, template processing, summarization, and
+format conversion.
+
+Main classes:
+- TemplateField: Definition of a template field
+- TemplateFields: Collection of template fields
+- TransformerInput: Input data for transformation
+- TransformerData: Output data of transformation
+- TranslationResult: Result of a translation
+- TransformationResult: Result of a template transformation
+- TransformerResponse: API response for transformer processing
+
+Features:
+- Template-based transformation with field definitions
+- Support for various output formats (Markdown, HTML, JSON, etc.)
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Protocol-based typing for cacheable results
+
+@module core.models.transformer
+
+@exports
+- CacheableResult: Protocol - Protocol for cacheable results
+- TemplateField: Dataclass - Template field definition
+- TemplateFields: Dataclass - Template fields collection
+- TransformerInput: Dataclass - Transformer input data
+- TransformerData: Dataclass - Transformer output data
+- TranslationResult: Dataclass - Translation result
+- TransformationResult: Dataclass - Transformation result
+- TransformerResponse: Dataclass - API response for transformer processing
+
+@usedIn
+- src.processors.transformer_processor: Uses all transformer models
+- src.processors.audio_processor: Uses TransformerResponse for audio transformation
+- src.processors.pdf_processor: Uses TransformerResponse for PDF transformation
+- src.api.routes.transformer_routes: Uses TransformerResponse for API responses
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse, ProcessInfo, ErrorInfo
+- Internal: src.core.models.enums - ProcessingStatus, OutputFormat
 """
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Protocol

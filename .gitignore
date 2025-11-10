@@ -5,6 +5,7 @@ venv312/
 logs/
 __pycache__/
 .pytest_cache/
+.mypy_cache/
 cache/
 sessions/
 events/

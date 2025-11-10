@@ -1,6 +1,33 @@
 """
-Allgemeine API-Routen.
-Enthält grundlegende Endpoints wie Home und Beispieldateien.
+@fileoverview Common API Routes - Flask-RESTX endpoints for general operations
+
+@description
+General API routes. Contains basic endpoints like home and example files.
+This file defines REST API endpoints for general operations with Flask-RESTX,
+including Notion integration and health checks.
+
+Main endpoints:
+- GET /api/common/home: Home endpoint
+- POST /api/common/notion: Notion block processing
+- GET /api/common/health: Health check for common service
+
+Features:
+- JSON-based request/response
+- Notion block processing (currently not fully implemented)
+- Health check endpoints
+- Swagger UI documentation
+
+@module api.routes.common_routes
+
+@exports
+- common_ns: Namespace - Flask-RESTX namespace for common endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers common_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- Internal: src.processors.session_processor - SessionProcessor (for Notion processing)
 """
 from flask import Response, send_file, request
 from flask_restx import Namespace, Resource, fields, Model  # type: ignore

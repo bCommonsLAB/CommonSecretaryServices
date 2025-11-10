@@ -1,5 +1,41 @@
 """
-Event-Datenmodelle für die Verarbeitung von Events.
+@fileoverview Event Models - Pydantic models for event processing and track aggregation
+
+@description
+Event data models for event processing. This file defines Pydantic models for event
+processing, including track aggregation and event summarization.
+
+Main classes:
+- EventInput: Input data for event processing (Pydantic BaseModel)
+- EventOutput: Output data of event processing
+- EventData: Container for input/output data with tracks
+- EventResponse: API response for event processing
+- EventInputDict/OutputDict/DataDict: TypedDict variants for dictionary access
+
+Features:
+- Pydantic-based validation
+- Serialization to dictionary (to_dict, model_dump)
+- Track aggregation (list of TrackData)
+- Integration with BaseResponse for standardized API responses
+- TypedDict variants for flexible dictionary access
+
+@module core.models.event
+
+@exports
+- EventInput: Pydantic BaseModel - Event input data
+- EventOutput: Pydantic BaseModel - Event output data
+- EventData: Pydantic BaseModel - Event data container
+- EventResponse: Pydantic BaseModel - API response for event processing
+- EventInputDict/OutputDict/DataDict: TypedDict - Dictionary variants
+
+@usedIn
+- src.processors.event_processor: Uses all event models
+- src.api.routes.event_routes: Uses EventResponse for API responses
+
+@dependencies
+- External: pydantic - Data validation and model definitions
+- Internal: src.core.models.base - BaseResponse
+- Internal: src.core.models.track - TrackData
 """
 from typing import Any, Dict, List, Optional, TypedDict
 from pydantic import BaseModel, Field

@@ -1,5 +1,32 @@
 """
-Utility-Funktionen für die Konfigurationsverwaltung.
+@fileoverview Configuration Utilities - Helper functions for configuration processing
+
+@description
+Utility functions for configuration management. This file provides functions used
+in processing configuration files.
+
+Main functionality:
+- replace_env_vars: Replaces ${ENV_VAR} placeholders in configuration values with
+  actual environment variable values
+- load_dotenv: Loads environment variables from .env file
+
+The replace_env_vars function supports nested dictionaries and lists and recursively
+replaces all environment variable references.
+
+@module core.config_utils
+
+@exports
+- replace_env_vars(): Union[Dict, List, str, Any] - Replaces environment variables in configuration
+- load_dotenv(): None - Loads .env file
+
+@usedIn
+- src.core.config: Uses replace_env_vars for configuration processing
+- All modules loading configuration: Use replace_env_vars
+
+@dependencies
+- External: dotenv - Loading .env file
+- System: os.environ - Environment variable access
+- Standard: re - Regular expressions for pattern matching
 """
 import os
 import re

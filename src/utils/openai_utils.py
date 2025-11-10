@@ -1,5 +1,38 @@
 """
-OpenAI-spezifische Hilfsfunktionen.
+@fileoverview OpenAI Utilities - Helper functions for OpenAI API integration
+
+@description
+OpenAI-specific helper functions. This file provides functions used for interacting
+with the OpenAI API, particularly for structured outputs with Pydantic models.
+
+Main functionality:
+- get_structured_gpt: Performs GPT requests with structured outputs
+- Dynamic Pydantic model creation based on template definitions
+- LLM request tracking for cost analysis
+- Validation of GPT responses against schema
+
+Features:
+- Template-based structured outputs
+- Dynamic Pydantic model creation at runtime
+- Function calling for structured data extraction
+- LLM tracking integration
+
+@module utils.openai_utils
+
+@exports
+- get_structured_gpt(): tuple[BaseModel, Dict, LLMRequest] - Structured GPT request
+
+@usedIn
+- src.processors.transformer_processor: Uses get_structured_gpt for template transformation
+- All processors requiring structured LLM outputs
+
+@dependencies
+- External: openai - OpenAI Python SDK
+- External: pydantic - Data validation and model creation
+- Internal: src.utils.logger - ProcessingLogger
+- Internal: src.core.models.transformer - TemplateFields
+- Internal: src.core.models.llm - LLMRequest for tracking
+- Internal: src.core.config - Configuration
 """
 from typing import Any, Dict, Optional, TypeVar 
 import json

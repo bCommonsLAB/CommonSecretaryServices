@@ -1,6 +1,39 @@
 """
-MongoDB-Repository für Session-Jobs.
-Verwaltet die Speicherung und Abfrage von Session-Jobs in der MongoDB.
+@fileoverview Session Job Repository - MongoDB repository for session job management
+
+@description
+MongoDB repository for session jobs. Manages storage and querying of session jobs in MongoDB.
+This repository provides CRUD operations for session jobs and batches, including status
+tracking, progress monitoring, and result storage.
+
+Main functionality:
+- Create, read, update, delete operations for jobs and batches
+- Job status tracking (PENDING, PROCESSING, COMPLETED, FAILED)
+- Progress monitoring with percentage tracking
+- Result storage and retrieval (Markdown files, ZIP archives)
+- Log entry management
+- Index creation for performance optimization
+
+Features:
+- Typed dataclass models (Job, Batch) for type safety
+- Automatic index creation on initialization
+- Support for batch job processing
+- Result file management (Markdown, ZIP)
+- Error tracking and logging
+
+@module core.mongodb.repository
+
+@exports
+- SessionJobRepository: Class - Repository for session job management
+
+@usedIn
+- src.core.mongodb.worker_manager: Uses SessionJobRepository for job management
+- src.api.routes.event_job_routes: Uses SessionJobRepository for API endpoints
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.models.job_models - Job, Batch, JobStatus models
+- Internal: src.core.mongodb.connection - get_mongodb_database
 """
 
 from pymongo import ASCENDING, DESCENDING

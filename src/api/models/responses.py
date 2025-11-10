@@ -1,5 +1,34 @@
 """
-Response-Modelle für die API.
+@fileoverview API Response Models - Generic response classes for API responses
+
+@description
+Response models for the API. This file defines generic response classes for API responses
+that can be used as an alternative to the core models.
+
+Main classes:
+- BaseModel: Base class for all API models (frozen=True)
+- BaseResponse: Base response for all API responses (frozen=True, slots=True, Generic)
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Factory methods for success/error responses
+- Generic typing for type-safe responses
+
+Note: This file is currently not actively used. The API routes use the models from
+src.core.models.base directly.
+
+@module api.models.responses
+
+@exports
+- BaseModel: Dataclass - Base class for all API models (frozen=True)
+- BaseResponse: Dataclass - Base response for all API responses (frozen=True, slots=True, Generic)
+
+@usedIn
+- Can be used for alternative API response structures (currently not active)
+
+@dependencies
+- Internal: src.core.models.base - ErrorInfo, RequestInfo, ProcessInfo
 """
 from dataclasses import dataclass, asdict
 from typing import Optional, Generic, TypeVar, Dict, Any

@@ -1,5 +1,37 @@
 """
-API-Modul für den Processing Service.
+@fileoverview API Module - Alternative app factory for API-only deployment
+
+@description
+Alternative Flask app factory for the Processing Service. This file provides an
+alternative way to create the Flask application, primarily intended for API-only
+deployments (without dashboard).
+
+The create_app function creates a Flask app with:
+- API routes under /api
+- Dashboard routes (optional)
+- MongoDB connection initialization
+- Configuration for upload limits
+
+Note: The main application uses dashboard.app.py. This file is primarily provided
+for alternative deployment scenarios.
+
+@module api
+
+@exports
+- create_app(): Flask - Creates and configures Flask app
+- run_server(): None - Starts the API server
+- app: Flask - Application instance (created on import)
+
+@usedIn
+- Alternative deployment scenarios (currently not actively used)
+- Can be used for API-only deployments
+
+@dependencies
+- External: flask - Flask web framework
+- External: dotenv - Loading environment variables
+- Internal: src.api.routes - API route blueprint
+- Internal: src.dashboard.routes.* - Dashboard route blueprints
+- Internal: src.core.mongodb.connection - MongoDB connection
 """
 from flask import Flask
 from dotenv import load_dotenv

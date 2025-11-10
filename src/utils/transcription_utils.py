@@ -1,5 +1,42 @@
 """
-Utilities für die Transkription und Transformation von Text.
+@fileoverview Transcription Utilities - Whisper transcription and text transformation
+
+@description
+Utilities for transcription and transformation of text. This file provides the
+WhisperTranscriber class used for transcribing audio files with the OpenAI Whisper API.
+
+Main functionality:
+- WhisperTranscriber: Transcribes audio segments with Whisper API
+- Segment-based transcription for large audio files
+- LLM request tracking for transcription operations
+- Integration with BaseProcessor for hierarchical tracking
+
+Features:
+- Asynchronous transcription of multiple segments
+- Automatic segmentation of large audio files
+- LLM tracking per segment
+- Error handling and retry logic
+- Debug mode for transcription details
+
+@module utils.transcription_utils
+
+@exports
+- WhisperTranscriber: Class - Whisper transcription class
+- AudioSegmentProtocol: Protocol - Protocol for audio segments
+- TemplateFieldDefinition: Dataclass - Template field definition
+
+@usedIn
+- src.processors.audio_processor: Uses WhisperTranscriber for audio transcription
+- src.processors.video_processor: Uses WhisperTranscriber for video audio transcription
+- src.processors.transformer_processor: Uses WhisperTranscriber for template processing
+
+@dependencies
+- External: openai - OpenAI Whisper API
+- External: pydantic - Data validation
+- Internal: src.utils.logger - ProcessingLogger
+- Internal: src.processors.base_processor - BaseProcessor for LLM tracking
+- Internal: src.core.models.audio - Audio models (TranscriptionResult, etc.)
+- Internal: src.core.models.llm - LLMRequest for tracking
 """
 from typing import (
     Dict, 

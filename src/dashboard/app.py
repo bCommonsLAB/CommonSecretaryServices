@@ -1,5 +1,34 @@
 """
-Main Flask application module.
+@fileoverview Main Flask Application - Central app initialization and lifecycle management
+
+@description
+Central Flask application for Common Secretary Services. This file creates and configures
+the Flask app instance and manages the entire application lifecycle:
+- Registers all blueprints (API, Dashboard, Config, Logs, Docs)
+- Initializes MongoDB connection and cache setup
+- Starts worker managers for asynchronous job processing
+- Manages signal handlers for clean shutdown (SIGINT, SIGTERM)
+- Configures request handlers for lazy initialization
+
+The app is initialized on the first request (lazy loading) and manages worker managers
+for session and secretary job processing.
+
+@module dashboard.app
+
+@exports
+- app: Flask - Main Flask application instance
+
+@usedIn
+- src.main.py: Imports app and starts server
+- Docker container: Loaded as main module
+
+@dependencies
+- External: flask - Flask web framework
+- External: dotenv - Loading environment variables
+- Internal: src.api.routes - API route blueprint
+- Internal: src.utils.logger - Logging system
+- Internal: src.core.mongodb - MongoDB connection and worker managers
+- Internal: src.dashboard.routes.* - Dashboard route blueprints
 """
 import os
 import signal

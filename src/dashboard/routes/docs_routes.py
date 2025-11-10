@@ -1,21 +1,46 @@
 """
-Docs routes to serve the MkDocs-generated static site from the unified Flask app.
+@fileoverview Documentation Routes - Dashboard routes for serving MkDocs-generated documentation
 
-Diese Blueprint liefert die Inhalte des bereits gebauten MkDocs-Verzeichnisses
-(`site/`) unter dem Pfad `/docs` aus. Damit kann die Anwendung und die Doku
-aus einem Prozess/Container bereitgestellt werden (einheitliche Deployment-Unit).
+@description
+Documentation routes for serving the MkDocs-generated static site from the unified
+Flask app. This blueprint serves the contents of the built MkDocs directory (`site/`)
+under the `/docs` path, allowing the application and documentation to be served
+from a single process/container (unified deployment unit).
 
-Hinweis:
-- Erwartet, dass das Verzeichnis `site/` im Projektwurzelverzeichnis existiert
-  (wie bei `mkdocs build` üblich). In der lokalen Entwicklung kann die Doku mit
-  `mkdocs serve` laufen; in Produktion sollte die statische Site mit ausgeliefert
-  werden.
+Main functionality:
+- Serve static documentation files from `site/` directory
+- Handle documentation routes and redirects
+- Serve index pages and static assets
+- Fallback handling for missing files
+
+Features:
+- Unified deployment (app + docs in one container)
+- Static file serving from MkDocs build output
+- Automatic index page handling
+- Redirect handling for canonical URLs
+
+Note:
+- Expects `site/` directory to exist in project root (as created by `mkdocs build`)
+- In local development, docs can run with `mkdocs serve`
+- In production, static site should be included in deployment
+
+@module dashboard.routes.docs_routes
+
+@exports
+- docs: Blueprint - Flask blueprint for documentation routes
+
+@usedIn
+- src.dashboard.app: Registers docs blueprint
+
+@dependencies
+- External: flask - Flask web framework
+- Standard: pathlib - Path handling
 """
 
 from pathlib import Path
 from typing import Optional
 
-from flask import Blueprint, abort, send_from_directory, redirect
+from flask import Blueprint, abort, send_from_directory, redirect, render_template_string
 
 
 # Blueprint anlegen
@@ -41,13 +66,58 @@ def docs_slash_redirect():
 @docs.route("/docs/")
 def docs_index():
     """Liefert die Startseite der Dokumentation (index.html)."""
+    # Prüfe, ob das site-Verzeichnis existiert
+    if not SITE_DIR.exists():
+        return render_template_string("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Documentation Not Available</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+                h1 { color: #d32f2f; }
+                code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
+                pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+            </style>
+        </head>
+        <body>
+            <h1>Documentation Not Available</h1>
+            <p>The documentation site has not been built yet.</p>
+            <p>To build the documentation, run:</p>
+            <pre><code>mkdocs build</code></pre>
+            <p>This will create the <code>site/</code> directory with the static documentation files.</p>
+            <p>Alternatively, for local development, you can run:</p>
+            <pre><code>mkdocs serve</code></pre>
+            <p>This will start a local development server at <code>http://127.0.0.1:8000</code></p>
+        </body>
+        </html>
+        """), 503
+    
     if _site_path_exists("index.html"):
         return send_from_directory(str(SITE_DIR), "index.html")
 
     # Fallback: auf die erste Sektion mit index.html weiterleiten
-    for entry in SITE_DIR.iterdir():
-        if entry.is_dir() and (entry / "index.html").exists():
-            return redirect(f"/docs/{entry.name}/", code=302)
+    try:
+        for entry in SITE_DIR.iterdir():
+            if entry.is_dir() and (entry / "index.html").exists():
+                return redirect(f"/docs/{entry.name}/", code=302)
+    except (OSError, PermissionError) as e:
+        return render_template_string("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Documentation Error</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+                h1 { color: #d32f2f; }
+            </style>
+        </head>
+        <body>
+            <h1>Documentation Error</h1>
+            <p>Error accessing documentation directory: {{ error }}</p>
+        </body>
+        </html>
+        """, error=str(e)), 500
 
     abort(404)
 
@@ -59,6 +129,10 @@ def docs_files(filename: str):
     Unterstützt auch Verzeichnis-URLs, indem automatisch auf `index.html`
     innerhalb des Zielverzeichnisses zurückgegriffen wird.
     """
+    # Prüfe, ob das site-Verzeichnis existiert
+    if not SITE_DIR.exists():
+        abort(503)
+    
     # Verzeichnis-URLs auf index.html abbilden
     target_dir = SITE_DIR / filename
     if target_dir.is_dir():

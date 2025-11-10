@@ -1,7 +1,39 @@
 """
-Session-Handler für Secretary Job Worker.
+@fileoverview Session Handler - Asynchronous session processing handler for Secretary Job Worker
 
-Nutzt den bestehenden SessionProcessor, um Sessions zu verarbeiten.
+@description
+Session handler for Secretary Job Worker. This handler processes session jobs
+asynchronously by reading parameters from the job and executing session processing
+via SessionProcessor.
+
+Main functionality:
+- Reads job parameters (event, session, url, speakers, etc.)
+- Executes session processing via SessionProcessor
+- Handles progress updates
+- Stores processing results (markdown, assets, transcripts) in job repository
+- Supports multilingual processing (source/target language)
+
+Features:
+- Asynchronous job processing
+- Progress tracking with percentage updates
+- Session metadata extraction
+- Media processing (videos, PDFs, attachments)
+- Archive creation support
+- Multilingual content processing
+
+@module core.processing.handlers.session_handler
+
+@exports
+- handle_session_job(): Awaitable[None] - Async handler function for session jobs
+
+@usedIn
+- src.core.processing.registry: Registered as handler for "session" job_type
+- src.core.mongodb.secretary_worker_manager: Executed by SecretaryWorkerManager
+
+@dependencies
+- Internal: src.processors.session_processor - SessionProcessor for session processing
+- Internal: src.core.models.job_models - Job, JobProgress, JobResults models
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 
 from typing import Any, List

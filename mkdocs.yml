@@ -64,6 +64,8 @@ nav:
       - Überblick: explanations/async-events/overview.md
       - Generischer Worker: explanations/async-events/generic-worker.md
       - Secretary Job Worker – Konzept: explanations/async-events/secretary-job-worker-concept.md
+      - Secretary Job Worker – Detailed: explanations/async-events/secretary-job-worker-detailed.md
+      - Handlers: explanations/async-events/handlers.md
       - n8n: explanations/async-events/how-to-n8n.md
     - Caching: explanations/caching/overview.md
     - Templates: explanations/templates/overview.md
@@ -85,8 +87,35 @@ nav:
     - Story: processors/story/overview.md
     - Track: processors/track/overview.md
   - Reference:
-    - API Überblick: reference/api/overview.md
-    - OpenAPI / Swagger: reference/api/openapi.md
+    - Overview: reference/index.md
+    - Code Reference:
+      - Code Index: reference/code-index.md
+      - Module Hierarchy: architecture/module-hierarchy.md
+    - API Reference:
+      - Overview: reference/api/overview.md
+      - Endpoints:
+        - Audio: reference/api/endpoints/audio.md
+        - Video: reference/api/endpoints/video.md
+        - PDF: reference/api/endpoints/pdf.md
+        - ImageOCR: reference/api/endpoints/imageocr.md
+        - Transformer: reference/api/endpoints/transformer.md
+        - Session: reference/api/endpoints/session.md
+        - Event: reference/api/endpoints/event.md
+        - Track: reference/api/endpoints/track.md
+        - Story: reference/api/endpoints/story.md
+        - Jobs: reference/api/endpoints/jobs.md
+        - Event Job: reference/api/endpoints/event-job.md
+        - Common: reference/api/endpoints/common.md
+      - OpenAPI / Swagger: reference/api/openapi.md
+    - Data Models:
+      - Overview: reference/data-models/index.md
+      - Base Models: reference/data-models/base.md
+      - LLM Models: reference/data-models/llm.md
+      - Job Models: reference/data-models/job.md
+    - Configuration: reference/configuration.md
+    - Environment Variables: reference/environment-variables.md
+  - Architecture:
+    - Module Hierarchy: architecture/module-hierarchy.md
   - Ops:
     - Deployment: ops/deployment.md
     - Sicherheit: ops/security.md

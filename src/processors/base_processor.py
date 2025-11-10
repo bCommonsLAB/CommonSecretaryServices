@@ -1,5 +1,47 @@
 """
+@fileoverview Base Processor - Common base class for all processors
+
+@description
 Base processor module that defines the common interface and functionality for all processors.
+This class provides the foundation for all processors in the system and defines common
+functionality such as:
+- Process ID management and hierarchical tracking
+- Logger initialization
+- Resource tracking
+- Configuration management
+- Validation methods
+- Template processing
+- MongoDB database access
+
+All specific processors inherit from BaseProcessor and extend its functionality.
+
+Features:
+- Generic typing with TypeVar for processor-specific types
+- ProcessInfo management with LLM tracking
+- Hierarchical tracking of sub-processors
+- Validation methods for text, language, format
+- Template loading and processing
+- Configuration management per processor
+
+@module processors.base_processor
+
+@exports
+- BaseProcessor: Generic class - Base class for all processors
+
+@usedIn
+- src.processors.cacheable_processor: Inherits from BaseProcessor
+- src.processors.*: All specific processors inherit from BaseProcessor or CacheableProcessor
+- src.core.models.base: Uses BaseProcessor for ProcessInfo access
+
+@dependencies
+- External: pymongo - MongoDB database access
+- External: yaml - Template processing
+- Internal: src.core.exceptions - ValidationError
+- Internal: src.core.models.base - ErrorInfo, ProcessInfo, RequestInfo, BaseResponse
+- Internal: src.core.models.enums - ProcessingStatus
+- Internal: src.core.config - Config
+- Internal: src.utils.logger - ProcessingLogger
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 import uuid
 from contextlib import nullcontext

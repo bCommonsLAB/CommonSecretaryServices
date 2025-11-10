@@ -1,7 +1,41 @@
 """
-Modelle für die Youtube-Verarbeitung.
+@fileoverview YouTube Models - Dataclasses for YouTube video processing
 
-Implementiert die standardisierte Response-Struktur und LLM-Tracking.
+@description
+Models for YouTube processing. Implements standardized response structure and LLM tracking.
+This file defines all dataclasses for YouTube processing, including metadata extraction,
+video download, and transcription.
+
+Main classes:
+- YoutubeMetadataProtocol: Protocol for YouTube metadata
+- YoutubeMetadata: Metadata of a YouTube video (frozen=True)
+- YoutubeProcessingResult: Cacheable processing result
+- YoutubeResponse: API response for YouTube processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Deserialization from dictionary (from_dict)
+- Integration with audio models for transcription
+- Protocol-based typing for dynamic attributes
+- Support for chapters, tags, categories
+
+@module core.models.youtube
+
+@exports
+- YoutubeMetadataProtocol: Protocol - Protocol for YouTube metadata
+- YoutubeMetadata: Dataclass - YouTube metadata (frozen=True)
+- YoutubeProcessingResult: Class - Cacheable processing result
+- YoutubeResponse: Dataclass - API response for YouTube processing
+
+@usedIn
+- src.processors.youtube_processor: Uses all YouTube models
+- src.api.routes.video_routes: Uses YoutubeResponse for API responses
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse, ProcessInfo, ErrorInfo
+- Internal: src.core.models.audio - TranscriptionResult, TranscriptionSegment
+- Internal: src.processors.cacheable_processor - CacheableResult Protocol
 """
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Protocol

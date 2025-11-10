@@ -1,8 +1,39 @@
 """
-Typdefinitionen für OpenAI API-Aufrufe.
+@fileoverview OpenAI Types - Type definitions for OpenAI API interactions
 
-Diese Datei enthält alle Typdefinitionen für die Interaktion mit der OpenAI API,
-insbesondere für Whisper (Audio) und GPT (Chat) Aufrufe.
+@description
+Type definitions for OpenAI API calls. This file contains all type definitions
+for interacting with the OpenAI API, particularly for Whisper (audio) and GPT (chat) calls.
+
+Main functionality:
+- Type definitions for OpenAI API responses
+- Pydantic models for structured responses
+- Protocol definitions for type checking
+- TypedDict definitions for API structures
+
+Features:
+- Type-safe OpenAI API interactions
+- Pydantic models for Whisper responses
+- Protocol definitions for type checking
+- TypedDict for API response structures
+- Support for Whisper and GPT API types
+
+@module utils.openai_types
+
+@exports
+- WhisperSegment: Pydantic BaseModel - Whisper transcription segment
+- WhisperResponse: Pydantic BaseModel - Whisper API response
+- OpenAIDict: TypedDict - Base type for OpenAI API responses
+- Various Protocol definitions
+
+@usedIn
+- src.utils.transcription_utils: Uses WhisperResponse for type safety
+- OpenAI API integrations: Use type definitions for API calls
+
+@dependencies
+- External: pydantic - Data validation and model creation
+- External: openai - OpenAI API types
+- Standard: typing - Type annotations and protocols
 """
 
 from typing import Dict, List, Optional, Any, Literal, TypeVar, Protocol, TypedDict, Type

@@ -1,9 +1,42 @@
-# type: ignore
 """
-Audio-Prozessor API-Routen.
-Enthält alle Endpoints zur Verarbeitung von Audio-Dateien.
-"""
+@fileoverview Audio API Routes - Flask-RESTX endpoints for audio processing
 
+@description
+Audio Processor API routes. Contains all endpoints for processing audio files.
+This file defines REST API endpoints for audio processing with Flask-RESTX,
+including upload, transcription, transformation, and caching.
+
+Main endpoints:
+- POST /api/audio/upload: Audio file upload and processing
+- POST /api/audio/process: Audio processing with various options
+- GET /api/audio/health: Health check for audio service
+
+Features:
+- Multipart form upload for audio files
+- Support for various audio formats (MP3, WAV, M4A)
+- Transcription with OpenAI Whisper
+- Template-based transformation
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.audio_routes
+
+@exports
+- audio_ns: Namespace - Flask-RESTX namespace for audio endpoints
+- upload_parser: RequestParser - Parser for upload parameters
+
+@usedIn
+- src.api.routes.__init__: Registers audio_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.audio_processor - AudioProcessor
+- Internal: src.core.models.audio - AudioResponse
+- Internal: src.core.exceptions - ProcessingError
+- Internal: src.utils.logger - Logging system
+"""
+# type: ignore
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields, inputs
 from typing import Dict, Any, Union, Optional, IO, cast, Tuple
 import asyncio

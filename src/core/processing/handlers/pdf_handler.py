@@ -1,7 +1,41 @@
 """
-PDF-Handler für Secretary Job Worker.
+@fileoverview PDF Handler - Asynchronous PDF processing handler for Secretary Job Worker
 
-Liest Parameter aus dem Job, führt PDF-Verarbeitung aus und speichert Results.
+@description
+PDF handler for Secretary Job Worker. This handler processes PDF jobs asynchronously
+by reading parameters from the job, executing PDF processing via PDFProcessor, and
+storing results in the job repository.
+
+Main functionality:
+- Reads job parameters (file_path, extraction_method, template, etc.)
+- Executes PDF processing via PDFProcessor
+- Handles progress updates and webhook notifications
+- Stores processing results (text, images, metadata) in job repository
+- Creates ZIP archives for image collections
+- Supports both local files and URLs
+
+Features:
+- Asynchronous job processing
+- Progress tracking with percentage updates
+- Webhook support for progress notifications
+- Error handling and logging
+- Image archive creation (ZIP)
+- Base64 image data handling
+
+@module core.processing.handlers.pdf_handler
+
+@exports
+- handle_pdf_job(): Awaitable[None] - Async handler function for PDF jobs
+
+@usedIn
+- src.core.processing.registry: Registered as handler for "pdf" job_type
+- src.core.mongodb.secretary_worker_manager: Executed by SecretaryWorkerManager
+
+@dependencies
+- External: requests - HTTP requests for webhook notifications
+- Internal: src.processors.pdf_processor - PDFProcessor for PDF processing
+- Internal: src.core.models.job_models - Job, JobProgress, JobResults models
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 
 from typing import Any, Dict, Optional, cast

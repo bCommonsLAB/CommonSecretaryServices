@@ -1,7 +1,39 @@
 """
-Modelle für Language Model (LLM) Interaktionen.
-"""
+@fileoverview LLM Models - Dataclasses for Language Model interactions and tracking
 
+@description
+Models for Language Model (LLM) interactions. This file defines dataclasses for tracking
+and managing LLM API calls.
+
+Main classes:
+- LLModel: Basic information about LLM usage (model, duration, tokens)
+- LLMRequest: Detailed information about a single LLM request
+- LLMInfo: Central tracking class that collects all LLM requests
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Request aggregation (merge, add_request)
+- Calculation of total tokens, duration, request count
+
+@module core.models.llm
+
+@exports
+- LLModel: Dataclass - Basic LLM information
+- LLMRequest: Dataclass - Detailed request information
+- LLMInfo: Dataclass - Central tracking class for LLM usage
+
+@usedIn
+- src.core.models.base: ProcessInfo uses LLMInfo for LLM tracking
+- src.processors.*: All processors use LLMRequest/LLMInfo for tracking
+- src.utils.transcription_utils: Creates LLMRequest for Whisper transcription
+- All modules using LLM APIs: Track usage via LLMInfo
+
+@dependencies
+- Standard: dataclasses - Dataclass definitions
+- Standard: datetime - Timestamps
+- Internal: src.core.validation - Validation functions
+"""
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any, Union

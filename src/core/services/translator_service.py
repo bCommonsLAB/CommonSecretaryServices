@@ -1,6 +1,37 @@
 """
-Übersetzer-Service für die Übersetzung von Texten.
-Stellt Funktionen zum Übersetzen von Texten bereit und speichert Übersetzungen im Repository.
+@fileoverview Translator Service - Service for text translation with caching
+
+@description
+Translator service for text translation. This service provides a centralized interface
+for translating texts using the TransformerProcessor and stores translations in the
+TranslationRepository for caching and reuse.
+
+Main functionality:
+- Translate texts between languages
+- Cache translations in MongoDB
+- Retrieve cached translations
+- Integration with TransformerProcessor for LLM-based translation
+
+Features:
+- Translation caching for performance
+- Multi-language support
+- Entity-based translation management
+- Automatic cache lookup
+- LLM-based translation fallback
+
+@module core.services.translator_service
+
+@exports
+- TranslatorService: Class - Service for text translation
+
+@usedIn
+- Can be used for translation management in processors
+- Multilingual content processing
+
+@dependencies
+- Internal: src.processors.transformer_processor - TransformerProcessor for translation
+- Internal: src.core.mongodb.translation_repository - TranslationRepository for caching
+- Internal: src.core.models.transformer - TransformerResponse, OutputFormat
 """
 
 import logging

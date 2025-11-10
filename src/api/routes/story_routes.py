@@ -1,6 +1,37 @@
 """
-Story-Routen für die API.
-Diese Datei definiert die Endpunkte für die Story-Generierung aus Topics in der Datenbank.
+@fileoverview Story API Routes - Flask-RESTX endpoints for story generation
+
+@description
+Story routes for the API. This file defines endpoints for story generation from topics
+in the database. This file defines REST API endpoints for story generation with Flask-RESTX,
+including topic-based aggregation and target group-specific templates.
+
+Main endpoints:
+- POST /api/story/generate: Story generation from topics
+- GET /api/story/health: Health check for story service
+
+Features:
+- JSON-based request/response
+- Topic-based session aggregation from MongoDB
+- Target group-specific template application
+- Multilingual story generation
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.story_routes
+
+@exports
+- story_ns: Namespace - Flask-RESTX namespace for story endpoints
+- CustomJSONEncoder: Class - JSON encoder for complex objects
+
+@usedIn
+- src.api.routes.__init__: Registers story_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: bson - ObjectId for MongoDB
+- Internal: src.processors.story_processor - StoryProcessor
+- Internal: src.core.models.story - StoryProcessorInput, StoryResponse
 """
 from flask import request
 from flask_restx import Namespace, Resource, fields  # type: ignore

@@ -1,9 +1,43 @@
 """
-Secretary Job Worker Manager
+@fileoverview Secretary Worker Manager - Generic background worker for secretary job processing
 
-Generischer Hintergrund-Worker, der `jobs` pollt und je nach `job_type` über die
-Registry Handler ausführt. Parallele Verarbeitung via Threads, Async-Workload in
-jeweiligen Handlern.
+@description
+Secretary Job Worker Manager. Generic background worker that polls `jobs` collection
+and executes handlers via registry based on `job_type`. Parallel processing via threads,
+async workload in respective handlers.
+
+Main functionality:
+- Polls MongoDB for pending jobs
+- Routes jobs to appropriate handlers via processor registry
+- Manages concurrent job processing with thread pool
+- Tracks job progress and status
+- Handles job errors and logging
+- Supports webhook notifications
+
+Features:
+- Generic job type support (not limited to specific processors)
+- Thread-based parallel processing
+- Configurable concurrency limits
+- Automatic retry logic
+- Progress tracking integration
+- Webhook support for job completion notifications
+
+@module core.mongodb.secretary_worker_manager
+
+@exports
+- SecretaryWorkerManager: Class - Generic worker manager for secretary jobs
+
+@usedIn
+- src.dashboard.app: Starts SecretaryWorkerManager on app initialization
+- src.core.mongodb: Exported via __init__.py
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.models.job_models - Job, JobStatus, JobProgress models
+- Internal: src.core.processing.registry - Processor registry for job routing
+- Internal: src.core.mongodb.secretary_repository - SecretaryJobRepository
+- Internal: src.core.resource_tracking - ResourceCalculator
+- Internal: src.utils.logger - Logging system
 """
 
 import asyncio

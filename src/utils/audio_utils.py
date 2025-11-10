@@ -1,7 +1,33 @@
 """
-Utility-Klasse für Audio-Verarbeitung.
+@fileoverview Audio Utilities - Utility class for audio file segmentation
 
-Diese Klasse bietet Funktionen zum Aufteilen von Audio-Dateien in kleinere Segmente.
+@description
+Utility class for audio processing. This module provides functions for splitting
+audio files into smaller segments for processing.
+
+Main functionality:
+- Split audio files into segments of specified length
+- Convert audio formats (MP3)
+- Handle audio data as bytes
+
+Features:
+- Segment-based audio processing
+- MP3 format support
+- Configurable segment length
+- Bytes-based I/O
+
+@module utils.audio_utils
+
+@exports
+- AudioProcessor: Class - Utility class for audio segmentation
+
+@usedIn
+- Can be used for audio preprocessing in processors
+- Audio segmentation utilities
+
+@dependencies
+- External: pydub - Audio manipulation library
+- Standard: io - BytesIO for in-memory file handling
 """
 
 from typing import List

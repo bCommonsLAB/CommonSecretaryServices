@@ -1,6 +1,43 @@
 """
-Image-zu-Text Utilities mit OpenAI Vision API.
-Konvertiert Bilder zu strukturiertem Markdown-Text.
+@fileoverview Image-to-Text Utilities - OpenAI Vision API integration for image text extraction
+
+@description
+Image-to-text utilities with OpenAI Vision API. This module provides the Image2TextService
+class for converting images to structured Markdown text using OpenAI's Vision API.
+
+Main functionality:
+- Convert images to structured Markdown text
+- Extract text from images using OpenAI Vision API
+- Support for PDF pages (via PyMuPDF)
+- Image preprocessing and optimization
+- LLM request tracking
+
+Features:
+- OpenAI Vision API integration
+- Structured Markdown output
+- PDF page support
+- Image preprocessing (scaling, optimization)
+- LLM tracking integration
+- Error handling and retry logic
+
+@module utils.image2text_utils
+
+@exports
+- Image2TextService: Class - Service for image-to-text conversion with OpenAI Vision API
+
+@usedIn
+- src.processors.pdf_processor: Uses Image2TextService for PDF page OCR
+- src.processors.imageocr_processor: Uses Image2TextService for image OCR
+- LLM-based OCR processing
+
+@dependencies
+- External: openai - OpenAI Vision API client
+- External: Pillow (PIL) - Image processing
+- External: PyMuPDF (fitz) - PDF page extraction (optional)
+- Internal: src.core.config - Config for OpenAI configuration
+- Internal: src.core.models.llm - LLMRequest for tracking
+- Internal: src.utils.logger - ProcessingLogger
+- Internal: src.core.exceptions - ProcessingError
 """
 
 import base64

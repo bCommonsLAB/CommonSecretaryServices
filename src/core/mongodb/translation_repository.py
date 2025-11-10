@@ -1,6 +1,39 @@
 """
-MongoDB-Repository für Übersetzungen.
-Verwaltet die Speicherung und Abfrage von Übersetzungen in der MongoDB.
+@fileoverview Translation Repository - MongoDB repository for translation management
+
+@description
+MongoDB repository for translations. Manages storage and querying of translations
+in MongoDB. This repository provides CRUD operations for managing translations of
+various entities (tracks, sessions, etc.) for multilingual support.
+
+Main functionality:
+- Create, read, update, delete operations for translations
+- Entity-based translation management (entity_type + entity_id)
+- Multi-language support per entity
+- Original text and translated text storage
+- Timestamp tracking (created_at, updated_at)
+- Index creation for performance optimization
+
+Features:
+- Typed dataclass models (Translation) for type safety
+- Support for multiple languages per entity
+- Entity type-based organization
+- Automatic index creation on initialization
+- Unique constraint on entity_type + entity_id + original_language
+
+@module core.mongodb.translation_repository
+
+@exports
+- TranslationRepository: Class - Repository for translation management
+
+@usedIn
+- Can be used for translation management in directory structure
+- Multilingual content management
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.models.translation - Translation model
+- Internal: src.core.mongodb.connection - get_mongodb_database
 """
 
 from pymongo import ASCENDING

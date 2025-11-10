@@ -1,11 +1,46 @@
 """
-Logger implementation for the processing service.
+@fileoverview Logging System - Central logging system with structured logs and session tracking
 
-Die Logger-Klasse implementiert ein zentrales Logging-System mit folgenden Hauptfunktionen:
-- Einheitliches Logging-Format über alle Prozesse
-- Session-Tracking über process_id
-- Strukturierte Logs mit zusätzlichen Metadaten
-- Automatische Rotation der Logfiles
+@description
+Logger implementation for the processing service. The Logger class implements a
+central logging system with the following main functions:
+- Unified logging format across all processes
+- Session tracking via process_id
+- Structured logs with additional metadata
+- Automatic log file rotation
+- Observer pattern for log events
+- Thread-safe logger management
+
+The system uses a singleton service (LoggerService) to manage all logger instances
+and provides a ProcessingLogger class that implements the ProcessingLogger protocol.
+
+Features:
+- Process-based logger instances (one logger per process_id)
+- Automatic log rotation based on file size
+- Structured logs with JSON metadata
+- Console and file handlers
+- Observer mechanism for log events
+
+@module utils.logger
+
+@exports
+- ProcessingLogger: Class - Logger implementation for processors
+- LoggerService: Class - Singleton service for logger management
+- get_logger(): ProcessingLogger - Factory function for logger creation
+- logger_service: LoggerService - Global logger service instance
+
+@usedIn
+- src.processors.base_processor: Uses get_logger for logger initialization
+- src.dashboard.app: Uses get_logger for app logging
+- src.api.routes.*: Uses get_logger for API logging
+- All processors: Use ProcessingLogger for logging
+- All modules: Use get_logger for logger creation
+
+@dependencies
+- Standard: logging - Python logging framework
+- Standard: threading - Thread-safe implementation
+- External: yaml - Configuration file parsing
+- Standard: json - Structured log metadata
 """
 import logging
 import json

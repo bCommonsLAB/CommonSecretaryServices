@@ -1,8 +1,42 @@
 """
-Performance tracking utility for API calls and processor operations.
+@fileoverview Performance Tracker - Centralized performance tracking for API calls and processors
 
-This module provides centralized performance tracking functionality to measure and log
-the performance of API calls and their underlying processor operations.
+@description
+Performance tracking utility for API calls and processor operations. This module
+provides centralized performance tracking functionality to measure and log the
+performance of API calls and their underlying processor operations.
+
+Main functionality:
+- Track API call performance (duration, tokens, costs)
+- Monitor processor operation statistics
+- Aggregate performance metrics
+- Store performance data in JSON files
+- Thread-safe performance tracking
+
+Features:
+- LLM metrics tracking (tokens, models, costs)
+- Processor statistics (duration, success/error counts)
+- Client information tracking (IP, user agent)
+- Error tracking and categorization
+- JSON-based persistence
+- Thread-safe implementation
+
+@module utils.performance_tracker
+
+@exports
+- PerformanceTracker: Class - Centralized performance tracking system
+- Various TypedDict classes for type safety (ClientInfo, ResourceInfo, etc.)
+
+@usedIn
+- Can be integrated into API routes for performance monitoring
+- Processor performance tracking
+
+@dependencies
+- Standard: threading - Thread-safe implementation
+- Standard: json - JSON serialization
+- Standard: pathlib - File path handling
+- Standard: datetime - Timestamp handling
+- Internal: src.core.models.llm - LLMInfo for metrics
 """
 
 import time

@@ -1,8 +1,41 @@
 """
-Generische Cache-Klasse für Prozessoren.
+@fileoverview Processor Cache - Generic cache class for processor results
 
-Diese Klasse bietet eine einfache Schnittstelle zum Speichern und Laden von 
-Verarbeitungsergebnissen verschiedener Prozessoren.
+@description
+Generic cache class for processors. This class provides a simple interface for
+storing and loading processing results from various processors.
+
+Main functionality:
+- Store processor results with metadata
+- Load cached results by cache key
+- Cache file management (JSON + associated files)
+- Automatic cache cleanup (TTL-based)
+- Cache key generation from input parameters
+
+Features:
+- Generic type support (TypeVar)
+- File-based caching (JSON + files)
+- TTL-based cache expiration
+- Automatic cleanup of expired entries
+- Configurable cache directories per processor
+- Cache metadata tracking
+
+@module utils.processor_cache
+
+@exports
+- ProcessorCache: Generic class - Generic cache class for processor results
+- CacheableResult: Protocol - Protocol for cacheable result classes
+
+@usedIn
+- Can be used by processors for file-based caching
+- Alternative to MongoDB caching for simple use cases
+
+@dependencies
+- Standard: json - JSON serialization
+- Standard: pathlib - File path handling
+- Standard: hashlib - Cache key generation
+- Standard: datetime - Timestamp handling
+- Internal: src.core.config - Config for cache configuration
 """
 
 import json

@@ -1,3 +1,42 @@
+"""
+@fileoverview Story Processor - Creation of thematic stories from sessions
+
+@description
+Story Processor for creating thematic stories from sessions. This processor creates
+narrative stories from session data based on topics and target groups.
+
+Functionality:
+- Retrieves session data for specified topic from MongoDB
+- Groups and analyzes session content by target groups
+- Generates thematic summaries with TransformerProcessor
+- Applies templates for various target groups
+- Creates multilingual Markdown outputs
+- Stores and manages generated stories
+
+Features:
+- Topic-based session aggregation
+- Target group-specific template application
+- Multilingual story generation
+- Integration with StoryRepository for data access
+- Caching of story processing results
+- Markdown export for stories
+
+@module processors.story_processor
+
+@exports
+- StoryProcessor: Class - Story processing processor
+
+@usedIn
+- src.api.routes.story_routes: API endpoint for story processing
+
+@dependencies
+- External: pymongo - MongoDB access for story data
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.core.mongodb.story_repository - StoryRepository for data access
+- Internal: src.core.models.story - Story models (StoryResponse, StoryProcessorInput, etc.)
+- Internal: src.core.mongodb.connection - MongoDB connection
+"""
 import os
 import json
 from typing import Dict, List, Optional, Any, cast, TypeVar, Type

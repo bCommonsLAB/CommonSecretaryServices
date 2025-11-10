@@ -1,5 +1,42 @@
 """
-Worker-Manager für die asynchrone Verarbeitung von Session-Jobs.
+@fileoverview Session Worker Manager - Background worker for session job processing
+
+@description
+Worker manager for asynchronous processing of session jobs. Manages worker threads
+for each job and monitors their execution. This manager specifically handles session
+processing jobs using the SessionProcessor.
+
+Main functionality:
+- Polls MongoDB for pending session jobs
+- Creates worker threads for each job
+- Manages concurrent job processing
+- Tracks job progress and status
+- Handles job errors and logging
+- Integrates with SessionProcessor for job execution
+
+Features:
+- Thread-based parallel processing
+- Configurable concurrency limits
+- Automatic job status updates
+- Progress tracking integration
+- Error handling and logging
+- Resource tracking support
+
+@module core.mongodb.worker_manager
+
+@exports
+- SessionWorkerManager: Class - Worker manager for session jobs
+
+@usedIn
+- src.dashboard.app: Starts SessionWorkerManager on app initialization (if enabled)
+- src.core.mongodb: Exported via __init__.py
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.processors.session_processor - SessionProcessor for job execution
+- Internal: src.core.models.job_models - Job, JobStatus, JobProgress models
+- Internal: src.core.mongodb.repository - SessionJobRepository
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 
 import asyncio

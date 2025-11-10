@@ -1,8 +1,45 @@
+"""
+@fileoverview Transformer API Routes - Flask-RESTX endpoints for text transformation
+
+@description
+Transformer API routes. Contains endpoints for text and template transformations.
+This file defines REST API endpoints for text transformation with Flask-RESTX,
+including translation, template processing, summarization, and format conversion.
+
+Main endpoints:
+- POST /api/transformer/translate: Text translation
+- POST /api/transformer/transform: Template-based transformation
+- POST /api/transformer/summarize: Text summarization
+- POST /api/transformer/html-to-markdown: HTML to Markdown conversion
+- POST /api/transformer/extract-tables: Table extraction from HTML
+- GET /api/transformer/health: Health check for transformer service
+
+Features:
+- JSON-based request/response
+- Template-based transformation with custom templates
+- Support for various output formats (Markdown, HTML, JSON, etc.)
+- Metadata extraction for files
+- Caching support
+- Swagger UI documentation
+
+@module api.routes.transformer_routes
+
+@exports
+- transformer_ns: Namespace - Flask-RESTX namespace for transformer endpoints
+
+@usedIn
+- src.api.routes.__init__: Registers transformer_ns namespace
+
+@dependencies
+- External: flask_restx - REST API framework with Swagger UI
+- External: werkzeug - FileStorage for file uploads
+- Internal: src.processors.transformer_processor - TransformerProcessor
+- Internal: src.processors.metadata_processor - MetadataProcessor
+- Internal: src.core.models.transformer - TransformerResponse
+- Internal: src.core.models.enums - OutputFormat
+- Internal: src.utils.performance_tracker - Performance tracking
+"""
 # type: ignore
-"""
-Transformer API-Routen.
-Enthält Endpoints für Text- und Template-Transformationen.
-"""
 from datetime import datetime
 import time
 from typing import Dict, Any, Union, Optional, List, cast

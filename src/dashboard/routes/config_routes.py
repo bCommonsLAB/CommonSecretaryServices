@@ -1,6 +1,37 @@
 """
-Configuration routes for the dashboard application.
-Handles configuration management functionality.
+@fileoverview Configuration Routes - Dashboard routes for configuration management
+
+@description
+Configuration routes for the dashboard application. This module provides web routes
+for managing application configuration, including API keys and YAML configuration.
+
+Main functionality:
+- Display configuration page with current settings
+- Manage OpenAI API keys (view, update, validate)
+- Update YAML configuration file
+- System information display
+
+Features:
+- API key validation with OpenAI API
+- Masked API key display for security
+- YAML configuration editing
+- System version information
+- Configuration persistence
+
+@module dashboard.routes.config_routes
+
+@exports
+- config: Blueprint - Flask blueprint for configuration routes
+
+@usedIn
+- src.dashboard.app: Registers config blueprint
+
+@dependencies
+- External: flask - Flask web framework
+- External: openai - OpenAI API client for key validation
+- External: yaml - YAML file parsing
+- Internal: src.core.config_keys - ConfigKeys for API key management
+- Internal: src.utils.logger - Logging system
 """
 from flask import Blueprint, render_template, request, jsonify
 import os

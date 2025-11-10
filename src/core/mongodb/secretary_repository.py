@@ -1,7 +1,42 @@
 """
-MongoDB-Repository für generische Secretary-Jobs.
-Eigene Collections: `jobs`, `batches`.
-API analog zu SessionJobRepository, um Migration zu vereinfachen.
+@fileoverview Secretary Job Repository - MongoDB repository for generic secretary job management
+
+@description
+MongoDB repository for generic secretary jobs. Uses separate collections: `jobs`, `batches`.
+API is analogous to SessionJobRepository to simplify migration. This repository provides
+CRUD operations for generic secretary jobs that can handle any job type via the processor
+registry system.
+
+Main functionality:
+- Create, read, update, delete operations for jobs and batches
+- Generic job type support (job_type + parameters)
+- Job status tracking (PENDING, PROCESSING, COMPLETED, FAILED)
+- Progress monitoring with percentage tracking
+- Result storage and retrieval
+- Log entry management
+- Index creation for performance optimization
+
+Features:
+- Typed dataclass models (Job, Batch) for type safety
+- Generic job processing (not limited to sessions)
+- Automatic index creation on initialization
+- Support for batch job processing
+- Error tracking and logging
+- Access control support (visibility, access lists)
+
+@module core.mongodb.secretary_repository
+
+@exports
+- SecretaryJobRepository: Class - Repository for generic secretary job management
+
+@usedIn
+- src.core.mongodb.secretary_worker_manager: Uses SecretaryJobRepository for job management
+- src.api.routes.secretary_job_routes: Uses SecretaryJobRepository for API endpoints
+
+@dependencies
+- External: pymongo - MongoDB driver for Python
+- Internal: src.core.models.job_models - Job, Batch, JobStatus models
+- Internal: src.core.mongodb.connection - get_mongodb_database
 """
 
 from typing import Any, Dict, List, Optional, Union

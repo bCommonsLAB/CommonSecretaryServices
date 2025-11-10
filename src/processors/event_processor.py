@@ -1,5 +1,48 @@
 """
-Event-Prozessor für die Verarbeitung von Events.
+@fileoverview Event Processor - Processing of events with track and session aggregation
+
+@description
+Event Processor for processing events. This processor is a meta-processor that
+processes events by:
+- Aggregating tracks of an event
+- Processing sessions within tracks
+- Creating event-wide summaries
+- Generating template-based documentation
+
+Functionality:
+- Retrieves all tracks of an event from MongoDB
+- Processes each track with TrackProcessor
+- Aggregates track results into event data
+- Generates event summary with TransformerProcessor
+- Stores event documentation
+
+Features:
+- Event track aggregation
+- Hierarchical processing (Event → Tracks → Sessions)
+- Template-based event documentation
+- Caching of event processing results
+- Integration with TrackProcessor and TransformerProcessor
+
+@module processors.event_processor
+
+@exports
+- EventProcessor: Class - Event processing processor
+- EventProcessingResult: Class - Event processing result
+- TrackInputDict: TypedDict - Track input structure
+- TrackOutputDict: TypedDict - Track output structure
+- TrackDict: TypedDict - Track data structure
+
+@usedIn
+- src.api.routes.event_routes: API endpoint for event processing
+
+@dependencies
+- External: pymongo - MongoDB access for event/track data
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.track_processor - TrackProcessor for track processing
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.core.models.event - Event models (EventResponse, EventInput, etc.)
+- Internal: src.core.models.track - Track models (TrackData, etc.)
+- Internal: src.core.config - Configuration
 """
 from datetime import datetime, UTC
 import hashlib

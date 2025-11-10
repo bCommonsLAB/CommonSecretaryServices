@@ -1,24 +1,56 @@
 """
-Session-Processor Modul.
-Verarbeitet Session-Informationen und zugehörige Medien.
+@fileoverview Session Processor - Processing of session information and associated media
 
-Funktionalität:
---------------
-1. Extrahiert Session-Informationen von der Session-Seite
-2. Lädt zugehörige Medien (Videos, Anhänge) herunter
-3. Transformiert und speichert alles in einer strukturierten Form
-4. Generiert eine Markdown-Datei mit allen Informationen
+@description
+Session Processor module. Processes session information and associated media.
+This processor is a meta-processor that orchestrates multiple other processors
+to create complete session documentation.
 
-Ablauf:
--------
-1. Validierung der Eingabeparameter
-2. Abrufen und Parsen der Session-Seite
-3. Download und Verarbeitung der Medien
-4. Generierung der Markdown-Datei
-5. Finale Übersetzung in Zielsprache
-6. Rückgabe der Verarbeitungsergebnisse mit Performance-Metriken
+Functionality:
+1. Extracts session information from session webpage (HTML parsing)
+2. Downloads associated media (videos, PDF attachments, etc.)
+3. Processes media with specific processors (VideoProcessor, PDFProcessor)
+4. Transforms and stores everything in structured form
+5. Generates a Markdown file with all information
+6. Optional: Translation into target language
+
+Process:
+1. Validation of input parameters
+2. Fetching and parsing session page with BeautifulSoup
+3. Download and processing of media (parallel)
+4. Generation of Markdown file with template
+5. Final translation into target language
+6. Return of processing results with performance metrics
+
+Features:
+- Web scraping of session pages
+- Parallel media processing with asyncio
+- Integration of multiple processors (Video, PDF, Transformer)
+- Batch processing of multiple sessions
+- Webhook support for asynchronous processing
+- Caching of session processing results
+
+@module processors.session_processor
+
+@exports
+- SessionProcessor: Class - Session processing processor
+- SessionProcessingResult: Class - Session processing result
+
+@usedIn
+- src.api.routes.session_routes: API endpoint for session processing
+- src.api.routes.common_routes: Uses SessionProcessor for Notion block processing
+- src.processors.event_processor: Uses SessionProcessor for event sessions
+
+@dependencies
+- External: beautifulsoup4 - HTML parsing
+- External: requests - HTTP requests for web scraping
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.video_processor - VideoProcessor for video processing
+- Internal: src.processors.pdf_processor - PDFProcessor for PDF processing
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.core.models.session - Session models (SessionResponse, SessionInput, etc.)
+- Internal: src.core.config - Configuration
 """
-
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple, TypeVar
 from pathlib import Path

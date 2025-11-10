@@ -1,6 +1,41 @@
 """
-API-Routen für die verschiedenen Prozessoren.
-Diese Datei organisiert alle API-Routen in separate Module pro Prozessor.
+@fileoverview API Route Registration - Central API route registration and authentication
+
+@description
+API routes for various processors. This file organizes all API routes into separate
+modules per processor and provides authentication middleware.
+
+Main functionality:
+- Creates Flask-RESTX API instance with Swagger UI support
+- Registers all processor-specific route modules
+- Implements authentication middleware for all API requests
+- Supports various auth modes:
+  - API key-based authentication (SECRETARY_SERVICE_API_KEY)
+  - Localhost exception for local development
+  - IP whitelist for Swagger UI access
+- Logs auth decisions (optional)
+
+Authentication:
+All API requests (except exempt_paths) require a valid API key:
+- Header: Authorization: Bearer <token>
+- Alternative header: X-Secretary-Api-Key: <token>
+- Exempt paths: /api/doc, /api/swagger.json, /api/health
+
+@module api.routes
+
+@exports
+- blueprint: Blueprint - Flask blueprint for API routes
+- api: Api - Flask-RESTX API instance with Swagger UI
+
+@usedIn
+- src.dashboard.app: Registers api blueprint under /api
+- src.api.__init__.py: Imports blueprint for app factory
+
+@dependencies
+- External: flask - Flask web framework
+- External: flask_restx - RESTX for API documentation and Swagger UI
+- Internal: src.utils.logger - Logging system
+- System: os.environ - Environment variables for auth configuration
 """
 # pyright: reportUnusedFunction=false
 from flask import Blueprint, request

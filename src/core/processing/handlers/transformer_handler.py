@@ -1,7 +1,40 @@
 """
-Transformer-Template-Handler für Secretary Job Worker.
+@fileoverview Transformer Handler - Asynchronous template transformation handler for Secretary Job Worker
 
-Liest Parameter aus dem Job, führt Template-Transformation aus und sendet Progress-/Final-Webhook analog PDF-Handler.
+@description
+Transformer template handler for Secretary Job Worker. This handler processes
+transformation jobs asynchronously by reading parameters from the job and executing
+template-based text transformation via TransformerProcessor.
+
+Main functionality:
+- Reads job parameters (text, url, template, context, etc.)
+- Executes template transformation via TransformerProcessor
+- Handles progress updates and webhook notifications
+- Stores processing results in job repository
+- Supports both text input and URL-based input
+
+Features:
+- Asynchronous job processing
+- Progress tracking with percentage updates
+- Webhook support for progress notifications
+- Template-based text transformation
+- Context-aware processing
+- Caching support
+
+@module core.processing.handlers.transformer_handler
+
+@exports
+- handle_transformer_template_job(): Awaitable[None] - Async handler function for transformer jobs
+
+@usedIn
+- src.core.processing.registry: Registered as handler for "transformer" job_type
+- src.core.mongodb.secretary_worker_manager: Executed by SecretaryWorkerManager
+
+@dependencies
+- External: requests - HTTP requests for webhook notifications
+- Internal: src.processors.transformer_processor - TransformerProcessor for text transformation
+- Internal: src.core.models.job_models - Job, JobProgress models
+- Internal: src.core.resource_tracking - ResourceCalculator
 """
 
 from typing import Any, Dict, Optional, cast

@@ -1,5 +1,46 @@
 """
-Audio-spezifische Typen und Modelle.
+@fileoverview Audio Models - Dataclasses for audio processing and transcription
+
+@description
+Audio-specific types and models. This file defines all dataclasses for audio processing,
+including transcription, segmentation, and transformation.
+
+Main classes:
+- AudioProcessingError: Audio-specific exception class
+- TranscriptionSegment: Single segment of a transcription
+- TranscriptionResult: Complete transcription result
+- AudioSegmentInfo: Information about an audio segment
+- Chapter: Chapter information for structured audio content
+- AudioProcessingResult: Cacheable processing result
+- AudioResponse: API response for audio processing
+
+Features:
+- Validation of all fields in __post_init__
+- Serialization to dictionary (to_dict)
+- Deserialization from dictionary (from_dict)
+- Integration with LLMInfo for transcription tracking
+
+@module core.models.audio
+
+@exports
+- AudioProcessingError: Class - Audio-specific exception
+- TranscriptionSegment: Dataclass - Transcription segment
+- TranscriptionResult: Dataclass - Transcription result
+- AudioSegmentInfo: Dataclass - Audio segment information
+- Chapter: Dataclass - Chapter information
+- AudioProcessingResult: Class - Cacheable processing result
+- AudioResponse: Dataclass - API response for audio processing
+
+@usedIn
+- src.processors.audio_processor: Uses all audio models
+- src.processors.video_processor: Uses TranscriptionResult for video audio
+- src.api.routes.audio_routes: Uses AudioResponse for API responses
+
+@dependencies
+- Internal: src.core.models.base - BaseResponse, ProcessInfo, ErrorInfo
+- Internal: src.core.models.llm - LLMInfo for tracking
+- Internal: src.core.models.enums - ProcessingStatus
+- Internal: src.core.exceptions - ProcessingError
 """
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union, Protocol

@@ -1,5 +1,40 @@
 """
-Zentrale Exception-Definitionen für das Processing Service.
+@fileoverview Exception Definitions - Central error handling for processing service
+
+@description
+Central exception definitions for Common Secretary Services. This file defines a
+hierarchy of custom exceptions for various error scenarios.
+
+Exception hierarchy:
+- BaseProcessingException: Base exception with extended error details
+  - RateLimitExceeded: Rate limit exceeded
+  - FileSizeLimitExceeded: File size exceeded
+  - ProcessingError: General processing errors
+    - UnsupportedMimeTypeError: Unsupported MIME type
+    - ContentExtractionError: Content extraction error
+    - ValidationError: Validation error
+
+All exceptions support optional details dictionaries for additional error information.
+
+@module core.exceptions
+
+@exports
+- BaseProcessingException: Class - Base exception with details
+- RateLimitExceeded: Class - Rate limit error
+- FileSizeLimitExceeded: Class - File size error
+- ProcessingError: Class - General processing error
+- UnsupportedMimeTypeError: Class - MIME type error
+- ContentExtractionError: Class - Extraction error
+- ValidationError: Class - Validation error
+
+@usedIn
+- src.processors.pdf_processor: Uses ProcessingError for error handling
+- src.processors.*: All processors use ProcessingError
+- src.core.validation: Uses ValidationError
+- API routes: Use exceptions for error responses
+
+@dependencies
+- Standard: typing - Type annotations
 """
 from typing import Optional, Dict, Any
 

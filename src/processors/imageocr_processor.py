@@ -1,27 +1,50 @@
+"""
+@fileoverview ImageOCR Processor - OCR processing of images with various methods
+
+@description
+ImageOCR Processor for processing images with OCR. This processor processes images
+(JPG, PNG, WebP) and extracts text with various methods:
+- Tesseract OCR (standard)
+- LLM-based OCR (OpenAI Vision, Mistral OCR)
+- Combined methods (LLM + Tesseract)
+- Preview image generation
+
+LLM tracking logic:
+The ImageOCRProcessor tracks LLM usage on two levels:
+1. Aggregated information (LLMInfo): Total tokens, duration, costs
+2. Individual requests (LLMRequest):
+   - OCR extraction: tesseract model
+   - Template transformation: gpt-4 model (via TransformerProcessor)
+
+Features:
+- Multiple OCR methods (Tesseract, LLM-based)
+- Automatic image preprocessing (scaling, optimization)
+- Preview image generation
+- Metadata extraction (dimensions, format, DPI, etc.)
+- Integration with TransformerProcessor for template transformation
+- Caching of OCR results
+
+@module processors.imageocr_processor
+
+@exports
+- ImageOCRProcessor: Class - ImageOCR processing processor
+- ImageOCRMetadata: Dataclass - Image metadata
+
+@usedIn
+- src.processors.pdf_processor: Uses ImageOCRProcessor for PDF page OCR
+- src.api.routes.imageocr_routes: API endpoint for image OCR processing
+
+@dependencies
+- External: Pillow (PIL) - Image processing
+- External: pytesseract - Tesseract OCR binding
+- External: requests - HTTP requests for external APIs
+- Internal: src.processors.cacheable_processor - CacheableProcessor base class
+- Internal: src.processors.transformer_processor - TransformerProcessor for template transformation
+- Internal: src.utils.image2text_utils - Image2TextService for LLM OCR
+- Internal: src.core.models.transformer - TransformerResponse
+- Internal: src.core.config - Configuration
+"""
 # mypy: disable-error-code="attr-defined,valid-type,misc"
-"""
-ImageOCR Processor für die Verarbeitung von Bildern mit OCR.
-
-LLM-Tracking Logik:
------------------
-Der ImageOCRProcessor trackt die LLM-Nutzung auf zwei Ebenen:
-
-1. Aggregierte Informationen (LLMInfo):
-   - Gesamtanzahl der Tokens
-   - Gesamtdauer der Verarbeitung
-   - Anzahl der Requests
-   - Gesamtkosten
-
-2. Einzelne Requests (LLMRequest):
-   a) OCR-Extraktion:
-      - Model: tesseract
-      - Purpose: ocr_extraction
-      
-   b) Template-Transformation (wenn Template verwendet):
-      - Model: gpt-4
-      - Purpose: template_transform
-"""
-
 import traceback
 import hashlib
 import json
