@@ -22,7 +22,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CI_PAT }}
 
       - name: read version file
         id: read_version
@@ -65,6 +65,8 @@ jobs:
           git add src/dashboard/templates/base.html
           git commit -m "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
           git tag -a -m "${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
+          # Verwende CI_PAT für Push-Berechtigung trotz Branch Protection Rules
+          git remote set-url origin https://${{ secrets.CI_PAT }}@github.com/${{ github.repository }}.git
           git push --follow-tags
           
       - name: Publish Release
