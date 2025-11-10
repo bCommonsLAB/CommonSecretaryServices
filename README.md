@@ -562,18 +562,18 @@ The service is designed for **local and transparent AI processing**.
 This project follows a **dual-license** model:
 
 ### Source Code
-**GNU Affero General Public License v3.0** ([AGPL-3.0](LICENSE_AGPL.txt))
+**GNU Affero General Public License v3.0** ([AGPL-3.0](LICENSE))
 
 - You may use, modify, and distribute the code under the same license
 - Running it as a web service requires publishing your modifications (AGPL clause)
-- See `LICENSE_AGPL.txt` for full terms
+- See [LICENSE](LICENSE) for full terms
 
 ### Documentation & Examples
-**Creative Commons BY-NC-SA 4.0** ([CC BY-NC-SA 4.0](LICENSE_CONTENT.txt))
+**Creative Commons BY-NC-SA 4.0** (CC BY-NC-SA 4.0)
 
 - Non-commercial use only
 - Attribution and ShareAlike required
-- See `LICENSE_CONTENT.txt` for full terms
+- Documentation files in `docs/` and templates in `templates/` are licensed under CC BY-NC-SA 4.0
 
 **Attribution Example:**
 
