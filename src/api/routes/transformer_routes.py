@@ -339,6 +339,45 @@ class TransformTextEndpoint(Resource):
             # Spezifische Fehlerbehandlung
             logger.error(f"Bekannter Fehler bei der Text-Transformation: {str(e)}")
             
+            # Processor könnte nicht initialisiert worden sein, daher prüfen
+            processor = None
+            try:
+                processor = get_transformer_processor()
+            except Exception as proc_error:
+                # Falls Processor nicht erstellt werden kann, erstelle minimale Fehlerantwort
+                from src.core.models.transformer import ErrorInfo, TransformerData
+                error_response = TransformerResponse(
+                    status="error",
+                    error=ErrorInfo(
+                        code="PROCESSOR_INIT_ERROR",
+                        message=f"Processor konnte nicht initialisiert werden: {str(proc_error)}"
+                    ),
+                    data=TransformerData(
+                        text="",
+                        transformed_text="",
+                        source_language=source_language if 'source_language' in locals() else "unknown",
+                        target_language=target_language if 'target_language' in locals() else "unknown"
+                    )
+                )
+                return error_response.to_dict(), 500
+            
+            if processor is None:
+                from src.core.models.transformer import ErrorInfo, TransformerData
+                error_response = TransformerResponse(
+                    status="error",
+                    error=ErrorInfo(
+                        code="PROCESSOR_INIT_ERROR",
+                        message=str(e)
+                    ),
+                    data=TransformerData(
+                        text="",
+                        transformed_text="",
+                        source_language=source_language if 'source_language' in locals() else "unknown",
+                        target_language=target_language if 'target_language' in locals() else "unknown"
+                    )
+                )
+                return error_response.to_dict(), 500
+            
             error_response = processor.create_response(
                 processor_name="transformer",
                 result=None,

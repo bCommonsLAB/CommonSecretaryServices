@@ -40,9 +40,7 @@ Features:
 - Internal: src.core.exceptions - ProcessingError
 """
 
-import base64
 import io
-import time
 from typing import Optional, Dict, Any
 from pathlib import Path
 from PIL import Image
@@ -51,13 +49,12 @@ try:
 except Exception:  # pragma: no cover - optional dependency at runtime
     fitz = None  # type: ignore
 
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
 
 from src.utils.logger import ProcessingLogger
 from src.core.models.llm import LLMRequest
 from src.core.config import Config
 from src.core.exceptions import ProcessingError
+from src.core.llm import LLMConfigManager, UseCase
 
 
 class Image2TextService:
@@ -78,13 +75,29 @@ class Image2TextService:
         app_config = Config()
         self.openai_config = config or app_config.get('processors', {}).get('openai', {})
         
-        # OpenAI Client initialisieren
-        api_key = self.openai_config.get('api_key')
-        if not api_key:
-            raise ProcessingError("OpenAI API Key nicht gefunden in der Konfiguration (processors.openai.api_key)")
+        # LLM Provider-Konfiguration laden (ausschließlich aus LLM-Config)
+        self.llm_config_manager = LLMConfigManager()
         
-        self.client = OpenAI(api_key=api_key)
-        self.model = self.openai_config.get('vision_model', 'gpt-4o')
+        # Lade Provider für Image2Text
+        self.provider = self.llm_config_manager.get_provider_for_use_case(UseCase.IMAGE2TEXT)
+        if not self.provider:
+            raise ProcessingError(
+                "Kein Provider für Image2Text in der LLM-Config konfiguriert. "
+                "Bitte konfigurieren Sie 'llm_config.use_cases.image2text.provider' in config.yaml"
+            )
+        
+        # Modell aus LLM-Config laden (ausschließlich aus config.yaml)
+        configured_model = self.llm_config_manager.get_model_for_use_case(UseCase.IMAGE2TEXT)
+        if not configured_model:
+            raise ProcessingError(
+                "Kein Modell für Image2Text in der LLM-Config konfiguriert. "
+                "Bitte konfigurieren Sie 'llm_config.use_cases.image2text.model' in config.yaml"
+            )
+        self.model = configured_model
+        
+        # Hole Client vom Provider
+        self.client = self.provider.get_client()
+        
         self.processor_name = processor_name or 'Image2TextService'
         
         # Bildkonfiguration
@@ -196,59 +209,27 @@ Antworte NUR mit dem Markdown-Text, ohne zusätzliche Erklärungen."""
             if logger:
                 logger.debug(f"Starte Vision API mit Modell {self.model}")
             
-            # Bild zu Base64 kodieren
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            # Verwende Provider für Vision (ausschließlich aus LLM-Config)
+            if not self.provider:
+                raise ProcessingError(
+                    "Provider für Image2Text nicht verfügbar. "
+                    "Bitte konfigurieren Sie 'llm_config.use_cases.image2text.provider' in config.yaml"
+                )
             
-            # Zeitmessung starten
-            start_time = time.time()
-            
-            # OpenAI Vision API aufrufen
-            response: ChatCompletion = self.client.chat.completions.create(
+            extracted_text, llm_request = self.provider.vision(
+                image_data=image_bytes,
+                prompt=prompt,
                 model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}",
-                                    "detail": "high"
-                                }
-                            }
-                        ]
-                    }
-                ],
                 max_tokens=4000,
-                temperature=0.1
+                temperature=0.1,
+                detail="high"
             )
-            
-            # Zeitmessung beenden
-            duration = (time.time() - start_time) * 1000
-            
-            if not response.choices or not response.choices[0].message:
-                raise ProcessingError("Keine gültige Antwort von OpenAI Vision API erhalten")
-            
-            extracted_text = response.choices[0].message.content or ""
             
             # Bereinige Markdown-Codeblöcke
             extracted_text = self.clean_markdown_response(extracted_text)
             
             if logger:
                 logger.debug(f"Vision API erfolgreich, {len(extracted_text)} Zeichen extrahiert")
-            
-            # LLM-Request für Tracking erstellen
-            llm_request = LLMRequest(
-                model=self.model,
-                purpose="image_to_markdown",
-                tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration,
-                processor=self.processor_name
-            )
             
             return extracted_text, llm_request
             

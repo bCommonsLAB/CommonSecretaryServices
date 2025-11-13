@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Verfügbare LLM-Modelle{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Verfügbare LLM-Modelle</h1>
+    <p class="text-muted">Übersicht aller verfügbaren Modelle pro Provider und Use-Case</p>
+    
+    {% if error %}
+    <div class="alert alert-danger" role="alert">
+        <strong>Fehler:</strong> {{ error }}
+    </div>
+    {% endif %}
+    
+    <div id="models-overview-container" class="mt-4">
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Lade Modelle...</span>
+            </div>
+            <p class="mt-2">Lade Modell-Übersicht...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadModelsOverview();
+});
+
+function loadModelsOverview() {
+    fetch('/api/llm-config/available-models')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                displayModelsOverview(data.data);
+            } else {
+                showError(data.message || 'Fehler beim Laden der Modell-Übersicht');
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Modell-Übersicht:', error);
+            showError('Fehler beim Laden der Modell-Übersicht');
+        });
+}
+
+function displayModelsOverview(data) {
+    const container = document.getElementById('models-overview-container');
+    const overview = data.overview;
+    const useCases = data.use_cases;
+    
+    if (!overview || Object.keys(overview).length === 0) {
+        container.innerHTML = '<div class="alert alert-warning">Keine Modelle gefunden.</div>';
+        return;
+    }
+    
+    let html = '';
+    
+    // Erstelle eine Tabelle für jeden Provider
+    Object.keys(overview).forEach(providerName => {
+        const providerModels = overview[providerName];
+        
+        html += `
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="mb-0">${providerName.charAt(0).toUpperCase() + providerName.slice(1)}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Use-Case</th>
+                                    <th>Verfügbare Modelle</th>
+                                    <th>Anzahl</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        `;
+        
+        // Zeige Modelle für jeden Use-Case
+        useCases.forEach(useCase => {
+            const models = providerModels[useCase] || [];
+            const useCaseDisplayName = useCase.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            
+            html += `
+                <tr>
+                    <td><strong>${useCaseDisplayName}</strong></td>
+                    <td>
+                        ${models.length > 0 
+                            ? `<div class="d-flex flex-wrap gap-2">
+                                ${models.map(model => `<span class="badge badge-secondary">${model}</span>`).join('')}
+                               </div>`
+                            : '<span class="text-muted">Keine Modelle verfügbar</span>'
+                        }
+                    </td>
+                    <td><span class="badge badge-info">${models.length}</span></td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    // Gesamtstatistik
+    let totalModels = 0;
+    let totalCombinations = 0;
+    Object.values(overview).forEach(providerModels => {
+        Object.values(providerModels).forEach(models => {
+            totalModels += models.length;
+            totalCombinations++;
+        });
+    });
+    
+    html = `
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">${Object.keys(overview).length}</h5>
+                        <p class="card-text text-muted">Provider</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">${totalCombinations}</h5>
+                        <p class="card-text text-muted">Provider/Use-Case Kombinationen</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">${totalModels}</h5>
+                        <p class="card-text text-muted">Gesamt Modelle</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    ` + html;
+    
+    container.innerHTML = html;
+}
+
+function showError(message) {
+    const container = document.getElementById('models-overview-container');
+    container.innerHTML = `
+        <div class="alert alert-danger" role="alert">
+            <strong>Fehler:</strong> ${message}
+        </div>
+    `;
+}
+</script>
+
+<style>
+.gap-2 {
+    gap: 0.5rem;
+}
+</style>
+{% endblock %}
+

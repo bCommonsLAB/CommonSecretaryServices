@@ -76,4 +76,56 @@ class ConfigKeys:
         if not api_key.startswith('sk-'):
             raise ValueError("Ungültiger API Key Format. Muss mit 'sk-' beginnen.")
         
-        os.environ['OPENAI_API_KEY'] = api_key 
+        os.environ['OPENAI_API_KEY'] = api_key
+    
+    @property
+    def mistral_api_key(self) -> str:
+        """
+        Gibt den Mistral API Key zurück.
+        Wird ausschließlich aus der Umgebungsvariable MISTRAL_API_KEY geladen.
+        """
+        api_key = os.getenv('MISTRAL_API_KEY')
+        if not api_key:
+            raise ValueError("Mistral API Key nicht gefunden. Bitte setzen Sie die MISTRAL_API_KEY Umgebungsvariable.")
+        return api_key
+    
+    def set_mistral_api_key(self, api_key: str):
+        """
+        Setzt den Mistral API Key in der Umgebungsvariable.
+        
+        Args:
+            api_key: Der zu setzende API Key
+            
+        Raises:
+            ValueError: Wenn der API Key ein ungültiges Format hat
+        """
+        if not api_key.startswith('mistral-'):
+            raise ValueError("Ungültiger Mistral API Key Format. Muss mit 'mistral-' beginnen.")
+        
+        os.environ['MISTRAL_API_KEY'] = api_key
+    
+    @property
+    def openrouter_api_key(self) -> str:
+        """
+        Gibt den OpenRouter API Key zurück.
+        Wird ausschließlich aus der Umgebungsvariable OPENROUTER_API_KEY geladen.
+        """
+        api_key = os.getenv('OPENROUTER_API_KEY')
+        if not api_key:
+            raise ValueError("OpenRouter API Key nicht gefunden. Bitte setzen Sie die OPENROUTER_API_KEY Umgebungsvariable.")
+        return api_key
+    
+    def set_openrouter_api_key(self, api_key: str):
+        """
+        Setzt den OpenRouter API Key in der Umgebungsvariable.
+        
+        Args:
+            api_key: Der zu setzende API Key
+            
+        Raises:
+            ValueError: Wenn der API Key ein ungültiges Format hat
+        """
+        if not api_key.startswith('sk-or-'):
+            raise ValueError("Ungültiger OpenRouter API Key Format. Muss mit 'sk-or-' beginnen.")
+        
+        os.environ['OPENROUTER_API_KEY'] = api_key 

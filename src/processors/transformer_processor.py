@@ -53,8 +53,6 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup as BS, Tag
 from bs4.element import PageElement
-from openai import OpenAI
-from openai.types.chat.chat_completion import ChatCompletion
 
 if TYPE_CHECKING:
     from src.core.resource_tracking import ResourceCalculator
@@ -71,7 +69,6 @@ from src.core.models.transformer import (
     TransformerResponse,  TransformerData
 )
 from src.core.models.enums import OutputFormat
-from src.core.config_keys import ConfigKeys
 from .cacheable_processor import CacheableProcessor
 from src.core.config import Config
 
@@ -115,8 +112,20 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             transformer_config = processor_config.get('transformer', {})
             config_load_end = time.time()
             
-            # Konfigurationswerte für OpenAI-Modell laden
-            self.model: str = transformer_config.get('model', 'gpt-4o')
+            # LLM Provider-Konfiguration laden (muss vor Modell-Laden erfolgen)
+            from src.core.llm import LLMConfigManager, UseCase
+            self.llm_config_manager = LLMConfigManager()
+            
+            # Modell aus LLM-Config laden (ausschließlich aus config.yaml)
+            configured_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION)
+            if not configured_model:
+                raise ProcessingError(
+                    "Kein Modell für Chat-Completion in der LLM-Config konfiguriert. "
+                    "Bitte konfigurieren Sie 'llm_config.use_cases.chat_completion.model' in config.yaml"
+                )
+            self.model: str = configured_model
+            
+            # Andere Konfigurationswerte aus alter Config-Struktur (nicht LLM-spezifisch)
             self.temperature: float = transformer_config.get('temperature', 0.7)
             self.max_tokens: int = transformer_config.get('max_tokens', 4000)
             self.target_format: OutputFormat = transformer_config.get('target_format', OutputFormat.TEXT)
@@ -128,10 +137,15 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             # Templates-Verzeichnis
             self.templates_dir: str = transformer_config.get('templates_dir', 'resources/templates')
             
-            # OpenAI Client initialisieren
+            # Lade Provider für Chat-Completion (ausschließlich aus LLM-Config)
             client_init_start = time.time()
-            config_keys = ConfigKeys()
-            self.client = OpenAI(api_key=config_keys.openai_api_key)
+            self.provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+            if not self.provider:
+                raise ProcessingError(
+                    "Kein Provider für Chat-Completion in der LLM-Config konfiguriert. "
+                    "Bitte konfigurieren Sie 'llm_config.use_cases.chat_completion.provider' in config.yaml"
+                )
+            self.client = self.provider.get_client()
             client_init_end = time.time()
             
             # Initialisiere den Transcriber mit Transformer-spezifischen Konfigurationen
@@ -381,42 +395,45 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             prompt_creation_end = time.time()
             self.logger.info(f"Zeit für Prompt-Erstellung: {(prompt_creation_end - prompt_creation_start) * 1000:.2f} ms")
             
-            # Text transformieren mit OpenAI
+            # Text transformieren mit LLM Provider
             llm_call_start = time.time()
-            completion: ChatCompletion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2,
-            )
-            llm_call_end = time.time()
-            llm_duration = llm_call_end - llm_call_start
-            self.logger.info(f"Zeit für LLM-Anfrage: {llm_duration * 1000:.2f} ms")
             
-            # Erstelle Antworttext und tracke LLM-Nutzung
-            transformed_text = completion.choices[0].message.content or ""
+            # Verwende Provider falls verfügbar
+            transformed_text = ""
+            llm_request = None
             
-            # LLM-Nutzung im LLMInfo tracken
-            usage_tracking_start = time.time()
-            usage = completion.usage
-            if usage:
-                # Erstelle ein LLMRequest-Objekt über die zentrale Methode
-                self.transcriber.create_llm_request(
-                    purpose="text_transformation",
-                    tokens=usage.total_tokens,
-                    duration=llm_duration * 1000,  # Millisekunden als float
-                    model=self.model,
-                    system_prompt=system_message,
-                    user_prompt=source_text,
-                    response=completion,
-                    logger=self.logger,
-                    processor=self.__class__.__name__
+            if hasattr(self, 'provider') and self.provider:
+                try:
+                    transformed_text, llm_request = self.provider.chat_completion(
+                        messages=[
+                            {"role": "system", "content": system_message},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        model=self.model,
+                        temperature=0.2
+                    )
+                    
+                    llm_call_end = time.time()
+                    llm_duration = llm_call_end - llm_call_start
+                    self.logger.info(f"Zeit für LLM-Anfrage: {llm_duration * 1000:.2f} ms")
+                    
+                    # LLM-Nutzung im LLMInfo tracken
+                    usage_tracking_start = time.time()
+                    if llm_request:
+                        self.add_llm_requests([llm_request])
+                    usage_tracking_end = time.time()
+                    self.logger.debug(f"Zeit für LLM-Tracking: {(usage_tracking_end - usage_tracking_start) * 1000:.2f} ms")
+                except Exception as e:
+                    # Kein Fallback - Fehler weiterwerfen wie vom Benutzer gewünscht
+                    raise ProcessingError(
+                        f"Fehler bei der LLM-Anfrage über Provider: {str(e)}"
+                    ) from e
+            else:
+                # Kein Provider konfiguriert - Fehler werfen
+                raise ProcessingError(
+                    "Kein Provider für Chat-Completion konfiguriert. "
+                    "Bitte konfigurieren Sie 'llm_config.use_cases.chat_completion.provider' in config.yaml"
                 )
-                
-            usage_tracking_end = time.time()
-            self.logger.info(f"Zeit für LLM-Tracking: {(usage_tracking_end - usage_tracking_start) * 1000:.2f} ms")
             
             # Erstelle TransformerData
             result_creation_start = time.time()

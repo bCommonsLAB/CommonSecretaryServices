@@ -6,30 +6,24 @@ cache:
     enabled: true
     ttl_days: 30
     create_indexes: false
-
 session_worker:
   active: false
   max_concurrent: 3
   poll_interval_sec: 5
-
-# Neuer generischer Worker (Secretary Job Worker)
 generic_worker:
   active: true
   max_concurrent: 3
   poll_interval_sec: 5
-
 logging:
   backup_count: 5
   file: logs/dev_detailed.log
   level: DEBUG
   max_log_entries: 1000
   max_size: 120000000
-
 mongodb:
   connect_timeout_ms: 5000
   max_pool_size: 50
-  uri: ${MONGODB_URI}  # Wird aus der .env geladen
-
+  uri: ${MONGODB_URI}
 processors:
   pdf:
     max_file_size: 150000000
@@ -39,25 +33,20 @@ processors:
       enabled: true
       ttl_days: 30
       collection_name: pdf_cache
-    # Bildkonfiguration für PDF-Seiten
     images:
-      # Hauptbilder
       main:
         max_size: 1280
         format: jpg
         quality: 80
-      # Vorschaubilder (Thumbnails)
       preview:
         max_size: 360
         format: jpg
         quality: 80
-  
   openai:
     api_key: ${OPENAI_API_KEY}
-    vision_model: "gpt-4o"  # Modell für Vision API
-    max_image_size: 2048    # Maximale Bildgröße für Vision API
-    image_quality: 85       # JPEG-Qualität für Bildkompression
-
+    vision_model: gpt-4o
+    max_image_size: 2048
+    image_quality: 85
   obsidian:
     base_dir: sessions
     cache_dir: cache/obsidian
@@ -66,7 +55,6 @@ processors:
       ttl_days: 30
       collection_name: obsidian_cache
     max_concurrent_tasks: 5
-
   imageocr:
     max_file_size: 10485760
     max_resolution: 4096
@@ -75,7 +63,6 @@ processors:
       enabled: true
       ttl_days: 30
       collection_name: ocr_cache
-
   audio:
     batch_size: 5
     export_format: mp3
@@ -88,83 +75,89 @@ processors:
       enabled: true
       ttl_days: 30
       collection_name: audio_cache
-
   video:
     cache_dir: cache/video
     cache:
       enabled: true
       ttl_days: 30
       collection_name: video_cache
-
   youtube:
-    max_duration: 15000  # Maximale Videolänge in Sekunden
-    max_file_size: 120000000  # 120 MB
+    max_duration: 15000
+    max_file_size: 120000000
     cache_dir: cache/youtube
     cache:
       enabled: true
       ttl_days: 30
       collection_name: youtube_cache
-    # Minimale yt-dlp Optionen - sinnvolle Standardwerte werden im Code gesetzt
     ydl_opts:
       format: bestaudio/best
-      # SSL-Probleme auf Windows beheben
       nocheckcertificate: true
       postprocessors:
       - key: FFmpegExtractAudio
         preferredcodec: mp3
-
   transformer:
-    # Modellkonfiguration 
     model: gpt-4.1-mini
     temperature: 0.1
     max_tokens: 4000
-    # Cache-Konfiguration
     cache_dir: cache/transformer
     cache:
       enabled: true
       ttl_days: 14
       collection_name: transformer_cache
-    # Performance-Einstellungen
     max_concurrent_requests: 10
     timeout_seconds: 120
-    # Templates-Verzeichnis
     templates_dir: resources/templates
-
   metadata:
-    # Cache-Konfiguration
     cache_dir: cache/metadata
     cache:
       enabled: true
       ttl_days: 30
       collection_name: metadata_cache
-    # Dateiverarbeitung
-    max_file_size: 50000000  # 50 MB
+    max_file_size: 50000000
     supported_files:
-      - image: [jpg, jpeg, png, gif, bmp, webp, tiff]
-      - document: [pdf, docx, doc, xlsx, xls, pptx, ppt, txt, md]
-      - audio: [mp3, wav, ogg, m4a, flac]
-      - video: [mp4, webm, avi, mov, mkv]
-    # Performance-Einstellungen
+    - image:
+      - jpg
+      - jpeg
+      - png
+      - gif
+      - bmp
+      - webp
+      - tiff
+    - document:
+      - pdf
+      - docx
+      - doc
+      - xlsx
+      - xls
+      - pptx
+      - ppt
+      - txt
+      - md
+    - audio:
+      - mp3
+      - wav
+      - ogg
+      - m4a
+      - flac
+    - video:
+      - mp4
+      - webm
+      - avi
+      - mov
+      - mkv
     timeout_seconds: 30
     extract_advanced_metadata: true
-
   event:
     base_dir: sessions
     max_concurrent_tasks: 5
     cache_dir: cache/event
-    # Maximale Größe für Video-Downloads (in MB)
     max_video_size: 1000
-    # Maximale Größe für Anhänge (in MB)
     max_attachment_size: 100
-    # Timeout für HTTP-Requests (in Sekunden)
     request_timeout: 30
-    # Markdown-Template für Event-Dokumentation
-    # LLM-Konfiguration
     cache:
       enabled: true
       ttl_days: 30
       collection_name: event_cache
-      
   track:
     base_dir: sessions
     max_concurrent_tasks: 5
@@ -173,11 +166,106 @@ processors:
       enabled: true
       ttl_days: 30
       collection_name: track_cache
-
 rate_limiting:
   enabled: true
   requests_per_minute: 60
-
+llm_providers:
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    enabled: true
+    available_models:
+      transcription:
+      - whisper-1
+      image2text:
+      - gpt-4o
+      - gpt-4-turbo
+      - gpt-4-vision-preview
+      chat_completion:
+      - gpt-4
+      - gpt-4-turbo
+      - gpt-4o
+      - gpt-4.1-mini
+      - gpt-3.5-turbo
+      ocr_pdf:
+      - gpt-4o
+      - gpt-4-turbo
+      - gpt-4-vision-preview
+  mistral:
+    api_key: ${MISTRAL_API_KEY}
+    enabled: true
+    available_models:
+      chat_completion:
+      - mistral-large-latest
+      - mistral-medium-latest
+      - mistral-small-latest
+      - mistral-tiny
+      - pixtral-large-latest
+      - pixtral-small-latest
+      ocr_pdf:
+      - pixtral-large-latest
+      - pixtral-small-latest
+  openrouter:
+    api_key: ${OPENROUTER_API_KEY}
+    enabled: true
+    available_models:
+      transcription:
+      - openai/whisper-1
+      image2text:
+      - openai/gpt-4o
+      - openai/gpt-4-turbo
+      - openai/gpt-4-vision-preview
+      - google/gemini-pro-vision
+      chat_completion:
+      - openai/gpt-4
+      - openai/gpt-4-turbo
+      - openai/gpt-4o
+      - anthropic/claude-3-opus
+      - anthropic/claude-3-sonnet
+      - anthropic/claude-3-haiku
+      - mistralai/mistral-large-latest
+      - mistralai/mistral-medium-latest
+      - google/gemini-pro
+      - meta-llama/llama-3-70b-instruct
+      ocr_pdf:
+      - openai/gpt-4o
+      - openai/gpt-4-turbo
+      - openai/gpt-4-vision-preview
+      - mistralai/pixtral-large-latest
+  ollama:
+    api_key: ollama
+    enabled: true
+    base_url: http://localhost:11434/v1
+    available_models:
+      image2text:
+      - llava
+      - bakllava
+      - llava:13b
+      chat_completion:
+      - llama3
+      - llama3:8b
+      - llama3:70b
+      - mistral
+      - codellama
+      - phi3
+      - gemma2
+      ocr_pdf:
+      - llava
+      - bakllava
+      - llava:13b
+llm_config:
+  use_cases:
+    transcription:
+      provider: openrouter
+      model: openai/whisper-1
+    image2text:
+      provider: openai
+      model: gpt-4o
+    ocr_pdf:
+      provider: mistral
+      model: pixtral-large-latest
+    chat_completion:
+      provider: ollama
+      model: llama3
 server:
   api_base_url: http://localhost:5001
   debug: true

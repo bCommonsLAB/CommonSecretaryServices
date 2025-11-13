@@ -71,6 +71,7 @@ from .routes.config_routes import config
 from .routes.log_routes import logs
 from .routes.main_routes import main
 from .routes.docs_routes import docs
+from .routes.llm_config_routes import llm_config as llm_config_dashboard
 
 # Reset Logger beim Start
 logger_service.reset()
@@ -114,6 +115,7 @@ app.register_blueprint(config)
 app.register_blueprint(logs)
 app.register_blueprint(api_blueprint, url_prefix='/api')
 app.register_blueprint(docs)
+app.register_blueprint(llm_config_dashboard)
 
 # Flag für den ersten Request
 _first_request = True

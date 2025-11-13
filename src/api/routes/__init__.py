@@ -223,6 +223,7 @@ from .pdf_routes import pdf_ns
 from .imageocr_routes import imageocr_ns
 from .story_routes import story_ns
 from .secretary_job_routes import secretary_ns
+from .llm_config_routes import llm_config
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -244,6 +245,9 @@ root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ig
 # Registriere die Samples-Endpoints direkt unter /api/samples für Kompatibilität mit der alten API
 root_ns.add_resource(SamplesEndpoint, '/samples')  # type: ignore
 root_ns.add_resource(SampleFileEndpoint, '/samples/<string:filename>')  # type: ignore
+
+# Registriere LLM-Config Blueprint
+blueprint.register_blueprint(llm_config)
 
 # Home-Endpoint - exakt wie in der alten routes.py
 @root_ns.route('/')  # type: ignore

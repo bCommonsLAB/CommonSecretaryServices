@@ -80,6 +80,8 @@ from src.core.models.audio import (
 )
 from src.core.exceptions import ProcessingError
 from src.processors.base_processor import BaseProcessor
+from src.core.llm import LLMConfigManager, UseCase
+from src.core.llm.protocols import LLMProvider
 
 # Type-Definitionen
 FieldType = tuple[Union[type[str], type[None]], Field]
@@ -114,16 +116,18 @@ class TemplateFieldDefinition:
 class WhisperTranscriber:
     """Klasse für die Interaktion mit GPT-4."""
     
-    def __init__(self, config: Dict[str, Any], processor: BaseProcessor[Any]) -> None:
+    def __init__(self, config: Dict[str, Any], processor: BaseProcessor[Any], logger: Optional[ProcessingLogger] = None) -> None:
         """
         Initialisiert den WhisperTranscriber.
         
         Args:
             config: Konfiguration für den Transcriber
             processor: BaseProcessor für LLM-Request Tracking
+            logger: Optional, Logger für Debug-Ausgaben
         """
         self.config: Dict[str, Any] = config
         self.processor: BaseProcessor[Any] = processor
+        self._logger: Optional[ProcessingLogger] = logger
         
         # Verwende konfigurierte Verzeichnisse oder Fallback zu processor-spezifischen Verzeichnissen
         # Anmerkung: In der config.yaml sollten für jeden Prozessor temp_dir und debug_dir definiert sein
@@ -155,8 +159,34 @@ class WhisperTranscriber:
             cache_base = Path(app_config.get('cache', {}).get('base_dir', './cache'))
             self.temp_dir = cache_base / "default"
         
-        self.model: str = config.get('model', 'gpt-4o')
-        self.client: OpenAI = OpenAI(api_key=config.get('openai_api_key'))
+        # LLM Provider-Konfiguration laden
+        self.llm_config_manager = LLMConfigManager()
+        self.provider: Optional[LLMProvider] = None
+        self.model: str = config.get('model', 'whisper-1')
+        
+        # Versuche Provider für Transcription zu laden
+        try:
+            self.provider = self.llm_config_manager.get_provider_for_use_case(UseCase.TRANSCRIPTION)
+            # Modell aus Konfiguration holen, falls verfügbar
+            configured_model = self.llm_config_manager.get_model_for_use_case(UseCase.TRANSCRIPTION)
+            if configured_model:
+                self.model = configured_model
+        except Exception as e:
+            # Fallback auf direkten OpenAI-Client wenn Provider nicht verfügbar
+            if self._logger:
+                self._logger.warning(f"LLM Provider nicht verfügbar, verwende Fallback: {str(e)}")
+            self.provider = None
+        
+        # Initialisiere Client
+        if self.provider:
+            self.client = self.provider.get_client()
+        else:
+            # Fallback auf direkten OpenAI-Client
+            api_key = config.get('openai_api_key')
+            if not api_key:
+                raise ValueError("OpenAI API-Key nicht gefunden in Konfiguration")
+            self.client: OpenAI = OpenAI(api_key=api_key)
+        
         self.batch_size: int = config.get('batch_size', 10)
         self.temperature: float = config.get('temperature', 0.7)
         
@@ -285,40 +315,81 @@ class WhisperTranscriber:
             instruction: str = f"Please translate this text to {target_language}:"
             user_prompt: str = f"{instruction}\n\n{text}"
 
-            # Zeitmessung starten
-            start_time: float = time.time()
+            # Verwende Provider für Chat-Completion falls verfügbar
+            translated_text: str = ""
+            duration: float = 0.0  # Initialisiere duration
+            try:
+                chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                if not chat_provider:
+                    raise ValueError("Chat-Completion Provider nicht verfügbar")
+                
+                chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+                
+                # Verwende Provider
+                translated_text, llm_request = chat_provider.chat_completion(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    model=chat_model,
+                    temperature=self.temperature
+                )
+                
+                # Setze duration aus llm_request
+                duration = llm_request.duration
+                
+                # LLM-Nutzung zentral tracken
+                self.create_llm_request(
+                    purpose="translation",
+                    tokens=llm_request.tokens,
+                    duration=llm_request.duration,
+                    model=llm_request.model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    logger=logger,
+                    processor=processor
+                )
+            except Exception as e:
+                # Fallback auf direkten Client-Aufruf
+                if logger:
+                    logger.warning(f"Provider nicht verfügbar für Übersetzung, verwende Fallback: {str(e)}")
+                
+                # Zeitmessung starten
+                start_time: float = time.time()
 
-            # OpenAI Client-Aufruf
-            response: ChatCompletion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=self.temperature
-            )
+                # OpenAI Client-Aufruf
+                response: ChatCompletion = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=self.temperature
+                )
 
-            # Zeitmessung beenden und Dauer in Millisekunden berechnen
-            duration = (time.time() - start_time) * 1000
-            
-            if not response.choices or not response.choices[0].message:
-                raise ValueError("Keine gültige Antwort vom LLM erhalten")
+                # Zeitmessung beenden und Dauer in Millisekunden berechnen
+                duration = (time.time() - start_time) * 1000
+                
+                if not response.choices or not response.choices[0].message:
+                    raise ValueError("Keine gültige Antwort vom LLM erhalten")
 
-            message: ChatCompletionMessage = response.choices[0].message       
-            translated_text: str = message.content or ""
+                message: ChatCompletionMessage = response.choices[0].message       
+                translated_text = message.content or ""
 
-            # LLM-Nutzung zentral tracken
-            self.create_llm_request(
-                purpose="translation",
-                tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration,
-                model=self.model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                response=response,
-                logger=logger,
-                processor=processor
-            )
+                # LLM-Nutzung zentral tracken
+                tokens = response.usage.total_tokens if response.usage else 0
+                if tokens > 0:  # Nur tracken wenn Tokens verbraucht wurden
+                    self.create_llm_request(
+                        purpose="translation",
+                        tokens=tokens,
+                        duration=duration,
+                        model=self.model,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=response,
+                        logger=logger,
+                        processor=processor
+                    )
 
             result = TranslationResult(
                 text=translated_text,
@@ -371,40 +442,82 @@ class WhisperTranscriber:
 
             user_prompt: str = f"{summary_instruction}\n\n{text}"
 
-            # Zeitmessung starten
-            start_time: float = time.time()
+            # Verwende Provider für Chat-Completion falls verfügbar
+            summary: str = ""
+            duration: float = 0.0  # Initialisiere duration
+            try:
+                chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                if not chat_provider:
+                    raise ValueError("Chat-Completion Provider nicht verfügbar")
+                
+                chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+                
+                # Verwende Provider
+                summary, llm_request = chat_provider.chat_completion(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    model=chat_model,
+                    temperature=self.temperature
+                )
+                summary = summary.strip()
+                
+                # Setze duration aus llm_request
+                duration = llm_request.duration
+                
+                # LLM-Nutzung zentral tracken
+                self.create_llm_request(
+                    purpose="summarization",
+                    tokens=llm_request.tokens,
+                    duration=llm_request.duration,
+                    model=llm_request.model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    logger=logger,
+                    processor=processor
+                )
+            except Exception as e:
+                # Fallback auf direkten Client-Aufruf
+                if logger:
+                    logger.warning(f"Provider nicht verfügbar für Zusammenfassung, verwende Fallback: {str(e)}")
+                
+                # Zeitmessung starten
+                start_time: float = time.time()
 
-            # OpenAI Client-Aufruf
-            response: ChatCompletion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=self.temperature
-            )
+                # OpenAI Client-Aufruf
+                response: ChatCompletion = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=self.temperature
+                )
 
-            # Zeitmessung beenden und Dauer in Millisekunden berechnen
-            duration = (time.time() - start_time) * 1000
-            
-            if not response.choices or not response.choices[0].message:
-                raise ValueError("Keine gültige Antwort vom LLM erhalten")
+                # Zeitmessung beenden und Dauer in Millisekunden berechnen
+                duration = (time.time() - start_time) * 1000
+                
+                if not response.choices or not response.choices[0].message:
+                    raise ValueError("Keine gültige Antwort vom LLM erhalten")
 
-            summary: str = response.choices[0].message.content or ""
-            summary = summary.strip()
+                summary = response.choices[0].message.content or ""
+                summary = summary.strip()
 
-            # LLM-Nutzung zentral tracken
-            self.create_llm_request(
-                purpose="summarization",
-                tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration,
-                model=self.model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                response=response,
-                logger=logger,
-                processor=processor
-            )
+                # LLM-Nutzung zentral tracken
+                tokens = response.usage.total_tokens if response.usage else 0
+                if tokens > 0:  # Nur tracken wenn Tokens verbraucht wurden
+                    self.create_llm_request(
+                        purpose="summarization",
+                        tokens=tokens,
+                        duration=duration,
+                        model=self.model,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=response,
+                        logger=logger,
+                        processor=processor
+                    )
 
             result = TransformationResult(
                 text=summary,
@@ -715,39 +828,74 @@ class WhisperTranscriber:
                 f"5. Do not include any text outside the JSON object"
             )
 
-            # 6. OpenAI Anfrage senden
+            # 6. LLM-Anfrage senden (mit Provider-Abstraktion)
             if logger:
-                logger.info("Sende Anfrage an OpenAI " + self.model)
+                logger.info("Sende Anfrage an LLM Provider")
             
-            # Zeitmessung starten
-            start_time: float = time.time()
-
-            # OpenAI Client-Aufruf mit korrekten Message-Typen
-            messages: list[ChatCompletionMessageParam] = [
-                ChatCompletionSystemMessageParam(
-                    role="system",
-                    content=system_prompt
-                ),
-                ChatCompletionUserMessageParam(
-                    role="user",
-                    content=user_prompt
+            # Verwende Provider für Chat-Completion falls verfügbar
+            llm_request: Optional[LLMRequest] = None
+            response: Optional[ChatCompletion] = None
+            raw_content: str = ""
+            duration: float = 0.0
+            
+            try:
+                chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                if not chat_provider:
+                    raise ValueError("Chat-Completion Provider nicht verfügbar")
+                
+                chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+                
+                # Verwende Provider
+                raw_content, llm_request = chat_provider.chat_completion(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    model=chat_model,
+                    temperature=self.temperature
                 )
-            ]
+                
+                if llm_request:
+                    duration = llm_request.duration
+                response = None  # Für Kompatibilität mit bestehendem Code
+            except Exception as e:
+                # Fallback auf direkten Client-Aufruf
+                if logger:
+                    logger.warning(f"Provider nicht verfügbar für Template-Transformation, verwende Fallback: {str(e)}")
+                
+                # Zeitmessung starten
+                start_time: float = time.time()
 
-            response: ChatCompletion = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature
-            )
+                # OpenAI Client-Aufruf mit korrekten Message-Typen
+                messages: list[ChatCompletionMessageParam] = [
+                    ChatCompletionSystemMessageParam(
+                        role="system",
+                        content=system_prompt
+                    ),
+                    ChatCompletionUserMessageParam(
+                        role="user",
+                        content=user_prompt
+                    )
+                ]
 
-            # Zeitmessung beenden
-            duration = (time.time() - start_time) * 1000
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature
+                )
 
-            if not response.choices or not response.choices[0].message:
-                raise ValueError("Keine gültige Antwort vom LLM erhalten")
+                # Zeitmessung beenden
+                duration = (time.time() - start_time) * 1000
 
-            # Validiere und bereinige die LLM-Antwort
-            raw_content = response.choices[0].message.content
+                if not response.choices or not response.choices[0].message:
+                    raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+                # Validiere und bereinige die LLM-Antwort
+                raw_content = response.choices[0].message.content or ""
+                if not raw_content or not raw_content.strip():
+                    raise ValueError("Leere Antwort vom LLM erhalten")
+            
+            # Validiere und bereinige die LLM-Antwort (für beide Fälle)
             if not raw_content or not raw_content.strip():
                 raise ValueError("Leere Antwort vom LLM erhalten")
 
@@ -790,17 +938,33 @@ class WhisperTranscriber:
                     }
 
             # LLM-Nutzung tracken mit zentraler Methode
-            self.create_llm_request(
-                purpose="template_transform",
-                tokens=response.usage.total_tokens if response.usage else 0,
-                duration=duration,
-                model=self.model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                response=response,
-                logger=logger,
-                processor=processor
-            )
+            if llm_request:
+                # Verwende bereits erstelltes LLMRequest vom Provider
+                self.create_llm_request(
+                    purpose="template_transform",
+                    tokens=llm_request.tokens,
+                    duration=llm_request.duration,
+                    model=llm_request.model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    logger=logger,
+                    processor=processor
+                )
+            elif response:
+                # Fallback: Erstelle LLMRequest aus Response
+                tokens = response.usage.total_tokens if response.usage else 0
+                if tokens > 0:  # Nur tracken wenn Tokens verbraucht wurden
+                    self.create_llm_request(
+                        purpose="template_transform",
+                        tokens=tokens,
+                        duration=duration,
+                        model=self.model,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response=response,
+                        logger=logger,
+                        processor=processor
+                    )
 
             # Template mit extrahierten Daten füllen
             # Keys, die zwingend als JSON serialisiert werden müssen (Arrays/Objekte)
@@ -1261,22 +1425,52 @@ class WhisperTranscriber:
                         logger.info(f"SEGMENT-DEBUG: Thread-API-Aufruf für Segment {segment_id} gestartet")
                     
                     try:
-                        # Dateipfad oder Bytes-Objekt verarbeiten
-                        if isinstance(file_path, Path):
-                            with open(file_path, 'rb') as audio_file:
-                                response = self.client.audio.transcriptions.create(
-                                    model="whisper-1",
-                                    file=("audio.mp3", audio_file, "audio/mpeg"),
-                                    response_format="verbose_json"
-                                )
-                        else:
-                            # Wenn file_path bereits bytes ist
-                            bytes_io = io.BytesIO(file_path)
-                            response: TranscriptionVerbose = self.client.audio.transcriptions.create(
-                                model="whisper-1",
-                                file=("audio.mp3", bytes_io, "audio/mpeg"),
+                        # Verwende Provider-Abstraktion falls verfügbar
+                        if self.provider:
+                            # Bereite Audio-Daten vor
+                            if isinstance(file_path, Path):
+                                with open(file_path, 'rb') as f:
+                                    audio_bytes = f.read()
+                            else:
+                                audio_bytes = file_path
+                            
+                            # Verwende Provider für Transkription
+                            transcription_result, llm_request = self.provider.transcribe(
+                                audio_data=audio_bytes if isinstance(file_path, bytes) else file_path,
+                                model=self.model,
+                                language=source_language if source_language != "auto" else None,
                                 response_format="verbose_json"
                             )
+                            
+                            # Konvertiere TranscriptionResult zu TranscriptionVerbose-ähnlichem Objekt
+                            # Erstelle ein einfaches Objekt das die benötigten Attribute hat
+                            class TranscriptionResponse:
+                                def __init__(self, result: TranscriptionResult, usage_tokens: int):
+                                    self.text = result.text
+                                    self.language = result.source_language
+                                    # Erstelle Usage-Objekt ähnlich TranscriptionVerbose
+                                    class Usage:
+                                        def __init__(self, tokens: int):
+                                            self.total_tokens = tokens
+                                    self.usage = Usage(usage_tokens)
+                            
+                            response = TranscriptionResponse(transcription_result, llm_request.tokens)
+                        else:
+                            # Fallback auf direkten Client-Aufruf
+                            if isinstance(file_path, Path):
+                                with open(file_path, 'rb') as audio_file:
+                                    response = self.client.audio.transcriptions.create(
+                                        model=self.model,
+                                        file=("audio.mp3", audio_file, "audio/mpeg"),
+                                        response_format="verbose_json"
+                                    )
+                            else:
+                                bytes_io = io.BytesIO(file_path)
+                                response: TranscriptionVerbose = self.client.audio.transcriptions.create(
+                                    model=self.model,
+                                    file=("audio.mp3", bytes_io, "audio/mpeg"),
+                                    response_format="verbose_json"
+                                )
                         
                         # Erfolgreicher Aufruf - speichere Ergebnis
                         operation_result[0] = response
@@ -1368,34 +1562,31 @@ class WhisperTranscriber:
                     )
                 response = None
 
-            # Wenn keine Antwort oder ungültige Antwort, gib leeres Ergebnis zurück
+            # Wenn keine Antwort oder ungültige Antwort, gib Fehler-Ergebnis zurück
             if not response or not hasattr(response, 'text'):
                 if logger:
                     logger.warning(
                         f"SEGMENT-DEBUG: Keine gültige API-Antwort für Segment {segment_id} erhalten, überspringe Segment"
                     )
-                # Erstelle leeres Ergebnis, damit der Gesamtprozess nicht hängen bleibt
-                segment = TranscriptionSegment(
-                    text="",
-                    segment_id=segment_id or 0,
-                    start=0.0,
-                    end=0.0,
-                    title=segment_title
-                )
                 
                 # Zeitmessung beenden
                 duration = (time.time() - start_time) * 1000
                 
-                # LLM-Nutzung tracken mit zentraler Methode
-                self.create_llm_request(
-                    purpose="transcription_failed",
-                    tokens=0,
-                    duration=duration,
-                    model="whisper-1"
+                # Erstelle Fehler-Segment mit gültigen Werten
+                # end muss größer als start sein, daher verwenden wir eine minimale Dauer
+                segment = TranscriptionSegment(
+                    text="[Transkription fehlgeschlagen: Keine gültige API-Antwort]",
+                    segment_id=segment_id or 0,
+                    start=0.0,
+                    end=max(duration / 1000.0, 0.1),  # Mindestens 0.1 Sekunden, damit end > start
+                    title=segment_title
                 )
+                
+                # Kein LLMRequest erstellen bei Fehlern, da keine Tokens verbraucht wurden
+                # Die Dauer wird trotzdem im ProcessInfo getrackt
 
                 return TranscriptionResult(
-                    text="",
+                    text="[Transkription fehlgeschlagen: Keine gültige API-Antwort]",
                     source_language=source_language,
                     segments=[segment]
                 )
@@ -1419,13 +1610,15 @@ class WhisperTranscriber:
                 tokens = int(estimated_tokens)
             
             # LLM-Nutzung tracken mit zentraler Methode
-            self.create_llm_request(
-                processor=processor,
-                purpose="transcription",
-                tokens=tokens,
-                duration=duration,
-                model="whisper-1"  # Explizit Whisper-Modell angeben
-            )
+            # Nur tracken wenn Tokens verbraucht wurden (tokens > 0)
+            if tokens > 0:
+                self.create_llm_request(
+                    processor=processor,
+                    purpose="transcription",
+                    tokens=tokens,
+                    duration=duration,
+                    model="whisper-1"  # Explizit Whisper-Modell angeben
+                )
 
             if source_language == "auto":
                 # Konvertiere Whisper Sprachcode in ISO 639-1
@@ -1469,28 +1662,25 @@ class WhisperTranscriber:
                     traceback=traceback.format_exc()
                 )
             
-            # Erstelle leeres Ergebnis, damit der Gesamtprozess nicht hängen bleibt
-            segment = TranscriptionSegment(
-                text="[Transkriptionsfehler]",
-                segment_id=segment_id or 0,
-                start=0.0,
-                end=0.0,
-                title=segment_title
-            )
-            
             # Zeitmessung beenden
             duration = (time.time() - start_time) * 1000
             
-            # LLM-Nutzung tracken mit zentraler Methode für Fehler
-            self.create_llm_request(
-                purpose="transcription_error",
-                tokens=0,
-                duration=duration,
-                model="whisper-1"
+            # Erstelle Fehler-Segment mit gültigen Werten
+            # end muss größer als start sein, daher verwenden wir eine minimale Dauer
+            error_text = f"[Transkriptionsfehler: {str(e)}]"
+            segment = TranscriptionSegment(
+                text=error_text,
+                segment_id=segment_id or 0,
+                start=0.0,
+                end=max(duration / 1000.0, 0.1),  # Mindestens 0.1 Sekunden, damit end > start
+                title=segment_title
             )
+            
+            # Kein LLMRequest erstellen bei Fehlern, da keine Tokens verbraucht wurden
+            # Die Dauer wird trotzdem im ProcessInfo getrackt
 
             return TranscriptionResult(
-                text=f"[Transkriptionsfehler: {str(e)}]",
+                text=error_text,
                 source_language=source_language,
                 segments=[segment]
             )

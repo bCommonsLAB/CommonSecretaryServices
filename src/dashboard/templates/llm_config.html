@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+
+{% block title %}LLM Konfiguration{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>LLM Provider & Modell Konfiguration</h1>
+    
+    {% if error %}
+    <div class="alert alert-warning" role="alert">
+        <strong>Hinweis:</strong> {{ error }}
+        <br><small>Die Konfiguration kann trotzdem angezeigt werden. Bitte konfigurieren Sie die API-Keys in der .env Datei.</small>
+    </div>
+    {% endif %}
+    
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Use-Case Konfiguration</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">
+                        Konfigurieren Sie für jeden Use-Case den Provider und das Modell.
+                    </p>
+                    
+                    <form id="llm-config-form">
+                        <div class="form-group mb-4">
+                            <label for="transcription-provider"><strong>Transcription (Audio/Video)</strong></label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-control" id="transcription-provider" name="transcription-provider">
+                                        {% if use_cases and 'transcription' in use_cases %}
+                                        <option value="{{ use_cases['transcription']['provider'] }}" selected>{{ use_cases['transcription']['provider']|title }}</option>
+                                        {% else %}
+                                        <option value="openai" selected>OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'openai' %}
+                                        <option value="openai">OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'mistral' %}
+                                        <option value="mistral">Mistral</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'openrouter' %}
+                                        <option value="openrouter">OpenRouter</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <select class="form-control" id="transcription-model" name="transcription-model">
+                                        {% if use_cases and 'transcription' in use_cases %}
+                                        <option value="{{ use_cases['transcription']['model'] }}" selected>{{ use_cases['transcription']['model'] }}</option>
+                                        {% else %}
+                                        <option value="whisper-1" selected>whisper-1</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mb-4">
+                            <label for="image2text-provider"><strong>Image2Text (Vision API)</strong></label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-control" id="image2text-provider" name="image2text-provider">
+                                        {% if use_cases and 'image2text' in use_cases %}
+                                        <option value="{{ use_cases['image2text']['provider'] }}" selected>{{ use_cases['image2text']['provider']|title }}</option>
+                                        {% else %}
+                                        <option value="openai" selected>OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'openai' %}
+                                        <option value="openai">OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'mistral' %}
+                                        <option value="mistral">Mistral</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'openrouter' %}
+                                        <option value="openrouter">OpenRouter</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'ollama' %}
+                                        <option value="ollama">Ollama</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <select class="form-control" id="image2text-model" name="image2text-model">
+                                        {% if use_cases and 'image2text' in use_cases %}
+                                        <option value="{{ use_cases['image2text']['model'] }}" selected>{{ use_cases['image2text']['model'] }}</option>
+                                        {% else %}
+                                        <option value="gpt-4o" selected>gpt-4o</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mb-4">
+                            <label for="ocr_pdf-provider"><strong>OCR PDF</strong></label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-control" id="ocr_pdf-provider" name="ocr_pdf-provider">
+                                        {% if use_cases and 'ocr_pdf' in use_cases %}
+                                        <option value="{{ use_cases['ocr_pdf']['provider'] }}" selected>{{ use_cases['ocr_pdf']['provider']|title }}</option>
+                                        {% else %}
+                                        <option value="mistral" selected>Mistral</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'openai' %}
+                                        <option value="openai">OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'mistral' %}
+                                        <option value="mistral">Mistral</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'openrouter' %}
+                                        <option value="openrouter">OpenRouter</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'ollama' %}
+                                        <option value="ollama">Ollama</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <select class="form-control" id="ocr_pdf-model" name="ocr_pdf-model">
+                                        {% if use_cases and 'ocr_pdf' in use_cases %}
+                                        <option value="{{ use_cases['ocr_pdf']['model'] }}" selected>{{ use_cases['ocr_pdf']['model'] }}</option>
+                                        {% else %}
+                                        <option value="pixtral-large-latest" selected>pixtral-large-latest</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mb-4">
+                            <label for="chat_completion-provider"><strong>Chat Completion & Translation</strong></label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-control" id="chat_completion-provider" name="chat_completion-provider">
+                                        {% if use_cases and 'chat_completion' in use_cases %}
+                                        <option value="{{ use_cases['chat_completion']['provider'] }}" selected>{{ use_cases['chat_completion']['provider']|title }}</option>
+                                        {% else %}
+                                        <option value="openai" selected>OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'openai' %}
+                                        <option value="openai">OpenAI</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'mistral' %}
+                                        <option value="mistral">Mistral</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'openrouter' %}
+                                        <option value="openrouter">OpenRouter</option>
+                                        {% endif %}
+                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'ollama' %}
+                                        <option value="ollama">Ollama</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <select class="form-control" id="chat_completion-model" name="chat_completion-model">
+                                        {% if use_cases and 'chat_completion' in use_cases %}
+                                        <option value="{{ use_cases['chat_completion']['model'] }}" selected>{{ use_cases['chat_completion']['model'] }}</option>
+                                        {% else %}
+                                        <option value="gpt-4.1-mini" selected>gpt-4.1-mini</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Konfiguration speichern</button>
+                        <button type="button" class="btn btn-secondary ml-2" id="test-config-btn">Konfiguration testen</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Voreingestellte Konfigurationen</h3>
+                </div>
+                <div class="card-body">
+                    <div id="presets-container">
+                        <p class="text-muted">Lade Presets...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Lade verfügbare Modelle basierend auf Provider-Auswahl
+document.addEventListener('DOMContentLoaded', function() {
+    const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
+    
+    useCases.forEach(useCase => {
+        const providerSelect = document.getElementById(`${useCase}-provider`);
+        const modelSelect = document.getElementById(`${useCase}-model`);
+        
+        if (providerSelect && modelSelect) {
+            // Speichere das aktuell gespeicherte Modell, bevor wir die Modelle laden
+            const savedModel = modelSelect.value;
+            
+            // Lade initial Modelle für aktuellen Provider
+            const currentProvider = providerSelect.value;
+            if (currentProvider) {
+                loadModels(useCase, currentProvider, modelSelect, savedModel);
+            }
+            
+            providerSelect.addEventListener('change', function() {
+                // Beim Provider-Wechsel kein gespeichertes Modell verwenden
+                loadModels(useCase, this.value, modelSelect);
+            });
+        }
+    });
+    
+    // Lade Presets
+    loadPresets();
+    
+    // Form Submit Handler
+    const form = document.getElementById('llm-config-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveConfig();
+        });
+    }
+    
+    // Test Button Handler
+    const testBtn = document.getElementById('test-config-btn');
+    if (testBtn) {
+        testBtn.addEventListener('click', function() {
+            testConfig();
+        });
+    }
+});
+
+function loadModels(useCase, provider, modelSelect, savedModel = null) {
+    if (!provider) {
+        console.warn(`Kein Provider für Use-Case ${useCase} ausgewählt`);
+        return;
+    }
+    
+    // Zeige Loading-Indikator
+    modelSelect.disabled = true;
+    const originalValue = modelSelect.value;
+    modelSelect.innerHTML = '<option>Lade Modelle...</option>';
+    
+    fetch(`/llm-config/api/models?provider=${encodeURIComponent(provider)}&use_case=${encodeURIComponent(useCase)}`)
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.message || `HTTP ${response.status}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success' && Array.isArray(data.data)) {
+                const currentValue = savedModel || originalValue;
+                modelSelect.innerHTML = '';
+                
+                // Füge alle verfügbaren Modelle hinzu
+                data.data.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    // Markiere das gespeicherte Modell als selected, falls es in der Liste ist
+                    if (model === currentValue) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+                
+                // Falls das gespeicherte Modell nicht in der Liste ist, füge es hinzu
+                if (currentValue && !data.data.includes(currentValue)) {
+                    const option = document.createElement('option');
+                    option.value = currentValue;
+                    option.textContent = `${currentValue} (nicht verfügbar)`;
+                    option.selected = true;
+                    option.disabled = true;
+                    modelSelect.insertBefore(option, modelSelect.firstChild);
+                }
+                
+                // Falls kein Modell selected ist, wähle das erste aus
+                if (modelSelect.selectedIndex === -1 && data.data.length > 0) {
+                    modelSelect.selectedIndex = 0;
+                }
+            } else {
+                console.error('Ungültige Antwort beim Laden der Modelle:', data);
+                modelSelect.innerHTML = '<option>Fehler beim Laden</option>';
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Modelle:', error);
+            modelSelect.innerHTML = `<option>Fehler: ${error.message}</option>`;
+        })
+        .finally(() => {
+            modelSelect.disabled = false;
+        });
+}
+
+function loadPresets() {
+    fetch('/api/llm-config/presets')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const container = document.getElementById('presets-container');
+                container.innerHTML = '';
+                
+                data.data.presets.forEach(preset => {
+                    const presetDiv = document.createElement('div');
+                    presetDiv.className = 'card mb-3';
+                    presetDiv.innerHTML = `
+                        <div class="card-body">
+                            <h5>${preset.name}</h5>
+                            <p class="text-muted">${preset.description}</p>
+                            <button class="btn btn-sm btn-outline-primary" onclick="applyPreset(${JSON.stringify(preset.config).replace(/"/g, '&quot;')})">Anwenden</button>
+                        </div>
+                    `;
+                    container.appendChild(presetDiv);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Presets:', error);
+        });
+}
+
+function applyPreset(config) {
+    Object.keys(config).forEach(useCase => {
+        const providerSelect = document.getElementById(`${useCase}-provider`);
+        const modelSelect = document.getElementById(`${useCase}-model`);
+        
+        if (providerSelect && modelSelect) {
+            providerSelect.value = config[useCase].provider;
+            loadModels(useCase, config[useCase].provider, modelSelect, config[useCase].model);
+        }
+    });
+}
+
+function saveConfig() {
+    const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
+    const config = {};
+    
+    useCases.forEach(useCase => {
+        const providerSelect = document.getElementById(`${useCase}-provider`);
+        const modelSelect = document.getElementById(`${useCase}-model`);
+        
+        if (providerSelect && modelSelect) {
+            config[useCase] = {
+                provider: providerSelect.value,
+                model: modelSelect.value
+            };
+        }
+    });
+    
+    // Zeige Loading-Indikator
+    const submitBtn = document.querySelector('#llm-config-form button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Speichere...';
+    
+    fetch('/llm-config/api/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            use_cases: config
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Konfiguration erfolgreich gespeichert!');
+            // Optional: Seite neu laden um aktualisierte Werte anzuzeigen
+            window.location.reload();
+        } else {
+            alert(`Fehler beim Speichern: ${data.message}`);
+        }
+    })
+    .catch(error => {
+        console.error('Fehler beim Speichern:', error);
+        alert('Fehler beim Speichern der Konfiguration');
+    })
+    .finally(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    });
+}
+
+function testConfig() {
+    const testBtn = document.getElementById('test-config-btn');
+    const originalText = testBtn.textContent;
+    testBtn.disabled = true;
+    testBtn.textContent = 'Teste...';
+    
+    fetch('/llm-config/api/test', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+    })
+    .then(response => response.json())
+    .then(data => {
+        let message = 'Testergebnisse:\n\n';
+        
+        if (data.results && data.results.length > 0) {
+            data.results.forEach(result => {
+                const icon = result.status === 'success' ? '✓' : 
+                           result.status === 'warning' ? '⚠' : '✗';
+                message += `${icon} ${result.use_case}: ${result.message}\n`;
+            });
+        } else {
+            message = data.message || 'Keine Testergebnisse';
+        }
+        
+        alert(message);
+    })
+    .catch(error => {
+        console.error('Fehler beim Testen:', error);
+        alert('Fehler beim Testen der Konfiguration');
+    })
+    .finally(() => {
+        testBtn.disabled = false;
+        testBtn.textContent = originalText;
+    });
+}
+</script>
+{% endblock %}
+
+
