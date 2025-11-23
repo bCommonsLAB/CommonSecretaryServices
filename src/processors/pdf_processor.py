@@ -53,6 +53,7 @@ import traceback
 import time
 import json
 import hashlib
+import asyncio
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, cast, TYPE_CHECKING, List, Tuple
@@ -79,7 +80,7 @@ PROCESSOR_TYPE_PDF = "pdf"
 
 # Konstanten für Extraktionsmethoden
 EXTRACTION_NATIVE = "native"  # Nur native Text-Extraktion
-EXTRACTION_OCR = "ocr"       # Nur OCR
+EXTRACTION_OCR = "tesseract_ocr"  # Nur Tesseract OCR
 EXTRACTION_BOTH = "both"     # Beide Methoden kombinieren
 EXTRACTION_PREVIEW = "preview"
 EXTRACTION_PREVIEW_AND_NATIVE = "preview_and_native"  # Vorschaubilder und native Text-Extraktion
@@ -119,6 +120,9 @@ class PDFProcessingResult:
     # Neue Felder für Bilder-Archiv
     images_archive_data: Optional[str] = None  # Base64-kodiertes ZIP-Archiv mit Bildern
     images_archive_filename: Optional[str] = None  # Dateiname des Bilder-Archives
+    # Neue Felder für PDF-Seiten als Bilder (parallel zu Mistral OCR)
+    pages_archive_data: Optional[str] = None  # Base64-kodiertes ZIP-Archiv mit PDF-Seiten als Bilder
+    pages_archive_filename: Optional[str] = None  # Dateiname des Seiten-Archives
     # Rohantwort der Mistral OCR API (nur bei extraction_method=mistral_ocr gesetzt)
     mistral_ocr_raw: Optional[Dict[str, Any]] = None
     
@@ -142,6 +146,8 @@ class PDFProcessingResult:
             'processed_at': self.processed_at,
             'images_archive_data': self.images_archive_data,
             'images_archive_filename': self.images_archive_filename,
+            'pages_archive_data': self.pages_archive_data,
+            'pages_archive_filename': self.pages_archive_filename,
             # Rohantwort der Mistral OCR API (optional)
             'mistral_ocr_raw': getattr(self, 'mistral_ocr_raw', None)
         }
@@ -173,6 +179,8 @@ class PDFProcessingResult:
             processed_at=data.get('processed_at', datetime.now(UTC).isoformat()),
             images_archive_data=data.get('images_archive_data'),
             images_archive_filename=data.get('images_archive_filename'),
+            pages_archive_data=data.get('pages_archive_data'),
+            pages_archive_filename=data.get('pages_archive_filename'),
             # Mistral Rohdaten wenn vorhanden übernehmen
             **({'mistral_ocr_raw': data.get('mistral_ocr_raw')} if 'mistral_ocr_raw' in data else {})
         )
@@ -400,6 +408,575 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             except:
                 pass
         return ext
+
+    async def _process_mistral_ocr(
+        self,
+        file_path: Path,
+        page_start: Optional[int] = None,
+        page_end: Optional[int] = None,
+        include_ocr_images: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Führt Mistral OCR Transformation durch.
+        
+        Args:
+            file_path: Pfad zur PDF-Datei
+            page_start: Startseite (1-basiert, optional)
+            page_end: Endseite (1-basiert, optional)
+            include_ocr_images: Ob Mistral OCR Bilder als Base64 in Response enthalten sein sollen
+            
+        Returns:
+            Dict mit Keys: ocr_json, result_text, text_contents
+            
+        Raises:
+            ProcessingError: Bei Fehlern während der Verarbeitung
+        """
+        import os as _os
+        
+        api_key: str = _os.environ.get("MISTRAL_API_KEY", "")
+        if not api_key:
+            raise ProcessingError("MISTRAL_API_KEY nicht gesetzt")
+        
+        # Log: Start der Mistral OCR Verarbeitung
+        file_size = file_path.stat().st_size if file_path.exists() else 0
+        self.logger.info(
+            "Mistral-OCR: Verarbeitung startet",
+            progress=5,
+            file_name=file_path.name,
+            file_size=file_size,
+            page_start=page_start,
+            page_end=page_end,
+            include_ocr_images=include_ocr_images
+        )
+        
+        # Upload
+        files_url = "https://api.mistral.ai/v1/files"
+        headers_up: Dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+        mime = "application/pdf"
+        self.logger.info(
+            "Mistral-OCR: Upload startet",
+            progress=10,
+            file_name=file_path.name,
+            file_size=file_size,
+            upload_url=files_url
+        )
+        
+        with open(file_path, "rb") as fpdf:
+            files = {"file": (file_path.name, fpdf, mime)}
+            data_form = {"purpose": "ocr"}
+            up_resp = requests.post(files_url, headers=headers_up, files=files, data=data_form, timeout=180)
+        
+        self.logger.debug(
+            "Mistral-OCR: Upload Response",
+            status_code=up_resp.status_code,
+            headers=dict(up_resp.headers),
+            response_size=len(up_resp.content) if up_resp.content else 0
+        )
+        
+        up_resp.raise_for_status()
+        up_json: Dict[str, Any] = up_resp.json() if up_resp.headers.get('content-type','').startswith('application/json') else {}
+        file_id: str = str(up_json.get("id") or up_json.get("file_id") or "")
+        if not file_id:
+            raise ProcessingError("Mistral Files Upload ohne file_id")
+        
+        upload_response_keys = list(up_json.keys()) if up_json else []
+        self.logger.info(
+            "Mistral-OCR: Upload abgeschlossen",
+            progress=30,
+            file_id=file_id,
+            upload_response_keys=upload_response_keys
+        )
+        
+        # OCR
+        ocr_url = "https://api.mistral.ai/v1/ocr"
+        headers_json: Dict[str, str] = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        pages_payload: Optional[List[int]] = None
+        if page_start is not None or page_end is not None:
+            ps0 = max(0, (page_start or 1) - 1)
+            pe0 = (page_end - 1) if page_end is not None else ps0
+            if pe0 < ps0:
+                pe0 = ps0
+            pages_payload = list(range(ps0, pe0 + 1))
+        
+        payload: Dict[str, Any] = {
+            "model": _os.environ.get("MISTRAL_MODEL", "mistral-ocr-latest"),
+            "document": {"type": "file", "file_id": file_id},
+            "include_image_base64": True  # Bilder werden immer angefordert, aber separat gespeichert
+        }
+        if pages_payload is not None:
+            payload["pages"] = pages_payload
+        
+        payload_log: Dict[str, Any] = {k: v for k, v in payload.items()}
+        if "document" in payload_log and isinstance(payload_log["document"], dict):
+            payload_log["document"] = {"type": payload_log["document"].get("type"), "file_id": file_id}
+        self.logger.info(
+            "Mistral-OCR: OCR-Anfrage wird gesendet",
+            progress=60,
+            ocr_url=ocr_url,
+            model=payload.get("model"),
+            file_id=file_id,
+            pages_count=len(pages_payload) if pages_payload else None,
+            include_image_base64=payload.get("include_image_base64")
+        )
+        self.logger.debug("Mistral-OCR: OCR Payload", payload=payload_log)
+        
+        ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
+        
+        self.logger.debug(
+            "Mistral-OCR: OCR Response empfangen",
+            status_code=ocr_resp.status_code,
+            headers=dict(ocr_resp.headers),
+            response_size=len(ocr_resp.content) if ocr_resp.content else 0,
+            content_type=ocr_resp.headers.get('content-type', '')
+        )
+        
+        if ocr_resp.status_code >= 400:
+            ocr_error_details: Dict[str, Any] = {
+                "status_code": ocr_resp.status_code,
+                "headers": dict(ocr_resp.headers),
+                "url": ocr_url
+            }
+            try:
+                error_body = ocr_resp.text[:1000]
+                ocr_error_details["response_body"] = error_body
+                if ocr_resp.headers.get('content-type', '').startswith('application/json'):
+                    error_json = ocr_resp.json()
+                    ocr_error_details["response_json"] = error_json
+            except Exception:
+                pass
+            self.logger.error(
+                f"Mistral-OCR: HTTP Fehler {ocr_resp.status_code}",
+                **ocr_error_details
+            )
+        
+        ocr_resp.raise_for_status()
+        self.logger.info(
+            "Mistral-OCR: OCR-Antwort empfangen",
+            progress=75,
+            status_code=ocr_resp.status_code,
+            response_size=len(ocr_resp.content) if ocr_resp.content else 0
+        )
+        ocr_json: Dict[str, Any] = ocr_resp.json()
+        
+        pages_list: Any = ocr_json.get("pages", [])
+        pages_count = len(pages_list) if isinstance(pages_list, list) else 0
+        self.logger.debug(
+            "Mistral-OCR: OCR Response Struktur",
+            response_keys=list(ocr_json.keys()),
+            pages_count=pages_count,
+            has_images="images" in ocr_json
+        )
+        
+        # Markdown joinen
+        pages_any: Any = ocr_json.get("pages", [])
+        text_contents: List[Tuple[int, str]] = []
+        md_parts: List[str] = []
+        if isinstance(pages_any, list):
+            for p_any in pages_any:  # type: ignore[assignment]
+                p_dict = cast(Dict[str, Any], p_any) if isinstance(p_any, dict) else {}
+                idx_val: Any = p_dict.get("index", 0)
+                try:
+                    idx = int(idx_val)
+                except Exception:
+                    idx = 0
+                md_val: Any = p_dict.get("markdown", "")
+                md = str(md_val)
+                text_contents.append((idx + 1, md))
+                md_parts.append(f"--- Seite {idx + 1} ---\n{md}")
+        result_text = "\n\n".join(md_parts)
+        
+        try:
+            self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
+        except Exception:
+            self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
+        
+        # Bilder werden immer separat extrahiert, nie in mistral_ocr_raw eingebettet
+        # include_ocr_images wird nicht mehr verwendet, da Bilder immer separat gespeichert werden
+        
+        return {
+            "ocr_json": ocr_json,
+            "result_text": result_text,
+            "text_contents": text_contents
+        }
+
+    async def _extract_pdf_pages_as_images(
+        self,
+        file_path: Path,
+        page_start: Optional[int] = None,
+        page_end: Optional[int] = None,
+        working_dir: Optional[Path] = None
+    ) -> Tuple[List[str], Optional[str]]:
+        """
+        Extrahiert PDF-Seiten als Bilder und erstellt ein ZIP-Archiv.
+        
+        Args:
+            file_path: Pfad zur PDF-Datei
+            page_start: Startseite (1-basiert, optional)
+            page_end: Endseite (1-basiert, optional)
+            working_dir: Arbeitsverzeichnis für die Bilder
+            
+        Returns:
+            Tuple[List[str], Optional[str]]: (preview_paths, zip_path)
+        """
+        import zipfile
+        
+        preview_paths: List[str] = []
+        zip_path: Optional[str] = None
+        
+        if working_dir is None:
+            raise ProcessingError("working_dir darf nicht None sein")
+        
+        try:
+            with fitz.open(file_path) as pdf:
+                total_pages = len(pdf)
+                # Seitenbereich berücksichtigen, falls gesetzt
+                if page_start is not None or page_end is not None:
+                    ps0 = max(0, (page_start or 1) - 1)
+                    pe0 = (page_end - 1) if page_end is not None else total_pages - 1
+                    if pe0 < ps0:
+                        pe0 = ps0
+                    page_indices = range(ps0, min(pe0 + 1, total_pages))
+                else:
+                    page_indices = range(0, total_pages)
+                
+                for i in page_indices:
+                    page_obj = pdf[i]
+                    p = self._generate_preview_image(page_obj, i, working_dir)
+                    preview_paths.append(p)
+                
+                # ZIP der Previews erzeugen
+                if preview_paths:
+                    zip_path_local: Path = working_dir / "pages.zip"
+                    with zipfile.ZipFile(zip_path_local, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for _pp in preview_paths:
+                            _pp_obj = Path(_pp)
+                            if _pp_obj.exists():
+                                zipf.write(str(_pp_obj), _pp_obj.name)
+                    zip_path = str(zip_path_local)
+                    self.logger.info(f"PDF-Seiten als Bilder extrahiert: {len(preview_paths)} Seiten, ZIP: {zip_path}")
+        except Exception as err:
+            self.logger.warning(f"Fehler beim Extrahieren der PDF-Seiten als Bilder: {str(err)}")
+        
+        return preview_paths, zip_path
+
+    async def process_mistral_ocr_with_pages(
+        self,
+        file_path: Union[str, Path],
+        page_start: Optional[int] = None,
+        page_end: Optional[int] = None,
+        include_ocr_images: bool = True,
+        include_page_images: bool = True,
+        use_cache: bool = True,
+        file_hash: Optional[str] = None,
+        force_overwrite: bool = False
+    ) -> PDFResponse:
+        """
+        Verarbeitet PDF mit Mistral OCR und extrahiert parallel PDF-Seiten als Bilder.
+        
+        Args:
+            file_path: Pfad zur PDF-Datei
+            page_start: Startseite (1-basiert, optional)
+            page_end: Endseite (1-basiert, optional)
+            include_ocr_images: Ob Mistral OCR Bilder als Base64 enthalten sein sollen
+            include_page_images: Ob PDF-Seiten als Bilder extrahiert werden sollen
+            use_cache: Ob Cache verwendet werden soll
+            file_hash: Optional Hash der Datei
+            force_overwrite: Ob Datei neu verarbeitet werden soll
+            
+        Returns:
+            PDFResponse mit Mistral OCR Ergebnis und optional Seiten-Bildern
+        """
+        path = Path(file_path) if isinstance(file_path, str) else file_path
+        
+        # Cache-Key erstellen
+        cache_key = self._create_cache_key(
+            file_path=str(file_path),
+            template=None,
+            context=None,
+            extraction_method="mistral_ocr_with_pages",
+            file_hash=file_hash
+        )
+        if include_ocr_images:
+            cache_key += "_with_ocr_images"
+        if include_page_images:
+            cache_key += "_with_pages"
+        
+        # Cache-Prüfung
+        if use_cache and self.is_cache_enabled():
+            cache_hit, cached_result = self.get_from_cache(cache_key)
+            if cache_hit and cached_result:
+                self.logger.info(f"Cache-Hit für Mistral OCR mit Seiten: {cache_key[:8]}...")
+                try:
+                    resource_calculator_any = cast(Any, self.resource_calculator)
+                    resource_calculator_any.add_resource_usage(
+                        processor_type="pdf",
+                        resource_type="cache_hit",
+                        duration_ms=0,
+                        tokens=0,
+                        cost=0
+                    )
+                except AttributeError:
+                    self.logger.debug("ResourceCalculator hat keine add_resource_usage Methode")
+                
+                return self.create_response(
+                    processor_name="pdf",
+                    result=cached_result,
+                    request_info={
+                        "file_path": str(file_path),
+                        "extraction_method": "mistral_ocr_with_pages"
+                    },
+                    response_class=PDFResponse,
+                    from_cache=True,
+                    cache_key=cache_key
+                )
+        
+        # Arbeitsverzeichnis erstellen
+        file_key = file_hash or hashlib.md5(str(file_path).encode()).hexdigest()[:16]
+        working_dir = Path(self.temp_dir) / "pdf" / file_key
+        if not working_dir.exists():
+            working_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Parallele Ausführung von Mistral OCR und Seiten-Extraktion
+        ocr_task = self._process_mistral_ocr(
+            file_path=path,
+            page_start=page_start,
+            page_end=page_end,
+            include_ocr_images=include_ocr_images
+        )
+        
+        pages_task = None
+        if include_page_images:
+            pages_task = self._extract_pdf_pages_as_images(
+                file_path=path,
+                page_start=page_start,
+                page_end=page_end,
+                working_dir=working_dir
+            )
+        
+        # Warte auf beide Tasks
+        if pages_task:
+            ocr_result, pages_result = await asyncio.gather(ocr_task, pages_task)
+            preview_paths, zip_path_local = pages_result
+        else:
+            ocr_result = await ocr_task
+            preview_paths = []
+            zip_path_local = None
+        
+        ocr_json = ocr_result["ocr_json"]
+        result_text = ocr_result["result_text"]
+        text_contents = ocr_result["text_contents"]
+        
+        # Bilder IMMER aus mistral_ocr_raw extrahieren und direkt in ZIP packen (OHNE einzelne Dateien)
+        # Bilder werden NIE in mistral_ocr_raw eingebettet
+        images_archive_data: Optional[str] = None
+        images_archive_filename: Optional[str] = None
+        image_paths: List[str] = []
+        
+        # Extrahiere Bilder direkt aus OCR-Response und packe sie in ZIP (ohne einzelne Dateien zu speichern)
+        # Das ist viel schneller bei vielen Bildern
+        try:
+            import zipfile
+            import io
+            import base64
+            import re
+            
+            zip_buffer = io.BytesIO()
+            image_count = 0
+            
+            with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                # Struktur 1: pages[].images[]
+                pages_any: Any = ocr_json.get("pages", [])
+                if isinstance(pages_any, list):
+                    for page_idx, page_dict in enumerate(pages_any):
+                        if not isinstance(page_dict, dict):
+                            continue
+                        
+                        images_any: Any = page_dict.get("images", [])
+                        if isinstance(images_any, list):
+                            for img_idx, img_dict in enumerate(images_any):
+                                if not isinstance(img_dict, dict):
+                                    continue
+                                
+                                # Extrahiere Bildreferenz und Base64-Daten
+                                image_ref = (
+                                    img_dict.get("reference") or 
+                                    img_dict.get("name") or 
+                                    img_dict.get("filename") or
+                                    img_dict.get("id") or
+                                    img_dict.get("file_name") or
+                                    f"img-{page_idx + 1}-{img_idx + 1}.jpeg"
+                                )
+                                image_base64 = (
+                                    img_dict.get("base64") or 
+                                    img_dict.get("data") or 
+                                    img_dict.get("content") or
+                                    img_dict.get("image_base64") or
+                                    img_dict.get("image_data")
+                                )
+                                
+                                if image_base64:
+                                    try:
+                                        # Dekodiere Base64 - entferne Data-URL-Präfix falls vorhanden
+                                        image_base64_str = str(image_base64)
+                                        
+                                        # Entferne Data-URL-Präfix
+                                        if image_base64_str.startswith("data:"):
+                                            comma_idx = image_base64_str.find(",")
+                                            if comma_idx >= 0:
+                                                image_base64_str = image_base64_str[comma_idx + 1:]
+                                        
+                                        # Dekodiere Base64
+                                        image_bytes = base64.b64decode(image_base64_str)
+                                        
+                                        # Validiere Magic Bytes
+                                        if len(image_bytes) >= 4:
+                                            # Bestimme Dateiendung basierend auf Magic Bytes
+                                            image_ref_str = str(image_ref)
+                                            image_filename = re.sub(r'[^\w\-_.]', '_', image_ref_str)
+                                            
+                                            if '.' not in image_filename:
+                                                if image_bytes[:2] == b'\xff\xd8':
+                                                    image_filename += '.jpeg'
+                                                elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                                                    image_filename += '.png'
+                                                elif image_bytes[:6] in [b'GIF87a', b'GIF89a']:
+                                                    image_filename += '.gif'
+                                                else:
+                                                    image_filename += '.jpeg'
+                                            
+                                            # Schreibe direkt in ZIP (ohne Dateisystem)
+                                            zf.writestr(image_filename, image_bytes)
+                                            image_count += 1
+                                            
+                                    except Exception as img_err:
+                                        self.logger.warning(f"Fehler beim Extrahieren des Bildes {image_ref}: {str(img_err)}")
+                
+                # Struktur 2: images[] auf Top-Level (falls vorhanden)
+                if image_count == 0:
+                    top_level_images: Any = ocr_json.get("images", [])
+                    if isinstance(top_level_images, list):
+                        for img_idx, img_dict in enumerate(top_level_images):
+                            if not isinstance(img_dict, dict):
+                                continue
+                            
+                            image_ref = (
+                                img_dict.get("reference") or 
+                                img_dict.get("name") or 
+                                img_dict.get("filename") or
+                                img_dict.get("id") or
+                                f"img-{img_idx + 1}.jpeg"
+                            )
+                            image_base64 = (
+                                img_dict.get("base64") or 
+                                img_dict.get("data") or 
+                                img_dict.get("content") or
+                                img_dict.get("image_base64")
+                            )
+                            
+                            if image_base64:
+                                try:
+                                    image_base64_str = str(image_base64)
+                                    if image_base64_str.startswith("data:"):
+                                        comma_idx = image_base64_str.find(",")
+                                        if comma_idx >= 0:
+                                            image_base64_str = image_base64_str[comma_idx + 1:]
+                                    
+                                    image_bytes = base64.b64decode(image_base64_str)
+                                    
+                                    if len(image_bytes) >= 4:
+                                        image_ref_str = str(image_ref)
+                                        image_filename = re.sub(r'[^\w\-_.]', '_', image_ref_str)
+                                        if '.' not in image_filename:
+                                            if image_bytes[:2] == b'\xff\xd8':
+                                                image_filename += '.jpeg'
+                                            elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                                                image_filename += '.png'
+                                            elif image_bytes[:6] in [b'GIF87a', b'GIF89a']:
+                                                image_filename += '.gif'
+                                            else:
+                                                image_filename += '.jpeg'
+                                        
+                                        zf.writestr(image_filename, image_bytes)
+                                        image_count += 1
+                                        
+                                except Exception as img_err:
+                                    self.logger.warning(f"Fehler beim Extrahieren des Bildes {image_ref}: {str(img_err)}")
+            
+            if image_count > 0:
+                zip_buffer.seek(0)
+                images_archive_data = base64.b64encode(zip_buffer.read()).decode('utf-8')
+                images_archive_filename = f"mistral_ocr_images_{self.process_id}.zip"
+                self.logger.info(f"Mistral OCR Bilder direkt in ZIP gepackt: {image_count} Bilder in {images_archive_filename}")
+            else:
+                self.logger.warning("Keine Bilder in Mistral OCR Response gefunden")
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen des Bilder-Archives: {str(e)}", exc_info=True)
+        
+        # Entferne Bilder aus ocr_json, bevor es gespeichert wird
+        ocr_json_clean = self._remove_images_from_ocr_json(ocr_json.copy())
+        
+        # Seiten-ZIP als Base64 kodieren, falls vorhanden
+        pages_archive_data: Optional[str] = None
+        pages_archive_filename: Optional[str] = None
+        if zip_path_local and Path(zip_path_local).exists():
+            import base64
+            with open(zip_path_local, "rb") as f:
+                zip_bytes = f.read()
+                pages_archive_data = base64.b64encode(zip_bytes).decode('utf-8')
+                pages_archive_filename = Path(zip_path_local).name
+        
+        # Metadata erstellen
+        # Hinweis: image_paths ist leer, da Bilder direkt in ZIP gepackt werden (nicht als einzelne Dateien)
+        metadata = PDFMetadata(
+            file_name=path.name,
+            file_size=path.stat().st_size,
+            page_count=len(text_contents) if text_contents else 0,
+            process_dir=str(working_dir),
+            extraction_method="mistral_ocr_with_pages",
+            format="pdf",
+            preview_paths=preview_paths,
+            preview_zip=zip_path_local,
+            image_paths=[]  # Bilder sind direkt im ZIP, keine einzelnen Dateien
+        )
+        
+        # Result erstellen
+        result = PDFProcessingResult(
+            metadata=metadata,
+            extracted_text=result_text,
+            ocr_text=None,
+            process_id=self.process_id,
+            images_archive_data=images_archive_data,  # Mistral OCR Bilder als ZIP
+            images_archive_filename=images_archive_filename,
+            pages_archive_data=pages_archive_data,
+            pages_archive_filename=pages_archive_filename,
+        )
+        
+        # mistral_ocr_raw hinzufügen (OHNE Bilder)
+        obj_dict = result.to_dict()
+        obj_dict['mistral_ocr_raw'] = ocr_json_clean
+        result = PDFProcessingResult.from_dict(obj_dict)
+        
+        # Pfade konvertieren
+        self._convert_paths_to_urls(result)
+        
+        # Cache speichern
+        if use_cache and self.is_cache_enabled():
+            self.save_to_cache(cache_key, result)
+        
+        self.logger.info("Mistral-OCR mit Seiten: Verarbeitung abgeschlossen", progress=90)
+        
+        return self.create_response(
+            processor_name=PROCESSOR_TYPE_PDF,
+            result=result,
+            request_info={
+                'file_path': str(file_path),
+                'extraction_method': 'mistral_ocr_with_pages'
+            },
+            response_class=PDFResponse,
+            from_cache=False,
+            cache_key=cache_key
+        )
 
     def _convert_pptx_to_pdf(self, input_path: Path, output_path: Path) -> None:
         """Konvertiert eine PowerPoint-Datei zu PDF.
@@ -697,8 +1274,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             # Validiere alle Extraktionsmethoden
             valid_methods = [
                 EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW,
-                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR,
-                EXTRACTION_MISTRAL_OCR, EXTRACTION_PREVIEW_AND_MISTRAL_OCR
+                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR
             ]
             for method in methods_list:
                 if method not in valid_methods:
@@ -746,164 +1322,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 if not original_path_file.exists() or force_overwrite:
                     with open(original_path_file, 'w') as f:
                         f.write(str(file_path))
-
-            # Früher Exit: Mistral-OCR (optional kombiniert mit Preview-Bildern)
-            if methods_list == [EXTRACTION_MISTRAL_OCR] or methods_list == [EXTRACTION_PREVIEW_AND_MISTRAL_OCR]:
-                try:
-                    import os as _os
-                    api_key: str = _os.environ.get("MISTRAL_API_KEY", "")
-                    if not api_key:
-                        raise ProcessingError("MISTRAL_API_KEY nicht gesetzt")
-                    # Upload
-                    files_url = "https://api.mistral.ai/v1/files"
-                    headers_up: Dict[str, str] = {"Authorization": f"Bearer {api_key}"}
-                    mime = "application/pdf"
-                    # Fortschritt: Upload startet
-                    self.logger.info("Mistral-OCR: Upload startet", progress=10)
-                    with open(path, "rb") as fpdf:
-                        files = {"file": (path.name, fpdf, mime)}
-                        data_form = {"purpose": "ocr"}
-                        up_resp = requests.post(files_url, headers=headers_up, files=files, data=data_form, timeout=180)
-                    up_resp.raise_for_status()
-                    up_json: Dict[str, Any] = up_resp.json() if up_resp.headers.get('content-type','').startswith('application/json') else {}
-                    file_id: str = str(up_json.get("id") or up_json.get("file_id") or "")
-                    if not file_id:
-                        raise ProcessingError("Mistral Files Upload ohne file_id")
-                    # Fortschritt: Upload abgeschlossen
-                    self.logger.info("Mistral-OCR: Upload abgeschlossen", progress=30)
-                    # OCR
-                    ocr_url = "https://api.mistral.ai/v1/ocr"
-                    headers_json: Dict[str, str] = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                    pages_payload: Optional[List[int]] = None
-                    if page_start is not None or page_end is not None:
-                        ps0 = max(0, (page_start or 1) - 1)
-                        pe0 = (page_end - 1) if page_end is not None else ps0
-                        if pe0 < ps0:
-                            pe0 = ps0
-                        pages_payload = list(range(ps0, pe0 + 1))
-                    payload: Dict[str, Any] = {
-                        "model": _os.environ.get("MISTRAL_MODEL", "mistral-ocr-2505"),
-                        "document": {"type": "file", "file_id": file_id},
-                    }
-                    if pages_payload is not None:
-                        payload["pages"] = pages_payload
-                    # Fortschritt: OCR-Anfrage wird gesendet
-                    self.logger.info("Mistral-OCR: OCR-Anfrage gesendet", progress=60)
-                    ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
-                    ocr_resp.raise_for_status()
-                    # Fortschritt: OCR-Antwort empfangen
-                    self.logger.info("Mistral-OCR: OCR-Antwort empfangen", progress=75)
-                    ocr_json: Dict[str, Any] = ocr_resp.json()
-                    # Markdown joinen
-                    pages_any: Any = ocr_json.get("pages", [])
-                    text_contents: List[Tuple[int, str]] = []
-                    md_parts: List[str] = []
-                    if isinstance(pages_any, list):
-                        for p_any in pages_any:  # type: ignore[assignment]
-                            p_dict = cast(Dict[str, Any], p_any) if isinstance(p_any, dict) else {}
-                            idx_val: Any = p_dict.get("index", 0)
-                            try:
-                                idx = int(idx_val)
-                            except Exception:
-                                idx = 0
-                            md_val: Any = p_dict.get("markdown", "")
-                            md = str(md_val)
-                            text_contents.append((idx + 1, md))
-                            md_parts.append(f"--- Seite {idx + 1} ---\n{md}")
-                    result_text = "\n\n".join(md_parts)
-                    # Fortschritt: OCR-Ergebnis geparst
-                    try:
-                        self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
-                    except Exception:
-                        self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
-                    # Wenn Previews gewünscht sind, erzeuge sie jetzt
-                    preview_paths: List[str] = []
-                    extraction_method_value = EXTRACTION_MISTRAL_OCR if methods_list == [EXTRACTION_MISTRAL_OCR] else EXTRACTION_PREVIEW_AND_MISTRAL_OCR
-                    preview_zip_path_local: Optional[str] = None
-                    if methods_list == [EXTRACTION_PREVIEW_AND_MISTRAL_OCR]:
-                        try:
-                            with fitz.open(path) as _pdf_for_preview:
-                                total_pages = len(_pdf_for_preview)
-                                # Seitenbereich berücksichtigen, falls gesetzt
-                                if page_start is not None or page_end is not None:
-                                    ps0 = max(0, (page_start or 1) - 1)
-                                    pe0 = (page_end - 1) if page_end is not None else ps0
-                                    if pe0 < ps0:
-                                        pe0 = ps0
-                                    page_indices = range(ps0, min(pe0 + 1, total_pages))
-                                else:
-                                    page_indices = range(0, total_pages)
-
-                                # Arbeits-Unterverzeichnis wie im Hauptpfad anlegen
-                                extraction_subdir_name = f"{'_'.join(methods_list)}"
-                                extraction_dir = working_dir / extraction_subdir_name
-                                extraction_dir.mkdir(parents=True, exist_ok=True)
-
-                                for i in page_indices:
-                                    page_obj = _pdf_for_preview[i]
-                                    p = self._generate_preview_image(page_obj, i, extraction_dir)
-                                    preview_paths.append(p)
-
-                                # Optional ZIP der Previews erzeugen (wie im Hauptpfad)
-                                if preview_paths:
-                                    import zipfile
-                                    zip_path_local: Path = extraction_dir / "previews.zip"
-                                    with zipfile.ZipFile(zip_path_local, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                                        for _pp in preview_paths:
-                                            _pp_obj = Path(_pp)
-                                            if _pp_obj.exists():
-                                                zipf.write(str(_pp_obj), _pp_obj.name)
-                                    preview_zip_path_local = str(zip_path_local)
-                        except Exception as _pv_err:
-                            self.logger.warning(f"Fehler beim Erzeugen der Preview-Bilder: {str(_pv_err)}")
-
-                    metadata = PDFMetadata(
-                        file_name=path.name,
-                        file_size=path.stat().st_size,
-                        page_count=len(text_contents) if text_contents else 0,
-                        process_dir=str(working_dir),
-                        extraction_method=extraction_method_value,
-                        format="pdf",
-                        preview_paths=preview_paths,
-                        preview_zip=preview_zip_path_local
-                    )
-                    result = PDFProcessingResult(
-                        metadata=metadata,
-                        extracted_text=result_text,
-                        ocr_text=None,
-                        process_id=self.process_id,
-                        images_archive_data=None,
-                        images_archive_filename=None,
-                    )
-                    # mistral_ocr_raw ins dict integrieren
-                    obj_dict = result.to_dict()
-                    obj_dict['mistral_ocr_raw'] = ocr_json
-                    # neue Instanz aus dict, damit frozen bleibt
-                    result = PDFProcessingResult.from_dict(obj_dict)
-                    # Vor Rückgabe: Pfade konvertieren und ggf. text_contents aus extracted_text extrahieren
-                    self._convert_paths_to_urls(result)
-                    # Fortschritt: Verarbeitung im Processor abgeschlossen
-                    self.logger.info("Mistral-OCR: Verarbeitung abgeschlossen", progress=90)
-                    return self.create_response(
-                        processor_name=PROCESSOR_TYPE_PDF,
-                        result=result,
-                        request_info={
-                            'file_path': str(file_path),
-                            'template': template,
-                            'context': context,
-                            'extraction_method': extraction_method_value
-                        },
-                        response_class=PDFResponse,
-                        from_cache=False,
-                        cache_key=cache_key
-                    )
-                except Exception as e:
-                    # Fortschritt: Fehlerfall melden (Observer leitet als failed weiter)
-                    try:
-                        self.logger.error(f"Mistral-OCR: Fehler {str(e)}", progress=99)
-                    except Exception:
-                        pass
-                    raise ProcessingError(f"Mistral OCR fehlgeschlagen: {str(e)}")
 
             # Erstelle Arbeitsverzeichnis, falls es nicht existiert
             if not working_dir.exists():
@@ -1083,7 +1501,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 file_path=str(image_path),  # Verwende das bereits generierte Bild
                                 template=None,  # Kein Template für PDF-Seiten
                                 context=context,
-                                extraction_method="ocr",
+                                extraction_method="tesseract_ocr",
                                 use_cache=use_cache,  # Cache-Nutzung vom PDF-Processor übernehmen
                                 file_hash=None  # Hash wird vom ImageOCR Processor berechnet
                             )
@@ -1285,7 +1703,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 file_path=str(image_path),  # Verwende das bereits generierte Bild
                                 template=None,
                                 context=context,
-                                extraction_method="ocr",
+                                extraction_method="tesseract_ocr",
                                 use_cache=use_cache,
                                 file_hash=None
                             )
@@ -1366,7 +1784,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 file_path=str(image_path),  # Verwende das bereits generierte Bild
                                 template=None,  # Kein Template für PDF-Seiten
                                 context=context,
-                                extraction_method="ocr",
+                                extraction_method="tesseract_ocr",
                                 use_cache=use_cache,  # Cache-Nutzung vom PDF-Processor übernehmen
                                 file_hash=None  # Hash wird vom ImageOCR Processor berechnet
                             )
@@ -1845,6 +2263,438 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         except Exception as e:
             self.logger.error(f"Fehler beim Erstellen des Bilder-Archives: {str(e)}")
             raise ProcessingError(f"Fehler beim Erstellen des Bilder-Archives: {str(e)}")
+        finally:
+            zip_buffer.close()
+
+    def _extract_images_from_mistral_ocr_response(
+        self,
+        ocr_json: Dict[str, Any],
+        extraction_dir: Path
+    ) -> Dict[str, str]:
+        """
+        Extrahiert Bilder aus der Mistral OCR Response und speichert sie lokal.
+        
+        Args:
+            ocr_json: Die OCR-Response von Mistral als Dictionary
+            extraction_dir: Verzeichnis, in dem die Bilder gespeichert werden sollen
+            
+        Returns:
+            Dict[str, str]: Mapping von Bildreferenzen (z.B. "img-1.jpeg") zu lokalen Dateipfaden
+        """
+        import base64
+        import re
+        
+        image_mapping: Dict[str, str] = {}
+        
+        try:
+            # Debug: Logge die Struktur der Response für Analyse
+            self.logger.debug(
+                "Mistral OCR Response Struktur-Analyse",
+                top_level_keys=list(ocr_json.keys()) if isinstance(ocr_json, dict) else [],
+                has_pages="pages" in ocr_json if isinstance(ocr_json, dict) else False,
+                has_images_top="images" in ocr_json if isinstance(ocr_json, dict) else False,
+                has_document_annotation="document_annotation" in ocr_json if isinstance(ocr_json, dict) else False
+            )
+            
+            # Versuche verschiedene mögliche Strukturen der Response
+            # Struktur 1: pages[].images[]
+            pages_any: Any = ocr_json.get("pages", [])
+            if isinstance(pages_any, list):
+                self.logger.debug(f"Analysiere {len(pages_any)} Seiten auf Bilder")
+                for page_idx, page_dict in enumerate(pages_any):
+                    if not isinstance(page_dict, dict):
+                        continue
+                    
+                    # Logge Struktur jeder Seite
+                    page_keys = list(page_dict.keys()) if isinstance(page_dict, dict) else []
+                    self.logger.debug(
+                        f"Seite {page_idx + 1} Struktur",
+                        page_keys=page_keys,
+                        has_images="images" in page_dict if isinstance(page_dict, dict) else False
+                    )
+                    
+                    # Bilder können direkt in der Seite sein
+                    images_any: Any = page_dict.get("images", [])
+                    if isinstance(images_any, list) and len(images_any) > 0:
+                        self.logger.debug(f"Seite {page_idx + 1} hat {len(images_any)} Bilder")
+                        for img_idx, img_dict in enumerate(images_any):
+                            if not isinstance(img_dict, dict):
+                                continue
+                            
+                            # Logge Struktur jedes Bildes
+                            img_keys = list(img_dict.keys()) if isinstance(img_dict, dict) else []
+                            self.logger.debug(f"Bild {img_idx + 1} auf Seite {page_idx + 1}", img_keys=img_keys)
+                            
+                            # Extrahiere Bildreferenz und Base64-Daten
+                            # Versuche verschiedene mögliche Feldnamen
+                            image_ref = (
+                                img_dict.get("reference") or 
+                                img_dict.get("name") or 
+                                img_dict.get("filename") or
+                                img_dict.get("id") or
+                                img_dict.get("file_name") or
+                                f"img-{page_idx + 1}-{img_idx + 1}.jpeg"  # Fallback
+                            )
+                            image_base64 = (
+                                img_dict.get("base64") or 
+                                img_dict.get("data") or 
+                                img_dict.get("content") or
+                                img_dict.get("image_base64") or
+                                img_dict.get("image_data")
+                            )
+                            
+                            if image_base64:
+                                try:
+                                    # Dekodiere Base64 - entferne Data-URL-Präfix falls vorhanden
+                                    image_base64_str = str(image_base64)
+                                    
+                                    # Entferne Data-URL-Präfix (z.B. "data:image/jpeg;base64,")
+                                    if image_base64_str.startswith("data:"):
+                                        # Finde das Komma nach dem Präfix
+                                        comma_idx = image_base64_str.find(",")
+                                        if comma_idx >= 0:
+                                            image_base64_str = image_base64_str[comma_idx + 1:]
+                                        else:
+                                            # Falls kein Komma gefunden, versuche trotzdem zu dekodieren
+                                            self.logger.warning(f"Data-URL ohne Komma gefunden: {image_base64_str[:50]}...")
+                                    
+                                    # Dekodiere Base64
+                                    image_bytes = base64.b64decode(image_base64_str)
+                                    
+                                    # Validiere, dass es sich um ein Bild handelt (prüfe Magic Bytes)
+                                    if len(image_bytes) < 4:
+                                        raise ValueError("Bilddaten zu kurz")
+                                    
+                                    # Prüfe Magic Bytes für JPEG, PNG, etc.
+                                    is_valid_image = (
+                                        image_bytes[:2] == b'\xff\xd8' or  # JPEG
+                                        image_bytes[:8] == b'\x89PNG\r\n\x1a\n' or  # PNG
+                                        image_bytes[:6] in [b'GIF87a', b'GIF89a'] or  # GIF
+                                        image_bytes[:2] == b'BM'  # BMP
+                                    )
+                                    
+                                    if not is_valid_image:
+                                        self.logger.warning(f"Bild {image_ref} hat ungültige Magic Bytes, speichere trotzdem")
+                                    
+                                    # Speichere Bild lokal
+                                    image_ref_str = str(image_ref)
+                                    # Stelle sicher, dass der Dateiname sicher ist
+                                    image_filename = re.sub(r'[^\w\-_.]', '_', image_ref_str)
+                                    # Stelle sicher, dass es eine Dateiendung hat
+                                    if '.' not in image_filename:
+                                        # Bestimme Format basierend auf Magic Bytes
+                                        if image_bytes[:2] == b'\xff\xd8':
+                                            image_filename += '.jpeg'
+                                        elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                                            image_filename += '.png'
+                                        elif image_bytes[:6] in [b'GIF87a', b'GIF89a']:
+                                            image_filename += '.gif'
+                                        else:
+                                            image_filename += '.jpeg'  # Fallback
+                                    image_path = extraction_dir / image_filename
+                                    
+                                    image_path.write_bytes(image_bytes)
+                                    image_mapping[image_ref_str] = str(image_path)
+                                    
+                                    self.logger.info(f"Bild extrahiert: {image_ref_str} -> {image_path} ({len(image_bytes)} Bytes)")
+                                except Exception as img_err:
+                                    image_ref_str = str(image_ref) if image_ref else "unknown"
+                                    self.logger.warning(f"Fehler beim Extrahieren des Bildes {image_ref_str}: {str(img_err)}", exc_info=True)
+                            else:
+                                self.logger.debug(f"Bild {img_idx + 1} auf Seite {page_idx + 1} hat keine Base64-Daten")
+            
+            # Struktur 2: images[] auf Top-Level
+            top_level_images: Any = ocr_json.get("images", [])
+            if isinstance(top_level_images, list) and len(top_level_images) > 0 and not image_mapping:
+                self.logger.debug(f"Top-Level: {len(top_level_images)} Bilder gefunden")
+                for img_idx, img_dict in enumerate(top_level_images):
+                    if not isinstance(img_dict, dict):
+                        continue
+                    
+                    image_ref = (
+                        img_dict.get("reference") or 
+                        img_dict.get("name") or 
+                        img_dict.get("filename") or
+                        img_dict.get("id") or
+                        f"img-{img_idx + 1}.jpeg"
+                    )
+                    image_base64 = (
+                        img_dict.get("base64") or 
+                        img_dict.get("data") or 
+                        img_dict.get("content") or
+                        img_dict.get("image_base64")
+                    )
+                    
+                    if image_base64:
+                        try:
+                            # Dekodiere Base64 - entferne Data-URL-Präfix falls vorhanden
+                            image_base64_str = str(image_base64)
+                            
+                            # Entferne Data-URL-Präfix (z.B. "data:image/jpeg;base64,")
+                            if image_base64_str.startswith("data:"):
+                                # Finde das Komma nach dem Präfix
+                                comma_idx = image_base64_str.find(",")
+                                if comma_idx >= 0:
+                                    image_base64_str = image_base64_str[comma_idx + 1:]
+                                else:
+                                    # Falls kein Komma gefunden, versuche trotzdem zu dekodieren
+                                    self.logger.warning(f"Data-URL ohne Komma gefunden: {image_base64_str[:50]}...")
+                            
+                            # Dekodiere Base64
+                            image_bytes = base64.b64decode(image_base64_str)
+                            
+                            # Validiere, dass es sich um ein Bild handelt
+                            if len(image_bytes) < 4:
+                                raise ValueError("Bilddaten zu kurz")
+                            
+                            # Prüfe Magic Bytes für JPEG, PNG, etc.
+                            is_valid_image = (
+                                image_bytes[:2] == b'\xff\xd8' or  # JPEG
+                                image_bytes[:8] == b'\x89PNG\r\n\x1a\n' or  # PNG
+                                image_bytes[:6] in [b'GIF87a', b'GIF89a'] or  # GIF
+                                image_bytes[:2] == b'BM'  # BMP
+                            )
+                            
+                            if not is_valid_image:
+                                self.logger.warning(f"Bild {image_ref} hat ungültige Magic Bytes, speichere trotzdem")
+                            
+                            image_ref_str = str(image_ref)
+                            image_filename = re.sub(r'[^\w\-_.]', '_', image_ref_str)
+                            if '.' not in image_filename:
+                                # Bestimme Format basierend auf Magic Bytes
+                                if image_bytes[:2] == b'\xff\xd8':
+                                    image_filename += '.jpeg'
+                                elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                                    image_filename += '.png'
+                                elif image_bytes[:6] in [b'GIF87a', b'GIF89a']:
+                                    image_filename += '.gif'
+                                else:
+                                    image_filename += '.jpeg'  # Fallback
+                            image_path = extraction_dir / image_filename
+                            
+                            image_path.write_bytes(image_bytes)
+                            image_mapping[image_ref_str] = str(image_path)
+                            
+                            self.logger.info(f"Bild extrahiert (Top-Level): {image_ref_str} -> {image_path} ({len(image_bytes)} Bytes)")
+                        except Exception as img_err:
+                            image_ref_str = str(image_ref) if image_ref else "unknown"
+                            self.logger.warning(f"Fehler beim Extrahieren des Bildes {image_ref_str}: {str(img_err)}", exc_info=True)
+            
+            # Struktur 3: document_annotation könnte Bilder enthalten
+            document_annotation: Any = ocr_json.get("document_annotation", {})
+            if isinstance(document_annotation, dict) and not image_mapping:
+                self.logger.debug("Prüfe document_annotation auf Bilder", annotation_keys=list(document_annotation.keys()))
+                # Versuche verschiedene mögliche Strukturen in document_annotation
+                annotation_images = document_annotation.get("images", [])
+                if isinstance(annotation_images, list) and len(annotation_images) > 0:
+                    self.logger.debug(f"document_annotation hat {len(annotation_images)} Bilder")
+                    # Ähnliche Verarbeitung wie oben
+            
+            if image_mapping:
+                self.logger.info(f"{len(image_mapping)} Bilder aus Mistral OCR Response extrahiert")
+            else:
+                self.logger.warning(
+                    "Keine Bilder in Mistral OCR Response gefunden",
+                    response_structure={
+                        "top_keys": list(ocr_json.keys()) if isinstance(ocr_json, dict) else [],
+                        "pages_count": len(pages_any) if isinstance(pages_any, list) else 0,
+                        "first_page_keys": list(pages_any[0].keys()) if isinstance(pages_any, list) and len(pages_any) > 0 and isinstance(pages_any[0], dict) else []
+                    }
+                )
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Extrahieren der Bilder aus OCR-Response: {str(e)}", exc_info=True)
+        
+        return image_mapping
+
+    def _remove_images_from_ocr_json(self, ocr_json: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Entfernt alle Bilddaten (image_base64) aus der OCR-JSON, behält aber Metadaten.
+        
+        Args:
+            ocr_json: Die OCR-Response von Mistral als Dictionary
+            
+        Returns:
+            Dict[str, Any]: OCR-JSON ohne Bilddaten, aber mit Metadaten (Koordinaten, IDs, etc.)
+        """
+        if not isinstance(ocr_json, dict):
+            return ocr_json
+        
+        cleaned_json = ocr_json.copy()
+        
+        # Entferne Bilder aus pages[].images[]
+        pages_any: Any = cleaned_json.get("pages", [])
+        if isinstance(pages_any, list):
+            cleaned_pages = []
+            for page_dict in pages_any:
+                if not isinstance(page_dict, dict):
+                    cleaned_pages.append(page_dict)
+                    continue
+                
+                cleaned_page = page_dict.copy()
+                images_any: Any = cleaned_page.get("images", [])
+                if isinstance(images_any, list):
+                    # Behalte nur Metadaten der Bilder, entferne image_base64
+                    cleaned_images = []
+                    for img_dict in images_any:
+                        if not isinstance(img_dict, dict):
+                            cleaned_images.append(img_dict)
+                            continue
+                        
+                        cleaned_img = {k: v for k, v in img_dict.items() if k != "image_base64"}
+                        cleaned_images.append(cleaned_img)
+                    cleaned_page["images"] = cleaned_images
+                cleaned_pages.append(cleaned_page)
+            cleaned_json["pages"] = cleaned_pages
+        
+        # Entferne Bilder von Top-Level, falls vorhanden
+        if "images" in cleaned_json:
+            top_images_any: Any = cleaned_json.get("images", [])
+            if isinstance(top_images_any, list):
+                cleaned_top_images = []
+                for img_dict in top_images_any:
+                    if not isinstance(img_dict, dict):
+                        cleaned_top_images.append(img_dict)
+                        continue
+                    cleaned_img = {k: v for k, v in img_dict.items() if k != "image_base64"}
+                    cleaned_top_images.append(cleaned_img)
+                cleaned_json["images"] = cleaned_top_images
+        
+        return cleaned_json
+
+    def _update_markdown_image_references(
+        self,
+        markdown_text: str,
+        image_mapping: Dict[str, str]
+    ) -> str:
+        """
+        Aktualisiert Bildreferenzen im Markdown, damit sie auf lokale Dateinamen verweisen.
+        
+        Args:
+            markdown_text: Der Markdown-Text mit Bildreferenzen
+            image_mapping: Mapping von Bildreferenzen zu lokalen Dateipfaden
+            
+        Returns:
+            str: Markdown-Text mit aktualisierten Bildreferenzen
+        """
+        import re
+        
+        if not image_mapping:
+            return markdown_text
+        
+        updated_markdown = markdown_text
+        
+        # Finde alle Bildreferenzen im Format ![alt](image_ref) oder [alt](image_ref)
+        # Pattern: ![alt](image_ref) oder [alt](image_ref)
+        pattern = r'!?\[([^\]]*)\]\(([^)]+)\)'
+        
+        def replace_image_ref(match: re.Match[str]) -> str:
+            """Ersetzt Bildreferenzen durch lokale Dateinamen."""
+            full_match = match.group(0)
+            alt_text = match.group(1)
+            image_ref = match.group(2)
+            
+            # Prüfe, ob es sich um eine Bildreferenz handelt (beginnt mit !)
+            is_image = full_match.startswith('!')
+            
+            # Suche nach passendem Mapping
+            # Versuche exakte Übereinstimmung zuerst
+            if image_ref in image_mapping:
+                local_path = image_mapping[image_ref]
+                local_filename = Path(local_path).name
+                if is_image:
+                    return f"![{alt_text}]({local_filename})"
+                else:
+                    return f"[{alt_text}]({local_filename})"
+            
+            # Versuche auch nur den Dateinamen (ohne Pfad)
+            image_filename = Path(image_ref).name if '/' in image_ref or '\\' in image_ref else image_ref
+            for ref, local_path in image_mapping.items():
+                ref_filename = Path(ref).name if '/' in ref or '\\' in ref else ref
+                if ref_filename == image_filename:
+                    local_filename = Path(local_path).name
+                    if is_image:
+                        return f"![{alt_text}]({local_filename})"
+                    else:
+                        return f"[{alt_text}]({local_filename})"
+            
+            # Keine Übereinstimmung gefunden, behalte Original
+            return full_match
+        
+        updated_markdown = re.sub(pattern, replace_image_ref, updated_markdown)
+        
+        return updated_markdown
+
+    def _create_mistral_ocr_archive(
+        self,
+        markdown_text: str,
+        image_mapping: Dict[str, str],
+        file_name: str
+    ) -> Tuple[str, str]:
+        """
+        Erstellt ein ZIP-Archiv mit Markdown-Datei und allen extrahierten Bildern.
+        
+        Args:
+            markdown_text: Der Markdown-Text (mit angepassten Bildreferenzen)
+            image_mapping: Mapping von Bildreferenzen zu lokalen Dateipfaden
+            file_name: Name der ursprünglichen PDF-Datei
+            
+        Returns:
+            Tuple[str, str]: (Base64-kodiertes ZIP-Archiv, Archiv-Dateiname)
+        """
+        import zipfile
+        import io
+        import base64
+        
+        # ZIP-Archiv im Speicher erstellen
+        zip_buffer = io.BytesIO()
+        
+        # Archiv-Dateiname generieren
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        archive_filename = f"{Path(file_name).stem}_mistral_ocr_{timestamp}.zip"
+        
+        try:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # 1. Markdown-Datei hinzufügen
+                markdown_filename = f"{Path(file_name).stem}.md"
+                zip_file.writestr(markdown_filename, markdown_text.encode('utf-8'))
+                self.logger.debug(f"Markdown-Datei zum ZIP hinzugefügt: {markdown_filename}")
+                
+                # 2. Alle Bilder hinzufügen
+                successful_images = 0
+                failed_images = 0
+                
+                for image_ref, image_path in image_mapping.items():
+                    try:
+                        image_path_obj = Path(image_path)
+                        if image_path_obj.exists():
+                            # Bild flach ohne Verzeichnis zum ZIP hinzufügen
+                            zip_path = image_path_obj.name
+                            zip_file.write(str(image_path_obj), zip_path)
+                            successful_images += 1
+                            self.logger.debug(f"Bild zum ZIP hinzugefügt: {zip_path}")
+                        else:
+                            self.logger.warning(f"Bild nicht gefunden: {image_path}")
+                            failed_images += 1
+                    except Exception as e:
+                        self.logger.warning(f"Fehler beim Hinzufügen des Bildes {image_ref}: {str(e)}")
+                        failed_images += 1
+                
+                self.logger.info(
+                    f"Mistral OCR Archiv erstellt: Markdown + {successful_images} Bilder, "
+                    f"{failed_images} fehlgeschlagen"
+                )
+            
+            # ZIP-Inhalt als Base64 kodieren
+            zip_buffer.seek(0)
+            zip_bytes = zip_buffer.read()
+            archive_data = base64.b64encode(zip_bytes).decode('utf-8')
+            
+            return archive_data, archive_filename
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen des Mistral OCR Archives: {str(e)}")
+            raise ProcessingError(f"Fehler beim Erstellen des Mistral OCR Archives: {str(e)}")
         finally:
             zip_buffer.close()
 

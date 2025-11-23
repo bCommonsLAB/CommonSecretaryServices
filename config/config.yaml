@@ -3,17 +3,112 @@ cache:
   cleanup_interval: 24
   max_age_days: 7
   mongodb:
+    create_indexes: false
     enabled: true
     ttl_days: 30
-    create_indexes: false
-session_worker:
-  active: false
-  max_concurrent: 3
-  poll_interval_sec: 5
 generic_worker:
   active: true
   max_concurrent: 3
   poll_interval_sec: 5
+llm_config:
+  use_cases:
+    chat_completion:
+      model: gpt-4.1-mini
+      provider: openai
+    image2text:
+      model: gpt-4o
+      provider: openai
+    ocr_pdf:
+      model: pixtral-large-latest
+      provider: mistral
+    transcription:
+      model: whisper-1
+      provider: openai
+llm_providers:
+  mistral:
+    api_key: ${MISTRAL_API_KEY}
+    available_models:
+      chat_completion:
+      - mistral-large-latest
+      - mistral-medium-latest
+      - mistral-small-latest
+      - mistral-tiny
+      - pixtral-large-latest
+      - pixtral-small-latest
+      ocr_pdf:
+      - pixtral-large-latest
+      - pixtral-small-latest
+    enabled: true
+  ollama:
+    api_key: ollama
+    available_models:
+      chat_completion:
+      - llama3
+      - llama3:8b
+      - llama3:70b
+      - mistral
+      - codellama
+      - phi3
+      - gemma2
+      - gpt-oss:20b
+      image2text:
+      - llava
+      - bakllava
+      - llava:13b
+      ocr_pdf:
+      - llava
+      - bakllava
+      - llava:13b
+    base_url: http://localhost:11434/v1
+    enabled: true
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    available_models:
+      chat_completion:
+      - gpt-4
+      - gpt-4-turbo
+      - gpt-4o
+      - gpt-4.1-mini
+      - gpt-3.5-turbo
+      image2text:
+      - gpt-4o
+      - gpt-4-turbo
+      - gpt-4-vision-preview
+      ocr_pdf:
+      - gpt-4o
+      - gpt-4-turbo
+      - gpt-4-vision-preview
+      transcription:
+      - whisper-1
+    enabled: true
+  openrouter:
+    api_key: ${OPENROUTER_API_KEY}
+    available_models:
+      chat_completion:
+      - openai/gpt-4
+      - openai/gpt-4-turbo
+      - openai/gpt-4o
+      - anthropic/claude-3-opus
+      - anthropic/claude-3-sonnet
+      - anthropic/claude-3-haiku
+      - mistralai/mistral-large-latest
+      - mistralai/mistral-medium-latest
+      - google/gemini-2.0-flash-exp
+      - google/gemini-pro-1.5
+      - meta-llama/llama-3-70b-instruct
+      image2text:
+      - openai/gpt-4o
+      - openai/gpt-4-turbo
+      - openai/gpt-4-vision-preview
+      - google/gemini-pro-vision
+      ocr_pdf:
+      - openai/gpt-4o
+      - openai/gpt-4-turbo
+      - openai/gpt-4-vision-preview
+      - mistralai/pixtral-large-latest
+      transcription:
+      - openai/whisper-1
+    enabled: true
 logging:
   backup_count: 5
   file: logs/dev_detailed.log
@@ -25,94 +120,44 @@ mongodb:
   max_pool_size: 50
   uri: ${MONGODB_URI}
 processors:
-  pdf:
-    max_file_size: 150000000
-    max_pages: 500
-    cache_dir: cache/pdf
-    cache:
-      enabled: true
-      ttl_days: 30
-      collection_name: pdf_cache
-    images:
-      main:
-        max_size: 1280
-        format: jpg
-        quality: 80
-      preview:
-        max_size: 360
-        format: jpg
-        quality: 80
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    vision_model: gpt-4o
-    max_image_size: 2048
-    image_quality: 85
-  obsidian:
-    base_dir: sessions
-    cache_dir: cache/obsidian
-    cache:
-      enabled: true
-      ttl_days: 30
-      collection_name: obsidian_cache
-    max_concurrent_tasks: 5
-  imageocr:
-    max_file_size: 10485760
-    max_resolution: 4096
-    cache_dir: cache/imageocr
-    cache:
-      enabled: true
-      ttl_days: 30
-      collection_name: ocr_cache
   audio:
     batch_size: 5
+    cache:
+      collection_name: audio_cache
+      enabled: true
+      ttl_days: 30
+    cache_dir: cache/audio
     export_format: mp3
     max_file_size: 200000000
     max_segments: 100
     segment_duration: 300
-    cache_dir: cache/audio
     temp_file_suffix: .mp3
+  event:
+    base_dir: sessions
     cache:
+      collection_name: event_cache
       enabled: true
       ttl_days: 30
-      collection_name: audio_cache
-  video:
-    cache_dir: cache/video
+    cache_dir: cache/event
+    max_attachment_size: 100
+    max_concurrent_tasks: 5
+    max_video_size: 1000
+    request_timeout: 30
+  imageocr:
     cache:
+      collection_name: ocr_cache
       enabled: true
       ttl_days: 30
-      collection_name: video_cache
-  youtube:
-    max_duration: 15000
-    max_file_size: 120000000
-    cache_dir: cache/youtube
-    cache:
-      enabled: true
-      ttl_days: 30
-      collection_name: youtube_cache
-    ydl_opts:
-      format: bestaudio/best
-      nocheckcertificate: true
-      postprocessors:
-      - key: FFmpegExtractAudio
-        preferredcodec: mp3
-  transformer:
-    model: gpt-4.1-mini
-    temperature: 0.1
-    max_tokens: 4000
-    cache_dir: cache/transformer
-    cache:
-      enabled: true
-      ttl_days: 14
-      collection_name: transformer_cache
-    max_concurrent_requests: 10
-    timeout_seconds: 120
-    templates_dir: resources/templates
+    cache_dir: cache/imageocr
+    max_file_size: 10485760
+    max_resolution: 4096
   metadata:
-    cache_dir: cache/metadata
     cache:
+      collection_name: metadata_cache
       enabled: true
       ttl_days: 30
-      collection_name: metadata_cache
+    cache_dir: cache/metadata
+    extract_advanced_metadata: true
     max_file_size: 50000000
     supported_files:
     - image:
@@ -146,128 +191,85 @@ processors:
       - mov
       - mkv
     timeout_seconds: 30
-    extract_advanced_metadata: true
-  event:
+  obsidian:
     base_dir: sessions
-    max_concurrent_tasks: 5
-    cache_dir: cache/event
-    max_video_size: 1000
-    max_attachment_size: 100
-    request_timeout: 30
     cache:
+      collection_name: obsidian_cache
       enabled: true
       ttl_days: 30
-      collection_name: event_cache
+    cache_dir: cache/obsidian
+    max_concurrent_tasks: 5
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    image_quality: 85
+    max_image_size: 2048
+    vision_model: gpt-4o
+  pdf:
+    cache:
+      collection_name: pdf_cache
+      enabled: true
+      ttl_days: 30
+    cache_dir: cache/pdf
+    images:
+      main:
+        format: jpg
+        max_size: 1280
+        quality: 80
+      preview:
+        format: jpg
+        max_size: 360
+        quality: 80
+    max_file_size: 150000000
+    max_pages: 500
   track:
     base_dir: sessions
-    max_concurrent_tasks: 5
-    cache_dir: cache/track
     cache:
+      collection_name: track_cache
       enabled: true
       ttl_days: 30
-      collection_name: track_cache
+    cache_dir: cache/track
+    max_concurrent_tasks: 5
+  transformer:
+    cache:
+      collection_name: transformer_cache
+      enabled: true
+      ttl_days: 14
+    cache_dir: cache/transformer
+    max_concurrent_requests: 10
+    max_tokens: 4000
+    model: gpt-4.1-mini
+    temperature: 0.1
+    templates_dir: resources/templates
+    timeout_seconds: 120
+  video:
+    cache:
+      collection_name: video_cache
+      enabled: true
+      ttl_days: 30
+    cache_dir: cache/video
+  youtube:
+    cache:
+      collection_name: youtube_cache
+      enabled: true
+      ttl_days: 30
+    cache_dir: cache/youtube
+    max_duration: 15000
+    max_file_size: 120000000
+    ydl_opts:
+      format: bestaudio/best
+      nocheckcertificate: true
+      postprocessors:
+      - key: FFmpegExtractAudio
+        preferredcodec: mp3
 rate_limiting:
   enabled: true
   requests_per_minute: 60
-llm_providers:
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    enabled: true
-    available_models:
-      transcription:
-      - whisper-1
-      image2text:
-      - gpt-4o
-      - gpt-4-turbo
-      - gpt-4-vision-preview
-      chat_completion:
-      - gpt-4
-      - gpt-4-turbo
-      - gpt-4o
-      - gpt-4.1-mini
-      - gpt-3.5-turbo
-      ocr_pdf:
-      - gpt-4o
-      - gpt-4-turbo
-      - gpt-4-vision-preview
-  mistral:
-    api_key: ${MISTRAL_API_KEY}
-    enabled: true
-    available_models:
-      chat_completion:
-      - mistral-large-latest
-      - mistral-medium-latest
-      - mistral-small-latest
-      - mistral-tiny
-      - pixtral-large-latest
-      - pixtral-small-latest
-      ocr_pdf:
-      - pixtral-large-latest
-      - pixtral-small-latest
-  openrouter:
-    api_key: ${OPENROUTER_API_KEY}
-    enabled: true
-    available_models:
-      transcription:
-      - openai/whisper-1
-      image2text:
-      - openai/gpt-4o
-      - openai/gpt-4-turbo
-      - openai/gpt-4-vision-preview
-      - google/gemini-pro-vision
-      chat_completion:
-      - openai/gpt-4
-      - openai/gpt-4-turbo
-      - openai/gpt-4o
-      - anthropic/claude-3-opus
-      - anthropic/claude-3-sonnet
-      - anthropic/claude-3-haiku
-      - mistralai/mistral-large-latest
-      - mistralai/mistral-medium-latest
-      - google/gemini-pro
-      - meta-llama/llama-3-70b-instruct
-      ocr_pdf:
-      - openai/gpt-4o
-      - openai/gpt-4-turbo
-      - openai/gpt-4-vision-preview
-      - mistralai/pixtral-large-latest
-  ollama:
-    api_key: ollama
-    enabled: true
-    base_url: http://localhost:11434/v1
-    available_models:
-      image2text:
-      - llava
-      - bakllava
-      - llava:13b
-      chat_completion:
-      - llama3
-      - llama3:8b
-      - llama3:70b
-      - mistral
-      - codellama
-      - phi3
-      - gemma2
-      ocr_pdf:
-      - llava
-      - bakllava
-      - llava:13b
-llm_config:
-  use_cases:
-    transcription:
-      provider: openrouter
-      model: openai/whisper-1
-    image2text:
-      provider: openai
-      model: gpt-4o
-    ocr_pdf:
-      provider: mistral
-      model: pixtral-large-latest
-    chat_completion:
-      provider: ollama
-      model: llama3
 server:
   api_base_url: http://localhost:5001
   debug: true
   host: 127.0.0.1
   port: 5000
+session_worker:
+  active: false
+  max_concurrent: 3
+  poll_interval_sec: 5

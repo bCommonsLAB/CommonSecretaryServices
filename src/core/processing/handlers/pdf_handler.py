@@ -99,7 +99,10 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 	template: Optional[str] = getattr(params, "template", None)
 	context: Optional[Dict[str, Any]] = getattr(params, "context", None)
 	use_cache: bool = bool(getattr(params, "use_cache", True))
-	include_images: bool = bool(getattr(params, "include_images", False))
+	# Für Mistral OCR Endpoint: include_ocr_images
+	# Für alten Endpoint: include_images
+	include_ocr_images: bool = bool(getattr(params, "include_ocr_images", True))  # Default True für Mistral OCR Endpoint
+	include_images: bool = bool(getattr(params, "include_images", False))  # Für alten Endpoint
 	# Seitenbereich (optional, für mistral_ocr)
 	page_start = getattr(params, "page_start", None)
 	page_end = getattr(params, "page_end", None)
@@ -150,17 +153,33 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 
 	_post_progress("initializing", 5, "Job initialisiert")
 
-	result = await processor.process(
-		file_path=normalized_path,
-		template=template,  # type: ignore
-		context=context,
-		extraction_method=extraction_method,  # type: ignore
-		use_cache=use_cache,
-		file_hash=None,
-		include_images=include_images,
-		page_start=int(page_start) if isinstance(page_start, int) else None,
-		page_end=int(page_end) if isinstance(page_end, int) else None,
-	)
+	# Prüfe ob es sich um den neuen Mistral OCR mit Seiten Flow handelt
+	include_page_images: bool = bool(getattr(params, "include_page_images", True))
+	if extraction_method == "mistral_ocr_with_pages":
+		# Verwende neue Methode für parallele Verarbeitung
+		result = await processor.process_mistral_ocr_with_pages(
+			file_path=normalized_path,
+			page_start=int(page_start) if isinstance(page_start, int) else None,
+			page_end=int(page_end) if isinstance(page_end, int) else None,
+			include_ocr_images=include_ocr_images,
+			include_page_images=include_page_images,
+			use_cache=use_cache,
+			file_hash=None,
+			force_overwrite=False
+		)
+	else:
+		# Standard-Verarbeitung
+		result = await processor.process(
+			file_path=normalized_path,
+			template=template,  # type: ignore
+			context=context,
+			extraction_method=extraction_method,  # type: ignore
+			use_cache=use_cache,
+			file_hash=None,
+			include_images=include_images,
+			page_start=int(page_start) if isinstance(page_start, int) else None,
+			page_end=int(page_end) if isinstance(page_end, int) else None,
+		)
 
 	_post_progress("postprocessing", 95, "Ergebnisse werden gespeichert")
 
@@ -211,6 +230,21 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 								zf.write(full_path, arcname=arcname)
 				except Exception:
 					pass
+		
+		# Auch pages_archive_data vorbereiten (für Mistral OCR mit Seiten)
+		pages_archive_filename_any: Any = getattr(data, "pages_archive_filename", None)
+		pages_archive_b64_any: Any = getattr(data, "pages_archive_data", None)
+		if process_dir and isinstance(pages_archive_b64_any, str) and pages_archive_b64_any:
+			# Dateiname bestimmen: aus data oder Standard-Name
+			pages_zip_filename: str = str(pages_archive_filename_any) if pages_archive_filename_any else f"pages-{job.job_id}.zip"
+			pages_zip_path = os.path.join(process_dir, pages_zip_filename)
+			os.makedirs(process_dir, exist_ok=True)
+			try:
+				with open(pages_zip_path, "wb") as f:
+					f.write(base64.b64decode(pages_archive_b64_any))
+			except Exception as e:
+				# Fehler loggen, aber nicht fatal
+				repo.add_log_entry(job.job_id, "warning", f"Fehler beim Speichern des Seiten-Archives: {str(e)}")
 	except Exception:
 		# Fehler bei der ZIP-Vorbereitung sind nicht fatal
 		pass
@@ -222,35 +256,94 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 	else:
 		result_any = {}
 	result_dict: Dict[str, Any] = cast(Dict[str, Any], result_any) if isinstance(result_any, dict) else {}
-	# Große Felder entfernen, um MongoDB-Dokumentgröße klein zu halten
+	
+	# mistral_ocr_raw extrahieren und als separate Datei speichern (zu groß für MongoDB)
+	mistral_ocr_raw_data: Optional[Dict[str, Any]] = None
 	if result_dict:
 		data_obj_any_clean: Any = result_dict.get("data")
 		if isinstance(data_obj_any_clean, dict):
 			data_obj_dict_clean: Dict[str, Any] = cast(Dict[str, Any], data_obj_any_clean)
+			# mistral_ocr_raw vor dem Entfernen extrahieren
+			mistral_ocr_raw_data = data_obj_dict_clean.pop("mistral_ocr_raw", None)
 			data_obj_dict_clean.pop("images_archive_data", None)
 			data_obj_dict_clean.pop("images_archive_filename", None)
-	repo.update_job_status(
-		job_id=job.job_id,
-		status="processing",
-		progress=JobProgress(step="postprocessing", percent=95, message="Ergebnisse werden gespeichert"),
-		results=JobResults(
-			markdown_file=None,
-			markdown_content=None,
-			assets=[str(p) for p in image_paths],
-			web_text=None,
-			video_transcript=None,
-			attachments_text=None,
-			context=None,
-			attachments_url=None,
-			# Keine großen Base64-Daten in MongoDB persistieren (nur Referenzen)
-			archive_data=None,
-			archive_filename=None,
-			structured_data=result_dict,
-			target_dir=process_dir,
-			page_texts=[str(p) for p in text_paths],
-			asset_dir=process_dir,
-		),
-	)
+			data_obj_dict_clean.pop("pages_archive_data", None)  # Base64-ZIP zu groß für MongoDB
+			# pages_archive_filename behalten, damit Download-Endpoint den Dateinamen kennt
+	
+	# mistral_ocr_raw als JSON-Datei speichern, falls vorhanden
+	mistral_ocr_raw_file: Optional[str] = None
+	if mistral_ocr_raw_data and process_dir:
+		try:
+			mistral_ocr_raw_filename = f"mistral_ocr_raw_{job.job_id}.json"
+			mistral_ocr_raw_path = os.path.join(process_dir, mistral_ocr_raw_filename)
+			os.makedirs(process_dir, exist_ok=True)
+			import json
+			with open(mistral_ocr_raw_path, "w", encoding="utf-8") as f:
+				json.dump(mistral_ocr_raw_data, f, ensure_ascii=False, indent=2)
+			mistral_ocr_raw_file = mistral_ocr_raw_filename
+			repo.add_log_entry(job.job_id, "info", f"mistral_ocr_raw als Datei gespeichert: {mistral_ocr_raw_file}")
+		except Exception as e:
+			repo.add_log_entry(job.job_id, "warning", f"Fehler beim Speichern von mistral_ocr_raw: {str(e)}")
+	# Job-Status aktualisieren mit Fehlerbehandlung für MongoDB-Größenlimit
+	try:
+		repo.update_job_status(
+			job_id=job.job_id,
+			status="processing",
+			progress=JobProgress(step="postprocessing", percent=95, message="Ergebnisse werden gespeichert"),
+			results=JobResults(
+				markdown_file=None,
+				markdown_content=None,
+				assets=[str(p) for p in image_paths],
+				web_text=None,
+				video_transcript=None,
+				attachments_text=None,
+				context=None,
+				attachments_url=None,
+				# Keine großen Base64-Daten in MongoDB persistieren (nur Referenzen)
+				archive_data=None,
+				archive_filename=None,
+				structured_data=result_dict,
+				target_dir=process_dir,
+				page_texts=[str(p) for p in text_paths],
+				asset_dir=process_dir,
+			),
+		)
+	except Exception as mongo_error:
+		# MongoDB-Fehler (z.B. Dokument zu groß) abfangen und an Client melden
+		error_msg = str(mongo_error)
+		repo.add_log_entry(job.job_id, "error", f"MongoDB-Fehler beim Speichern: {error_msg}")
+		
+		# Fehler-Webhook senden, falls konfiguriert
+		if callback_url:
+			error_payload: Dict[str, Any] = {
+				"phase": "error",
+				"message": "Fehler beim Speichern der Ergebnisse",
+				"error": {
+					"code": type(mongo_error).__name__,
+					"message": error_msg,
+					"details": {
+						"error_type": "mongodb_document_too_large",
+						"suggestion": "mistral_ocr_raw wurde als separate Datei gespeichert und kann über die API abgerufen werden"
+					}
+				},
+				"data": {
+					"extracted_text": getattr(data, "extracted_text", None),
+					"mistral_ocr_raw_url": f"/api/pdf/jobs/{job.job_id}/mistral-ocr-raw" if mistral_ocr_raw_file else None,
+				}
+			}
+			try:
+				error_headers: Dict[str, str] = {"Content-Type": "application/json", "Accept": "application/json"}
+				if callback_token:
+					error_headers["Authorization"] = f"Bearer {callback_token}"
+					error_headers["X-Callback-Token"] = str(callback_token)
+				repo.add_log_entry(job.job_id, "info", f"Sende Error-Webhook an {callback_url}")
+				resp = requests.post(url=str(callback_url), json=error_payload, headers=error_headers, timeout=30)
+				repo.add_log_entry(job.job_id, "info", f"Error-Webhook Antwort: {getattr(resp, 'status_code', None)}")
+			except Exception as webhook_err:
+				repo.add_log_entry(job.job_id, "error", f"Error-Webhook fehlgeschlagen: {str(webhook_err)}")
+		
+		# Fehler weiterwerfen, damit Worker-Manager ihn behandelt
+		raise
 
 	# Webhook-Dispatch (final nach neuer Spezifikation)
 	if callback_url:
@@ -273,9 +366,28 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 				meta["text_contents"] = meta_src_dict.get("text_contents")
 			if meta:
 				data_section["metadata"] = meta
-		# Download-URL für Bilder-Archiv bereitstellen (on-demand ZIP via API)
-		if include_images and image_paths:
+			# mistral_ocr_raw hinzufügen, falls vorhanden (für Mistral OCR Endpoint)
+			# Bilder sind NIE in mistral_ocr_raw eingebettet, sondern immer separat verfügbar
+			if mistral_ocr_raw_data:
+				# Statt der vollständigen Daten nur eine URL bereitstellen
+				data_section["mistral_ocr_raw_url"] = f"/api/pdf/jobs/{job.job_id}/mistral-ocr-raw"
+				# Kleine Metadaten statt vollständiger Daten senden
+				# Nur Metadaten senden (Seitenanzahl, Modell, etc.)
+				metadata_only: Dict[str, Any] = {
+					"model": mistral_ocr_raw_data.get("model"),
+					"pages_count": len(mistral_ocr_raw_data.get("pages", [])) if isinstance(mistral_ocr_raw_data.get("pages"), list) else 0,
+					"usage_info": mistral_ocr_raw_data.get("usage_info"),
+				}
+				data_section["mistral_ocr_raw_metadata"] = metadata_only
+				# Download-URL für Mistral OCR Bilder bereitstellen (immer separat)
+				data_section["mistral_ocr_images_url"] = f"/api/pdf/jobs/{job.job_id}/mistral-ocr-images"
+		# Download-URL für Bilder-Archiv bereitstellen (on-demand ZIP via API) - für andere Endpoints
+		if include_images and image_paths and extraction_method != "mistral_ocr_with_pages":
 			data_section["images_archive_url"] = f"/api/jobs/{job.job_id}/download-archive"
+		# Download-URL für Seiten-Archiv bereitstellen (für Mistral OCR mit Seiten)
+		# Prüfe sowohl extraction_method als auch include_page_images
+		if extraction_method == "mistral_ocr_with_pages" and include_page_images:
+			data_section["pages_archive_url"] = f"/api/pdf/jobs/{job.job_id}/download-pages-archive"
 		payload_final: Dict[str, Any] = {
 			"phase": "completed",
 			"message": "Extraktion abgeschlossen",

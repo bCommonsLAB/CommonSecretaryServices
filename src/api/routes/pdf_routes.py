@@ -41,11 +41,11 @@ import uuid
 import json
 import asyncio
 import hashlib
-from typing import Dict, Any, Union, Optional, cast
+from typing import Dict, Any, Union, Optional, cast, Tuple
 from pathlib import Path
 
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
-from flask import request  # type: ignore
+from flask import request, Response  # type: ignore
 from werkzeug.datastructures import FileStorage
 import time
 
@@ -113,18 +113,18 @@ pdf_upload_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr', 'mistral_ocr'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract, mistral_ocr=Mistral OCR API)')
+                          choices=['native', 'tesseract_ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
+                          help='Extraktionsmethode (native=nur Text, tesseract_ocr=nur Tesseract OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
 pdf_upload_parser.add_argument('page_start',  # type: ignore
                           type=int,
                           location='form',
                           required=False,
-                          help='Startseite (1-basiert) für OCR (nur für mistral_ocr)')
+                          help='Startseite (1-basiert) für OCR')
 pdf_upload_parser.add_argument('page_end',  # type: ignore
                           type=int,
                           location='form',
                           required=False,
-                          help='Endseite (1-basiert, inkl.) für OCR (nur für mistral_ocr)')
+                          help='Endseite (1-basiert, inkl.) für OCR')
 pdf_upload_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -144,7 +144,7 @@ pdf_upload_parser.add_argument('includeImages',  # type: ignore
                           location='form', 
                           type=inputs.boolean,  # type: ignore
                           default=False, 
-                          help='Base64-kodiertes ZIP-Archiv mit Bildern erstellen (default: False)')
+                          help='Base64-kodiertes ZIP-Archiv mit generierten Bildern erstellen (default: False)')
 pdf_upload_parser.add_argument('target_language',  # type: ignore
                           type=str,
                           location='form',
@@ -188,18 +188,18 @@ pdf_url_parser.add_argument('extraction_method',  # type: ignore
                           type=str,
                           location='form',
                           default='native',
-                          choices=['native', 'ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr', 'mistral_ocr'],
-                          help='Extraktionsmethode (native=nur Text, ocr=nur OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract, mistral_ocr=Mistral OCR API)')
+                          choices=['native', 'tesseract_ocr', 'both', 'preview', 'preview_and_native', 'llm', 'llm_and_native', 'llm_and_ocr'],
+                          help='Extraktionsmethode (native=nur Text, tesseract_ocr=nur Tesseract OCR, both=beides, preview=Vorschaubilder, preview_and_native=Vorschaubilder und Text, llm=LLM-basierte OCR, llm_and_native=LLM+Native, llm_and_ocr=LLM+Tesseract)')
 pdf_url_parser.add_argument('page_start',  # type: ignore
                           type=int,
                           location='form',
                           required=False,
-                          help='Startseite (1-basiert) für OCR (nur für mistral_ocr)')
+                          help='Startseite (1-basiert) für OCR')
 pdf_url_parser.add_argument('page_end',  # type: ignore
                           type=int,
                           location='form',
                           required=False,
-                          help='Endseite (1-basiert, inkl.) für OCR (nur für mistral_ocr)')
+                          help='Endseite (1-basiert, inkl.) für OCR')
 pdf_url_parser.add_argument('template',  # type: ignore
                           type=str,
                           location='form',
@@ -219,7 +219,7 @@ pdf_url_parser.add_argument('includeImages',  # type: ignore
                           location='form', 
                           type=inputs.boolean,  # type: ignore
                           default=False, 
-                          help='Base64-kodiertes ZIP-Archiv mit Bildern erstellen (default: False)')
+                          help='Base64-kodiertes ZIP-Archiv mit generierten Bildern erstellen (default: False)')
 pdf_url_parser.add_argument('target_language',  # type: ignore
                           type=str,
                           location='form',
@@ -246,6 +246,60 @@ pdf_url_parser.add_argument('force_refresh',  # type: ignore
                           required=False,
                           help='Erzwinge Neuberechnung/kein Cache')
 pdf_url_parser.add_argument('wait_ms',  # type: ignore
+                          location='form',
+                          type=int,  # type: ignore
+                          required=False,
+                          default=0,
+                          help='Optional: Wartezeit in Millisekunden auf Abschluss (nur ohne callback_url)')
+
+# PDF Mistral OCR Parser
+pdf_mistral_ocr_parser = pdf_ns.parser()
+pdf_mistral_ocr_parser.add_argument('file',  # type: ignore
+                          type=FileStorage,
+                          location='files',
+                          required=True,
+                          help='PDF-Datei')
+pdf_mistral_ocr_parser.add_argument('page_start',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Startseite (1-basiert) für OCR')
+pdf_mistral_ocr_parser.add_argument('page_end',  # type: ignore
+                          type=int,
+                          location='form',
+                          required=False,
+                          help='Endseite (1-basiert, inkl.) für OCR')
+pdf_mistral_ocr_parser.add_argument('includeOCRImages',  # type: ignore
+                          location='form', 
+                          type=inputs.boolean,  # type: ignore
+                          default=True, 
+                          help='Mistral OCR Bilder als Base64 in Response anfordern (default: True). Bilder liegen dann in data.mistral_ocr_raw.pages[*].images[*].image_base64.')
+pdf_mistral_ocr_parser.add_argument('includePageImages',  # type: ignore
+                          location='form', 
+                          type=inputs.boolean,  # type: ignore
+                          default=True, 
+                          help='PDF-Seiten als Bilder extrahieren und als ZIP zurückgeben (default: True). Läuft parallel zur Mistral OCR Transformation.')
+pdf_mistral_ocr_parser.add_argument('useCache',  # type: ignore
+                          location='form', 
+                          type=inputs.boolean,  # type: ignore
+                          default=True, 
+                          help='Cache verwenden (default: True)')
+pdf_mistral_ocr_parser.add_argument('callback_url',  # type: ignore
+                          type=str,
+                          location='form',
+                          required=False,
+                          help='Absolute HTTPS-URL für den Webhook-Callback')
+pdf_mistral_ocr_parser.add_argument('callback_token',  # type: ignore
+                          type=str,
+                          location='form',
+                          required=False,
+                          help='Per-Job-Secret für den Webhook-Callback')
+pdf_mistral_ocr_parser.add_argument('jobId',  # type: ignore
+                          type=str,
+                          location='form',
+                          required=False,
+                          help='Eindeutige Job-ID für den Callback')
+pdf_mistral_ocr_parser.add_argument('wait_ms',  # type: ignore
                           location='form',
                           type=int,  # type: ignore
                           required=False,
@@ -288,8 +342,10 @@ pdf_response = pdf_ns.model('PDFResponse', {  # type: ignore
         'extracted_text': fields.String(description='Extrahierter Text'),
         'ocr_text': fields.String(description='OCR-Text'),
         'process_id': fields.String(description='Prozess-ID'),
-        'images_archive_data': fields.String(description='Base64-kodiertes ZIP-Archiv mit allen generierten Bildern'),
-        'images_archive_filename': fields.String(description='Dateiname des Bilder-Archives')
+        'images_archive_data': fields.String(description='Base64-kodiertes ZIP-Archiv mit allen generierten Bildern (nur wenn includeImages=true)'),
+        'images_archive_filename': fields.String(description='Dateiname des Bilder-Archives (nur wenn includeImages=true)'),
+        'pages_archive_data': fields.String(description='Base64-kodiertes ZIP-Archiv mit PDF-Seiten als Bilder (nur bei process-mistral-ocr Endpoint)'),
+        'pages_archive_filename': fields.String(description='Dateiname des Seiten-Archives (nur bei process-mistral-ocr Endpoint)')
     })),
     'error': fields.Nested(pdf_ns.model('PDFError', {  # type: ignore
         'code': fields.String(description='Fehlercode'),
@@ -540,6 +596,192 @@ class PDFEndpoint(Resource):
         # Führe die asynchrone Verarbeitung aus
         return asyncio.run(process_request())
 
+@pdf_ns.route('/process-mistral-ocr')  # type: ignore
+class PDFMistralOCREndpoint(Resource):
+    @pdf_ns.expect(pdf_mistral_ocr_parser)  # type: ignore
+    @pdf_ns.response(200, 'Erfolg', pdf_response)  # type: ignore
+    @pdf_ns.response(400, 'Validierungsfehler', error_model)  # type: ignore
+    @pdf_ns.doc(description='Verarbeitet eine PDF-Datei mit Mistral OCR Transformation und extrahiert parallel PDF-Seiten als Bilder. Dieser Endpoint führt beide Prozesse parallel aus: Mistral OCR Transformation (mit eingebetteten Bildern im Markdown) und Bildextraktion der PDF-Seiten (als ZIP-Archiv).')  # type: ignore
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """Verarbeitet eine PDF-Datei mit Mistral OCR und Seiten-Bildextraktion"""
+        async def process_request() -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+            process_id = str(uuid.uuid4())
+            temp_file_path: str = ""
+            callback_url: Optional[str] = None
+            job_enqueued: bool = False
+            
+            try:
+                logger.info("Eingehende PDF Mistral OCR Anfrage (multipart)")
+                
+                job_id_form_early = None
+                try:
+                    job_id_form_early = request.form.get('jobId')  # type: ignore
+                except Exception:
+                    job_id_form_early = None
+                
+                args = pdf_mistral_ocr_parser.parse_args()  # type: ignore
+                args = cast(Dict[str, Any], args)
+                uploaded_file = cast(FileStorage, args['file'])
+                include_ocr_images = bool(args.get('includeOCRImages', True))
+                include_page_images = bool(args.get('includePageImages', True))
+                use_cache = bool(args.get('useCache', True))
+                callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None
+                callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None
+                job_id_form = None
+                if job_id_form_early and str(job_id_form_early).strip():
+                    job_id_form = str(job_id_form_early).strip()
+                elif args.get('jobId'):
+                    job_id_form = str(args.get('jobId')).strip()
+                
+                if not uploaded_file.filename:
+                    raise ProcessingError("Kein Dateiname angegeben")
+                
+                # Speichere Datei
+                upload_dir = Path("cache") / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                temp_file_path = str(upload_dir / f"upload_{uuid.uuid4()}.pdf")
+                uploaded_file.save(temp_file_path)
+                temp_file_path = os.path.abspath(temp_file_path)
+                try:
+                    temp_file_path = Path(temp_file_path).as_posix()
+                except Exception:
+                    temp_file_path = temp_file_path.replace('\\', '/')
+                
+                file_hash = calculate_file_hash(temp_file_path)
+                
+                wait_ms: int = 0
+                try:
+                    wait_ms = int(args.get('wait_ms', 0))  # type: ignore
+                except Exception:
+                    wait_ms = 0
+                
+                # Seitenbereich
+                page_start: Optional[int] = None
+                page_end: Optional[int] = None
+                try:
+                    ps = args.get('page_start')
+                    pe = args.get('page_end')
+                    if ps is not None:
+                        page_start = int(ps)
+                    if pe is not None:
+                        page_end = int(pe)
+                except Exception:
+                    pass
+                
+                # Job anlegen
+                job_repo = SecretaryJobRepository()
+                job_webhook: Optional[Dict[str, Any]] = None
+                if callback_url:
+                    job_webhook = {
+                        "url": callback_url,
+                        "token": callback_token,
+                        "jobId": job_id_form or job_id_form_early or None,
+                    }
+                
+                params_flat: Dict[str, Any] = {
+                    "filename": temp_file_path,
+                    "use_cache": use_cache,
+                    "extraction_method": "mistral_ocr_with_pages",
+                    "include_ocr_images": include_ocr_images,
+                    "include_page_images": include_page_images,
+                    "file_hash": file_hash,
+                }
+                if page_start is not None:
+                    params_flat["page_start"] = page_start
+                if page_end is not None:
+                    params_flat["page_end"] = page_end
+                if job_webhook:
+                    params_flat["webhook"] = job_webhook
+                
+                job_data: Dict[str, Any] = {
+                    "job_type": "pdf",
+                    "parameters": params_flat,
+                }
+                
+                created_job_id: str = job_repo.create_job(job_data)
+                job_enqueued = True
+                
+                if callback_url:
+                    ack: Dict[str, Any] = {
+                        'status': 'accepted',
+                        'worker': 'secretary',
+                        'process': {
+                            'id': process_id,
+                            'main_processor': 'pdf',
+                            'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                            'is_from_cache': False
+                        },
+                        'job': {'id': job_id_form or job_id_form_early or created_job_id},
+                        'webhook': {'delivered_to': callback_url},
+                        'error': None
+                    }
+                    logger.info(
+                        "Webhook-ACK gesendet (Mistral OCR Job enqueued)",
+                        process_id=process_id,
+                        job_id_external=(job_id_form or job_id_form_early),
+                        job_id_internal=created_job_id,
+                        callback_url=callback_url,
+                    )
+                    return ack, 202
+                
+                if wait_ms > 0:
+                    deadline = time.time() + (wait_ms / 1000.0)
+                    while time.time() < deadline:
+                        job = job_repo.get_job(created_job_id)
+                        if job and job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                            break
+                        time.sleep(0.25)
+                    job = job_repo.get_job(created_job_id)
+                    if job and job.status == JobStatus.COMPLETED and job.results and job.results.structured_data:
+                        return job.results.structured_data  # type: ignore[return-value]
+                    if job and job.status == JobStatus.FAILED and job.error:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': job.error.code,
+                                'message': job.error.message,
+                                'details': job.error.details or {}
+                            }
+                        }, 400
+                
+                return {
+                    'status': 'accepted',
+                    'worker': 'secretary',
+                    'process': {
+                        'id': process_id,
+                        'main_processor': 'pdf',
+                        'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        'is_from_cache': False
+                    },
+                    'job': {'id': created_job_id},
+                    'webhook': None,
+                    'error': None
+                }, 202
+                
+            except Exception as e:
+                logger.error("Fehler bei der PDF Mistral OCR Verarbeitung", error=e)
+                logger.error(traceback.format_exc())
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': type(e).__name__,
+                        'message': str(e),
+                        'details': {
+                            'error_type': type(e).__name__,
+                            'traceback': traceback.format_exc()
+                        }
+                    }
+                }, 400
+            finally:
+                if not job_enqueued and not callback_url:
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        try:
+                            os.unlink(temp_file_path)
+                        except Exception as e:
+                            logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+        
+        return asyncio.run(process_request())
+
 @pdf_ns.route('/process-url')  # type: ignore
 class PDFUrlEndpoint(Resource):
     @pdf_ns.expect(pdf_url_parser)  # type: ignore
@@ -745,5 +987,241 @@ class PDFTextContentEndpoint(Resource):
             logger.error(f"Fehler beim Abrufen des Textinhalts: {str(e)}")
             return {
                 'error': str(e)
-            }, 500 
+            }, 500
+
+@pdf_ns.route('/jobs/<string:job_id>/download-pages-archive')  # type: ignore
+class PDFJobPagesArchiveDownloadEndpoint(Resource):
+    @pdf_ns.doc(description='Lädt das ZIP-Archiv mit PDF-Seiten als Bilder herunter (nur für Mistral OCR Jobs mit includePageImages=true)')  # type: ignore
+    @pdf_ns.response(200, 'ZIP-Datei als Download')  # type: ignore
+    @pdf_ns.response(404, 'Job nicht gefunden', error_model)  # type: ignore
+    @pdf_ns.response(400, 'Kein Seiten-Archiv verfügbar', error_model)  # type: ignore
+    def get(self, job_id: str) -> Union[Response, Tuple[Dict[str, Any], int]]:
+        """Lädt das ZIP-Archiv mit PDF-Seiten als Bilder herunter"""
+        try:
+            job_repo = SecretaryJobRepository()
+            job = job_repo.get_job(job_id)
+            
+            if not job:
+                return {'error': 'Job nicht gefunden'}, 404
+            
+            if not job.results:
+                status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(status_any)
+                if status_str in ("pending", "processing"):
+                    return {'status': 'processing', 'message': 'Seiten-Archiv noch nicht bereit, bitte später erneut versuchen'}, 202
+                return {'error': 'Job hat keine Ergebnisse'}, 400
+            
+            # ZIP-Datei aus dem Filesystem lesen (wird im Handler gespeichert)
+            target_dir: Optional[str] = getattr(job.results, 'target_dir', None)
+            if not target_dir:
+                logger.warning(f"Download pages archive: Kein target_dir für Job {job_id}")
+                return {'error': 'Kein Verarbeitungsverzeichnis verfügbar'}, 400
+            
+            # Dateiname aus structured_data holen (falls vorhanden)
+            structured_data: Optional[Dict[str, Any]] = getattr(job.results, 'structured_data', None)
+            pages_archive_filename: Optional[str] = None
+            if structured_data:
+                data_dict: Dict[str, Any] = structured_data.get('data', {})
+                pages_archive_filename = data_dict.get('pages_archive_filename')
+            
+            # Standard-Dateiname falls nicht in structured_data
+            filename = pages_archive_filename or f"pages-{job_id}.zip"
+            pages_zip_path = os.path.join(target_dir, filename)
+            
+            # Prüfe ob Datei existiert
+            if not os.path.exists(pages_zip_path):
+                # Fallback: Suche nach pages.zip im Verzeichnis
+                fallback_path = os.path.join(target_dir, "pages.zip")
+                if os.path.exists(fallback_path):
+                    pages_zip_path = fallback_path
+                    filename = "pages.zip"
+                else:
+                    # Prüfe ob Verzeichnis existiert und liste Dateien auf (für Debugging)
+                    if os.path.exists(target_dir):
+                        try:
+                            files_in_dir = os.listdir(target_dir)
+                            logger.warning(f"Download pages archive: Datei nicht gefunden. Erwartet: {filename} oder pages.zip. Gefunden in {target_dir}: {files_in_dir[:10]}")
+                        except Exception:
+                            pass
+                    job_status_any: Any = getattr(job, 'status', 'processing')
+                    try:
+                        status_str: str = str(job_status_any.value)  # type: ignore[attr-defined]
+                    except Exception:
+                        status_str = str(job_status_any)
+                    if status_str in ("pending", "processing"):
+                        return {'status': 'processing', 'message': 'Seiten-Archiv noch nicht bereit, bitte später erneut versuchen'}, 202
+                    logger.error(f"Download pages archive: Kein Seiten-Archiv für Job {job_id} verfügbar. target_dir={target_dir}, filename={filename}")
+                    return {'error': 'Kein Seiten-Archiv für diesen Job verfügbar. Stellen Sie sicher, dass includePageImages=true gesetzt war.'}, 400
+            
+            # Datei aus dem Filesystem lesen
+            try:
+                with open(pages_zip_path, 'rb') as f:
+                    archive_bytes = f.read()
+            except Exception as e:
+                logger.error(f"Fehler beim Lesen der Seiten-Archive-Datei für Job {job_id}: {str(e)}")
+                return {'error': 'Fehler beim Lesen der Archive-Datei'}, 500
+            
+            # ZIP als Response zurückgeben
+            return Response(
+                archive_bytes,
+                mimetype='application/zip',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(len(archive_bytes))
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Download des Seiten-Archives für Job {job_id}: {str(e)}", exc_info=True)
+            return {'error': f'Fehler beim Download: {str(e)}'}, 500
+
+
+@pdf_ns.route('/jobs/<string:job_id>/mistral-ocr-raw')  # type: ignore
+class PDFJobMistralOCRRawEndpoint(Resource):
+    @pdf_ns.doc(description='Lädt die vollständigen Mistral OCR Rohdaten (JSON) herunter (nur für Mistral OCR Jobs)')  # type: ignore
+    @pdf_ns.response(200, 'JSON-Datei als Download')  # type: ignore
+    @pdf_ns.response(404, 'Job nicht gefunden', error_model)  # type: ignore
+    @pdf_ns.response(400, 'Keine Mistral OCR Daten verfügbar', error_model)  # type: ignore
+    def get(self, job_id: str) -> Union[Response, Tuple[Dict[str, Any], int]]:
+        """Lädt die vollständigen Mistral OCR Rohdaten (JSON) herunter"""
+        try:
+            job_repo = SecretaryJobRepository()
+            job = job_repo.get_job(job_id)
+            
+            if not job:
+                return {'error': 'Job nicht gefunden'}, 404
+            
+            if not job.results:
+                status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(status_any)
+                if status_str in ("pending", "processing"):
+                    return {'status': 'processing', 'message': 'Mistral OCR Daten noch nicht bereit, bitte später erneut versuchen'}, 202
+                return {'error': 'Job hat keine Ergebnisse'}, 400
+            
+            # JSON-Datei aus dem Filesystem lesen (wird im Handler gespeichert)
+            target_dir: Optional[str] = getattr(job.results, 'target_dir', None)
+            if not target_dir:
+                logger.warning(f"Download mistral_ocr_raw: Kein target_dir für Job {job_id}")
+                return {'error': 'Kein Verarbeitungsverzeichnis verfügbar'}, 400
+            
+            # Dateiname bestimmen
+            mistral_ocr_raw_filename = f"mistral_ocr_raw_{job_id}.json"
+            mistral_ocr_raw_path = os.path.join(target_dir, mistral_ocr_raw_filename)
+            
+            # Prüfe ob Datei existiert
+            if not os.path.exists(mistral_ocr_raw_path):
+                job_status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(job_status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(job_status_any)
+                if status_str in ("pending", "processing"):
+                    return {'status': 'processing', 'message': 'Mistral OCR Daten noch nicht bereit, bitte später erneut versuchen'}, 202
+                logger.error(f"Download mistral_ocr_raw: Datei nicht gefunden für Job {job_id}. Pfad: {mistral_ocr_raw_path}")
+                return {'error': 'Keine Mistral OCR Daten für diesen Job verfügbar.'}, 400
+            
+            # Datei aus dem Filesystem lesen
+            try:
+                with open(mistral_ocr_raw_path, 'rb') as f:
+                    file_bytes = f.read()
+            except Exception as e:
+                logger.error(f"Fehler beim Lesen der Mistral OCR Raw-Datei für Job {job_id}: {str(e)}")
+                return {'error': 'Fehler beim Lesen der Datei'}, 500
+            
+            # JSON als Response zurückgeben
+            return Response(
+                file_bytes,
+                mimetype='application/json',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{mistral_ocr_raw_filename}"',
+                    'Content-Length': str(len(file_bytes))
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Download der Mistral OCR Raw-Daten für Job {job_id}: {str(e)}", exc_info=True)
+            return {'error': f'Fehler beim Download: {str(e)}'}, 500
+
+
+@pdf_ns.route('/jobs/<string:job_id>/mistral-ocr-images')  # type: ignore
+class PDFJobMistralOCRImagesEndpoint(Resource):
+    @pdf_ns.doc(description='Lädt das ZIP-Archiv mit Mistral OCR extrahierten Bildern herunter (nur für Mistral OCR Jobs)')  # type: ignore
+    @pdf_ns.response(200, 'ZIP-Datei als Download')  # type: ignore
+    @pdf_ns.response(404, 'Job nicht gefunden', error_model)  # type: ignore
+    @pdf_ns.response(400, 'Keine Mistral OCR Bilder verfügbar', error_model)  # type: ignore
+    def get(self, job_id: str) -> Union[Response, Tuple[Dict[str, Any], int]]:
+        """Lädt das ZIP-Archiv mit Mistral OCR extrahierten Bildern herunter"""
+        try:
+            job_repo = SecretaryJobRepository()
+            job = job_repo.get_job(job_id)
+            
+            if not job:
+                return {'error': 'Job nicht gefunden'}, 404
+            
+            if not job.results:
+                status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(status_any)
+                if status_str in ("pending", "processing"):
+                    return {'status': 'processing', 'message': 'Mistral OCR Bilder noch nicht bereit, bitte später erneut versuchen'}, 202
+                return {'error': 'Job hat keine Ergebnisse'}, 400
+            
+            # ZIP-Datei aus dem Filesystem lesen (wird im Handler aus images_archive_data gespeichert)
+            target_dir: Optional[str] = getattr(job.results, 'target_dir', None)
+            if not target_dir:
+                logger.warning(f"Download mistral_ocr_images: Kein target_dir für Job {job_id}")
+                return {'error': 'Kein Verarbeitungsverzeichnis verfügbar'}, 400
+            
+            # Prüfe structured_data für Dateinamen
+            structured_data: Optional[Dict[str, Any]] = getattr(job.results, 'structured_data', None)
+            images_archive_filename: Optional[str] = None
+            if structured_data:
+                data_dict: Dict[str, Any] = structured_data.get('data', {})
+                images_archive_filename = data_dict.get("images_archive_filename")
+            
+            # Standard-Dateiname falls nicht in structured_data
+            filename = images_archive_filename or f"mistral_ocr_images_{job_id}.zip"
+            images_zip_path = os.path.join(target_dir, filename)
+            
+            # Prüfe ob ZIP-Datei existiert (wird vom Handler aus images_archive_data erstellt)
+            if not os.path.exists(images_zip_path):
+                job_status_any: Any = getattr(job, 'status', 'processing')
+                try:
+                    status_str: str = str(job_status_any.value)  # type: ignore[attr-defined]
+                except Exception:
+                    status_str = str(job_status_any)
+                if status_str in ("pending", "processing"):
+                    return {'status': 'processing', 'message': 'Mistral OCR Bilder noch nicht bereit, bitte später erneut versuchen'}, 202
+                logger.error(f"Download mistral_ocr_images: ZIP-Datei nicht gefunden für Job {job_id}. Pfad: {images_zip_path}")
+                return {'error': 'Keine Mistral OCR Bilder für diesen Job verfügbar. Die Bilder werden direkt im ZIP gespeichert.'}, 400
+            
+            # Datei aus dem Filesystem lesen
+            try:
+                with open(images_zip_path, 'rb') as f:
+                    archive_bytes = f.read()
+            except Exception as e:
+                logger.error(f"Fehler beim Lesen der Mistral OCR Bilder-ZIP für Job {job_id}: {str(e)}")
+                return {'error': 'Fehler beim Lesen der Datei'}, 500
+            
+            # ZIP als Response zurückgeben
+            return Response(
+                archive_bytes,
+                mimetype='application/zip',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(len(archive_bytes))
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Download der Mistral OCR Bilder für Job {job_id}: {str(e)}", exc_info=True)
+            return {'error': f'Fehler beim Download: {str(e)}'}, 500
 

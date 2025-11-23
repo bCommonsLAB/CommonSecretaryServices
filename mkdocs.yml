@@ -13,15 +13,7 @@ plugins:
   - search
   - redirects:
       redirect_maps:
-        '01_architecture.md': 'explanations/architecture/overview.md'
-        '02_installation.md': 'guide/getting-started/installation.md'
-        '03_development.md': 'guide/getting-started/development.md'
-        '05_webinterface.md': 'guide/ui/dashboard.md'
         '04_api.md': 'reference/api/overview.md'
-        '06_audio_processing.md': 'processors/audio/overview.md'
-        'HowToUseimageocr.md': 'processors/image-ocr/overview.md'
-        'swagger_llm_ocr_integration.md': 'processors/image-ocr/overview.md'
-        '07_youtube.md': 'processors/video/overview.md'
   - print-site:
       add_to_navigation: false
       print_page_title: "Gesamtdokumentation"
@@ -47,45 +39,6 @@ extra_javascript:
 
 nav:
   - « Zur Anwendung: /
-  - Home: index.md
-  - Guide:
-    - Getting Started:
-      - Installation: guide/getting-started/installation.md
-      - Development: guide/getting-started/development.md
-    - UI:
-      - Dashboard: guide/ui/dashboard.md
-    - How‑Tos:
-      - Session‑Archive: guide/how-tos/session-archive.md
-  - Explanations:
-    - Architektur:
-      - Überblick: explanations/architecture/overview.md
-      - Details: explanations/architecture/details.md
-    - Async Events:
-      - Überblick: explanations/async-events/overview.md
-      - Generischer Worker: explanations/async-events/generic-worker.md
-      - Secretary Job Worker – Konzept: explanations/async-events/secretary-job-worker-concept.md
-      - Secretary Job Worker – Detailed: explanations/async-events/secretary-job-worker-detailed.md
-      - Handlers: explanations/async-events/handlers.md
-      - n8n: explanations/async-events/how-to-n8n.md
-    - Caching: explanations/caching/overview.md
-    - Templates: explanations/templates/overview.md
-    - Typen & Dataclasses: explanations/types/overview.md
-    - Metaprocessor: explanations/metaprocessor/overview.md
-    - Metadaten: explanations/metadata/overview.md
-    - LLM‑Optimierung: explanations/llm/optimization.md
-  - Processors:
-    - Audio: processors/audio/overview.md
-    - Video: processors/video/overview.md
-    - PDF:
-      - Überblick: processors/pdf/overview.md
-      - OCR-Refactoring: processors/pdf/ocr-refactoring.md
-      - PDF/ImageOCR Details: processors/pdf/endpoints.md
-    - Image-OCR: processors/image-ocr/overview.md
-    - Transformer: processors/transformer/overview.md
-    - Session: processors/session/overview.md
-    - Event-Job: processors/event-job/overview.md
-    - Story: processors/story/overview.md
-    - Track: processors/track/overview.md
   - Reference:
     - Overview: reference/index.md
     - Code Reference:
@@ -114,9 +67,7 @@ nav:
       - Job Models: reference/data-models/job.md
     - Configuration: reference/configuration.md
     - Environment Variables: reference/environment-variables.md
-  - Architecture:
-    - Module Hierarchy: architecture/module-hierarchy.md
-  - Ops:
-    - Deployment: ops/deployment.md
-    - Sicherheit: ops/security.md
-    - Troubleshooting: ops/troubleshooting.md
+  - Explanations:
+    - Async Events:
+      - Secretary Job Worker – Detailed: explanations/async-events/secretary-job-worker-detailed.md
+      - Handlers: explanations/async-events/handlers.md

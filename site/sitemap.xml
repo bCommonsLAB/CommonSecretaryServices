@@ -2,102 +2,102 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://example.local/architecture/module-hierarchy/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/explanations/async-events/handlers/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/explanations/async-events/secretary-job-worker-detailed/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/code-index/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/configuration/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/environment-variables/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/openapi/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/overview/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/audio/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/common/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/event-job/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/event/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/imageocr/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/jobs/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/pdf/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/session/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/story/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/track/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/transformer/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/api/endpoints/video/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/data-models/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/data-models/base/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/data-models/job/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
     <url>
          <loc>https://example.local/reference/data-models/llm/</loc>
-         <lastmod>2025-11-09</lastmod>
+         <lastmod>2025-11-21</lastmod>
     </url>
 </urlset>

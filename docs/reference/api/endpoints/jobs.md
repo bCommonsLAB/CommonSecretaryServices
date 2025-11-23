@@ -251,6 +251,7 @@ Include `webhook` in job parameters:
 
 When job completes, a POST request is sent to the webhook URL:
 
+**Standard PDF Processing**:
 ```json
 {
   "phase": "completed",
@@ -261,6 +262,29 @@ When job completes, a POST request is sent to the webhook URL:
   }
 }
 ```
+
+**Mistral OCR Processing** (with `extraction_method="mistral_ocr_with_pages"`):
+```json
+{
+  "phase": "completed",
+  "message": "Extraktion abgeschlossen",
+  "data": {
+    "extracted_text": "...",
+    "metadata": {
+      "text_contents": [...]
+    },
+    "mistral_ocr_raw_url": "/api/pdf/jobs/{job_id}/mistral-ocr-raw",
+    "mistral_ocr_raw_metadata": {
+      "model": "mistral-ocr-latest",
+      "pages_count": 235,
+      "usage_info": {...}
+    },
+    "pages_archive_url": "/api/pdf/jobs/{job_id}/download-pages-archive"
+  }
+}
+```
+
+**Note**: For large documents, `mistral_ocr_raw` is stored as a separate JSON file due to MongoDB size limits. Use `mistral_ocr_raw_url` to download the complete data including all images.
 
 ### Progress Webhooks
 

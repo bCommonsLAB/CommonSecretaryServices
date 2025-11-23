@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 API_KEY: str = os.environ.get("MISTRAL_API_KEY", "")
-MODEL: str = os.environ.get("MISTRAL_MODEL", "mistral-ocr-2505")
+MODEL: str = os.environ.get("MISTRAL_MODEL", "mistral-ocr-latest")
 
 
 def _pdf_path() -> str:
