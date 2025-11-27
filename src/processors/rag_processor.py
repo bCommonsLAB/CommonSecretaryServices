@@ -324,20 +324,20 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
             # Für voyage-context-3 müssen alle Chunks eines Dokuments zusammen verarbeitet werden
             if input_type == "document":
                 # Batch-Embedding für alle Chunks
-                response = self.voyage_client.embed(
+                response: Any = self.voyage_client.embed(  # type: ignore
                     texts=texts,
                     model=effective_model,
                     input_type=input_type
                 )
-                return response.embeddings
+                return response.embeddings  # type: ignore
             else:
                 # Query-Embedding
-                response = self.voyage_client.embed(
+                response = self.voyage_client.embed(  # type: ignore
                     texts=texts,
                     model=effective_model,
                     input_type=input_type
                 )
-                return response.embeddings
+                return response.embeddings  # type: ignore
                 
         except Exception as e:
             self.logger.error("Fehler bei der Embedding-Generierung", error=e)

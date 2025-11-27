@@ -149,20 +149,20 @@ class RAGEmbedTextEndpoint(Resource):
             # Unterstütze sowohl JSON-Body als auch form-data (wie bei transformer_routes)
             if request.is_json:
                 raw: Dict[str, Any] = request.get_json(silent=True) or {}
-                markdown_text = raw.get('markdown')
-                document_id = raw.get('document_id')
-                chunk_size = raw.get('chunk_size')
-                chunk_overlap = raw.get('chunk_overlap')
-                embedding_model = raw.get('embedding_model')
-                raw_metadata = raw.get('metadata') or {}
+                markdown_text: Optional[str] = raw.get('markdown')
+                document_id: Optional[str] = raw.get('document_id')
+                chunk_size: Optional[int] = raw.get('chunk_size')
+                chunk_overlap: Optional[int] = raw.get('chunk_overlap')
+                embedding_model: Optional[str] = raw.get('embedding_model')
+                raw_metadata: Union[Dict[str, Any], str, None] = raw.get('metadata') or {}
             else:
-                args = embed_text_parser.parse_args()
-                markdown_text = args.get('markdown')
-                document_id = args.get('document_id')
-                chunk_size = args.get('chunk_size')
-                chunk_overlap = args.get('chunk_overlap')
-                embedding_model = args.get('embedding_model')
-                raw_metadata = args.get('metadata') or {}
+                args: Dict[str, Any] = embed_text_parser.parse_args()  # type: ignore
+                markdown_text: Optional[str] = args.get('markdown')  # type: ignore
+                document_id: Optional[str] = args.get('document_id')  # type: ignore
+                chunk_size: Optional[int] = args.get('chunk_size')  # type: ignore
+                chunk_overlap: Optional[int] = args.get('chunk_overlap')  # type: ignore
+                embedding_model: Optional[str] = args.get('embedding_model')  # type: ignore
+                raw_metadata: Union[Dict[str, Any], str, None] = args.get('metadata') or {}  # type: ignore
             
             # Validierung: Markdown muss vorhanden sein
             if not markdown_text or not isinstance(markdown_text, str) or not markdown_text.strip():
@@ -181,8 +181,8 @@ class RAGEmbedTextEndpoint(Resource):
                 metadata = raw_metadata
             else:
                 try:
-                    parsed = json.loads(str(raw_metadata))
-                    metadata = parsed if isinstance(parsed, dict) else {'client_metadata': raw_metadata}
+                    parsed: Any = json.loads(str(raw_metadata))  # type: ignore
+                    metadata = parsed if isinstance(parsed, dict) else {'client_metadata': raw_metadata}  # type: ignore
                 except Exception:
                     metadata = {'client_metadata': raw_metadata}
             
@@ -191,14 +191,15 @@ class RAGEmbedTextEndpoint(Resource):
             processor = get_rag_processor(process_id)
             
             # Embedding durchführen (ohne Speicherung)
+            # Typ-Annotationen für Parameter (markdown_text ist bereits validiert, daher nicht None)
             embedding_result = asyncio.run(
                 processor.embed_document_for_client(
-                    text=markdown_text,
-                    document_id=document_id,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    embedding_model=embedding_model,
-                    metadata=metadata
+                    text=str(markdown_text),  # Nach Validierung sicher str
+                    document_id=document_id if document_id else None,  # type: ignore
+                    chunk_size=chunk_size if chunk_size else None,  # type: ignore
+                    chunk_overlap=chunk_overlap if chunk_overlap else None,  # type: ignore
+                    embedding_model=embedding_model if embedding_model else None,  # type: ignore
+                    metadata=metadata  # type: ignore
                 )
             )
             
