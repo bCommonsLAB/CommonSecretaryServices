@@ -194,6 +194,183 @@ class WhisperTranscriber:
         self.debug_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
+    def _get_model_token_limit(self, model: str) -> int:
+        """
+        Gibt das Token-Limit für ein Modell zurück.
+        
+        Args:
+            model: Der Modellname (z.B. 'gpt-5.1', 'gpt-4.1', 'gpt-4', 'gpt-3.5-turbo')
+            
+        Returns:
+            Das Token-Limit für das Modell
+        """
+        # Token-Limits für verschiedene Modelle (in Tokens)
+        model_limits: Dict[str, int] = {
+            # GPT-5.1 Familie – Kontextfenster laut OpenAI-Doku ~1M Tokens
+            # Hinweis: Falls OpenAI die Limits ändert, bitte diesen Wert anpassen.
+            'gpt-5.1': 1_047_576,
+            # GPT-4.1 Familie
+            'gpt-4.1': 1_047_576,
+            'gpt-4': 8_192,
+            'gpt-4-turbo': 128_000,
+            'gpt-4o': 128_000,
+            'gpt-3.5-turbo': 16_385,
+            'gpt-3.5-turbo-16k': 16_385,
+            'gpt-4.1-mini': 1_047_576,
+        }
+        
+        # Prüfe exakte Übereinstimmung
+        if model in model_limits:
+            return model_limits[model]
+        
+        # Fallback: Prüfe Präfixe
+        if model.startswith('gpt-5.1'):
+            return 1_047_576
+        if model.startswith('gpt-4.1'):
+            return 1_047_576
+        elif model.startswith('gpt-4'):
+            return 128_000  # Konservativer Fallback für GPT-4 Varianten
+        elif model.startswith('gpt-3.5'):
+            return 16_385
+        
+        # Sehr konservativer Fallback
+        return 8_192
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Schätzt die Token-Anzahl für einen Text.
+        Verwendet eine verbesserte Schätzung basierend auf Zeichenanzahl.
+        
+        Args:
+            text: Der zu schätzende Text
+            
+        Returns:
+            Geschätzte Token-Anzahl
+        """
+        if not text:
+            return 0
+        
+        # Konservative Token-Schätzung:
+        # - Für englischen Text: ~4 Zeichen pro Token
+        # - Für deutschen Text: ~2.5-3 Zeichen pro Token (längere Wörter)
+        # - Für JSON/Code: ~2 Zeichen pro Token (mehr Sonderzeichen)
+        # WICHTIG:
+        # Unsere erste Heuristik hat in der Praxis die Token-Anzahl UNTERschätzt
+        # (z.B. 677985 geschätzte Tokens vs. 1175388 gemeldete Tokens vom Modell).
+        # Daher bauen wir hier bewusst einen starken Sicherheitsfaktor ein.
+        
+        # Zähle Wörter und Zeichen für bessere Schätzung
+        words = len(text.split())
+        chars = len(text)
+        
+        # Wenn viele Wörter vorhanden sind, verwende Wort-basierte Schätzung
+        if words > 100:
+            # Basis-Schätzung: ~1.5 Tokens pro Wort
+            base_estimate = int(words * 1.5)
+        else:
+            # Zeichen-basierte Schätzung: ~2.5 Zeichen pro Token
+            base_estimate = int(chars / 2.5)
+        
+        # Sicherheitsfaktor:
+        # In der Praxis lagen wir um ca. Faktor 1.7 daneben (untere Schätzung).
+        # Wir verdoppeln deshalb die Schätzung, um auf der SICHEREN Seite zu sein.
+        safety_factor: float = 2.0
+        token_estimate = int(base_estimate * safety_factor)
+        
+        return max(token_estimate, 1)  # Mindestens 1 Token
+
+    def _truncate_text_to_fit_limit(
+        self,
+        text: str,
+        system_prompt: str,
+        user_prompt_template: str,
+        model: str,
+        logger: Optional[ProcessingLogger] = None
+    ) -> Tuple[str, bool, int]:
+        """
+        Kürzt den Text, damit er in das Token-Limit des Modells passt.
+        
+        Args:
+            text: Der zu kürzende Text
+            system_prompt: Der System-Prompt (wird nicht gekürzt)
+            user_prompt_template: Der User-Prompt-Template (ohne den Text)
+            model: Das verwendete Modell
+            logger: Optional, Logger für Debug-Ausgaben
+            
+        Returns:
+            Tuple aus:
+            - Gekürzter Text
+            - True wenn Text gekürzt wurde, False sonst
+            - Anzahl der entfernten Zeichen
+        """
+        # Token-Limit für das Modell
+        model_limit = self._get_model_token_limit(model)
+        
+        # Schätze Token-Anzahl für System-Prompt und User-Prompt-Template
+        system_tokens = self._estimate_tokens(system_prompt)
+        template_tokens = self._estimate_tokens(user_prompt_template)
+        
+        # Reserve für Response (konservativ: 5000 Tokens)
+        response_reserve = 5000
+        
+        # Verfügbare Tokens für den Text
+        available_tokens = model_limit - system_tokens - template_tokens - response_reserve
+        
+        # Sicherheitspuffer (20% statt 10% für mehr Sicherheit)
+        # Dies stellt sicher, dass wir definitiv unter dem Limit bleiben
+        available_tokens = int(available_tokens * 0.8)
+        
+        # Schätze Token-Anzahl für den Text
+        text_tokens = self._estimate_tokens(text)
+        
+        if text_tokens <= available_tokens:
+            # Text passt, keine Kürzung nötig
+            return text, False, 0
+        
+        # Text muss gekürzt werden
+        # Berechne maximale Zeichenanzahl (sehr konservativ: ~2.5 Zeichen pro Token)
+        # Dies stellt sicher, dass wir definitiv unter dem Token-Limit bleiben
+        max_chars = int(available_tokens * 2.5)  # Sehr konservative Schätzung
+        
+        # Kürze Text (behalte Anfang)
+        truncated_text = text[:max_chars]
+        removed_chars = len(text) - len(truncated_text)
+        
+        # Iterative Anpassung: Prüfe ob gekürzter Text wirklich passt
+        # Wenn nicht, kürze weiter (mit größerem Schritt)
+        truncated_tokens = self._estimate_tokens(truncated_text)
+        iteration = 0
+        max_iterations = 10  # Verhindere Endlosschleife
+        while truncated_tokens > available_tokens and len(truncated_text) > 100 and iteration < max_iterations:
+            # Kürze um weitere 15% (größerer Schritt für schnelleres Konvergieren)
+            truncate_factor = 0.85
+            max_chars = int(len(truncated_text) * truncate_factor)
+            truncated_text = text[:max_chars]
+            removed_chars = len(text) - len(truncated_text)
+            truncated_tokens = self._estimate_tokens(truncated_text)
+            iteration += 1
+        
+        if logger:
+            final_truncated_tokens = self._estimate_tokens(truncated_text)
+            total_estimated_tokens = system_tokens + template_tokens + final_truncated_tokens
+            logger.warning(
+                "Text wurde gekürzt, um Token-Limit einzuhalten",
+                model=model,
+                model_limit=model_limit,
+                original_text_length=len(text),
+                original_text_tokens=text_tokens,
+                truncated_text_length=len(truncated_text),
+                truncated_text_tokens=final_truncated_tokens,
+                removed_chars=removed_chars,
+                system_tokens=system_tokens,
+                template_tokens=template_tokens,
+                available_tokens=available_tokens,
+                total_estimated_tokens=total_estimated_tokens,
+                tokens_under_limit=model_limit - total_estimated_tokens
+            )
+        
+        return truncated_text, True, removed_chars
+
     def create_llm_request(
         self,
         purpose: str,
@@ -814,9 +991,20 @@ class WhisperTranscriber:
             if additional_field_descriptions:
                 field_descriptions.update(additional_field_descriptions)
                 
-            user_prompt: str = (
+            # Prüfe Token-Limit und kürze Text falls nötig
+            # Bestimme das verwendete Modell
+            chat_model = self.model
+            try:
+                chat_provider_check = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                if chat_provider_check:
+                    chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+            except Exception:
+                pass
+            
+            # Erstelle User-Prompt-Template (ohne Text) für Token-Schätzung
+            user_prompt_template: str = (
                 f"Analyze the following text and extract the information as a JSON object:\n\n"
-                f"TEXT:\n{text}\n\n"
+                f"TEXT:\n{{TEXT_PLACEHOLDER}}\n\n"
                 f"CONTEXT:\n{context_str}\n\n"
                 f"REQUIRED FIELDS:\n"
                 f"{json.dumps(required_field_descriptions, indent=2, ensure_ascii=False)}\n\n"
@@ -827,6 +1015,26 @@ class WhisperTranscriber:
                 f"4. Ensure the response is valid JSON\n"
                 f"5. Do not include any text outside the JSON object"
             )
+            
+            # Token-Schätzung vor LLM-Aufruf (nur Logging, keine Kürzung)
+            if logger:
+                estimated_text_tokens = self._estimate_tokens(text)
+                estimated_system_tokens = self._estimate_tokens(system_prompt)
+                estimated_template_tokens = self._estimate_tokens(user_prompt_template)
+                model_limit = self._get_model_token_limit(chat_model)
+                logger.info(
+                    "Token-Prüfung vor Template-Transformation",
+                    model=chat_model,
+                    model_limit=model_limit,
+                    text_length=len(text),
+                    estimated_text_tokens=estimated_text_tokens,
+                    estimated_system_tokens=estimated_system_tokens,
+                    estimated_template_tokens=estimated_template_tokens,
+                    total_estimated_tokens=estimated_text_tokens + estimated_system_tokens + estimated_template_tokens
+                )
+
+            # Erstelle finalen User-Prompt mit Text
+            user_prompt: str = user_prompt_template.replace("{TEXT_PLACEHOLDER}", text)
 
             # 6. LLM-Anfrage senden (mit Provider-Abstraktion)
             if logger:
@@ -878,8 +1086,10 @@ class WhisperTranscriber:
                     )
                 ]
 
+                # Verwende chat_model statt self.model für Konsistenz
+                fallback_model = chat_model if 'chat_model' in locals() else self.model
                 response = self.client.chat.completions.create(
-                    model=self.model,
+                    model=fallback_model,
                     messages=messages,
                     temperature=self.temperature
                 )
@@ -1127,11 +1337,14 @@ class WhisperTranscriber:
                     duration_ms=duration,
                     model=self.model)
 
-            # Response erstellen
+            # Response erstellen (ohne automatische Kürzungs-Warnung;
+            # etwaige Kontextlimit-Fehler sollen direkt vom LLM-Provider kommen)
+            final_structured_data: Dict[str, Any] = result_json.copy() if result_json else {}
+
             return TransformationResult(
                 text=template_content_str,
                 target_language=target_language,
-                structured_data=result_json
+                structured_data=final_structured_data
             )
             
         except Exception as e:

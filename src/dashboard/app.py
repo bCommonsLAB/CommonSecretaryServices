@@ -52,8 +52,10 @@ import atexit
 from types import FrameType
 from typing import NoReturn, Optional, Union
 
-from flask import Flask
+from flask import Flask, Response
+from werkzeug.exceptions import RequestEntityTooLarge
 from dotenv import load_dotenv
+from typing import Dict, Any, Tuple
 
 # .env früh laden, bevor die API-Routen (mit Env-Auswertung) importiert werden
 try:
@@ -77,6 +79,14 @@ from .routes.llm_config_routes import llm_config as llm_config_dashboard
 logger_service.reset()
 
 app = Flask(__name__)
+
+# Konfiguriere die App
+# Maximale Größe des kompletten Request-Bodys (Upload-Limit)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB upload limit
+# Maximale Größe der im Speicher gehaltenen Form-/Multipart-Daten
+# WICHTIG: Dieses Limit greift bei multipart/form-data unabhängig von MAX_CONTENT_LENGTH
+app.config['MAX_FORM_MEMORY_SIZE'] = 100 * 1024 * 1024  # 100MB form-data limit
+app.config['PREFERRED_URL_SCHEME'] = 'http'
 
 # Nur Logger initialisieren, wenn es nicht der Reloader-Prozess ist
 app_logger: ProcessingLogger = get_logger(process_id="flask-app")
@@ -108,6 +118,73 @@ try:
     )
 except Exception:
     pass
+
+# Error-Handler für RequestEntityTooLarge (HTTP 413)
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(error: RequestEntityTooLarge) -> Tuple[Response, int]:
+    """
+    Behandelt RequestEntityTooLarge-Fehler und gibt eine strukturierte Fehlerantwort zurück.
+    
+    Args:
+        error: Die RequestEntityTooLarge-Exception
+        
+    Returns:
+        Tuple mit Fehlerantwort-Dict und HTTP-Statuscode 413
+    """
+    max_content_length: int | None = app.config.get('MAX_CONTENT_LENGTH', None)
+    max_content_length_str: str
+    if max_content_length:
+        max_content_length_str = f"{max_content_length} Bytes ({max_content_length / (1024 * 1024):.1f} MB)"
+    else:
+        max_content_length_str = "unbekannt"
+    
+    # Versuche Content-Length aus dem Request zu extrahieren
+    from flask import request
+    content_length: int | None = request.content_length if hasattr(request, 'content_length') else None
+    
+    # Prüfe, ob das Limit wirklich überschritten wurde (für Debugging)
+    is_really_too_large: bool = False
+    if max_content_length and content_length:
+        is_really_too_large = content_length > max_content_length
+    
+    # Logge die Fehlermeldung für Debugging mit allen Details
+    app_logger.error(
+        'RequestEntityTooLarge Error-Handler aufgerufen',
+        error=error,
+        error_str=str(error),
+        content_length=content_length,
+        content_length_kb=round(float(content_length) / 1024, 2) if content_length else None,
+        max_content_length=max_content_length,
+        max_content_length_mb=round(float(max_content_length) / (1024 * 1024), 2) if max_content_length else None,
+        max_content_length_formatted=max_content_length_str,
+        is_really_too_large=is_really_too_large,
+        app_config_max_content_length=app.config.get('MAX_CONTENT_LENGTH'),
+        request_method=request.method if hasattr(request, 'method') else None,
+        request_path=request.path if hasattr(request, 'path') else None
+    )
+    
+    error_response: Dict[str, Any] = {
+        'status': 'error',
+        'error': {
+            'code': 'RequestEntityTooLarge',
+            'message': f'Request zu groß (HTTP 413). Content-Length: {content_length} Bytes, Max-Content-Length: {max_content_length_str}',
+            'details': {
+                'content_length': content_length,
+                'max_content_length': max_content_length,
+                'max_content_length_formatted': max_content_length_str,
+                'http_status': 413
+            }
+        }
+    }
+    
+    from flask import jsonify
+    response: Response = jsonify(error_response)
+    # Füge Max-Content-Length Header hinzu, damit der Client es extrahieren kann
+    if max_content_length is not None:
+        max_content_length_bytes: str = str(int(max_content_length))
+        response.headers['X-Max-Content-Length'] = max_content_length_bytes
+        response.headers['X-Max-Content-Length-Formatted'] = max_content_length_str
+    return response, 413
 
 # Register blueprints
 app.register_blueprint(main)

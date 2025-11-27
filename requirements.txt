@@ -56,3 +56,6 @@ mypy==1.8.0
 pydub>=0.25.1
 
 markdown
+
+# RAG / Vector Search
+voyageai>=0.2.0

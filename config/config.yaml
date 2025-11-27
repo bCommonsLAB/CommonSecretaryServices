@@ -15,6 +15,10 @@ llm_config:
     chat_completion:
       model: gpt-4.1-mini
       provider: openai
+    embedding:
+      model: voyage-context-3
+      provider: voyageai
+      dimensions: 2048
     image2text:
       model: gpt-4o
       provider: openai
@@ -68,6 +72,8 @@ llm_providers:
       - gpt-4
       - gpt-4-turbo
       - gpt-4o
+      - gpt-5.1
+      - gpt-4.1
       - gpt-4.1-mini
       - gpt-3.5-turbo
       image2text:
@@ -197,6 +203,16 @@ processors:
       collection_name: obsidian_cache
       enabled: true
       ttl_days: 30
+  rag:
+    voyage_api_key: ${VOYAGE_API_KEY}
+    embedding_model: voyage-context-3
+    embedding_dimensions: 2048
+    chunk_size: 1000
+    chunk_overlap: 200
+    default_retrieval_limit: 5
+    mongodb:
+      collection: rag_embeddings
+      vector_index: vector_index
     cache_dir: cache/obsidian
     max_concurrent_tasks: 5
   openai:

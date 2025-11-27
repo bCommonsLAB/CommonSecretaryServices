@@ -56,6 +56,7 @@ from src.core.models.transformer import TransformerResponse
 from src.processors.transformer_processor import TransformerProcessor
 from src.processors.metadata_processor import MetadataProcessor, MetadataResponse
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
+from werkzeug.exceptions import RequestEntityTooLarge
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker
@@ -456,7 +457,119 @@ class TemplateTransformEndpoint(Resource):
     }))
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Text mit Template transformieren"""
-        args = template_transform_parser.parse_args()
+        try:
+            # Unterstütze große Payloads über JSON, um multipart/form-data Limits zu umgehen
+            if request.is_json:
+                payload: Dict[str, Any] = request.get_json(silent=True) or {}
+                logger.info(
+                    "TemplateTransformEndpoint: JSON-Request erkannt, verwende JSON-Parsing statt multipart/form-data",
+                    keys=list(payload.keys()),
+                )
+                args: Dict[str, Any] = {
+                    "text": payload.get("text", ""),
+                    "url": payload.get("url", ""),
+                    "source_language": payload.get("source_language", "de"),
+                    "target_language": payload.get("target_language", "de"),
+                    "template": payload.get("template", ""),
+                    "template_content": payload.get("template_content", ""),
+                    # Für JSON erlauben wir sowohl String- als auch Dict-Form für context / additional_field_descriptions
+                    "context": payload.get("context"),
+                    "additional_field_descriptions": payload.get("additional_field_descriptions"),
+                    "use_cache": payload.get("use_cache", True),
+                    "callback_url": payload.get("callback_url"),
+                    "callback_token": payload.get("callback_token"),
+                    "jobId": payload.get("jobId"),
+                    "wait_ms": payload.get("wait_ms", 0),
+                }
+            else:
+                # Standardpfad: multipart/form-data über Flask-RESTX parser
+                args = template_transform_parser.parse_args()
+        except RequestEntityTooLarge as parse_error:
+            # Fange RequestEntityTooLarge ab, bevor Flask-RESTX es weiterwirft
+            max_content_length = None
+            max_content_length_from_app = None
+            max_content_length_from_current_app = None
+            try:
+                from flask import current_app
+                max_content_length_from_current_app = current_app.config.get('MAX_CONTENT_LENGTH', None)
+                max_content_length = max_content_length_from_current_app
+            except Exception as e:
+                logger.warning(f"Konnte MAX_CONTENT_LENGTH nicht aus current_app lesen: {e}")
+            
+            # Versuche auch direkt aus der App-Instanz zu lesen
+            try:
+                from src.dashboard.app import app as dashboard_app
+                max_content_length_from_app = dashboard_app.config.get('MAX_CONTENT_LENGTH', None)
+                if max_content_length is None:
+                    max_content_length = max_content_length_from_app
+            except Exception as e:
+                logger.warning(f"Konnte MAX_CONTENT_LENGTH nicht aus dashboard_app lesen: {e}")
+            
+            max_content_length_str = f"{max_content_length} Bytes ({max_content_length / (1024 * 1024):.1f} MB)" if max_content_length else "unbekannt"
+            
+            # Sammle alle verfügbaren Request-Informationen für Debugging
+            content_length = request.content_length if hasattr(request, 'content_length') else None
+            content_type = request.content_type if hasattr(request, 'content_type') else None
+            request_method = request.method if hasattr(request, 'method') else None
+            
+            # Prüfe, ob das Limit wirklich überschritten wurde (für Debugging)
+            is_really_too_large = False
+            if max_content_length and content_length:
+                is_really_too_large = content_length > max_content_length
+            
+            # Versuche zusätzliche Informationen aus der Exception zu extrahieren
+            error_description = str(parse_error)
+            error_args = getattr(parse_error, 'description', None)
+            
+            # Prüfe, ob es ein Werkzeug-spezifisches Limit gibt
+            # Werkzeug hat ein Standardlimit von 16 MB (16777216 Bytes)
+            werkzeug_limit: int = 16 * 1024 * 1024
+            
+            # Logge die Fehlermeldung für Debugging mit allen Details
+            error_message = f'Request zu groß (HTTP 413). Content-Length: {content_length} Bytes, Max-Content-Length: {max_content_length_str}'
+            
+            # WICHTIG: Prüfe, ob das Problem bei multipart/form-data liegt
+            # Flask/Werkzeug kann bei multipart/form-data das Limit anders prüfen
+            is_multipart = content_type and 'multipart/form-data' in content_type.lower() if content_type else False
+            
+            logger.error(
+                'RequestEntityTooLarge bei Template-Transformation - UNLOGISCHES VERHALTEN ERKANNT!',
+                error=parse_error,
+                error_str=str(parse_error),
+                error_description=error_description,
+                error_args=error_args,
+                content_length=content_length,
+                content_length_kb=round(float(content_length) / 1024, 2) if content_length else None,
+                content_length_mb=round(float(content_length) / (1024 * 1024), 2) if content_length else None,
+                max_content_length=max_content_length,
+                max_content_length_from_current_app=max_content_length_from_current_app,
+                max_content_length_from_app=max_content_length_from_app,
+                max_content_length_formatted=max_content_length_str,
+                max_content_length_mb=round(float(max_content_length) / (1024 * 1024), 2) if max_content_length else None,
+                is_really_too_large=is_really_too_large,
+                werkzeug_default_limit=werkzeug_limit,
+                werkzeug_limit_mb=round(float(werkzeug_limit) / (1024 * 1024), 2) if werkzeug_limit else None,
+                content_type=content_type,
+                is_multipart=is_multipart,
+                request_method=request_method,
+                error_message=error_message,
+                warning='⚠️ Request ist NICHT wirklich zu groß, aber Flask wirft trotzdem RequestEntityTooLarge!'
+            )
+            
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'RequestEntityTooLarge',
+                    'message': error_message,
+                    'details': {
+                        'content_length': content_length,
+                        'max_content_length': max_content_length,
+                        'max_content_length_formatted': max_content_length_str,
+                        'http_status': 413
+                    }
+                }
+            }, 413
+        
         tracker: PerformanceTracker | None = get_performance_tracker()
         
         try:
@@ -510,32 +623,40 @@ class TemplateTransformEndpoint(Resource):
                 }, 400
 
             # Kontext parsen, falls vorhanden
-            context = {}
+            context: Dict[str, Any] = {}
             if context_str:
-                try:
-                    context = json.loads(context_str)
-                except json.JSONDecodeError:
-                    return {
-                        'status': 'error',
-                        'error': {
-                            'code': 'InvalidRequest',
-                            'message': 'Ungültiger JSON-String im context-Feld.'
-                        }
-                    }, 400
+                # Bei multipart/form-data erwarten wir einen JSON-String,
+                # bei JSON-Requests kann direkt ein Dict kommen.
+                if isinstance(context_str, str):
+                    try:
+                        context = json.loads(context_str)
+                    except json.JSONDecodeError:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'InvalidRequest',
+                                'message': 'Ungültiger JSON-String im context-Feld.'
+                            }
+                        }, 400
+                elif isinstance(context_str, dict):
+                    context = context_str
 
             # Additional field descriptions parsen, falls vorhanden
-            additional_field_descriptions = {}
+            additional_field_descriptions: Dict[str, Any] = {}
             if additional_field_descriptions_str:
-                try:
-                    additional_field_descriptions = json.loads(additional_field_descriptions_str)
-                except json.JSONDecodeError:
-                    return {
-                        'status': 'error',
-                        'error': {
-                            'code': 'InvalidRequest',
-                            'message': 'Ungültiger JSON-String im additional_field_descriptions-Feld.'
-                        }
-                    }, 400
+                if isinstance(additional_field_descriptions_str, str):
+                    try:
+                        additional_field_descriptions = json.loads(additional_field_descriptions_str)
+                    except json.JSONDecodeError:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'InvalidRequest',
+                                'message': 'Ungültiger JSON-String im additional_field_descriptions-Feld.'
+                            }
+                        }, 400
+                elif isinstance(additional_field_descriptions_str, dict):
+                    additional_field_descriptions = additional_field_descriptions_str
 
             start_time: float = time.time()
             transformer_processor: TransformerProcessor = get_transformer_processor()

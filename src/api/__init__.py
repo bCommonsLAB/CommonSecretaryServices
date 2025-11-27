@@ -74,12 +74,18 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
         logger.warning("Server wird trotzdem gestartet, aber es kann zu Cache-Problemen kommen")
     
     # Erstelle die Flask-App
-    app = Flask(__name__, 
-                static_folder=static_dir or 'static',
-                template_folder=template_dir or 'templates')
+    app = Flask(
+        __name__, 
+        static_folder=static_dir or 'static',
+        template_folder=template_dir or 'templates'
+    )
     
     # Konfiguriere die App
+    # Maximale Größe des kompletten Request-Bodys (Upload-Limit)
     app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB upload limit
+    # Maximale Größe der im Speicher gehaltenen Form-/Multipart-Daten
+    # WICHTIG: Dieses Limit greift bei multipart/form-data unabhängig von MAX_CONTENT_LENGTH
+    app.config['MAX_FORM_MEMORY_SIZE'] = 100 * 1024 * 1024  # 100MB form-data limit
     app.config['PREFERRED_URL_SCHEME'] = 'http'
     
     # Registriere die API-Routen bei der App

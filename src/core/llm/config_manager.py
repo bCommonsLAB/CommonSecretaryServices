@@ -12,7 +12,7 @@ per use case.
 - LLMConfigManager: Class - LLM configuration management
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from ..config import Config
 from ..exceptions import ProcessingError
 from ..models.llm_config import ProviderConfig, UseCaseConfig, LLMConfig
@@ -212,6 +212,38 @@ class LLMConfigManager:
             return None
         use_case_str = use_case.value if isinstance(use_case, UseCase) else str(use_case)
         return self._config.get_use_case_config(use_case_str)
+
+    def get_embedding_defaults(self) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """
+        Gibt die Standardkonfiguration für Embeddings zurück.
+        
+        Returns:
+            Tuple aus (modell_name, provider_name, dimensionen) – jeder Wert kann None sein,
+            falls in der Konfiguration nicht gesetzt.
+        """
+        if not self._config:
+            return None, None, None
+        
+        use_case_config = self.get_use_case_config(UseCase.EMBEDDING)
+        model_name = use_case_config.model if use_case_config else None
+        provider_name = use_case_config.provider if use_case_config else None
+        
+        # Dimensionen sind optional und werden direkt aus der rohen Konfiguration gelesen
+        config = Config()
+        raw_config = config.get_all()
+        dimensions: Optional[int] = None
+        try:
+            llm_cfg = raw_config.get("llm_config", {})
+            use_cases_cfg = llm_cfg.get("use_cases", {})
+            embedding_cfg = use_cases_cfg.get("embedding", {})
+            raw_dims = embedding_cfg.get("dimensions")
+            if isinstance(raw_dims, int) and raw_dims > 0:
+                dimensions = raw_dims
+        except Exception:
+            # Im Fehlerfall Dimensions-Angabe einfach weglassen, Fallback erfolgt später
+            dimensions = None
+        
+        return model_name, provider_name, dimensions
     
     def get_all_providers(self) -> Dict[str, ProviderConfig]:
         """

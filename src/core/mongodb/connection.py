@@ -195,6 +195,15 @@ def setup_mongodb_connection() -> None:
             "original_language": 1,
             "original_text": 1,
             "last_accessed": 1
+        },
+        "rag_embeddings": {
+            "document_id": 1,
+            "chunk_index": 1,
+            "created_at": 1
+        },
+        "rag_cache": {
+            "cache_key": 1,
+            "last_accessed": 1
         }
     }
     

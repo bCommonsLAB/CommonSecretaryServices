@@ -31,6 +31,9 @@ class UseCase(str, Enum):
     
     # Text-Übersetzung und Chat-Completion
     CHAT_COMPLETION = "chat_completion"
+
+    # Embeddings für Retrieval, RAG, Vektorspeicher
+    EMBEDDING = "embedding"
     
     def __str__(self) -> str:
         """Gibt den String-Wert des Use-Cases zurück."""
