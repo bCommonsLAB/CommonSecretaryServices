@@ -39,7 +39,7 @@ def test_embed_text_accepts_explicit_embedding_model() -> None:
     """Mit explizitem embedding_model wird dieses Modell in der Response gespiegelt."""
     client = _get_test_client()
 
-    requested_model = "voyage-context-3"
+    requested_model = "voyage-2"
     payload: Dict[str, Any] = {
         "markdown": "# Überschrift\n\nDies ist ein Testdokument.",
         "embedding_model": requested_model,

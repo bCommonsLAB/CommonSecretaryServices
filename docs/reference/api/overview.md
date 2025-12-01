@@ -89,6 +89,16 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 **See**: [Transformer Endpoints](endpoints/transformer.md) for detailed documentation.
 
+### RAG Embeddings
+
+**Namespace**: `/api/rag`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/rag/embed-text` | Embed Markdown text and return chunks with embeddings (no backend storage) |
+
+**See**: [RAG Endpoints](endpoints/rag.md) for detailed documentation.
+
 ### Session Processing
 
 **Namespace**: `/api/session`

@@ -10,7 +10,7 @@ Main endpoint:
   mit Embeddings zurück (ohne Speicherung im Backend)
 
 Features:
-- Markdown-Text-Embedding mit voyage-context-3 (oder konfiguriertem Modell)
+- Markdown-Text-Embedding mit voyage-3-large (oder konfiguriertem Modell)
 - Rückgabe aller Chunks inkl. Embeddings an den Client
 - Swagger UI documentation
 
@@ -89,6 +89,13 @@ embed_text_parser.add_argument(
     help='Optionales Embedding-Modell (Standard aus LLM-Config/Processor)'
 )
 embed_text_parser.add_argument(
+    'embedding_dimensions',
+    type=int,
+    location='form',
+    required=False,
+    help='Optionale Embedding-Dimensionen (Standard aus Config, z.B. 256, 512, 1024, 2048)'
+)
+embed_text_parser.add_argument(
     'metadata',
     type=str,
     location='form',
@@ -154,6 +161,7 @@ class RAGEmbedTextEndpoint(Resource):
                 chunk_size: Optional[int] = raw.get('chunk_size')
                 chunk_overlap: Optional[int] = raw.get('chunk_overlap')
                 embedding_model: Optional[str] = raw.get('embedding_model')
+                embedding_dimensions: Optional[int] = raw.get('embedding_dimensions')
                 raw_metadata: Union[Dict[str, Any], str, None] = raw.get('metadata') or {}
             else:
                 args: Dict[str, Any] = embed_text_parser.parse_args()  # type: ignore
@@ -162,6 +170,7 @@ class RAGEmbedTextEndpoint(Resource):
                 chunk_size: Optional[int] = args.get('chunk_size')  # type: ignore
                 chunk_overlap: Optional[int] = args.get('chunk_overlap')  # type: ignore
                 embedding_model: Optional[str] = args.get('embedding_model')  # type: ignore
+                embedding_dimensions: Optional[int] = args.get('embedding_dimensions')  # type: ignore
                 raw_metadata: Union[Dict[str, Any], str, None] = args.get('metadata') or {}  # type: ignore
             
             # Validierung: Markdown muss vorhanden sein
@@ -196,9 +205,10 @@ class RAGEmbedTextEndpoint(Resource):
                 processor.embed_document_for_client(
                     text=str(markdown_text),  # Nach Validierung sicher str
                     document_id=document_id if document_id else None,  # type: ignore
-                    chunk_size=chunk_size if chunk_size else None,  # type: ignore
-                    chunk_overlap=chunk_overlap if chunk_overlap else None,  # type: ignore
+                    chunk_size=chunk_size if chunk_size is not None else None,  # type: ignore
+                    chunk_overlap=chunk_overlap if chunk_overlap is not None else None,  # type: ignore
                     embedding_model=embedding_model if embedding_model else None,  # type: ignore
+                    embedding_dimensions=embedding_dimensions if embedding_dimensions is not None else None,  # type: ignore
                     metadata=metadata  # type: ignore
                 )
             )
@@ -214,6 +224,7 @@ class RAGEmbedTextEndpoint(Resource):
                     'chunk_overlap': chunk_overlap,
                     'input_length': len(markdown_text),
                     'embedding_model': embedding_model or embedding_result.embedding_model,
+                    'embedding_dimensions': embedding_dimensions or embedding_result.embedding_dimensions,
                     'client_metadata_present': bool(metadata)
                 },
                 response_class=RAGResponse,

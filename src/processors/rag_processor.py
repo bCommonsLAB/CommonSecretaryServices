@@ -5,10 +5,10 @@
 RAG Processor für das Einbetten von Markdown-Dokumenten in Vektoren.
 This processor handles:
 - Markdown document chunking with structure awareness
-- Embedding generation using a configurable embedding model (default: voyage-context-3)
+- Embedding generation using a configurable embedding model (default: voyage-3-large)
 
 Features:
-- Contextualized chunk embeddings with voyage-context-3 (oder konfiguriertem Modell)
+- Contextualized chunk embeddings with voyage-3-large (oder konfiguriertem Modell)
 - Markdown-aware chunking (respects headings, paragraphs)
 - Configurable chunk size, overlap, and embedding dimensions
 
@@ -55,7 +55,7 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
     RAG-Prozessor für Embedding von Markdown-Dokumenten.
     
     Verarbeitet Markdown-Dokumente, erstellt Embeddings mit einem konfigurierten
-    Embedding-Modell (Standard: voyage-context-3) und gibt die Chunks mit
+    Embedding-Modell (Standard: voyage-3-large) und gibt die Chunks mit
     Embeddings zurück. Es findet keine Speicherung in MongoDB und keine Query-
     Verarbeitung mehr statt.
     """
@@ -112,7 +112,7 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
 
             self.embedding_model: str = rag_config.get(
                 'embedding_model',
-                default_embedding_model or 'voyage-context-3'
+                default_embedding_model or 'voyage-3-large'
             )
             self.embedding_dimensions: int = rag_config.get(
                 'embedding_dimensions',
@@ -151,8 +151,9 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         Returns:
             List[RAGChunk]: Liste der Chunks
         """
-        chunk_size = chunk_size or self.chunk_size
-        chunk_overlap = chunk_overlap or self.chunk_overlap
+        # Verwende explizite None-Prüfung, damit chunk_overlap=0 nicht überschrieben wird
+        chunk_size = chunk_size if chunk_size is not None else self.chunk_size
+        chunk_overlap = chunk_overlap if chunk_overlap is not None else self.chunk_overlap
         
         if chunk_size <= 0:
             raise ValueError("Chunk-Größe muss positiv sein")
@@ -297,21 +298,107 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         
         return chunks
     
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Schätzt die Anzahl der Tokens für einen Text.
+        
+        Verwendet eine konservative Schätzung basierend auf Zeichenanzahl.
+        Die Schätzung ist bewusst konservativ, um sicher unter dem API-Limit zu bleiben.
+        
+        Basierend auf Tests: Die tatsächliche Token-Anzahl kann bis zu 12% höher sein
+        als die Schätzung, daher verwenden wir eine sehr konservative Schätzung.
+        
+        Args:
+            text: Der zu schätzende Text
+            
+        Returns:
+            Geschätzte Token-Anzahl (konservativ überschätzt)
+        """
+        # Sehr konservative Schätzung: 1 Token ≈ 2.2 Zeichen
+        # Basierend auf Tests mit voyage-3-large: tatsächliche Token-Anzahl kann
+        # bis zu 12% höher sein als geschätzt. Daher verwenden wir 2.2 Zeichen pro Token
+        # für eine sichere Überschätzung.
+        return int(len(text) / 2.2)
+    
+    def _split_into_batches(
+        self,
+        texts: List[str],
+        max_tokens_per_batch: int = 120000
+    ) -> List[List[str]]:
+        """
+        Teilt eine Liste von Texten in Batches auf, sodass jeder Batch
+        unter dem Token-Limit bleibt.
+        
+        Verwendet einen Sicherheitspuffer, um sicherzustellen, dass die tatsächliche
+        Token-Anzahl das Limit nicht überschreitet, auch wenn die Schätzung leicht abweicht.
+        
+        Args:
+            texts: Liste der Texte
+            max_tokens_per_batch: Maximale Token-Anzahl pro Batch (Standard: 120000)
+            
+        Returns:
+            Liste von Batches (jeder Batch ist eine Liste von Texten)
+        """
+        # Sicherheitspuffer: Verwende nur 85% des Limits, um Ungenauigkeiten
+        # in der Token-Schätzung zu kompensieren
+        # Die Schätzung kann bis zu 12% niedriger sein als die tatsächliche Token-Anzahl,
+        # daher verwenden wir einen größeren Puffer für Sicherheit
+        safety_buffer = 0.85
+        effective_max_tokens = int(max_tokens_per_batch * safety_buffer)
+        
+        batches: List[List[str]] = []
+        current_batch: List[str] = []
+        current_batch_tokens = 0
+        
+        for text in texts:
+            text_tokens = self._estimate_tokens(text)
+            
+            # Wenn der Text allein das Limit überschreitet, loggen wir eine Warnung
+            # aber fügen ihn trotzdem hinzu (kann nicht weiter aufgeteilt werden)
+            if text_tokens > effective_max_tokens:
+                self.logger.warning(
+                    f"Text überschreitet Batch-Limit ({text_tokens} > {effective_max_tokens} Tokens). "
+                    "Wird trotzdem verarbeitet, könnte fehlschlagen."
+                )
+            
+            # Prüfe ob Text in aktuellen Batch passt (mit Sicherheitspuffer)
+            if current_batch_tokens + text_tokens <= effective_max_tokens:
+                current_batch.append(text)
+                current_batch_tokens += text_tokens
+            else:
+                # Aktuellen Batch speichern und neuen starten
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [text]
+                current_batch_tokens = text_tokens
+        
+        # Letzten Batch hinzufügen
+        if current_batch:
+            batches.append(current_batch)
+        
+        return batches
+    
     def _generate_embeddings(
         self,
         texts: List[str],
         input_type: str = "document",
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        dimensions: Optional[int] = None
     ) -> List[List[float]]:
         """
         Generiert Embeddings für eine Liste von Texten mit dem konfigurierten Embedding-Modell.
         
+        Teilt große Batches automatisch auf, um das Token-Limit von 120.000 Tokens pro Batch
+        nicht zu überschreiten.
+        
         Args:
             texts: Liste der Texte zum Einbetten
             input_type: Typ des Inputs ("document" oder "query")
+            model: Optionales Modell (überschreibt Standard)
+            dimensions: Optionale Embedding-Dimensionen (überschreibt Standard)
             
         Returns:
-            List[List[float]]: Liste der Embeddings
+            List[List[float]]: Liste der Embeddings (in derselben Reihenfolge wie texts)
         """
         if not texts:
             return []
@@ -319,25 +406,71 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         try:
             # Effektives Embedding-Modell wählen: explizit angefordert oder Default.
             effective_model: str = model or self.embedding_model
+            # Effektive Embedding-Dimensionen wählen: explizit angefordert oder Default.
+            effective_dimensions: int = dimensions if dimensions is not None else self.embedding_dimensions
 
-            # Voyage API unterstützt Batch-Processing
-            # Für voyage-context-3 müssen alle Chunks eines Dokuments zusammen verarbeitet werden
-            if input_type == "document":
-                # Batch-Embedding für alle Chunks
-                response: Any = self.voyage_client.embed(  # type: ignore
-                    texts=texts,
-                    model=effective_model,
-                    input_type=input_type
-                )
-                return response.embeddings  # type: ignore
-            else:
-                # Query-Embedding
-                response = self.voyage_client.embed(  # type: ignore
-                    texts=texts,
-                    model=effective_model,
-                    input_type=input_type
-                )
-                return response.embeddings  # type: ignore
+            # Voyage API Limit: 120.000 Tokens pro Batch
+            # Teile Texte in Batches auf, falls nötig
+            # Verwende einen Sicherheitspuffer von 85% (102.000 Tokens) um Ungenauigkeiten
+            # in der Token-Schätzung zu kompensieren
+            # Die Schätzung kann bis zu 12% niedriger sein als die tatsächliche Token-Anzahl
+            max_tokens_per_batch = 120000
+            safety_buffer = 0.85
+            effective_max_tokens = int(max_tokens_per_batch * safety_buffer)
+            
+            # Für Queries ist das Limit normalerweise kein Problem (nur 1 Text)
+            # Aber für Dokumente mit vielen Chunks kann es relevant sein
+            if input_type == "document" and len(texts) > 1:
+                # Schätze Token-Anzahl für alle Texte
+                total_tokens = sum(self._estimate_tokens(text) for text in texts)
+                
+                if total_tokens > effective_max_tokens:
+                    # Aufteilen in Batches (mit Sicherheitspuffer)
+                    self.logger.info(
+                        f"Text-Batch überschreitet Token-Limit ({total_tokens} > {effective_max_tokens}). "
+                        f"Teile in kleinere Batches auf (Sicherheitspuffer: {safety_buffer*100}%, "
+                        f"effektives Limit: {effective_max_tokens} Tokens)."
+                    )
+                    batches = self._split_into_batches(texts, max_tokens_per_batch)
+                    
+                    # Verarbeite jeden Batch separat
+                    # WICHTIG: Die Reihenfolge wird beibehalten - alle Embeddings werden
+                    # in der ursprünglichen Reihenfolge der Texte gesammelt
+                    all_embeddings: List[List[float]] = []
+                    for i, batch in enumerate(batches):
+                        batch_tokens = sum(self._estimate_tokens(text) for text in batch)
+                        self.logger.info(
+                            f"Verarbeite Batch {i+1}/{len(batches)} "
+                            f"({len(batch)} Texte, geschätzt ~{batch_tokens} Tokens, "
+                            f"Limit: {effective_max_tokens})"
+                        )
+                        
+                        # Voyage API: Dimensionen werden als 'output_dimension' Parameter übergeben
+                        # Für voyage-3-large sind 256, 512, 1024, 2048 unterstützt
+                        response: Any = self.voyage_client.embed(  # type: ignore
+                            texts=batch,
+                            model=effective_model,
+                            input_type=input_type,
+                            output_dimension=effective_dimensions
+                        )
+                        # Embeddings in der richtigen Reihenfolge hinzufügen
+                        # (jeder Batch behält die Reihenfolge der Texte bei)
+                        all_embeddings.extend(response.embeddings)  # type: ignore
+                    
+                    self.logger.info(
+                        f"Alle Batches verarbeitet: {len(all_embeddings)} Embeddings generiert"
+                    )
+                    return all_embeddings
+            
+            # Normale Verarbeitung (kein Batch-Splitting nötig)
+            # Voyage API: Dimensionen werden als 'output_dimension' Parameter übergeben
+            response: Any = self.voyage_client.embed(  # type: ignore
+                texts=texts,
+                model=effective_model,
+                input_type=input_type,
+                output_dimension=effective_dimensions
+            )
+            return response.embeddings  # type: ignore
                 
         except Exception as e:
             self.logger.error("Fehler bei der Embedding-Generierung", error=e)
@@ -350,6 +483,7 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
         embedding_model: Optional[str] = None,
+        embedding_dimensions: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> RAGEmbeddingResult:
         """
@@ -364,6 +498,8 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         try:
             # Effektives Embedding-Modell bestimmen (Client-Wahl oder Default).
             effective_embedding_model: str = embedding_model or self.embedding_model
+            # Effektive Embedding-Dimensionen bestimmen (Client-Wahl oder Default).
+            effective_embedding_dimensions: int = embedding_dimensions if embedding_dimensions is not None else self.embedding_dimensions
             # Dokument-ID generieren falls nicht vorhanden
             if not document_id:
                 document_id = str(uuid.uuid4())
@@ -377,18 +513,39 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                 raise ProcessingError("Keine Chunks erstellt")
             
             # Embeddings generieren
-            self.logger.info("Starte Embedding-Generierung (client)", extra={"chunk_count": len(chunks)})
+            self.logger.info(
+                "Starte Embedding-Generierung (client)",
+                extra={
+                    "chunk_count": len(chunks),
+                    "embedding_model": effective_embedding_model,
+                    "embedding_dimensions": effective_embedding_dimensions
+                }
+            )
             chunk_texts = [chunk.text for chunk in chunks]
             embeddings = self._generate_embeddings(
                 chunk_texts,
                 input_type="document",
-                model=effective_embedding_model
+                model=effective_embedding_model,
+                dimensions=effective_embedding_dimensions
             )
             
             if len(embeddings) != len(chunks):
                 raise ProcessingError(
                     f"Anzahl der Embeddings ({len(embeddings)}) stimmt nicht mit "
                     f"Anzahl der Chunks ({len(chunks)}) überein"
+                )
+            
+            # Tatsächliche Dimensionen aus dem ersten Embedding ermitteln
+            # (falls die API andere Dimensionen zurückgibt als angefordert)
+            actual_dimensions: int = len(embeddings[0]) if embeddings else effective_embedding_dimensions
+            
+            # Warnung, falls die Dimensionen nicht übereinstimmen
+            if actual_dimensions != effective_embedding_dimensions:
+                self.logger.warning(
+                    f"Dimensionen stimmen nicht überein: "
+                    f"Angefordert: {effective_embedding_dimensions}, "
+                    f"Tatsächlich: {actual_dimensions}. "
+                    f"Verwende tatsächliche Dimensionen."
                 )
             
             # Embeddings zu Chunks hinzufügen
@@ -399,11 +556,12 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                 chunks_with_embeddings.append(RAGChunk.from_dict(chunk_dict))
             
             # Ergebnis erstellen (nur in-memory, keine DB)
+            # Verwende die tatsächlich zurückgegebenen Dimensionen
             result = RAGEmbeddingResult(
                 document_id=document_id,
                 chunks=chunks_with_embeddings,
                 total_chunks=len(chunks_with_embeddings),
-                embedding_dimensions=self.embedding_dimensions,
+                embedding_dimensions=actual_dimensions,
                 embedding_model=effective_embedding_model,
                 created_at=datetime.now().isoformat(),
                 metadata=metadata or {}

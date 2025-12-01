@@ -11,8 +11,9 @@ services:
     depends_on:
       - mongodb
     environment:
-      - OPENAI_API_KEY=sk-proj--
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - MONGODB_URI=mongodb://mongodb:27017/
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY}
 
   mongodb:
     image: mongo:6

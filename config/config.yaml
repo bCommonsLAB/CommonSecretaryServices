@@ -16,7 +16,7 @@ llm_config:
       model: gpt-4.1-mini
       provider: openai
     embedding:
-      model: voyage-context-3
+      model: voyage-3-large
       provider: voyageai
       dimensions: 2048
     image2text:
@@ -205,7 +205,7 @@ processors:
       ttl_days: 30
   rag:
     voyage_api_key: ${VOYAGE_API_KEY}
-    embedding_model: voyage-context-3
+    embedding_model: voyage-3-large
     embedding_dimensions: 2048
     chunk_size: 1000
     chunk_overlap: 200

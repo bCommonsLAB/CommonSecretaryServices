@@ -34,6 +34,13 @@ Complete documentation of all environment variables required for Common Secretar
 - **Description**: Mistral API key for OCR processing
 - **Example**: `mistral-...`
 
+### `VOYAGE_API_KEY`
+
+- **Type**: String
+- **Required**: No (only for RAG embedding features)
+- **Description**: Voyage AI API key for text embedding generation
+- **Example**: `pa-...`
+
 ### `ALLOW_LOCALHOST_NO_AUTH`
 
 - **Type**: Boolean/String (`true`, `false`, `1`, `0`)
@@ -81,6 +88,7 @@ SECRETARY_SERVICE_API_KEY=your-secret-api-key
 
 # Optional
 MISTRAL_API_KEY=mistral-your-key-here
+VOYAGE_API_KEY=pa-your-voyage-key-here
 ALLOW_LOCALHOST_NO_AUTH=true
 ALLOW_SWAGGER_WHITELIST=192.168.1.0/24
 AUTH_LOG_DECISIONS=false
@@ -99,6 +107,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - MONGODB_URI=mongodb://mongodb:27017/
       - SECRETARY_SERVICE_API_KEY=${SECRETARY_SERVICE_API_KEY}
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - ALLOW_LOCALHOST_NO_AUTH=true
 ```
 
