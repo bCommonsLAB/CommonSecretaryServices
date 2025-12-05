@@ -508,7 +508,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         
         payload_log: Dict[str, Any] = {k: v for k, v in payload.items()}
         if "document" in payload_log and isinstance(payload_log["document"], dict):
-            payload_log["document"] = {"type": payload_log["document"].get("type"), "file_id": file_id}
+            document_dict: Dict[str, Any] = cast(Dict[str, Any], payload_log["document"])
+            payload_log["document"] = {"type": document_dict.get("type"), "file_id": file_id}
         self.logger.info(
             "Mistral-OCR: OCR-Anfrage wird gesendet",
             progress=60,
@@ -558,7 +559,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         )
         ocr_json: Dict[str, Any] = ocr_resp.json()
         
-        pages_list: Any = ocr_json.get("pages", [])
+        pages_list: List[Any] = cast(List[Any], ocr_json.get("pages", []))
         pages_count = len(pages_list) if isinstance(pages_list, list) else 0
         self.logger.debug(
             "Mistral-OCR: OCR Response Struktur",
@@ -770,7 +771,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         # Bilder werden NIE in mistral_ocr_raw eingebettet
         images_archive_data: Optional[str] = None
         images_archive_filename: Optional[str] = None
-        image_paths: List[str] = []
         
         # Extrahiere Bilder direkt aus OCR-Response und packe sie in ZIP (ohne einzelne Dateien zu speichern)
         # Das ist viel schneller bei vielen Bildern
@@ -1212,6 +1212,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             methods_list = extraction_method
         elif extraction_method == EXTRACTION_PREVIEW_AND_NATIVE:
             methods_list = [EXTRACTION_PREVIEW, EXTRACTION_NATIVE]
+        elif extraction_method == EXTRACTION_PREVIEW_AND_MISTRAL_OCR:
+            # Preview und Mistral OCR kombinieren
+            methods_list = [EXTRACTION_PREVIEW, EXTRACTION_MISTRAL_OCR]
         else:
             methods_list = [str(extraction_method)]
         
@@ -1274,7 +1277,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             # Validiere alle Extraktionsmethoden
             valid_methods = [
                 EXTRACTION_NATIVE, EXTRACTION_OCR, EXTRACTION_BOTH, EXTRACTION_PREVIEW,
-                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR
+                EXTRACTION_PREVIEW_AND_NATIVE, EXTRACTION_PREVIEW_AND_MISTRAL_OCR,
+                EXTRACTION_LLM, EXTRACTION_LLM_AND_NATIVE, EXTRACTION_LLM_AND_OCR,
+                EXTRACTION_MISTRAL_OCR
             ]
             for method in methods_list:
                 if method not in valid_methods:
@@ -1449,7 +1454,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
 
                     # ZENTRALE BILDGENERIERUNG - unabhängig von der Extraktionsmethode
                     # Generiere Vorschaubilder, falls gewünscht
-                    if EXTRACTION_PREVIEW in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
+                    if EXTRACTION_PREVIEW in methods_list:
                         # Vorschaubilder generieren
                         preview_path = self._generate_preview_image(page, page_num, extraction_dir)
                         all_preview_paths.append(preview_path)
@@ -1461,7 +1466,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     metadata.image_paths.append(image_path)
                     
                     # Verarbeite jede gewünschte Extraktionsmethode
-                    if EXTRACTION_NATIVE in methods_list or EXTRACTION_PREVIEW_AND_NATIVE in methods_list:
+                    if EXTRACTION_NATIVE in methods_list:
                         # Native Text-Extraktion
                         page_text_raw = page.get_text()  # type: ignore # PyMuPDF Methode
                         page_text = cast(str, page_text_raw)
@@ -1831,6 +1836,57 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                     duration=page_duration,
                                     extraction_methods=methods_list)
                 
+                # Mistral OCR Verarbeitung für das gesamte PDF, falls gewünscht
+                mistral_ocr_text: Optional[str] = None
+                mistral_ocr_raw: Optional[Dict[str, Any]] = None
+                if EXTRACTION_MISTRAL_OCR in methods_list:
+                    try:
+                        self.logger.info("Starte Mistral OCR Verarbeitung für gesamtes PDF")
+                        mistral_result = await self._process_mistral_ocr(
+                            file_path=path,
+                            page_start=page_start,
+                            page_end=page_end,
+                            include_ocr_images=False
+                        )
+                        mistral_ocr_text = mistral_result.get("result_text", "")
+                        mistral_ocr_raw = mistral_result.get("ocr_json")
+                        
+                        # Aktualisiere text_contents mit Mistral OCR Ergebnissen
+                        mistral_text_contents = mistral_result.get("text_contents", [])
+                        if mistral_text_contents:
+                            text_contents_list = list(metadata.text_contents)
+                            # Füge Mistral OCR Ergebnisse hinzu oder ersetze sie
+                            for page_idx, mistral_text in mistral_text_contents:
+                                # Überschreibe vorhandene Einträge für diese Seite
+                                text_contents_list = [
+                                    (idx, text) for idx, text in text_contents_list 
+                                    if idx != page_idx
+                                ]
+                                text_contents_list.append((page_idx, mistral_text))
+                            
+                            # Sortiere nach Seitenzahl
+                            text_contents_list.sort(key=lambda x: x[0])
+                            
+                            metadata = PDFMetadata(
+                                file_name=metadata.file_name,
+                                file_size=metadata.file_size,
+                                page_count=metadata.page_count,
+                                format=metadata.format,
+                                process_dir=metadata.process_dir,
+                                image_paths=metadata.image_paths,
+                                preview_paths=metadata.preview_paths,
+                                preview_zip=metadata.preview_zip,
+                                text_paths=metadata.text_paths,
+                                text_contents=text_contents_list,
+                                extraction_method=metadata.extraction_method
+                            )
+                        
+                        self.logger.info("Mistral OCR Verarbeitung abgeschlossen")
+                    except Exception as mistral_error:
+                        self.logger.error(f"Fehler bei Mistral OCR Verarbeitung: {str(mistral_error)}")
+                        mistral_ocr_text = None
+                        mistral_ocr_raw = None
+                
                 # Wenn Vorschaubilder generiert wurden, diese als ZIP verpacken
                 preview_zip_path: Optional[str] = None
                 if metadata.preview_paths:
@@ -1859,12 +1915,14 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 
                 # Template-Transformation, falls Template angegeben
                 result_text = full_text
-                if template and (full_text or ocr_text):
+                if template and (full_text or ocr_text or mistral_ocr_text):
                     try:
                         # Transformiere den Text mit dem angegebenen Template
                         # Bei mehreren Extraktionsmethoden wählen wir den besten verfügbaren Text
                         source_text = ""
-                        if EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list:
+                        if EXTRACTION_MISTRAL_OCR in methods_list and mistral_ocr_text:
+                            source_text = mistral_ocr_text  # Mistral OCR Text hat Priorität
+                        elif EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list:
                             source_text = full_text  # Bevorzuge immer den nativen Text
                         elif EXTRACTION_OCR in methods_list:
                             source_text = ocr_text   # Verwende OCR-Text, wenn kein nativer Text verfügbar
@@ -1872,12 +1930,12 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         if not source_text:
                             self.logger.warning("Kein Text für Template-Transformation verfügbar")
                         else:
-                            # Wir passen den Aufruf an die tatsächliche Schnittstelle an
-                            transformation_result = await self.transformer.transform(  # type: ignore
-                                source_text=source_text,
+                            # Verwende transformByTemplate für Template-Transformation
+                            transformation_result = self.transformer.transformByTemplate(  # type: ignore
+                                text=source_text,
                                 source_language="auto",  # Automatische Erkennung
                                 target_language="de",    # Standardmäßig Deutsch
-                                template_name=template,  # type: ignore  # Parameter kann unterschiedlich benannt sein
+                                template=template,
                                 context=context or {}
                             )
                             
@@ -1906,17 +1964,24 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         # Fehlschlag ist nicht kritisch, Verarbeitung fortsetzen
                 
                 # Erstelle Endergebnis
+                # Bestimme den extrahierten Text basierend auf den verwendeten Methoden
+                final_extracted_text: Optional[str] = None
+                if EXTRACTION_MISTRAL_OCR in methods_list and mistral_ocr_text:
+                    # Mistral OCR Text hat Priorität, wenn verwendet
+                    final_extracted_text = mistral_ocr_text
+                elif EXTRACTION_NATIVE in methods_list or EXTRACTION_BOTH in methods_list or \
+                     EXTRACTION_LLM in methods_list or EXTRACTION_LLM_AND_NATIVE in methods_list or \
+                     EXTRACTION_LLM_AND_OCR in methods_list:
+                    final_extracted_text = result_text
+                
                 result = PDFProcessingResult(
                     metadata=metadata,
-                    extracted_text=result_text if (EXTRACTION_NATIVE in methods_list or 
-                                                  EXTRACTION_BOTH in methods_list or 
-                                                  EXTRACTION_LLM in methods_list or 
-                                                  EXTRACTION_LLM_AND_NATIVE in methods_list or 
-                                                  EXTRACTION_LLM_AND_OCR in methods_list) else None,
+                    extracted_text=final_extracted_text,
                     ocr_text=ocr_text if EXTRACTION_OCR in methods_list or EXTRACTION_BOTH in methods_list else None,
                     process_id=self.process_id,
                     images_archive_data=images_archive_data,
-                    images_archive_filename=images_archive_filename
+                    images_archive_filename=images_archive_filename,
+                    mistral_ocr_raw=mistral_ocr_raw
                 )
             
                 # Konvertiere Dateipfade in URLs für die API-Antwort
@@ -2290,10 +2355,10 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             # Debug: Logge die Struktur der Response für Analyse
             self.logger.debug(
                 "Mistral OCR Response Struktur-Analyse",
-                top_level_keys=list(ocr_json.keys()) if isinstance(ocr_json, dict) else [],
-                has_pages="pages" in ocr_json if isinstance(ocr_json, dict) else False,
-                has_images_top="images" in ocr_json if isinstance(ocr_json, dict) else False,
-                has_document_annotation="document_annotation" in ocr_json if isinstance(ocr_json, dict) else False
+                top_level_keys=list(ocr_json.keys()),
+                has_pages="pages" in ocr_json,
+                has_images_top="images" in ocr_json,
+                has_document_annotation="document_annotation" in ocr_json
             )
             
             # Versuche verschiedene mögliche Strukturen der Response
@@ -2306,11 +2371,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                         continue
                     
                     # Logge Struktur jeder Seite
-                    page_keys = list(page_dict.keys()) if isinstance(page_dict, dict) else []
+                    page_keys = list(page_dict.keys())
                     self.logger.debug(
                         f"Seite {page_idx + 1} Struktur",
                         page_keys=page_keys,
-                        has_images="images" in page_dict if isinstance(page_dict, dict) else False
+                        has_images="images" in page_dict
                     )
                     
                     # Bilder können direkt in der Seite sein
@@ -2322,7 +2387,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                                 continue
                             
                             # Logge Struktur jedes Bildes
-                            img_keys = list(img_dict.keys()) if isinstance(img_dict, dict) else []
+                            img_keys = list(img_dict.keys())
                             self.logger.debug(f"Bild {img_idx + 1} auf Seite {page_idx + 1}", img_keys=img_keys)
                             
                             # Extrahiere Bildreferenz und Base64-Daten
@@ -2496,7 +2561,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 self.logger.warning(
                     "Keine Bilder in Mistral OCR Response gefunden",
                     response_structure={
-                        "top_keys": list(ocr_json.keys()) if isinstance(ocr_json, dict) else [],
+                        "top_keys": list(ocr_json.keys()),
                         "pages_count": len(pages_any) if isinstance(pages_any, list) else 0,
                         "first_page_keys": list(pages_any[0].keys()) if isinstance(pages_any, list) and len(pages_any) > 0 and isinstance(pages_any[0], dict) else []
                     }
