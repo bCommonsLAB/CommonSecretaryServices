@@ -463,6 +463,150 @@ class WhisperTranscriber:
 
         return request
 
+    def get_structured_data(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        purpose: str,
+        logger: Optional[ProcessingLogger] = None,
+        processor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generische Chat-Completion für strukturierte JSON-Daten ohne Template-Logik.
+        
+        Verwendet Provider-Abstraktion für Chat-Completion und extrahiert JSON aus der Antwort.
+        Entfernt automatisch Markdown-Codeblöcke (```json, ```).
+        
+        Args:
+            system_prompt: System-Prompt für das LLM
+            user_prompt: User-Prompt mit den Daten/Anweisungen
+            purpose: Zweck des Requests (für Tracking, z.B. "extract_selectors")
+            logger: Optional Logger für Debug-Ausgaben
+            processor: Optional Name des aufrufenden Processors
+            
+        Returns:
+            Dict[str, Any]: Geparstes JSON-Objekt
+            
+        Raises:
+            ValueError: Wenn keine gültige Antwort oder kein JSON erhalten wurde
+            json.JSONDecodeError: Wenn JSON-Parsing fehlschlägt
+        """
+        if logger:
+            logger.info(f"Starte strukturierte Datenextraktion: {purpose}")
+
+        # Verwende Provider für Chat-Completion falls verfügbar
+        raw_content: str = ""
+        duration: float = 0.0
+        
+        try:
+            chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+            if not chat_provider:
+                raise ValueError("Chat-Completion Provider nicht verfügbar")
+            
+            chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+            
+            # Verwende Provider
+            raw_content, llm_request = chat_provider.chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=chat_model,
+                temperature=self.temperature
+            )
+            
+            # Setze duration aus llm_request
+            if llm_request:
+                duration = llm_request.duration
+            
+            # LLM-Nutzung zentral tracken
+            if llm_request:
+                self.create_llm_request(
+                    purpose=purpose,
+                    tokens=llm_request.tokens,
+                    duration=llm_request.duration,
+                    model=llm_request.model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    logger=logger,
+                    processor=processor
+                )
+        except Exception as e:
+            # Fallback auf direkten Client-Aufruf
+            if logger:
+                logger.warning(f"Provider nicht verfügbar für strukturierte Datenextraktion, verwende Fallback: {str(e)}")
+            
+            # Zeitmessung starten
+            start_time: float = time.time()
+
+            # OpenAI Client-Aufruf
+            response: ChatCompletion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=self.temperature
+            )
+
+            # Zeitmessung beenden und Dauer in Millisekunden berechnen
+            duration = (time.time() - start_time) * 1000
+            
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("Keine gültige Antwort vom LLM erhalten")
+
+            message: ChatCompletionMessage = response.choices[0].message       
+            raw_content = message.content or ""
+            
+            if not raw_content or not raw_content.strip():
+                raise ValueError("Leere Antwort vom LLM erhalten")
+
+            # LLM-Nutzung zentral tracken
+            tokens = response.usage.total_tokens if response.usage else 0
+            if tokens > 0:
+                self.create_llm_request(
+                    purpose=purpose,
+                    tokens=tokens,
+                    duration=duration,
+                    model=self.model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    logger=logger,
+                    processor=processor
+                )
+        
+        # Validiere und bereinige die LLM-Antwort
+        if not raw_content or not raw_content.strip():
+            raise ValueError("Leere Antwort vom LLM erhalten")
+
+        # Versuche JSON zu extrahieren (entferne ggf. Markdown-Codeblöcke)
+        content = raw_content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+
+        # Versuche JSON zu parsen
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            # Fallback: Versuche JSON aus dem Text zu extrahieren (z.B. wenn Text davor/nachher)
+            import re
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
+            
+            error_msg = f"Konnte JSON nicht parsen: {str(e)}. Antwort war: {content[:200]}"
+            if logger:
+                logger.error(error_msg)
+            raise ValueError(error_msg) from e
+
     def translate_text(
         self,
         text: str,
@@ -1539,6 +1683,71 @@ class WhisperTranscriber:
             field_definitions.fields[var_name] = field_def
                     
         return field_definitions
+
+    def extract_field_descriptions(
+        self,
+        template: Optional[str] = None,
+        template_content: Optional[str] = None,
+        additional_field_descriptions: Optional[Dict[str, str]] = None,
+        logger: Optional[ProcessingLogger] = None
+    ) -> Dict[str, str]:
+        """
+        Extrahiert Feldbeschreibungen aus Template ohne vollständige Transformation.
+        
+        Wiederverwendet die bestehende Logik aus transform_by_template.
+        Filtert FrontMatter-Kontext-Only-Felder und fügt additional_field_descriptions hinzu.
+        
+        Args:
+            template: Name des Templates
+            template_content: Template-Inhalt direkt
+            additional_field_descriptions: Zusätzliche Feldbeschreibungen
+            logger: Optional Logger
+            
+        Returns:
+            Dict mit Feldnamen -> Beschreibungen (ohne FrontMatter-Kontext-Only-Felder)
+        """
+        # Template-Inhalt ermitteln (gleiche Logik wie in transform_by_template)
+        if template_content:
+            template_content_str = template_content
+        elif template:
+            template_content_str = self._read_template_file(template, logger)
+        else:
+            # Kein Template vorhanden, nur additional_field_descriptions zurückgeben
+            return additional_field_descriptions or {}
+        
+        # Systemprompt extrahieren (nur um Template zu bereinigen, wird nicht verwendet)
+        template_content_str, _ = self._extract_system_prompt(template_content_str, logger)
+        
+        # Strukturierte Variablen extrahieren
+        field_definitions = self._extract_structured_variables(template_content_str, logger)
+        
+        if not field_definitions.fields:
+            return additional_field_descriptions or {}
+        
+        # Feldbeschreibungen extrahieren
+        field_descriptions = {
+            name: field.description 
+            for name, field in field_definitions.fields.items()
+        }
+        
+        # FrontMatter-Kontext-Only-Felder filtern (gleiche Logik wie in transform_by_template)
+        fm_context_only = {
+            name for name, field in field_definitions.fields.items()
+            if getattr(field, 'isFrontmatter', False) and 
+               str(getattr(field, 'description', '')).strip() == "YAML Frontmatter Variable"
+        }
+        
+        # Nur relevante Felder behalten
+        filtered_field_descriptions = {
+            name: desc for name, desc in field_descriptions.items()
+            if name not in fm_context_only
+        }
+        
+        # Zusätzliche Feldbeschreibungen hinzufügen
+        if additional_field_descriptions:
+            filtered_field_descriptions.update(additional_field_descriptions)
+        
+        return filtered_field_descriptions
 
     def _extract_system_prompt(self, template_content: str, logger: Optional[ProcessingLogger] = None) -> Tuple[str, str]:
         """

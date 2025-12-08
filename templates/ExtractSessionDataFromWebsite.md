@@ -11,7 +11,7 @@ speakers_url: {{speakers_url|Comma-separated list of URLs to the speakers websit
 speakers_image_url: {{speakers_image_url|Comma-separated list of URLs to a representative image of the speakers; leave empty if none.}}
 video_url: {{video_url|Direct URL to the session recording; leave empty if none.}}
 attachments_url: {{attachments_url|Direct URL(s) to slides/handouts; comma-separated if multiple; leave empty if none.}}
-url: {{url|Canonical session webpage URL (strip tracking params if possible).}}
+url: {{url|url of the webpage}}
 day: {{day|Event date as YYYY-MM-DD, or the weekday label exactly as published if no date is given.}}
 starttime: {{starttime|Local event start time in 24h HH:MM.}}
 endtime: {{endtime|Local event end time in 24h HH:MM.}}

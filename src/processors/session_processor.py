@@ -622,6 +622,14 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                             if page_num > 0 and page_num <= len(page_texts):
                                 slide_text = page_texts[page_num - 1]
                             
+                            # Encodiere slide_text als Base64, um Frontmatter-Formatierung zu schützen
+                            # slide_text kann Formatierungszeichen enthalten (z.B. ---, |, :), die das YAML-Frontmatter zerstören können
+                            # Base64-Encoding stellt sicher, dass der Text sicher im Frontmatter gespeichert werden kann
+                            slide_text_encoded: str = ""
+                            if slide_text:
+                                slide_text_bytes: bytes = slide_text.encode('utf-8')
+                                slide_text_encoded = base64.b64encode(slide_text_bytes).decode('ascii')
+                            
                             # Hole die entsprechende Image-URL aus attachment_paths
                             # Verwende das erste Bild für diese Seite (page_num - 1 als Index)
                             image_url: str = ""
@@ -629,10 +637,11 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
                                 image_url = attachment_paths[page_num - 1]
                             
                             # Erstelle finales Slide-Objekt
+                            # slide_text wird als Base64-encodierter String gespeichert
                             final_slide: Dict[str, Any] = {
                                 "page_num": page_num,
                                 "title": title,
-                                "slide_text": slide_text,
+                                "slide_text": slide_text_encoded,
                                 "summary": summary,
                                 "image_url": image_url
                             }

@@ -11,8 +11,8 @@ year: {{year|Year of the event}}
 date: {{date|YYYY-MM-DD}}
 starttime: {{starttime|HH:MM}}
 endtime: {{endtime|HH:MM}}
-location: {{location|Venue or city.}}
 duration: {{duration|Minutes or null}}
+location: {{location|Venue or city.}}
 slides: {{slides|array should include a title and extractive slide-level summaries}}
 event: {{event}}
 track: {{track}}
@@ -42,7 +42,7 @@ Guidelines:
 - Use neutral tone. Avoid personal opinions, evaluation, or advocacy.
 - Preserve all factual details (names, organizations, tools, data, examples).
 - The `"summary"` field describe the talk’s content using slides content and video Transcriptions in a meaningful way.
-- The `"slides"` array should include slide-level information (title, summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription).
+- The `"slides"` array should include slide-level information (title, summarize of the descriptive text of the specific slide and also take into account the corresponding content of the transcription). Eliminate tables and complex formatting - just Text
 
 Return a **single valid JSON object** matching this structure (no comments or extra text):
 
@@ -60,14 +60,14 @@ Return a **single valid JSON object** matching this structure (no comments or ex
   "date": "string (YYYY-MM-DD)",
   "starttime": "string (HH:MM)",
   "endtime": "string (HH:MM)",
+  "duration": "number|null",
   "location": "string",
   "language": "string",
-  "duration": "number|null",
   "slides": [
     {
       "page_num": 1,
       "title": "string",
-      "summary": "string (≤800 characters, extractive summary)",
+      "summary": "string (≤800 characters, extractive summary) ",
     }
   ]
 }

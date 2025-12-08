@@ -175,6 +175,41 @@ def _track_llm_usage(model: str, tokens: int, duration: float, purpose: str = "a
             duration=duration
         )
 
+def _determine_container_selector_from_url(url: str) -> Optional[str]:
+    """
+    Bestimmt automatisch den Container-Selector basierend auf der URL.
+    
+    Args:
+        url: Die URL der Webseite
+        
+    Returns:
+        CSS-Selector für Event-Container oder None, falls nicht bekannt
+    """
+    from urllib.parse import urlparse
+    
+    try:
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()
+        
+        # Bekannte Domains und ihre Container-Selectors
+        domain_selectors = {
+            'sfscon.it': 'li.single-element.sfscon',
+            'www.sfscon.it': 'li.single-element.sfscon',
+        }
+        
+        # Direkte Domain-Übereinstimmung
+        if domain in domain_selectors:
+            return domain_selectors[domain]
+        
+        # Teilstring-Match (z.B. für Subdomains)
+        for known_domain, selector in domain_selectors.items():
+            if known_domain in domain:
+                return selector
+        
+        return None
+    except Exception:
+        return None
+
 def _calculate_llm_cost(model: str, tokens: int) -> float:
     """Berechnet die Kosten für LLM-Nutzung."""
     try:
@@ -209,6 +244,7 @@ template_transform_parser.add_argument('template_content', type=str, location='f
 template_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Template-Verarbeitung')
 template_transform_parser.add_argument('additional_field_descriptions', type=str, location='form', required=False, help='Optionaler JSON-String mit zusätzlichen Feldbeschreibungen')
 template_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
+template_transform_parser.add_argument('container_selector', type=str, location='form', required=False, help='CSS-Selector für Event-Container (z.B. "li.single-element"). Wird automatisch basierend auf URL bestimmt, falls nicht angegeben.')
 template_transform_parser.add_argument('callback_url', type=str, location='form', required=False, help='Absolute HTTPS-URL für den Webhook-Callback')
 template_transform_parser.add_argument('callback_token', type=str, location='form', required=False, help='Per-Job-Secret für den Webhook-Callback')
 template_transform_parser.add_argument('jobId', type=str, location='form', required=False, help='Eindeutige Job-ID für den Callback')
@@ -476,6 +512,7 @@ class TemplateTransformEndpoint(Resource):
                     "context": payload.get("context"),
                     "additional_field_descriptions": payload.get("additional_field_descriptions"),
                     "use_cache": payload.get("use_cache", True),
+                    "container_selector": payload.get("container_selector"),
                     "callback_url": payload.get("callback_url"),
                     "callback_token": payload.get("callback_token"),
                     "jobId": payload.get("jobId"),
@@ -583,6 +620,7 @@ class TemplateTransformEndpoint(Resource):
             context_str = args.get('context')
             additional_field_descriptions_str = args.get('additional_field_descriptions')
             use_cache = args.get('use_cache', True)
+            container_selector = args.get('container_selector')
 
             # Validierung: Entweder Text oder URL muss angegeben werden
             if not text and not url:
@@ -686,6 +724,7 @@ class TemplateTransformEndpoint(Resource):
                     "context": context,
                     "additional_field_descriptions": additional_field_descriptions,
                     "use_cache": use_cache,
+                    "container_selector": container_selector,
                     "webhook": job_webhook,
                 }
                 job_data: Dict[str, Any] = {
@@ -713,6 +752,12 @@ class TemplateTransformEndpoint(Resource):
 
             # Wähle die passende Transformationsmethode (synchroner Pfad)
             if url:
+                # Container-Selector automatisch bestimmen, falls nicht angegeben
+                if not container_selector:
+                    container_selector = _determine_container_selector_from_url(url)
+                    if container_selector:
+                        logger.info(f"Container-Selector automatisch bestimmt: {container_selector} für URL: {url}")
+                
                 # URL-basierte Transformation
                 result: TransformerResponse = transformer_processor.transformByUrl(
                     url=url,
@@ -722,7 +767,8 @@ class TemplateTransformEndpoint(Resource):
                     template_content=template_content,
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
-                    use_cache=use_cache
+                    use_cache=use_cache,
+                    container_selector=container_selector
                 )
             else:
                 # Text-basierte Transformation
@@ -905,7 +951,12 @@ class HtmlTableTransformEndpoint(Resource):
                 "data": response.to_dict(),
                 "process": {
                     "id": transformer_processor.process_info.id,
-                    "duration_ms": transformer_processor.process_info.duration_ms,
+                    # Nutze die lokal gemessene Prozessdauer in Millisekunden.
+                    # Die ProcessInfo-Klasse stellt aktuell kein duration_ms-Feld bereit,
+                    # daher würde ein Zugriff auf transformer_processor.process_info.duration_ms
+                    # einen AttributeError auslösen. Diese Änderung dokumentiert,
+                    # dass process_duration bereits die gewünschte Metrik enthält.
+                    "duration_ms": process_duration,
                     "is_from_cache": transformer_processor.process_info.is_from_cache,
                     "cache_key": transformer_processor.process_info.cache_key
                 }

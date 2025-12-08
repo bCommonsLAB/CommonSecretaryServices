@@ -1,6 +1,7 @@
 ---
-event: {{event|Veranstaltungsname}}
-sessions: {{sessions|Array of all Sessions with this Parameters: 1. track: Trackname auf die Session, title:Title of the session and url: url to the Session - if this parameter is missing ignor session}}
+track: {{track|Trackname}}
+title: {{title|Title of the session}} 
+url: {{url|url to the Session}}
 ---
 
 --- systemprompt

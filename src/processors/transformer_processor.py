@@ -806,6 +806,663 @@ Folgender Text soll verarbeitet werden:
             cache_key=cache_key
         )
 
+    def _extract_clean_text_from_html(self, html: str) -> str:
+        """
+        Bereinigt HTML-Code und behält alle Struktur-Elemente bei.
+        
+        Entfernt NUR:
+        - Skripte und Styles (script, style) - CSS/JS Code
+        - Meta-Tags im Head (meta, link für Stylesheets)
+        - SVG-Grafiken (meist nur Icons)
+        - noscript-Tags (redundant nach Script-Entfernung)
+        
+        Behält ALLE Struktur-Elemente:
+        - Alle HTML-Struktur-Tags (div, section, article, main, aside, header, footer, nav, etc.)
+        - Listen (ul, ol, li)
+        - Überschriften (h1-h6)
+        - Absätze (p)
+        - Alle anderen HTML-Tags und deren Attribute
+        
+        Die HTML-Struktur wird als bereinigtes HTML mit sichtbaren Tags zurückgegeben,
+        damit das LLM die Hierarchie und Struktur erkennen kann.
+        
+        Args:
+            html: Roher HTML-Text
+            
+        Returns:
+            Bereinigtes HTML mit allen Struktur-Tags (nur Body-Bereich)
+        """
+        soup = BS(html, 'html.parser')
+
+        # Entferne NUR CSS/JS: Skripte und Styles
+        for tag_name in ['script', 'style']:
+            for tag in soup.find_all(tag_name):
+                tag.decompose()
+
+        # Entferne Meta-Tags im Head (nicht im Body, da diese zur Struktur gehören könnten)
+        head = soup.find('head')
+        if head:
+            for tag_name in ['meta', 'link']:
+                for tag in head.find_all(tag_name):
+                    tag.decompose()
+
+        # Entferne SVG-Grafiken (meist nur Icons, keine Struktur-Information)
+        for tag in soup.find_all('svg'):
+            tag.decompose()
+
+        # Entferne noscript-Tags (redundant nach Script-Entfernung)
+        for tag in soup.find_all('noscript'):
+            tag.decompose()
+
+        # Extrahiere den Body-Bereich (Hauptinhalt der Seite)
+        # Falls kein Body vorhanden, verwende das gesamte Dokument
+        body = soup.find('body')
+        if body:
+            # Konvertiere Body zu String mit erhaltener HTML-Struktur
+            clean_html: str = str(body)
+        else:
+            # Falls kein Body-Tag vorhanden, verwende das gesamte bereinigte Dokument
+            clean_html = str(soup)
+        
+        return clean_html
+
+    def _extract_snippets_with_selector(
+        self,
+        html: str,
+        container_selector: str,
+        max_snippets: int = 50
+    ) -> List[str]:
+        """
+        Extrahiert HTML-Snippets mit einem gegebenen CSS-Selector.
+        
+        Args:
+            html: HTML-Text
+            container_selector: CSS-Selector für die Container (z.B. "li.single-element")
+            max_snippets: Maximale Anzahl Snippets
+            
+        Returns:
+            Liste von HTML-Snippets
+        """
+        soup = BS(html, 'html.parser')
+        containers = soup.select(container_selector)
+        
+        self.logger.info(f"Gefundene Container mit Selector '{container_selector}': {len(containers)}")
+        
+        snippets = []
+        for container in containers[:max_snippets]:
+            snippet = str(container)
+            if len(snippet) > 100:  # Mindestgröße
+                snippets.append(snippet)
+        
+        self.logger.info(f"Extrahiert: {len(snippets)} Snippets für LLM-Analyse")
+        return snippets
+
+    def _find_representative_html_snippets(
+        self,
+        html: str,
+        max_chars: int = 5000,
+        min_snippets: int = 3,
+        max_snippets: int = 5
+    ) -> List[str]:
+        """
+        Findet automatisch repräsentative HTML-Snippets aus verschiedenen Bereichen der Seite.
+        
+        Strategie:
+        1. Analysiert mehrere Bereiche der Seite (Anfang, Mitte, Ende)
+        2. Filtert Menüeinträge und Navigation aus
+        3. Sucht nach wiederkehrenden Containern (z.B. li.single-element, div.event-card)
+        4. Extrahiert repräsentative Snippets aus verschiedenen Bereichen
+        
+        Args:
+            html: HTML-Text
+            max_chars: Maximale Anzahl Zeichen pro Bereich für Analyse
+            min_snippets: Minimale Anzahl Snippets
+            max_snippets: Maximale Anzahl Snippets
+            
+        Returns:
+            Liste von HTML-Snippets
+        """
+        html_length = len(html)
+        snippets: List[str] = []
+        
+        # Definiere Bereiche der Seite zu analysieren
+        # Für sehr lange Seiten: Anfang, Mitte, Ende
+        if html_length > 100000:
+            # Sehr lange Seite: 3 Bereiche analysieren
+            chunk_size = min(max_chars, html_length // 3)
+            areas = [
+                (0, chunk_size),  # Anfang
+                (html_length // 2 - chunk_size // 2, html_length // 2 + chunk_size // 2),  # Mitte
+                (html_length - chunk_size, html_length)  # Ende
+            ]
+        elif html_length > 50000:
+            # Mittlere Seite: 2 Bereiche (Anfang + Mitte)
+            chunk_size = min(max_chars, html_length // 2)
+            areas = [
+                (0, chunk_size),  # Anfang
+                (html_length // 2 - chunk_size // 2, html_length // 2 + chunk_size // 2)  # Mitte
+            ]
+        else:
+            # Kurze Seite: Nur Anfang
+            areas = [(0, min(max_chars, html_length))]
+        
+        # Klassen, die typischerweise Menüeinträge/Navigation sind
+        menu_exclude_classes = {'menu-item', 'menu-home', 'menu', 'nav', 'navigation', 'header', 'footer', 'social-menu'}
+        
+        # Analysiere jeden Bereich
+        for start_idx, end_idx in areas:
+            sample_html = html[start_idx:end_idx]
+            soup = BS(sample_html, 'html.parser')
+            
+            # Strategie 1: Suche nach häufigen Container-Klassen
+            all_elements = soup.find_all(True)
+            class_counts: Dict[str, int] = {}
+            
+            for elem in all_elements:
+                classes_attr = elem.get('class')
+                classes = classes_attr if isinstance(classes_attr, list) else []
+                if classes:
+                    for cls in classes:
+                        if cls and cls not in menu_exclude_classes:
+                            class_counts[cls] = class_counts.get(cls, 0) + 1
+            
+            # Finde Klassen, die häufig vorkommen (mindestens 3x)
+            common_classes = [
+                cls for cls, count in class_counts.items() 
+                if count >= 3
+            ]
+            
+            # Sortiere nach Häufigkeit
+            common_classes.sort(key=lambda x: class_counts[x], reverse=True)
+            
+            # Versuche Container mit diesen Klassen zu finden
+            for common_class in common_classes[:10]:  # Top 10 Klassen pro Bereich
+                containers = soup.find_all(class_=common_class)
+                
+                # Filtere Menüeinträge aus
+                filtered_containers = []
+                for c in containers:
+                    classes_attr = c.get('class')
+                    classes = classes_attr if isinstance(classes_attr, list) else []
+                    classes_str = str(classes)
+                    if not any(exclude_cls in classes_str for exclude_cls in menu_exclude_classes):
+                        filtered_containers.append(c)
+                
+                if len(filtered_containers) >= 3:
+                    # Nimm mehrere Container aus diesem Bereich
+                    for container in filtered_containers[:max_snippets // len(areas) + 5]:
+                        snippet = str(container)
+                        # Mindestgröße für sinnvolles Snippet, aber nicht zu groß
+                        if 100 < len(snippet) < 3000:
+                            snippets.append(snippet)
+                            if len(snippets) >= max_snippets:
+                                break
+                
+                if len(snippets) >= max_snippets:
+                    break
+            
+            if len(snippets) >= max_snippets:
+                break
+        
+        # Strategie 2: Falls noch nicht genug, suche nach spezifischen Strukturen
+        if len(snippets) < min_snippets:
+            full_soup = BS(html, 'html.parser')
+            
+            # Suche nach li-Elementen, die nicht im Menü sind
+            list_items = full_soup.find_all('li')
+            for li in list_items:
+                # Prüfe ob es ein Menü-Eintrag ist
+                classes_attr = li.get('class')
+                classes = classes_attr if isinstance(classes_attr, list) else []
+                classes_str = str(classes)
+                if any(exclude_cls in classes_str for exclude_cls in menu_exclude_classes):
+                    continue
+                
+                snippet = str(li)
+                if 100 < len(snippet) < 3000:
+                    snippets.append(snippet)
+                    if len(snippets) >= max_snippets:
+                        break
+        
+        # Strategie 3: Suche nach spezifischen Content-Klassen im gesamten HTML
+        if len(snippets) < min_snippets:
+            full_soup = BS(html, 'html.parser')
+            # Suche nach Elementen mit spezifischen Klassen, die auf Content hinweisen
+            # PRIORITÄT: single-element ist der Haupt-Container für Event-Einträge
+            content_classes = {'single-element', 'event', 'session', 'item', 'card', 'entry', 'post', 'program-days'}
+            
+            # PRIORITÄT 1: Suche gezielt nach li.single-element (Haupt-Container)
+            li_single_elements = full_soup.find_all('li', class_='single-element')
+            if len(li_single_elements) >= min_snippets:
+                self.logger.info(f"Gefundene li.single-element Container: {len(li_single_elements)}")
+                for li in li_single_elements[:max_snippets]:
+                    # Prüfe ob es ein Menü-Eintrag ist
+                    classes_attr = li.get('class')
+                    classes = classes_attr if isinstance(classes_attr, list) else []
+                    classes_str = str(classes)
+                    if any(exclude_cls in classes_str for exclude_cls in menu_exclude_classes):
+                        continue
+                    
+                    snippet = str(li)
+                    if 200 < len(snippet) < 5000:  # Größere Mindestgröße für Content
+                        snippets.append(snippet)
+                        if len(snippets) >= max_snippets:
+                            break
+                if len(snippets) >= min_snippets:
+                    # Wir haben genug gute Snippets gefunden
+                    return snippets[:max_snippets]
+            
+            # PRIORITÄT 2: Suche nach anderen li-Elementen mit Content-Klassen (nicht Menü)
+            for content_class in content_classes:
+                if content_class == 'single-element':
+                    continue  # Bereits oben behandelt
+                
+                # Suche nach li-Elementen mit dieser Klasse
+                li_elements = full_soup.find_all('li', class_=content_class)
+                for li in li_elements:
+                    # Prüfe ob es ein Menü-Eintrag ist
+                    classes_attr = li.get('class')
+                    classes = classes_attr if isinstance(classes_attr, list) else []
+                    classes_str = str(classes)
+                    if any(exclude_cls in classes_str for exclude_cls in menu_exclude_classes):
+                        continue
+                    
+                    snippet = str(li)
+                    if 200 < len(snippet) < 5000:  # Größere Mindestgröße für Content
+                        snippets.append(snippet)
+                        if len(snippets) >= max_snippets:
+                            break
+                if len(snippets) >= max_snippets:
+                    break
+            
+            # Falls immer noch nicht genug, suche nach divs mit Content-Klassen
+            if len(snippets) < min_snippets:
+                for content_class in content_classes:
+                    divs = full_soup.find_all('div', class_=content_class)
+                    for div in divs[:max_snippets]:
+                        snippet = str(div)
+                        if 200 < len(snippet) < 3000:
+                            snippets.append(snippet)
+                            if len(snippets) >= max_snippets:
+                                break
+                    if len(snippets) >= max_snippets:
+                        break
+        
+        # Filtere Snippets: Entferne solche, die nur Links/Buttons sind (zu klein oder nur <a>-Tags)
+        filtered_snippets = []
+        for snippet in snippets:
+            snippet_soup = BS(snippet, 'html.parser')
+            
+            # Prüfe ob das Snippet hauptsächlich aus Links besteht
+            links = snippet_soup.find_all('a')
+            text_content = snippet_soup.get_text(strip=True)
+            
+            # Wenn mehr als 50% des Inhalts Links sind oder sehr wenig Text vorhanden, überspringe
+            if len(links) > 0 and len(text_content) < 50:
+                continue
+            
+            # Prüfe ob es ein sehr kleines Element ist (wahrscheinlich nur ein Link)
+            if len(snippet) < 200:
+                # Prüfe ob es hauptsächlich ein <a>-Tag ist
+                if snippet_soup.find('a') and len(snippet_soup.find_all()) <= 2:
+                    continue
+            
+            filtered_snippets.append(snippet)
+        
+        # Entferne Duplikate (basierend auf ersten 100 Zeichen)
+        seen = set()
+        unique_snippets = []
+        for snippet in filtered_snippets:
+            snippet_hash = snippet[:100]
+            if snippet_hash not in seen:
+                seen.add(snippet_hash)
+                unique_snippets.append(snippet)
+        
+        return unique_snippets[:max_snippets]
+
+    def _extract_selectors_with_llm(
+        self,
+        html_snippets: List[str],
+        field_descriptions: Dict[str, str],
+        source_language: str = "de",
+        use_cache: bool = True,
+        container_selector: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Ermittelt CSS/XPath-Selectors für strukturierte Daten-Extraktion mit LLM.
+        
+        Args:
+            html_snippets: Liste von HTML-Snippets (typische Einträge)
+            field_descriptions: Dict mit Feldnamen und Beschreibungen
+            source_language: Sprache für den Prompt
+            use_cache: Ob Cache verwendet werden soll
+            container_selector: Optional bereits bekannter Container-Selector
+            
+        Returns:
+            Dict mit container-Selector und field-Selectors (xpath/css)
+        """
+        if not html_snippets:
+            raise ProcessingError("Keine HTML-Snippets zum Analysieren")
+        
+        if not field_descriptions:
+            raise ProcessingError("Keine Feldbeschreibungen vorhanden")
+        
+        # Prompt zusammenstellen
+        snippets_text = "\n\n".join([
+            f"HTML_SNIPPET_{i+1}:\n{snippet}"
+            for i, snippet in enumerate(html_snippets)
+        ])
+        
+        fields_text = "\n".join([
+            f"- {name}: {description}"
+            for name, description in field_descriptions.items()
+        ])
+        
+        system_prompt = """Du bist ein Experte für HTML-Strukturanalyse und CSS/XPath-Selector-Erstellung.
+Deine Aufgabe ist es, aus HTML-Snippets robuste Selectors zu ermitteln, die alle ähnlichen Einträge auf einer Webseite finden können.
+
+KRITISCH WICHTIG: 
+- Der Container-Selector muss den ÄUßERSTEN Container finden, der ALLE Felder umschließt
+- Typischerweise ist das ein <li> oder <div> Element mit einer spezifischen Klasse (z.B. li.single-element)
+- NICHT einzelne Links, Buttons, Bilder oder andere Unterelemente!
+- Der Container sollte mehrere Informationen enthalten: Titel, Zeit, Ort, Beschreibung, etc."""
+        
+        # Prompt zusammenstellen - unterschiedlich je nachdem ob Container-Selector bekannt ist
+        if container_selector:
+            # Container-Selector ist bereits bekannt - nur Field-Selectors ermitteln
+            user_prompt = f"""Hier sind mehrere HTML-Snippets von Event-Einträgen einer Webseite.
+Jedes Snippet ist bereits ein vollständiger Event-Container.
+
+{snippets_text}
+
+Ich möchte aus jedem Event folgende Felder extrahieren:
+{fields_text}
+
+Aufgabe:
+1. Analysiere die HTML-Struktur jedes Snippets.
+2. Für jedes Feld sollst du:
+   - Einen relativen XPath angeben (ausgehend vom Event-Container, beginnend mit ".//").
+   - Einen relativen CSS-Selector angeben (ausgehend vom Event-Container, ohne führenden Selektor).
+
+3. Gib das Ergebnis in folgendem JSON-Format zurück (ohne Kommentare):
+
+{{
+  "fields": {{
+    "field1": {{ "xpath": "...", "css": "..." }},
+    "field2": {{ "xpath": "...", "css": "..." }}
+  }},
+  "exampleExtractionFromSnippet1": {{
+    "field1": "...",
+    "field2": "..."
+  }}
+}}
+
+Anforderungen:
+- Container-Selector ist bereits bekannt: {container_selector}
+- Verwende möglichst robuste Selector (z.B. Klassen oder data-Attribute), keine reinen Positions-Selector
+- XPath bitte relativ zum Container, beginnend mit ".//"
+- CSS bitte relativ zum Container, beginnend ohne führenden Selektor (z.B. "h2.element-title a")
+- Wenn ein Feld nicht eindeutig bestimmbar ist, gib "null" für xpath und css zurück"""
+        else:
+            # Container-Selector muss noch ermittelt werden (Fallback für alte Logik)
+            user_prompt = f"""Hier sind mehrere HTML-Snippets von Event-Einträgen einer Webseite.
+
+{snippets_text}
+
+Ich möchte aus jedem Event folgende Felder extrahieren:
+{fields_text}
+
+Aufgabe:
+1. Analysiere die HTML-Struktur und identifiziere den ÄUßERSTEN Container, der alle Felder umschließt.
+   Beispiel-Struktur:
+   - <li class="single-element">  ← DAS ist der Container!
+     - <div class="hour">10:30</div>
+     - <div class="inner-element">
+       - <h2 class="element-title"><a>...</a></h2>  ← Titel
+       - <span class="location">...</span>  ← Ort
+       - etc.
+   
+   Der Container ist NICHT:
+   - Ein einzelner <a> Link
+   - Ein <div class="image-container"> (nur für Bilder)
+   - Ein <button> oder <a class="btn">
+   - Ein <span> oder <p> Element
+   
+2. Leite einen robusten Container-Selector ab, der alle Event-Einträge findet.
+   Der Selector sollte auf dem äußersten Container basieren (z.B. "li.single-element").
+   
+3. Für jedes Feld sollst du:
+   - Einen relativen XPath angeben (ausgehend vom Event-Container, beginnend mit ".//").
+   - Einen relativen CSS-Selector angeben (ausgehend vom Event-Container, ohne führenden Selektor).
+
+4. Gib das Ergebnis in folgendem JSON-Format zurück (ohne Kommentare):
+
+{{
+  "container": {{
+    "xpath": "...",
+    "css": "..."
+  }},
+  "fields": {{
+    "field1": {{ "xpath": "...", "css": "..." }},
+    "field2": {{ "xpath": "...", "css": "..." }}
+  }},
+  "exampleExtractionFromSnippet1": {{
+    "field1": "...",
+    "field2": "..."
+  }}
+}}
+
+Anforderungen:
+- Container-Selector MUSS der äußerste Container sein (z.B. "li.single-element"), der mehrere Felder enthält
+- Verwende möglichst robuste Selector (z.B. Klassen oder data-Attribute), keine reinen Positions-Selector
+- XPath bitte relativ zum Container, beginnend mit ".//"
+- CSS bitte relativ zum Container, beginnend ohne führenden Selektor (z.B. "h2.element-title a")
+- Wenn ein Feld nicht eindeutig bestimmbar ist, gib "null" für xpath und css zurück"""
+        
+        # LLM aufrufen - verwende get_structured_data für JSON-Output
+        try:
+            selectors = self.transcriber.get_structured_data(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                purpose="extract_selectors",
+                logger=self.logger,
+                processor="transformer"
+            )
+            
+            # Validiere dass fields vorhanden sind
+            if "fields" not in selectors:
+                raise ProcessingError("LLM-Antwort enthält keine 'fields'-Selectors")
+            
+            # Wenn Container-Selector bereits bekannt ist, setze ihn
+            if container_selector:
+                selectors["container"] = {
+                    "css": container_selector,
+                    "xpath": self._css_to_xpath(container_selector)
+                }
+                self.logger.info(f"Verwende gegebenen Container-Selector: {container_selector}")
+            else:
+                # Container-Selector muss vom LLM ermittelt werden (Fallback)
+                if "container" not in selectors:
+                    raise ProcessingError("LLM-Antwort enthält keinen 'container'-Selector")
+                
+                # Validiere dass der Container-Selector nicht zu spezifisch ist (z.B. image-container, btn, etc.)
+                container_css = selectors.get("container", {}).get("css", "")
+                invalid_container_patterns = ['image-container', 'btn', 'link', 'button', 'img', 'figure', 'a[', 'span.', 'p.']
+                container_lower = container_css.lower()
+                if any(pattern in container_lower for pattern in invalid_container_patterns):
+                    self.logger.warning(
+                        f"Container-Selector '{container_css}' sieht nach einem Unterelement aus, nicht nach dem Haupt-Container. "
+                        f"Versuche Fallback zu 'li.single-element'"
+                    )
+                    # Fallback: Versuche li.single-element
+                    selectors["container"]["css"] = "li.single-element"
+                    selectors["container"]["xpath"] = ".//li[contains(@class, 'single-element')]"
+                    self.logger.info(f"Verwende Fallback-Selector: li.single-element")
+            
+            # Debug: Logge die ermittelten Selectors
+            container_css = selectors.get("container", {}).get("css", "")
+            self.logger.info(f"Ermittelte Selectors - Container CSS: {container_css}")
+            self.logger.debug(f"Vollständige Selectors: {json.dumps(selectors, indent=2, ensure_ascii=False)}")
+            
+            return selectors
+            
+        except Exception as e:
+            error_msg = f"Fehler bei Selector-Ermittlung: {str(e)}"
+            self.logger.error(error_msg)
+            raise ProcessingError(error_msg) from e
+
+    def _css_to_xpath(self, css_selector: str) -> str:
+        """
+        Konvertiert einen einfachen CSS-Selector zu XPath.
+        
+        Args:
+            css_selector: CSS-Selector (z.B. "li.single-element")
+            
+        Returns:
+            XPath-String (z.B. ".//li[contains(@class, 'single-element')]")
+        """
+        # Einfache Konvertierung für häufige Fälle
+        if '.' in css_selector:
+            parts = css_selector.split('.')
+            tag = parts[0] if parts[0] else '*'
+            classes = parts[1:]
+            if classes:
+                class_conditions = ' and '.join([f"contains(@class, '{cls}')" for cls in classes])
+                return f".//{tag}[{class_conditions}]"
+        return f".//{css_selector}"
+
+    def _scrape_with_selectors(
+        self,
+        html: str,
+        selectors: Dict[str, Any],
+        source_url: str = ""
+    ) -> List[Dict[str, Any]]:
+        """
+        Extrahiert strukturierte Daten aus HTML mit gegebenen Selectors.
+        
+        Args:
+            html: HTML-Text
+            selectors: Dict mit container und fields (aus _extract_selectors_with_llm)
+            source_url: Basis-URL für relative Links
+            
+        Returns:
+            Liste von Dicts mit extrahierten Daten
+        """
+        soup = BS(html, 'html.parser')
+        results = []
+        
+        # Container finden
+        container_css = selectors.get("container", {}).get("css")
+        if not container_css:
+            raise ProcessingError("Kein Container-CSS-Selector gefunden")
+        
+        self.logger.info(f"Suche Container mit CSS-Selector: {container_css}")
+        containers = soup.select(container_css)
+        self.logger.info(f"Gefundene Container: {len(containers)}")
+        
+        # Wenn zu wenige Container gefunden wurden, versuche alternative Strategien
+        if len(containers) < 10:
+            self.logger.warning(f"Nur {len(containers)} Container gefunden - versuche alternative Strategien")
+            
+            # Strategie 1: Versuche Selector ohne spezifische Klassen zu erweitern
+            # Z.B. wenn "li.single-element" zu wenig findet, versuche "li" mit Filterung
+            if '.' in container_css:
+                # Extrahiere Basis-Tag (z.B. "li" aus "li.single-element")
+                base_tag = container_css.split('.')[0].split()[0]
+                if base_tag:
+                    all_base_elements = soup.find_all(base_tag)
+                    self.logger.info(f"Alternative: Gefundene {base_tag}-Elemente: {len(all_base_elements)}")
+                    
+                    # Wenn deutlich mehr Basis-Elemente gefunden wurden, verwende diese mit Filterung
+                    if len(all_base_elements) > len(containers) * 3:
+                        self.logger.info(f"Verwende erweiterten Selector: {base_tag} (gefiltert)")
+                        # Versuche die Klasse aus dem ursprünglichen Selector zu extrahieren
+                        class_part = container_css.split('.')[1] if '.' in container_css else None
+                        if class_part:
+                            # Filtere nach Klasse
+                            filtered_containers = [
+                                elem for elem in all_base_elements
+                                if class_part in str(elem.get('class', []))
+                            ]
+                            if len(filtered_containers) > len(containers):
+                                self.logger.info(f"Gefilterte Container: {len(filtered_containers)}")
+                                containers = filtered_containers
+            
+            # Strategie 2: Versuche breiteren Selector
+            # Wenn der Selector eine Klasse enthält, versuche ohne die Klasse
+            if len(containers) < 10 and '.' in container_css:
+                # Versuche Basis-Tag ohne Klasse
+                base_tag = container_css.split('.')[0].strip()
+                if base_tag and base_tag in ['li', 'div', 'article', 'section']:
+                    all_base = soup.find_all(base_tag)
+                    self.logger.info(f"Breiterer Selector '{base_tag}': {len(all_base)} Elemente gefunden")
+                    
+                    # Wenn deutlich mehr gefunden, verwende diese mit zusätzlicher Filterung
+                    if len(all_base) > len(containers) * 2:
+                        # Versuche die Klasse aus dem ursprünglichen Selector zu extrahieren
+                        class_name = container_css.split('.')[1].split()[0] if '.' in container_css else None
+                        if class_name:
+                            # Filtere nach Klasse, aber weniger strikt
+                            filtered = [
+                                elem for elem in all_base
+                                if class_name in str(elem.get('class', []))
+                            ]
+                            if len(filtered) > len(containers):
+                                self.logger.info(f"Gefilterte Container mit Klasse '{class_name}': {len(filtered)}")
+                                containers = filtered
+        
+        if len(containers) == 0:
+            raise ProcessingError(f"Keine Container mit Selector '{container_css}' gefunden")
+        
+        # Validiere dass die gefundenen Container nicht nur Menüeinträge sind
+        menu_exclude_classes = {'menu-item', 'menu-home', 'menu', 'nav', 'navigation', 'header', 'footer', 'social-menu'}
+        non_menu_containers = []
+        for container in containers:
+            classes_attr = container.get('class')
+            classes = classes_attr if isinstance(classes_attr, list) else []
+            classes_str = str(classes)
+            if not any(exclude_cls in classes_str for exclude_cls in menu_exclude_classes):
+                non_menu_containers.append(container)
+        
+        if len(non_menu_containers) > len(containers) * 0.5:
+            # Wenn mehr als die Hälfte nicht-Menü sind, verwende diese
+            self.logger.info(f"Gefilterte Container (ohne Menü): {len(non_menu_containers)} von {len(containers)}")
+            containers = non_menu_containers
+        
+        # Für jeden Container die Felder extrahieren
+        for container in containers:
+            item: Dict[str, Any] = {}
+            
+            for field_name, field_selectors in selectors.get("fields", {}).items():
+                css_selector = field_selectors.get("css")
+                
+                if not css_selector or css_selector == "null":
+                    item[field_name] = None
+                    continue
+                
+                # CSS-Selector relativ zum Container
+                element = container.select_one(css_selector)
+                
+                if element:
+                    # Prüfe ob es ein Link ist
+                    if element.name == 'a':
+                        href_attr = element.get('href', '')
+                        href = str(href_attr) if href_attr else ''
+                        if href:
+                            item[field_name] = urljoin(source_url, href) if source_url else href
+                        else:
+                            item[field_name] = element.get_text(strip=True)
+                    else:
+                        item[field_name] = element.get_text(strip=True)
+                else:
+                    item[field_name] = None
+            
+            # Nur hinzufügen wenn mindestens ein Feld gefüllt ist
+            if any(v is not None and v != "" for v in item.values()):
+                results.append(item)
+        
+        return results
+
     def transformByUrl(
         self,
         url: str,
@@ -815,10 +1472,18 @@ Folgender Text soll verarbeitet werden:
         template_content: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        use_selector_extraction: bool = True,
+        container_selector: Optional[str] = None
     ) -> TransformerResponse:
         """
         Transformiert Webseiten-Inhalt nach einem Template.
+        
+        Wenn use_selector_extraction=True und strukturierte Felder vorhanden sind,
+        wird automatisch der zweistufige Ansatz verwendet:
+        1. HTML-Snippets werden mit container_selector extrahiert
+        2. LLM ermittelt Field-Selectors aus den HTML-Snippets
+        3. Regelbasierte Extraktion aller Einträge
         
         Args:
             url: Die URL der Webseite
@@ -828,6 +1493,8 @@ Folgender Text soll verarbeitet werden:
             context: Optionaler Kontext für die Transformation
             additional_field_descriptions: Zusätzliche Feldbeschreibungen
             use_cache: Ob der Cache verwendet werden soll
+            use_selector_extraction: Ob Selector-Extraktion verwendet werden soll (bei strukturierten Feldern)
+            container_selector: CSS-Selector für Event-Container (z.B. "li.single-element")
             
         Returns:
             TransformerResponse: Die Antwort mit dem transformierten Text
@@ -845,15 +1512,103 @@ Folgender Text soll verarbeitet werden:
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
 
-            text: str = response.text
+            raw_html: str = response.text
+
+            raw_html = "url: " + url + "\n" + raw_html
             
+            # Prüfe ob strukturierte Felder vorhanden sind
+            field_descriptions = self.transcriber.extract_field_descriptions(
+                template=template,
+                template_content=template_content,
+                additional_field_descriptions=additional_field_descriptions,
+                logger=self.logger
+            )
             
-            self.logger.info(f"Webseiten-Inhalt extrahiert: {len(text)} Zeichen")
+            # Wenn strukturierte Felder vorhanden und Selector-Extraktion aktiviert
+            if use_selector_extraction and field_descriptions:
+                # Container-Selector muss angegeben sein
+                if not container_selector:
+                    self.logger.warning(
+                        "use_selector_extraction=True aber kein container_selector angegeben. "
+                        "Fallback zu normaler Transformation."
+                    )
+                    # Fallback zu normaler Transformation
+                else:
+                    try:
+                        self.logger.info("Verwende zweistufigen Ansatz: Selector-Extraktion + regelbasierte Scraping")
+                        self.logger.info(f"Verwende Container-Selector: {container_selector}")
+                        
+                        # Stufe 1: HTML-Snippets mit gegebenem Selector extrahieren
+                        html_snippets = self._extract_snippets_with_selector(
+                            html=raw_html,
+                            container_selector=container_selector,
+                            max_snippets=50
+                        )
+                        
+                        if not html_snippets:
+                            self.logger.warning(
+                                f"Keine Container mit Selector '{container_selector}' gefunden, "
+                                "fallback zu normaler Transformation"
+                            )
+                            # Fallback zu normaler Transformation
+                        else:
+                            # Stufe 2: Field-Selectors mit LLM ermitteln
+                            self.logger.info(f"Ermittle Field-Selectors für {len(field_descriptions)} Felder...")
+                            selectors = self._extract_selectors_with_llm(
+                                html_snippets=html_snippets,
+                                field_descriptions=field_descriptions,
+                                source_language=source_language,
+                                use_cache=use_cache,
+                                container_selector=container_selector
+                            )
+                            
+                            # Stufe 3: Alle Einträge extrahieren - verwende ROHES HTML
+                            self.logger.info("Extrahiere alle Einträge mit Selectors...")
+                            extracted_data = self._scrape_with_selectors(
+                                html=raw_html,
+                                selectors=selectors,
+                                source_url=url
+                            )
+                            
+                            self.logger.info(f"Extrahiert: {len(extracted_data)} Einträge")
+                            
+                            # Direkt die Liste zurückgeben - Template wurde nur für Feldbeschreibungen verwendet
+                            from src.core.models.transformer import TransformerData
+                            transformer_data = TransformerData(
+                                text=json.dumps(extracted_data, ensure_ascii=False, indent=2),  # JSON-String für Kompatibilität
+                                language=source_language,
+                                format=OutputFormat.JSON,
+                                structured_data={
+                                    "selectors": selectors,
+                                    "items": extracted_data,  # Liste direkt zurückgeben
+                                    "item_count": len(extracted_data)
+                                }
+                            )
+                            
+                            return self.create_response(
+                                processor_name="transformer",
+                                result=transformer_data,
+                                request_info={
+                                    "url": url,
+                                    "field_count": len(field_descriptions),
+                                    "extracted_count": len(extracted_data),
+                                    "method": "selector_extraction",
+                                    "container_selector": container_selector
+                                },
+                                response_class=TransformerResponse,
+                                from_cache=False,
+                                cache_key=""
+                            )
+                    except Exception as e:
+                        # Fallback: Normale Template-Transformation bei Fehlern
+                        self.logger.warning(f"Selector-Extraktion fehlgeschlagen, verwende normale Transformation: {str(e)}")
+                        # Weiter mit normaler Transformation
             
-                     
-            # Template-Transformation mit extrahiertem Text durchführen
+            # Fallback: Normale Template-Transformation
+            # Hier verwenden wir bereinigtes HTML, um Token zu sparen
+            self.logger.info("Verwende normale Template-Transformation")
             return self.transformByTemplate(
-                text=text,
+                text=raw_html,
                 template=template,
                 template_content=template_content,
                 source_language=source_language,
