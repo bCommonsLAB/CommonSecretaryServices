@@ -3,7 +3,7 @@
 
 @description
 Core module for LLM provider abstraction and configuration management.
-Provides unified interface for different LLM providers (OpenAI, Mistral, OpenRouter, Ollama).
+Provides unified interface for different LLM providers (OpenAI, Mistral, OpenRouter, Ollama, VoyageAI).
 
 @module core.llm
 """
@@ -18,6 +18,7 @@ from .providers.openai_provider import OpenAIProvider
 from .providers.mistral_provider import MistralProvider
 from .providers.openrouter_provider import OpenRouterProvider
 from .providers.ollama_provider import OllamaProvider
+from .providers.voyageai_provider import VoyageAIProvider
 
 # Registriere Provider beim Import
 _provider_manager = ProviderManager()
@@ -25,6 +26,7 @@ _provider_manager.register_provider_class("openai", OpenAIProvider)
 _provider_manager.register_provider_class("mistral", MistralProvider)
 _provider_manager.register_provider_class("openrouter", OpenRouterProvider)
 _provider_manager.register_provider_class("ollama", OllamaProvider)
+_provider_manager.register_provider_class("voyageai", VoyageAIProvider)
 
 __all__ = [
     'LLMProvider',

@@ -621,6 +621,10 @@ class TemplateTransformEndpoint(Resource):
             additional_field_descriptions_str = args.get('additional_field_descriptions')
             use_cache = args.get('use_cache', True)
             container_selector = args.get('container_selector')
+            
+            # Modell- und Provider-Überschreibung für Tests (werden später entfernt)
+            test_model = args.get('_test_model')
+            test_provider = args.get('_test_provider')
 
             # Validierung: Entweder Text oder URL muss angegeben werden
             if not text and not url:
@@ -772,6 +776,7 @@ class TemplateTransformEndpoint(Resource):
                 )
             else:
                 # Text-basierte Transformation
+                # Übergebe Modell/Provider-Überschreibung falls vorhanden
                 result: TransformerResponse = transformer_processor.transformByTemplate(
                     text=text,
                     source_language=source_language,
@@ -780,7 +785,9 @@ class TemplateTransformEndpoint(Resource):
                     template_content=template_content,
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
-                    use_cache=use_cache
+                    use_cache=use_cache,
+                    model=test_model,
+                    provider=test_provider
                 )
 
             # Antwort erstellen

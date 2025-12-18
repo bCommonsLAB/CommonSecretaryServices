@@ -385,6 +385,26 @@ class OpenAIProvider:
             f"Bitte konfigurieren Sie 'available_models.{use_case_str}' für Provider '{self.get_provider_name()}' in config.yaml"
         )
     
+    def embedding(
+        self,
+        texts: List[str],
+        model: str,
+        input_type: str = "document",
+        dimensions: Optional[int] = None,
+        **kwargs: Any
+    ) -> tuple[List[List[float]], LLMRequest]:
+        """
+        OpenAI unterstützt keine direkte Embedding-API über dieses Interface.
+        Verwenden Sie den OpenAI Embeddings-Endpoint direkt oder VoyageAI für Embeddings.
+        
+        Raises:
+            ProcessingError: OpenAI unterstützt keine Embeddings über dieses Interface
+        """
+        raise ProcessingError(
+            "OpenAI unterstützt keine Embeddings über dieses Interface. "
+            "Verwenden Sie VoyageAI für Embeddings oder den OpenAI Embeddings-Endpoint direkt."
+        )
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.

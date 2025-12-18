@@ -1002,7 +1002,9 @@ class WhisperTranscriber:
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         logger: Optional[ProcessingLogger] = None,
         processor: Optional[str] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        model: Optional[str] = None,
+        provider: Optional[str] = None
     ) -> TransformationResult:
         """
         Transformiert einen Text anhand eines Templates.
@@ -1191,11 +1193,29 @@ class WhisperTranscriber:
             duration: float = 0.0
             
             try:
-                chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                # Verwende überschriebenes Modell/Provider falls angegeben
+                if provider:
+                    # Lade Provider mit überschriebenem Namen
+                    from src.core.llm.provider_manager import ProviderManager
+                    provider_manager = ProviderManager()
+                    provider_config = self.llm_config_manager.get_provider_config(provider)
+                    if provider_config:
+                        chat_provider = provider_manager.get_provider(
+                            provider_name=provider,
+                            api_key=provider_config.api_key,
+                            base_url=provider_config.base_url,
+                            **provider_config.additional_config
+                        )
+                    else:
+                        chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                else:
+                    chat_provider = self.llm_config_manager.get_provider_for_use_case(UseCase.CHAT_COMPLETION)
+                
                 if not chat_provider:
                     raise ValueError("Chat-Completion Provider nicht verfügbar")
                 
-                chat_model = self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model
+                # Verwende überschriebenes Modell falls angegeben, sonst konfiguriertes Modell
+                chat_model = model if model else (self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model)
                 
                 # Verwende Provider
                 raw_content, llm_request = chat_provider.chat_completion(
