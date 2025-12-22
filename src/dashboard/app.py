@@ -194,6 +194,7 @@ app.register_blueprint(api_blueprint, url_prefix='/api')
 app.register_blueprint(docs)
 app.register_blueprint(llm_config_dashboard)
 
+
 # Flag für den ersten Request
 _first_request = True
 # Worker-Manager-Instanz (Typ: SessionWorkerManager oder None)

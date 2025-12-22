@@ -1683,7 +1683,9 @@ Anforderungen:
         template_content: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        model: Optional[str] = None,
+        provider: Optional[str] = None
     ) -> TransformerResponse:
         """Transformiert Text nach einem Template."""
         try:
@@ -1696,7 +1698,9 @@ Anforderungen:
                 context=context,
                 additional_field_descriptions=additional_field_descriptions,
                 logger=self.logger,
-                use_cache=use_cache
+                use_cache=use_cache,
+                model=model,
+                provider=provider
             )
             
             # Prüfe, ob ein Fehler zurückgegeben wurde

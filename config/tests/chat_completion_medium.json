@@ -1,0 +1,17 @@
+{
+  "use_case": "chat_completion",
+  "size": "medium",
+  "description": "Template-Transformation mit Metadata-Template - mittlerer Text",
+  "endpoint": "/api/transformer/template",
+  "method": "POST",
+  "parameters": {
+    "text": "Das Buch 'Nachhaltige Software-Entwicklung' wurde 2024 von Max Mustermann und Maria Musterfrau veröffentlicht. Es behandelt Themen wie Open Source, Gemeinschaftsbildung und nachhaltige Technologien. Das Werk erschien im Verlag für Ökologie und Technik und hat die ISBN 978-3-123456-78-9. Es wurde unter der Creative Commons Lizenz CC BY-SA 4.0 veröffentlicht und ist für kommerzielle Nutzung freigegeben.",
+    "template": "Metadata",
+    "source_language": "de",
+    "target_language": "de",
+    "use_cache": false
+  },
+  "expected_fields": ["data.structured_data"],
+  "validate_json": true
+}
+

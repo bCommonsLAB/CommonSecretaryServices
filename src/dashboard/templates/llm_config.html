@@ -13,8 +13,29 @@
     </div>
     {% endif %}
     
-    <div class="row mt-4">
-        <div class="col-md-12">
+    <!-- Bootstrap Tabs -->
+    <ul class="nav nav-tabs mt-4" id="llmConfigTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="use-case-tab" data-bs-toggle="tab" data-bs-target="#use-case-pane" type="button" role="tab" aria-controls="use-case-pane" aria-selected="true">
+                Use-Case-Konfiguration
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="available-llms-tab" data-bs-toggle="tab" data-bs-target="#available-llms-pane" type="button" role="tab" aria-controls="available-llms-pane" aria-selected="false">
+                Available LLMs
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tests-tab" data-bs-toggle="tab" data-bs-target="#tests-pane" type="button" role="tab" aria-controls="tests-pane" aria-selected="false">
+                Tests
+            </button>
+        </li>
+    </ul>
+    
+    <!-- Tab Content -->
+    <div class="tab-content mt-3" id="llmConfigTabContent">
+        <!-- Tab 1: Use-Case-Konfiguration -->
+        <div class="tab-pane fade show active" id="use-case-pane" role="tabpanel" aria-labelledby="use-case-tab">
             <div class="card">
                 <div class="card-header">
                     <h3>Use-Case Konfiguration</h3>
@@ -167,22 +188,109 @@
                         </div>
                         
                         <button type="submit" class="btn btn-primary">Konfiguration speichern</button>
-                        <button type="button" class="btn btn-secondary ml-2" id="test-config-btn">Konfiguration testen</button>
+                        <button type="button" class="btn btn-secondary ms-2" id="test-config-btn">Konfiguration testen</button>
                     </form>
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="row mt-4">
-        <div class="col-md-12">
+        
+        <!-- Tab 2: Available LLMs -->
+        <div class="tab-pane fade" id="available-llms-pane" role="tabpanel" aria-labelledby="available-llms-tab">
             <div class="card">
-                <div class="card-header">
-                    <h3>Voreingestellte Konfigurationen</h3>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3>Available LLMs</h3>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-success btn-sm" onclick="showImportModal()">
+                            <i class="fas fa-upload"></i> Importieren
+                        </button>
+                        <button type="button" class="btn btn-info btn-sm" onclick="exportConfig()">
+                            <i class="fas fa-download"></i> Exportieren
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="showAddModelModal()">
+                            <i class="fas fa-plus"></i> Neues Modell hinzufügen
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
-                    <div id="presets-container">
-                        <p class="text-muted">Lade Presets...</p>
+                    <p class="text-muted">
+                        Verwalten Sie alle verfügbaren LLM-Modelle. Modelle können mehreren Use-Cases zugeordnet werden.
+                    </p>
+                    
+                    <!-- Filter -->
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <label for="filter-provider" class="form-label">Provider:</label>
+                            <select class="form-select" id="filter-provider" onchange="loadModels()">
+                                <option value="">Alle Provider</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="mistral">Mistral</option>
+                                <option value="ollama">Ollama</option>
+                                <option value="voyageai">VoyageAI</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-model-name-provider" class="form-label">Modell-Provider:</label>
+                            <select class="form-select" id="filter-model-name-provider" onchange="loadModels()">
+                                <option value="">Alle</option>
+                                <option value="openai">openai</option>
+                                <option value="anthropic">anthropic</option>
+                                <option value="google">google</option>
+                                <option value="mistralai">mistralai</option>
+                                <option value="x-ai">x-ai</option>
+                                <option value="nvidia">nvidia</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-use-case" class="form-label">Use-Case:</label>
+                            <select class="form-select" id="filter-use-case" onchange="loadModels()">
+                                <option value="">Alle Use-Cases</option>
+                                <option value="chat_completion">Chat Completion</option>
+                                <option value="transcription">Transcription</option>
+                                <option value="image2text">Image2Text</option>
+                                <option value="ocr_pdf">OCR PDF</option>
+                                <option value="embedding">Embedding</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter-enabled" class="form-label">Status:</label>
+                            <select class="form-select" id="filter-enabled" onchange="loadModels()">
+                                <option value="">Alle</option>
+                                <option value="true">Aktiviert</option>
+                                <option value="false">Deaktiviert</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Modelle Tabelle -->
+                    <div id="models-table-container">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Lädt...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Lade Modelle...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 3: Tests -->
+        <div class="tab-pane fade" id="tests-pane" role="tabpanel" aria-labelledby="tests-tab">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Use-Case Tests</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">
+                        Teste jeden Use-Case mit unterschiedlichen Test-Größen (Small, Medium, Large).
+                        Die Ergebnisse werden direkt darunter angezeigt.
+                    </p>
+                    
+                    <div id="test-cases-container">
+                        <div class="accordion" id="useCaseTestsAccordion">
+                            <!-- Test-Cases werden hier dynamisch eingefügt -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -190,9 +298,194 @@
     </div>
 </div>
 
+<!-- Import Config Modal -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importModalLabel">Config.yaml importieren</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">
+                    Wählen Sie eine config.yaml Datei aus, um die LLM-Modell-Konfiguration nach MongoDB zu importieren.
+                    Die Migration ist idempotent - mehrfaches Importieren ist sicher.
+                </p>
+                <div class="mb-3">
+                    <label for="config-file-input" class="form-label">Config.yaml Datei:</label>
+                    <input type="file" class="form-control" id="config-file-input" accept=".yaml,.yml">
+                    <small class="form-text text-muted">Wählen Sie die config.yaml Datei aus</small>
+                </div>
+                <div class="alert alert-info">
+                    <strong>Hinweis:</strong> Die Migration importiert:
+                    <ul class="mb-0">
+                        <li>Alle Modelle aus <code>llm_providers.*.available_models.*</code></li>
+                        <li>Aktuelle Modell-Zuordnungen aus <code>llm_config.use_cases.*</code></li>
+                    </ul>
+                    API-Keys werden nicht migriert (bleiben in .env).
+                </div>
+                <div id="import-progress" class="mt-3" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                    </div>
+                    <p class="text-center mt-2">Import läuft...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" onclick="importConfig()">Importieren</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Model Modal -->
+<div class="modal fade" id="modelModal" tabindex="-1" aria-labelledby="modelModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modelModalLabel">Modell hinzufügen/bearbeiten</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="model-form">
+                    <input type="hidden" id="model-id-input" name="model_id">
+                    
+                    <div class="mb-3">
+                        <label for="model-provider" class="form-label">Provider <span class="text-danger">*</span></label>
+                        <select class="form-select" id="model-provider" name="provider" required>
+                            <option value="">Bitte wählen...</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="mistral">Mistral</option>
+                            <option value="ollama">Ollama</option>
+                            <option value="voyageai">VoyageAI</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="model-name" class="form-label">Modell-Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="model-name" name="model_name" required placeholder="z.B. gpt-4o oder mistralai/mistral-medium-3.1">
+                        <small class="form-text text-muted">Für OpenRouter: Format "provider/model-name" verwenden</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Use-Cases <span class="text-danger">*</span></label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="chat_completion" id="uc-chat-completion" name="use_cases">
+                            <label class="form-check-label" for="uc-chat-completion">Chat Completion</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="transcription" id="uc-transcription" name="use_cases">
+                            <label class="form-check-label" for="uc-transcription">Transcription</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="image2text" id="uc-image2text" name="use_cases">
+                            <label class="form-check-label" for="uc-image2text">Image2Text</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="ocr_pdf" id="uc-ocr-pdf" name="use_cases">
+                            <label class="form-check-label" for="uc-ocr-pdf">OCR PDF</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="embedding" id="uc-embedding" name="use_cases">
+                            <label class="form-check-label" for="uc-embedding">Embedding</label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="model-enabled" name="enabled" checked>
+                            <label class="form-check-label" for="model-enabled">Aktiviert</label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="model-description" class="form-label">Beschreibung</label>
+                        <textarea class="form-control" id="model-description" name="description" rows="3" placeholder="Optionale Beschreibung des Modells"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" onclick="saveModel()">Speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Lade verfügbare Modelle basierend auf Provider-Auswahl
+// ========== Tab-Wechsel Handler ==========
 document.addEventListener('DOMContentLoaded', function() {
+    // Lade Modelle wenn Available LLMs Tab aktiviert wird
+    const availableLLMsTab = document.getElementById('available-llms-tab');
+    if (availableLLMsTab) {
+        availableLLMsTab.addEventListener('shown.bs.tab', function() {
+            loadModels();
+        });
+    }
+    
+    // Lade Test-Cases wenn Tests Tab aktiviert wird
+    const testsTab = document.getElementById('tests-tab');
+    if (testsTab) {
+        testsTab.addEventListener('shown.bs.tab', function() {
+            loadTestCases();
+        });
+    }
+    
+    // Initial: Lade Test-Cases wenn Tests Tab bereits aktiv ist
+    const activeTab = document.querySelector('#llmConfigTabs .nav-link.active');
+    if (activeTab && activeTab.id === 'tests-tab') {
+        loadTestCases();
+    }
+    
+    // Initial: Lade Modelle wenn Available LLMs Tab bereits aktiv ist
+    if (activeTab && activeTab.id === 'available-llms-tab') {
+        loadModels();
+    }
+});
+
+// ========== Use-Case-Konfiguration (bestehende Funktionen) ==========
+const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
+
+useCases.forEach(useCase => {
+    const providerSelect = document.getElementById(`${useCase}-provider`);
+    const modelSelect = document.getElementById(`${useCase}-model`);
+    
+    if (providerSelect && modelSelect) {
+        const savedModel = modelSelect.value;
+        const currentProvider = providerSelect.value;
+        if (currentProvider) {
+            loadModelsForUseCase(useCase, currentProvider, modelSelect, savedModel);
+        }
+        
+        providerSelect.addEventListener('change', function() {
+            loadModelsForUseCase(useCase, this.value, modelSelect);
+        });
+    }
+});
+
+// Form Submit Handler
+const form = document.getElementById('llm-config-form');
+if (form) {
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        saveConfig();
+    });
+}
+
+// Test Button Handler
+const testBtn = document.getElementById('test-config-btn');
+if (testBtn) {
+    testBtn.addEventListener('click', function() {
+        testConfig();
+    });
+}
+
+function reloadAllUseCaseDropdowns() {
+    // Liste aller Use-Cases
     const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
     
     useCases.forEach(useCase => {
@@ -200,50 +493,22 @@ document.addEventListener('DOMContentLoaded', function() {
         const modelSelect = document.getElementById(`${useCase}-model`);
         
         if (providerSelect && modelSelect) {
-            // Speichere das aktuell gespeicherte Modell, bevor wir die Modelle laden
+            const currentProvider = providerSelect.value;
             const savedModel = modelSelect.value;
             
-            // Lade initial Modelle für aktuellen Provider
-            const currentProvider = providerSelect.value;
             if (currentProvider) {
-                loadModels(useCase, currentProvider, modelSelect, savedModel);
+                loadModelsForUseCase(useCase, currentProvider, modelSelect, savedModel);
             }
-            
-            providerSelect.addEventListener('change', function() {
-                // Beim Provider-Wechsel kein gespeichertes Modell verwenden
-                loadModels(useCase, this.value, modelSelect);
-            });
         }
     });
-    
-    // Lade Presets
-    loadPresets();
-    
-    // Form Submit Handler
-    const form = document.getElementById('llm-config-form');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            saveConfig();
-        });
-    }
-    
-    // Test Button Handler
-    const testBtn = document.getElementById('test-config-btn');
-    if (testBtn) {
-        testBtn.addEventListener('click', function() {
-            testConfig();
-        });
-    }
-});
+}
 
-function loadModels(useCase, provider, modelSelect, savedModel = null) {
+function loadModelsForUseCase(useCase, provider, modelSelect, savedModel = null) {
     if (!provider) {
         console.warn(`Kein Provider für Use-Case ${useCase} ausgewählt`);
         return;
     }
     
-    // Zeige Loading-Indikator
     modelSelect.disabled = true;
     const originalValue = modelSelect.value;
     modelSelect.innerHTML = '<option>Lade Modelle...</option>';
@@ -262,20 +527,23 @@ function loadModels(useCase, provider, modelSelect, savedModel = null) {
                 const currentValue = savedModel || originalValue;
                 modelSelect.innerHTML = '';
                 
-                // Füge alle verfügbaren Modelle hinzu
                 data.data.forEach(model => {
+                    // Handle both string and object formats
+                    const modelId = typeof model === 'string' ? model : (model.model_id || model._id || model.model_name);
+                    const modelName = typeof model === 'string' ? model : (model.model_name || modelId);
+                    
                     const option = document.createElement('option');
-                    option.value = model;
-                    option.textContent = model;
-                    // Markiere das gespeicherte Modell als selected, falls es in der Liste ist
-                    if (model === currentValue) {
+                    option.value = modelId;
+                    option.textContent = modelName;
+                    if (modelId === currentValue) {
                         option.selected = true;
                     }
                     modelSelect.appendChild(option);
                 });
                 
-                // Falls das gespeicherte Modell nicht in der Liste ist, füge es hinzu
-                if (currentValue && !data.data.includes(currentValue)) {
+                // Check if currentValue is in the list
+                const modelIds = data.data.map(m => typeof m === 'string' ? m : (m.model_id || m._id || m.model_name));
+                if (currentValue && !modelIds.includes(currentValue)) {
                     const option = document.createElement('option');
                     option.value = currentValue;
                     option.textContent = `${currentValue} (nicht verfügbar)`;
@@ -284,7 +552,6 @@ function loadModels(useCase, provider, modelSelect, savedModel = null) {
                     modelSelect.insertBefore(option, modelSelect.firstChild);
                 }
                 
-                // Falls kein Modell selected ist, wähle das erste aus
                 if (modelSelect.selectedIndex === -1 && data.data.length > 0) {
                     modelSelect.selectedIndex = 0;
                 }
@@ -302,47 +569,7 @@ function loadModels(useCase, provider, modelSelect, savedModel = null) {
         });
 }
 
-function loadPresets() {
-    fetch('/api/llm-config/presets')
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const container = document.getElementById('presets-container');
-                container.innerHTML = '';
-                
-                data.data.presets.forEach(preset => {
-                    const presetDiv = document.createElement('div');
-                    presetDiv.className = 'card mb-3';
-                    presetDiv.innerHTML = `
-                        <div class="card-body">
-                            <h5>${preset.name}</h5>
-                            <p class="text-muted">${preset.description}</p>
-                            <button class="btn btn-sm btn-outline-primary" onclick="applyPreset(${JSON.stringify(preset.config).replace(/"/g, '&quot;')})">Anwenden</button>
-                        </div>
-                    `;
-                    container.appendChild(presetDiv);
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Fehler beim Laden der Presets:', error);
-        });
-}
-
-function applyPreset(config) {
-    Object.keys(config).forEach(useCase => {
-        const providerSelect = document.getElementById(`${useCase}-provider`);
-        const modelSelect = document.getElementById(`${useCase}-model`);
-        
-        if (providerSelect && modelSelect) {
-            providerSelect.value = config[useCase].provider;
-            loadModels(useCase, config[useCase].provider, modelSelect, config[useCase].model);
-        }
-    });
-}
-
 function saveConfig() {
-    const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
     const config = {};
     
     useCases.forEach(useCase => {
@@ -357,7 +584,6 @@ function saveConfig() {
         }
     });
     
-    // Zeige Loading-Indikator
     const submitBtn = document.querySelector('#llm-config-form button[type="submit"]');
     const originalText = submitBtn.textContent;
     submitBtn.disabled = true;
@@ -376,7 +602,6 @@ function saveConfig() {
     .then(data => {
         if (data.status === 'success') {
             alert('Konfiguration erfolgreich gespeichert!');
-            // Optional: Seite neu laden um aktualisierte Werte anzuzeigen
             window.location.reload();
         } else {
             alert(`Fehler beim Speichern: ${data.message}`);
@@ -430,7 +655,1815 @@ function testConfig() {
         testBtn.textContent = originalText;
     });
 }
+
+// ========== Available LLMs Management ==========
+function loadModels() {
+    const container = document.getElementById('models-table-container');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Lädt...</span>
+            </div>
+            <p class="mt-2 text-muted">Lade Modelle...</p>
+        </div>
+    `;
+    
+    const provider = document.getElementById('filter-provider')?.value || '';
+    const modelNameProvider = document.getElementById('filter-model-name-provider')?.value || '';
+    const useCase = document.getElementById('filter-use-case')?.value || '';
+    const enabled = document.getElementById('filter-enabled')?.value || '';
+    
+    let url = '/llm-config/api/models?';
+    if (provider) url += `provider=${encodeURIComponent(provider)}&`;
+    if (modelNameProvider) url += `model_name_provider=${encodeURIComponent(modelNameProvider)}&`;
+    if (useCase) url += `use_case=${encodeURIComponent(useCase)}&`;
+    if (enabled) url += `enabled=${encodeURIComponent(enabled)}&`;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && Array.isArray(data.data)) {
+                renderModelsTable(data.data);
+            } else {
+                container.innerHTML = `
+                    <div class="alert alert-warning">
+                        Keine Modelle gefunden oder Fehler beim Laden.
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Modelle:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    Fehler beim Laden der Modelle: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function renderModelsTable(models) {
+    const container = document.getElementById('models-table-container');
+    if (!container) return;
+    
+    if (models.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                Keine Modelle gefunden. Klicken Sie auf "Neues Modell hinzufügen" um ein Modell zu erstellen.
+            </div>
+        `;
+        return;
+    }
+    
+    // Zeige Tabelle zuerst ohne Quality Scores
+    // Füge Diagramm-Container zuerst hinzu
+    let html = `
+        <div class="mb-4">
+            <h5>Performance-Diagramm</h5>
+            <canvas id="models-performance-chart" style="max-height: 600px; height: 600px;"></canvas>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Modell-ID</th>
+                        <th>Provider</th>
+                        <th>Modell-Name</th>
+                        <th>Use-Cases</th>
+                        <th style="cursor: pointer;" onclick="sortTable('quality')">
+                            Qualität <i class="fas fa-sort" id="sort-quality-icon"></i>
+                        </th>
+                        <th style="cursor: pointer;" onclick="sortTable('duration')">
+                            Dauer <i class="fas fa-sort" id="sort-duration-icon"></i>
+                        </th>
+                        <th>Status</th>
+                        <th>Letzte Tests</th>
+                        <th>Aktionen</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    // Rendere Zeilen ohne Quality Scores
+    models.forEach(model => {
+            const useCasesBadges = (model.use_cases || []).map(uc => 
+                `<span class="badge bg-secondary me-1">${uc}</span>`
+            ).join('');
+        
+        const statusBadge = model.enabled 
+            ? '<span class="badge bg-success">Aktiviert</span>'
+            : '<span class="badge bg-secondary">Deaktiviert</span>';
+        
+        html += `
+            <tr id="model-row-${escapeHtml(model.model_id)}">
+                <td><code>${escapeHtml(model.model_id)}</code></td>
+                <td>${escapeHtml(model.provider)}</td>
+                <td><strong>${escapeHtml(model.model_name)}</strong></td>
+                <td>${useCasesBadges}</td>
+                <td id="quality-${escapeHtml(model.model_id)}" data-quality="0"><span class="text-muted">Lädt...</span></td>
+                <td id="duration-${escapeHtml(model.model_id)}" data-duration="0"><span class="text-muted">Lädt...</span></td>
+                <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-info" onclick="showTestResults('${escapeHtml(model.model_id)}')">
+                        <i class="fas fa-chart-line"></i> Tests
+                    </button>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editModel('${escapeHtml(model.model_id)}')">
+                        <i class="fas fa-edit"></i> Bearbeiten
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteModel('${escapeHtml(model.model_id)}')">
+                        <i class="fas fa-trash"></i> Löschen
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+    
+    // Rendere Performance-Diagramm für alle Modelle (wird oben angezeigt)
+    // Lade Test-Ergebnisse für alle Modelle
+    const testResultsPromises = models.map(model => 
+        fetch(`/llm-config/api/models/${encodeURIComponent(model.model_id)}/test-results`)
+            .then(response => response.json())
+            .then(data => ({
+                modelId: model.model_id,
+                modelName: model.model_name,
+                provider: model.provider,
+                results: data.status === 'success' ? data.data : []
+            }))
+            .catch(() => ({
+                modelId: model.model_id,
+                modelName: model.model_name,
+                provider: model.provider,
+                results: []
+            }))
+    );
+    
+    Promise.all(testResultsPromises).then(testData => {
+        // Kombiniere alle Test-Ergebnisse
+        const allResults = [];
+        testData.forEach(item => {
+            item.results.forEach(result => {
+                allResults.push({
+                    ...result,
+                    model: item.modelName,
+                    model_id: item.modelId,
+                    provider: item.provider
+                });
+            });
+        });
+        
+        // Rendere Diagramm wenn Ergebnisse vorhanden
+        if (allResults.length > 0) {
+            setTimeout(() => {
+                renderPerformanceChart('models-performance-chart', allResults);
+            }, 100);
+        }
+    });
+    
+    // Lade Quality Scores und Dauer nachträglich und aktualisiere die Tabelle
+    models.forEach(model => {
+        // Lade Quality Scores
+        fetch(`/llm-config/api/models/${encodeURIComponent(model.model_id)}/quality-scores`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                const qualityCell = document.getElementById(`quality-${model.model_id}`);
+                if (!qualityCell) return;
+                
+                const qualityScores = data.status === 'success' ? data.data : null;
+                let qualityBadges = '<span class="text-muted">-</span>';
+                let avgQuality = 0;
+                
+                if (qualityScores) {
+                    const badges = [];
+                    const scores = [];
+                    ['small', 'medium', 'large'].forEach(size => {
+                        const score = qualityScores[size];
+                        if (score !== null && score !== undefined) {
+                            scores.push(score);
+                            const percent = (score * 100).toFixed(1);
+                            let badgeClass = 'bg-secondary';
+                            // Farbcodierung: Grün >0.8, Gelb 0.7-0.8, Rot <0.7
+                            if (score > 0.8) badgeClass = 'bg-success';
+                            else if (score >= 0.7) badgeClass = 'bg-warning';
+                            else badgeClass = 'bg-danger';
+                            badges.push(`<span class="badge ${badgeClass} me-1" data-bs-toggle="tooltip" data-bs-placement="top" title="${size}: ${percent}%">${size}: ${percent}%</span>`);
+                        }
+                    });
+                    if (badges.length > 0) {
+                        qualityBadges = badges.join('');
+                        avgQuality = scores.reduce((a, b) => a + b, 0) / scores.length;
+                    }
+                }
+                
+                qualityCell.innerHTML = qualityBadges;
+                qualityCell.setAttribute('data-quality', avgQuality.toString());
+                
+                // Initialisiere Tooltips für neue Badges
+                setTimeout(() => {
+                    const tooltipTriggerList = [].slice.call(qualityCell.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                    tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+                        new bootstrap.Tooltip(tooltipTriggerEl);
+                    });
+                }, 50);
+            })
+            .catch(error => {
+                console.warn(`Fehler beim Laden der Quality Scores für ${model.model_id}:`, error);
+                const qualityCell = document.getElementById(`quality-${model.model_id}`);
+                if (qualityCell) {
+                    qualityCell.innerHTML = '<span class="text-muted">-</span>';
+                    qualityCell.setAttribute('data-quality', '0');
+                }
+            });
+        
+        // Lade Dauer-Daten aus Test-Ergebnissen
+        fetch(`/llm-config/api/models/${encodeURIComponent(model.model_id)}/test-results`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                const durationCell = document.getElementById(`duration-${model.model_id}`);
+                if (!durationCell) return;
+                
+                const results = data.status === 'success' ? data.data : [];
+                let durationDisplay = '<span class="text-muted">-</span>';
+                let avgDuration = 0;
+                
+                if (results && results.length > 0) {
+                    // Berechne Durchschnittsdauer aus erfolgreichen Tests
+                    const successfulResults = results.filter(r => r.status === 'success' && r.duration_ms);
+                    if (successfulResults.length > 0) {
+                        const durations = successfulResults.map(r => r.duration_ms);
+                        avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
+                        durationDisplay = `${avgDuration.toFixed(0)} ms`;
+                    }
+                }
+                
+                durationCell.innerHTML = durationDisplay;
+                durationCell.setAttribute('data-duration', avgDuration.toString());
+            })
+            .catch(error => {
+                console.warn(`Fehler beim Laden der Dauer für ${model.model_id}:`, error);
+                const durationCell = document.getElementById(`duration-${model.model_id}`);
+                if (durationCell) {
+                    durationCell.innerHTML = '<span class="text-muted">-</span>';
+                    durationCell.setAttribute('data-duration', '0');
+                }
+            });
+    });
+    
+    // Initialisiere Tooltips für andere Elemente
+    setTimeout(() => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }, 100);
+}
+
+// Sortierfunktion für Tabelle
+let currentSortColumn = null;
+let currentSortDirection = 'asc';
+
+function sortTable(column) {
+    const table = document.querySelector('#models-table-container table tbody');
+    if (!table) return;
+    
+    const rows = Array.from(table.querySelectorAll('tr'));
+    
+    // Toggle Sortierrichtung wenn dieselbe Spalte geklickt wird
+    if (currentSortColumn === column) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortColumn = column;
+        currentSortDirection = 'asc';
+    }
+    
+    // Sortiere Zeilen
+    rows.sort((a, b) => {
+        let aValue, bValue;
+        
+        if (column === 'quality') {
+            const aCell = a.querySelector('[data-quality]');
+            const bCell = b.querySelector('[data-quality]');
+            aValue = aCell ? parseFloat(aCell.getAttribute('data-quality') || '0') : 0;
+            bValue = bCell ? parseFloat(bCell.getAttribute('data-quality') || '0') : 0;
+        } else if (column === 'duration') {
+            const aCell = a.querySelector('[data-duration]');
+            const bCell = b.querySelector('[data-duration]');
+            aValue = aCell ? parseFloat(aCell.getAttribute('data-duration') || '0') : 0;
+            bValue = bCell ? parseFloat(bCell.getAttribute('data-duration') || '0') : 0;
+        } else {
+            return 0;
+        }
+        
+        if (currentSortDirection === 'asc') {
+            return aValue - bValue;
+        } else {
+            return bValue - aValue;
+        }
+    });
+    
+    // Entferne alle Zeilen
+    rows.forEach(row => row.remove());
+    
+    // Füge sortierte Zeilen wieder hinzu
+    rows.forEach(row => table.appendChild(row));
+    
+    // Aktualisiere Sortier-Icons
+    document.querySelectorAll('[id^="sort-"]').forEach(icon => {
+        icon.className = 'fas fa-sort';
+    });
+    
+    const sortIcon = document.getElementById(`sort-${column}-icon`);
+    if (sortIcon) {
+        sortIcon.className = currentSortDirection === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+    }
+}
+
+function showAddModelModal() {
+    document.getElementById('modelModalLabel').textContent = 'Neues Modell hinzufügen';
+    document.getElementById('model-form').reset();
+    document.getElementById('model-id-input').value = '';
+    document.getElementById('model-enabled').checked = true;
+    
+    const modal = new bootstrap.Modal(document.getElementById('modelModal'));
+    modal.show();
+}
+
+function editModel(modelId) {
+    fetch(`/llm-config/api/models/${encodeURIComponent(modelId)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.data) {
+                const model = data.data;
+                
+                document.getElementById('modelModalLabel').textContent = 'Modell bearbeiten';
+                document.getElementById('model-id-input').value = model.model_id;
+                document.getElementById('model-provider').value = model.provider;
+                document.getElementById('model-name').value = model.model_name;
+                document.getElementById('model-description').value = model.description || '';
+                document.getElementById('model-enabled').checked = model.enabled !== false;
+                
+                // Setze Use-Cases
+                document.querySelectorAll('input[name="use_cases"]').forEach(cb => {
+                    cb.checked = model.use_cases && model.use_cases.includes(cb.value);
+                });
+                
+                // Disable Provider und Model-Name beim Bearbeiten
+                document.getElementById('model-provider').disabled = true;
+                document.getElementById('model-name').disabled = true;
+                
+                const modal = new bootstrap.Modal(document.getElementById('modelModal'));
+                modal.show();
+            } else {
+                alert('Fehler beim Laden des Modells: ' + (data.message || 'Unbekannter Fehler'));
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden des Modells:', error);
+            alert('Fehler beim Laden des Modells');
+        });
+}
+
+function saveModel() {
+    const form = document.getElementById('model-form');
+    const formData = new FormData(form);
+    
+    const modelId = formData.get('model_id');
+    const provider = formData.get('provider');
+    const modelName = formData.get('model_name');
+    const enabled = document.getElementById('model-enabled').checked;
+    const description = formData.get('description');
+    const useCases = Array.from(form.querySelectorAll('input[name="use_cases"]:checked')).map(cb => cb.value);
+    
+    if (!provider || !modelName || useCases.length === 0) {
+        alert('Bitte füllen Sie alle Pflichtfelder aus.');
+        return;
+    }
+    
+    const modelData = {
+        provider: provider,
+        model_name: modelName,
+        use_cases: useCases,
+        enabled: enabled,
+        description: description || null
+    };
+    
+    const url = modelId ? `/llm-config/api/models/${encodeURIComponent(modelId)}` : '/llm-config/api/models';
+    const method = modelId ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(modelData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modelModal'));
+            modal.hide();
+            loadModels();
+            alert('Modell erfolgreich gespeichert!');
+        } else {
+            alert('Fehler beim Speichern: ' + (data.message || 'Unbekannter Fehler'));
+        }
+    })
+    .catch(error => {
+        console.error('Fehler beim Speichern:', error);
+        alert('Fehler beim Speichern des Modells');
+    });
+}
+
+function deleteModel(modelId) {
+    if (!confirm(`Möchten Sie das Modell "${modelId}" wirklich löschen?`)) {
+        return;
+    }
+    
+    fetch(`/llm-config/api/models/${encodeURIComponent(modelId)}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            loadModels();
+            alert('Modell erfolgreich gelöscht!');
+        } else {
+            alert('Fehler beim Löschen: ' + (data.message || 'Unbekannter Fehler'));
+        }
+    })
+    .catch(error => {
+        console.error('Fehler beim Löschen:', error);
+        alert('Fehler beim Löschen des Modells');
+    });
+}
+
+function showTestResults(modelId) {
+    fetch(`/llm-config/api/models/${encodeURIComponent(modelId)}/test-results`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.data && data.data.length > 0) {
+                let message = `Test-Ergebnisse für ${modelId}:\n\n`;
+                data.data.forEach(result => {
+                    message += `${result.use_case}/${result.test_size}: ${result.status} (${result.duration_ms}ms)\n`;
+                });
+                alert(message);
+            } else {
+                alert('Keine Test-Ergebnisse für dieses Modell gefunden.');
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Test-Ergebnisse:', error);
+            alert('Fehler beim Laden der Test-Ergebnisse');
+        });
+}
+
+// ========== Import/Export Funktionen ==========
+function showImportModal() {
+    document.getElementById('config-file-input').value = '';
+    document.getElementById('import-progress').style.display = 'none';
+    const modal = new bootstrap.Modal(document.getElementById('importModal'));
+    modal.show();
+}
+
+function importConfig() {
+    const fileInput = document.getElementById('config-file-input');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Bitte wählen Sie eine Datei aus.');
+        return;
+    }
+    
+    if (!file.name.endsWith('.yaml') && !file.name.endsWith('.yml')) {
+        alert('Bitte wählen Sie eine YAML-Datei aus.');
+        return;
+    }
+    
+    const progressDiv = document.getElementById('import-progress');
+    progressDiv.style.display = 'block';
+    
+    const formData = new FormData();
+    formData.append('config_file', file);
+    
+    fetch('/llm-config/api/import-config', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        progressDiv.style.display = 'none';
+        
+        if (data.status === 'success') {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
+            modal.hide();
+            
+            alert(`Import erfolgreich!\n\n- ${data.data.models_count || 0} Modelle importiert\n- ${data.data.configs_count || 0} Use-Case-Konfigurationen importiert`);
+            
+            // Lade Modelle neu (für Available LLMs Tab)
+            loadModels();
+            
+            // Lade alle Use-Case-Dropdowns neu
+            reloadAllUseCaseDropdowns();
+        } else {
+            alert('Fehler beim Importieren: ' + (data.message || 'Unbekannter Fehler'));
+        }
+    })
+    .catch(error => {
+        progressDiv.style.display = 'none';
+        console.error('Fehler beim Importieren:', error);
+        alert('Fehler beim Importieren: ' + error.message);
+    });
+}
+
+function exportConfig() {
+    // Zeige Loading-Indikator
+    const originalText = event.target.innerHTML;
+    event.target.disabled = true;
+    event.target.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exportiere...';
+    
+    fetch('/llm-config/api/export-config')
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.message || `HTTP ${response.status}`);
+                });
+            }
+            
+            // Prüfe Content-Type
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Fehler beim Exportieren');
+                });
+            }
+            
+            // Lade als Datei
+            return response.blob();
+        })
+        .then(blob => {
+            // Erstelle Download-Link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'llm_config_export.yaml';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            alert('Config erfolgreich exportiert!');
+        })
+        .catch(error => {
+            console.error('Fehler beim Exportieren:', error);
+            alert('Fehler beim Exportieren: ' + error.message);
+        })
+        .finally(() => {
+            event.target.disabled = false;
+            event.target.innerHTML = originalText;
+        });
+}
+
+// ========== Tests (bestehende Funktionen) ==========
+function loadTestCases() {
+    fetch('/llm-config/api/test-cases/available')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.data && data.data.available_test_cases) {
+                renderTestCases(data.data.available_test_cases);
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der Test-Cases:', error);
+        });
+}
+
+function renderTestCases(availableTestCases) {
+    const container = document.getElementById('useCaseTestsAccordion');
+    if (!container) return;
+    
+    const useCaseNames = {
+        'chat_completion': 'Chat Completion & Translation',
+        'transcription': 'Transcription',
+        'image2text': 'Image2Text',
+        'ocr_pdf': 'OCR PDF'
+    };
+    
+    let accordionHTML = '';
+    let accordionIndex = 0;
+    
+    for (const [useCase, sizes] of Object.entries(availableTestCases)) {
+        const useCaseDisplayName = useCaseNames[useCase] || useCase;
+        const accordionId = `testCase${accordionIndex}`;
+        const collapseId = `collapse${accordionIndex}`;
+        
+        accordionHTML += `
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading${accordionIndex}">
+                    <button class="accordion-button ${accordionIndex === 0 ? '' : 'collapsed'}" type="button" 
+                            data-bs-toggle="collapse" data-bs-target="#${collapseId}" 
+                            aria-expanded="${accordionIndex === 0 ? 'true' : 'false'}" 
+                            aria-controls="${collapseId}">
+                        ${useCaseDisplayName}
+                    </button>
+                </h2>
+                <div id="${collapseId}" class="accordion-collapse collapse ${accordionIndex === 0 ? 'show' : ''}" 
+                     aria-labelledby="heading${accordionIndex}" data-bs-parent="#useCaseTestsAccordion">
+                    <div class="accordion-body">
+                        <p class="text-muted mb-3">Verfügbare Test-Größen: ${sizes.join(', ')}</p>
+                        <div class="btn-group mb-3" role="group">
+                            ${sizes.map(size => `
+                                <button type="button" class="btn btn-outline-primary" 
+                                        onclick="executeUseCaseTest('${useCase}', '${size}')">
+                                    ${size.charAt(0).toUpperCase() + size.slice(1)}
+                                </button>
+                            `).join('')}
+                        </div>
+                        
+                        <!-- Modellauswahl für Batch-Testing -->
+                        <div class="mt-4 mb-3">
+                            <h6>Batch-Modellvergleich</h6>
+                            <p class="text-muted small">Wählen Sie Modelle aus, um sie gleichzeitig zu testen und zu vergleichen.</p>
+                            
+                            <!-- Filter für Batch-Modellvergleich -->
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label for="batch-filter-provider-${useCase}" class="form-label">Provider:</label>
+                                    <select class="form-select form-select-sm" id="batch-filter-provider-${useCase}" onchange="loadModelsForBatchTest('${useCase}'); filterTestResults('${useCase}');">
+                                        <option value="">Alle Provider</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="openrouter">OpenRouter</option>
+                                        <option value="mistral">Mistral</option>
+                                        <option value="ollama">Ollama</option>
+                                        <option value="voyageai">VoyageAI</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="batch-filter-model-name-provider-${useCase}" class="form-label">Modell-Provider:</label>
+                                    <select class="form-select form-select-sm" id="batch-filter-model-name-provider-${useCase}" onchange="loadModelsForBatchTest('${useCase}'); filterTestResults('${useCase}');">
+                                        <option value="">Alle</option>
+                                        <option value="openai">openai</option>
+                                        <option value="anthropic">anthropic</option>
+                                        <option value="google">google</option>
+                                        <option value="mistralai">mistralai</option>
+                                        <option value="x-ai">x-ai</option>
+                                        <option value="nvidia">nvidia</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="batch-filter-enabled-${useCase}" class="form-label">Status:</label>
+                                    <select class="form-select form-select-sm" id="batch-filter-enabled-${useCase}" onchange="loadModelsForBatchTest('${useCase}'); filterTestResults('${useCase}');">
+                                        <option value="">Alle</option>
+                                        <option value="true" selected>Aktiviert</option>
+                                        <option value="false">Deaktiviert</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div id="model-selection-${useCase}" class="mb-3">
+                                <p class="text-muted">Lade verfügbare Modelle...</p>
+                            </div>
+                            
+                            <div class="mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllModels('${useCase}')">Alle auswählen</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="deselectAllModels('${useCase}')">Alle abwählen</button>
+                            </div>
+                            
+                            <div class="mb-2">
+                                <label class="form-label">Ausführungsmodus:</label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="executionMode-${useCase}" id="sequential-${useCase}" value="sequential" checked>
+                                    <label class="form-check-label" for="sequential-${useCase}">Sequenziell</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="executionMode-${useCase}" id="parallel-${useCase}" value="parallel">
+                                    <label class="form-check-label" for="parallel-${useCase}">Parallel</label>
+                                </div>
+                                <small class="text-muted d-block mt-1">
+                                    <i class="fas fa-info-circle"></i> Parallel ist schneller, aber belastet die API mehr.
+                                </small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                ${sizes.map(size => `
+                    <button type="button" class="btn btn-sm btn-success me-2" 
+                            onclick="executeBatchTest('${useCase}', '${size}')">
+                        Vergleiche ausgewählte Modelle (${size})
+                    </button>
+                                `).join(' ')}
+                            </div>
+                        </div>
+                        
+                        <div id="batch-test-result-${useCase}" class="batch-test-result-container"></div>
+                        <div id="test-result-${useCase}" class="test-result-container"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        accordionIndex++;
+    }
+    
+    container.innerHTML = accordionHTML;
+    
+    // Lade Modelle für jeden Use-Case
+    setTimeout(() => {
+        Object.keys(availableTestCases).forEach(useCase => {
+            loadModelsForBatchTest(useCase);
+            // Lade letzte Test-Ergebnisse für jeden Use-Case
+            loadLatestTestResults(useCase);
+        });
+    }, 100);
+}
+
+async function loadModelsForBatchTest(useCase) {
+    const container = document.getElementById(`model-selection-${useCase}`);
+    if (!container) return;
+    
+    // Lade Filter-Werte
+    const provider = document.getElementById(`batch-filter-provider-${useCase}`)?.value || '';
+    const modelNameProvider = document.getElementById(`batch-filter-model-name-provider-${useCase}`)?.value || '';
+    const enabled = document.getElementById(`batch-filter-enabled-${useCase}`)?.value || 'true'; // Default: aktiviert
+    
+    // Baue URL mit Filtern
+    let url = `/llm-config/api/models?use_case=${encodeURIComponent(useCase)}`;
+    if (provider) url += `&provider=${encodeURIComponent(provider)}`;
+    if (modelNameProvider) url += `&model_name_provider=${encodeURIComponent(modelNameProvider)}`;
+    if (enabled) url += `&enabled=${encodeURIComponent(enabled)}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.status === 'success' && Array.isArray(data.data)) {
+            let html = '<div class="row">';
+            
+            data.data.forEach((model, index) => {
+                if (index % 3 === 0 && index > 0) {
+                    html += '</div><div class="row">';
+                }
+                html += `
+                    <div class="col-md-4 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input model-checkbox" type="checkbox" 
+                                   value="${escapeHtml(model.model_id)}" id="model-${useCase}-${index}" 
+                                   data-use-case="${useCase}" data-model="${escapeHtml(model.model_id)}">
+                            <label class="form-check-label" for="model-${useCase}-${index}">
+                                ${escapeHtml(model.model_name)} <small class="text-muted">(${escapeHtml(model.provider)})</small>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = '<p class="text-warning">Keine Modelle verfügbar</p>';
+        }
+    } catch (error) {
+        console.error(`Fehler beim Laden der Modelle für ${useCase}:`, error);
+        container.innerHTML = `<p class="text-danger">Fehler beim Laden: ${error.message}</p>`;
+    }
+}
+
+function executeUseCaseTest(useCase, size) {
+    const resultContainer = document.getElementById(`test-result-${useCase}`);
+    if (!resultContainer) return;
+    
+    resultContainer.innerHTML = `
+        <div class="alert alert-info">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Lädt...</span>
+            </div>
+            Test wird ausgeführt...
+        </div>
+    `;
+    
+    fetch('/llm-config/api/test-cases/execute', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            use_case: useCase,
+            size: size
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.data) {
+            renderTestResult(useCase, size, data.data);
+        } else {
+            resultContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Fehler:</strong> ${data.message || 'Unbekannter Fehler'}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Fehler beim Ausführen des Tests:', error);
+        resultContainer.innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Fehler:</strong> ${error.message || 'Fehler beim Ausführen des Tests'}
+            </div>
+        `;
+    });
+}
+
+function renderTestResult(useCase, size, result) {
+    const resultContainer = document.getElementById(`test-result-${useCase}`);
+    if (!resultContainer) return;
+    
+    const statusClass = result.status === 'success' ? 'alert-success' : 'alert-danger';
+    const statusIcon = result.status === 'success' ? '✓' : '✗';
+    
+    let html = `
+        <div class="alert ${statusClass}">
+            <h5>${statusIcon} Test-Ergebnis (${size})</h5>
+            <p><strong>Beschreibung:</strong> ${result.test_case.description || 'Keine Beschreibung'}</p>
+            <p><strong>Dauer:</strong> ${result.duration_ms} ms</p>
+            ${result.provider ? `<p><strong>Provider:</strong> ${result.provider}</p>` : ''}
+            ${result.model ? `<p><strong>Modell:</strong> ${result.model}</p>` : ''}
+        </div>
+    `;
+    
+    if (result.validation && result.validation.checks) {
+        html += '<div class="mb-3"><h6>Validierung:</h6><ul class="list-group">';
+        result.validation.checks.forEach(check => {
+            const checkClass = check.status === 'success' ? 'list-group-item-success' : 'list-group-item-danger';
+            const checkIcon = check.status === 'success' ? '✓' : '✗';
+            html += `<li class="list-group-item ${checkClass}">${checkIcon} ${check.message}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    if (result.llm_info) {
+        html += `
+            <div class="mb-3">
+                <h6>LLM-Nutzung:</h6>
+                <ul class="list-group">
+                    ${result.llm_info.total_tokens ? `<li class="list-group-item">Tokens: ${result.llm_info.total_tokens}</li>` : ''}
+                    ${result.llm_info.total_duration ? `<li class="list-group-item">Dauer: ${result.llm_info.total_duration} ms</li>` : ''}
+                    ${result.llm_info.requests_count ? `<li class="list-group-item">Requests: ${result.llm_info.requests_count}</li>` : ''}
+                </ul>
+            </div>
+        `;
+    }
+    
+    if (result.response && result.response.data) {
+        html += '<div class="mb-3"><h6>Response:</h6>';
+        
+        const structuredData = result.response.data.data?.structured_data;
+        if (structuredData && result.test_case.validate_json) {
+            html += '<div class="mb-2"><strong>Structured Data (JSON):</strong></div>';
+            html += renderJSONViewer(structuredData, `json-viewer-${useCase}-${size}`);
+        } else {
+            html += '<pre class="bg-light p-3 rounded"><code>' + 
+                    JSON.stringify(result.response.data, null, 2) + 
+                    '</code></pre>';
+        }
+        
+        html += '</div>';
+    }
+    
+    if (result.error) {
+        html += `
+            <div class="alert alert-danger">
+                <strong>Fehler:</strong> ${result.error.message || 'Unbekannter Fehler'}
+                ${result.error.code ? `<br><small>Code: ${result.error.code}</small>` : ''}
+            </div>
+        `;
+    }
+    
+    resultContainer.innerHTML = html;
+}
+
+function selectAllModels(useCase) {
+    const checkboxes = document.querySelectorAll(`input.model-checkbox[data-use-case="${useCase}"]`);
+    checkboxes.forEach(cb => cb.checked = true);
+}
+
+function deselectAllModels(useCase) {
+    const checkboxes = document.querySelectorAll(`input.model-checkbox[data-use-case="${useCase}"]`);
+    checkboxes.forEach(cb => cb.checked = false);
+}
+
+function getSelectedModels(useCase) {
+    const checkboxes = document.querySelectorAll(`input.model-checkbox[data-use-case="${useCase}"]:checked`);
+    return Array.from(checkboxes).map(cb => {
+        const modelId = cb.value;
+        // Extrahiere Provider und Model-Name aus model_id (Format: provider/model_name)
+        const parts = modelId.split('/');
+        if (parts.length >= 2) {
+            return {
+                provider: parts[0],
+                model: parts.slice(1).join('/'),
+                model_id: modelId  // Behalte vollständige model_id
+            };
+        }
+        return { provider: '', model: modelId, model_id: modelId };
+    });
+}
+
+function getExecutionMode(useCase) {
+    const selected = document.querySelector(`input[name="executionMode-${useCase}"]:checked`);
+    return selected ? selected.value : 'sequential';
+}
+
+async function executeBatchTest(useCase, size) {
+    const selectedModels = getSelectedModels(useCase);
+    if (selectedModels.length === 0) {
+        alert('Bitte wählen Sie mindestens ein Modell aus.');
+        return;
+    }
+    
+    const executionMode = getExecutionMode(useCase);
+    const resultContainer = document.getElementById(`batch-test-result-${useCase}`);
+    if (!resultContainer) return;
+    
+    resultContainer.innerHTML = `
+        <div class="alert alert-info">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Lädt...</span>
+            </div>
+            Teste ${selectedModels.length} Modell(e) im ${executionMode === 'parallel' ? 'parallelen' : 'sequenziellen'} Modus...
+        </div>
+    `;
+    
+    try {
+        // Verwende model_id (Format: provider/model_name) für jedes Modell
+        // Der Provider wird im Backend aus der model_id extrahiert
+        const models = selectedModels.map(m => {
+            // Verwende model_id wenn vorhanden (enthält bereits provider/model_name)
+            if (m.model_id) {
+                return m.model_id;
+            }
+            // Fallback: Wenn model bereits im Format provider/model ist, verwende es direkt
+            if (m.model && m.model.includes('/')) {
+                return m.model;
+            }
+            // Sonst kombiniere provider und model
+            return m.provider ? `${m.provider}/${m.model}` : m.model;
+        });
+        
+        // Fallback: Verwende Provider des ersten Modells (wird im Backend überschrieben)
+        const provider = selectedModels[0]?.provider || '';
+        
+        const response = await fetch('/llm-config/api/test-cases/batch-execute', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                use_case: useCase,
+                size: size,
+                models: models,
+                provider: provider,
+                execution_mode: executionMode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success' && data.data && data.data.results) {
+            // Speichere ursprüngliche Ergebnisse für Filterung
+            if (!originalTestResults[useCase]) {
+                originalTestResults[useCase] = {};
+            }
+            originalTestResults[useCase][size] = [...data.data.results];
+            
+            renderBatchTestResults(useCase, size, data.data);
+        } else {
+            resultContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Fehler:</strong> ${data.message || 'Unbekannter Fehler'}
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Fehler beim Batch-Test:', error);
+        resultContainer.innerHTML = `
+            <div class="alert alert-danger">
+                <strong>Fehler:</strong> ${error.message || 'Fehler beim Ausführen des Batch-Tests'}
+            </div>
+        `;
+    }
+}
+
+// Speichere die ursprünglichen Ergebnisse für jeden Use-Case und Size
+const originalTestResults = {};
+
+// Lade letzte Test-Ergebnisse aus MongoDB
+async function loadLatestTestResults(useCase) {
+    try {
+        const response = await fetch(`/llm-config/api/use-cases/${encodeURIComponent(useCase)}/latest-test-results`);
+        const data = await response.json();
+        
+        if (data.status === 'success' && data.data) {
+            const resultsBySize = data.data;
+            
+            // Speichere ursprüngliche Ergebnisse für Filterung
+            if (!originalTestResults[useCase]) {
+                originalTestResults[useCase] = {};
+            }
+            
+            // Zeige Ergebnisse für jede Test-Size an
+            Object.keys(resultsBySize).forEach(size => {
+                const results = resultsBySize[size];
+                if (results && results.length > 0) {
+                    // Speichere ursprüngliche Ergebnisse
+                    originalTestResults[useCase][size] = [...results];
+                    
+                    // Erstelle Batch-Daten-Format für renderBatchTestResults
+                    const batchData = {
+                        results: results,
+                        execution_mode: 'loaded',
+                        successful_tests: results.filter(r => r.status === 'success').length,
+                        total_tests: results.length
+                    };
+                    
+                    // Rendere Ergebnisse
+                    renderBatchTestResults(useCase, size, batchData);
+                }
+            });
+        }
+    } catch (error) {
+        console.warn(`Fehler beim Laden der letzten Test-Ergebnisse für ${useCase}:`, error);
+    }
+}
+
+// Filtere Test-Ergebnisse basierend auf den aktuellen Filter-Einstellungen
+async function filterTestResults(useCase) {
+    if (!originalTestResults[useCase]) {
+        return; // Keine Ergebnisse zum Filtern vorhanden
+    }
+    
+    // Lese Filter-Werte
+    const providerFilter = document.getElementById(`batch-filter-provider-${useCase}`)?.value || '';
+    const modelNameProviderFilter = document.getElementById(`batch-filter-model-name-provider-${useCase}`)?.value || '';
+    const enabledFilter = document.getElementById(`batch-filter-enabled-${useCase}`)?.value || '';
+    
+    // Lade Modell-Liste für enabled-Filter (wenn Filter gesetzt ist)
+    let enabledModelIds = new Set();
+    if (enabledFilter !== '') {
+        try {
+            const modelsResponse = await fetch(`/llm-config/api/models?use_case=${encodeURIComponent(useCase)}&enabled=${enabledFilter}`);
+            const modelsData = await modelsResponse.json();
+            if (modelsData.status === 'success' && modelsData.data) {
+                modelsData.data.forEach(model => {
+                    enabledModelIds.add(model.model_id);
+                });
+            }
+        } catch (error) {
+            console.warn(`Fehler beim Laden der Modell-Liste für Filter:`, error);
+        }
+    }
+    
+    // Filtere Ergebnisse für jede Size
+    Object.keys(originalTestResults[useCase]).forEach(size => {
+        const originalResults = originalTestResults[useCase][size];
+        let filteredResults = [...originalResults];
+        
+        // Filter nach Provider
+        if (providerFilter) {
+            filteredResults = filteredResults.filter(r => {
+                const resultProvider = r.provider || '';
+                return resultProvider.toLowerCase() === providerFilter.toLowerCase();
+            });
+        }
+        
+        // Filter nach Modell-Provider (erster Teil des model_id)
+        if (modelNameProviderFilter) {
+            filteredResults = filteredResults.filter(r => {
+                const modelId = r.model_id || '';
+                const modelProvider = modelId.split('/')[0] || '';
+                return modelProvider.toLowerCase() === modelNameProviderFilter.toLowerCase();
+            });
+        }
+        
+        // Filter nach enabled (nur wenn Filter gesetzt ist)
+        if (enabledFilter !== '' && enabledModelIds.size > 0) {
+            filteredResults = filteredResults.filter(r => {
+                const modelId = r.model_id || '';
+                return enabledModelIds.has(modelId);
+            });
+        }
+        
+        // Aktualisiere Anzeige mit gefilterten Ergebnissen
+        if (filteredResults.length > 0 || originalResults.length > 0) {
+            const batchData = {
+                results: filteredResults,
+                execution_mode: 'loaded',
+                successful_tests: filteredResults.filter(r => r.status === 'success').length,
+                total_tests: filteredResults.length
+            };
+            
+            renderBatchTestResults(useCase, size, batchData);
+        }
+    });
+}
+
+function renderBatchTestResults(useCase, size, batchData) {
+    const resultContainer = document.getElementById(`batch-test-result-${useCase}`);
+    if (!resultContainer) return;
+    
+    const results = batchData.results || [];
+    const executionMode = batchData.execution_mode || 'sequential';
+    
+    // Prüfe ob bereits Ergebnisse für diese Size vorhanden sind
+    const existingContent = resultContainer.innerHTML;
+    const chartId = `performance-chart-${useCase}-${size}`;
+    
+    // Wenn beim Laden aus MongoDB und bereits Content vorhanden, prüfe ob diese Size schon existiert
+    if (executionMode === 'loaded' && existingContent && existingContent.includes(`Batch-Test Ergebnisse (${size})`)) {
+        // Überschreibe nur diese Size (entferne alte Karte für diese Size)
+        // Suche nach der Karte für diese Size und entferne sie komplett
+        const cardStart = existingContent.indexOf(`<div class="card mt-3">`);
+        const sizeIndex = existingContent.indexOf(`Batch-Test Ergebnisse (${size})`);
+        if (cardStart !== -1 && sizeIndex !== -1 && sizeIndex > cardStart) {
+            // Finde das Ende der Karte (schließen mit </div></div>)
+            let cardEnd = existingContent.indexOf('</div></div>', sizeIndex);
+            if (cardEnd !== -1) {
+                cardEnd += '</div></div>'.length;
+                // Entferne die Karte
+                const beforeCard = existingContent.substring(0, cardStart);
+                const afterCard = existingContent.substring(cardEnd);
+                resultContainer.innerHTML = beforeCard + afterCard;
+            }
+        }
+    }
+    
+    let html = `
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5>Batch-Test Ergebnisse (${size})</h5>
+                <small class="text-muted">
+                    ${executionMode === 'loaded' ? 'Geladen aus MongoDB' : `Modus: ${executionMode === 'parallel' ? 'Parallel' : 'Sequenziell'}`} | 
+                    Erfolgreich: ${batchData.successful_tests || 0} / ${batchData.total_tests || 0}
+                </small>
+            </div>
+            <div class="card-body">
+    `;
+    
+    html += '<div class="mb-4"><canvas id="' + chartId + '"></canvas></div>';
+    html += renderComparisonTable(results);
+    
+    html += `
+            </div>
+        </div>
+    `;
+    
+    // Füge zu bestehendem Inhalt hinzu oder überschreibe
+    if (executionMode === 'loaded' && resultContainer.innerHTML && !resultContainer.innerHTML.includes(`Batch-Test Ergebnisse (${size})`)) {
+        resultContainer.innerHTML = resultContainer.innerHTML + html;
+    } else {
+        resultContainer.innerHTML = html;
+    }
+    
+    // Warte kurz, damit das Canvas-Element gerendert ist
+    setTimeout(() => {
+        renderPerformanceChart(chartId, results);
+    }, 100);
+}
+
+function renderComparisonTable(results) {
+    if (!results || results.length === 0) {
+        return '<p class="text-muted">Keine Ergebnisse verfügbar</p>';
+    }
+    
+    // Sortiere nach Duration (Standard) - kann später erweitert werden für Quality-Sortierung
+    const sortedResults = [...results].sort((a, b) => {
+        const durationA = a.duration_ms || 0;
+        const durationB = b.duration_ms || 0;
+        return durationA - durationB;
+    });
+    
+    // Finde das neueste Test-Datum
+    let latestTestDate = null;
+    sortedResults.forEach(result => {
+        if (result.tested_at) {
+            const testDate = new Date(result.tested_at);
+            if (!latestTestDate || testDate > latestTestDate) {
+                latestTestDate = testDate;
+            }
+        }
+    });
+    
+    let html = `
+        <div class="table-responsive">
+            ${latestTestDate ? `
+                <div class="alert alert-info mb-2">
+                    <i class="fas fa-info-circle"></i> 
+                    Letzte Tests: ${latestTestDate.toLocaleString('de-DE', { 
+                        year: 'numeric', 
+                        month: '2-digit', 
+                        day: '2-digit', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    })}
+                </div>
+            ` : ''}
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Modell</th>
+                        <th>Provider</th>
+                        <th>Status</th>
+                        <th>Fehlermeldung</th>
+                        <th>Qualität</th>
+                        <th>Dauer (ms)</th>
+                        <th>Tokens</th>
+                        <th>Getestet am</th>
+                        <th>Aktionen</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    sortedResults.forEach((result, index) => {
+        const duration = result.duration_ms || 0;
+        const tokens = result.llm_info?.total_tokens || 0;
+        const model = result.model || result.model_id || 'Unknown';
+        const provider = result.provider || 'Unknown';
+        
+        // Extrahiere Quality Score (muss vor Status-Bestimmung sein)
+        const qualityScore = result.quality_score;
+        
+        // Bestimme Status - wenn Qualität <60%, dann failed
+        let status = result.status;
+        if (status === 'success' && qualityScore !== null && qualityScore !== undefined && qualityScore < 0.6) {
+            status = 'failed';
+        }
+        const statusClass = status === 'success' ? 'success' : 'danger';
+        const statusIcon = status === 'success' ? '✓' : '✗';
+        
+        // Extrahiere Fehlermeldung
+        let errorMessage = '';
+        let errorTooltip = '';
+        if (result.status === 'error' || result.error) {
+            const error = result.error || {};
+            // Prüfe verschiedene Fehlerquellen
+            errorMessage = error.message || 
+                          result.response?.error?.message || 
+                          result.response?.data?.error?.message ||
+                          'Unbekannter Fehler';
+            errorTooltip = errorMessage;
+            if (error.code || result.response?.error?.code) {
+                const errorCode = error.code || result.response?.error?.code;
+                errorTooltip = `[${errorCode}] ${errorMessage}`;
+            }
+        }
+        
+        const structuredData = result.response?.data?.data?.structured_data;
+        const hasStructuredData = structuredData && typeof structuredData === 'object';
+        let qualityDisplay = '<span class="text-muted">-</span>';
+        let qualityClass = '';
+        if (qualityScore !== null && qualityScore !== undefined) {
+            const qualityPercent = (qualityScore * 100).toFixed(1);
+            // Farbcodierung: Grün >0.8, Gelb 0.7-0.8, Rot <0.7
+            if (qualityScore > 0.8) {
+                qualityClass = 'text-success';
+            } else if (qualityScore >= 0.7) {
+                qualityClass = 'text-warning';
+            } else {
+                qualityClass = 'text-danger';
+            }
+            qualityDisplay = `<span class="${qualityClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Cosinus-Similarity: ${qualityScore.toFixed(4)}">${qualityPercent}%</span>`;
+        }
+        
+        // Erstelle Tooltip-Attribut für Status-Badge
+        const statusTooltip = errorTooltip ? `data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(errorTooltip)}"` : '';
+        
+        html += `
+            <tr>
+                <td><strong>${escapeHtml(model)}</strong></td>
+                <td>${escapeHtml(provider)}</td>
+                <td>
+                    <span class="badge bg-${statusClass}" ${statusTooltip}>${statusIcon} ${status || 'unknown'}</span>
+                </td>
+                <td>
+                    ${errorMessage ? `
+                        <span class="text-danger" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(errorTooltip)}">
+                            <i class="fas fa-exclamation-triangle"></i> ${escapeHtml(errorMessage.length > 50 ? errorMessage.substring(0, 50) + '...' : errorMessage)}
+                        </span>
+                    ` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>${qualityDisplay}</td>
+                <td>${duration.toFixed(2)}</td>
+                <td>${tokens}</td>
+                <td>
+                    ${result.tested_at ? `
+                        <small class="text-muted">
+                            ${new Date(result.tested_at).toLocaleString('de-DE', { 
+                                year: 'numeric', 
+                                month: '2-digit', 
+                                day: '2-digit', 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                            })}
+                        </small>
+                    ` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>
+                    ${hasStructuredData ? `
+                        <button class="btn btn-sm btn-outline-primary" 
+                                onclick="showStructuredOutputModal('${escapeHtml(model)}', ${JSON.stringify(structuredData).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;')})">
+                            Structured Output
+                        </button>
+                    ` : '-'}
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    // Initialisiere Tooltips nach dem Rendern der Tabelle
+    setTimeout(() => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }, 100);
+    
+    return html;
+}
+
+function showStructuredOutputModal(modelName, structuredData) {
+    let modal = document.getElementById('structuredOutputModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'structuredOutputModal';
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Structured Output: <span id="modal-model-name"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="modal-json-viewer"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schließen</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    document.getElementById('modal-model-name').textContent = modelName;
+    const jsonViewer = document.getElementById('modal-json-viewer');
+    
+    let dataToDisplay = structuredData;
+    if (typeof structuredData === 'string') {
+        try {
+            dataToDisplay = JSON.parse(structuredData);
+        } catch (e) {
+            console.error('Fehler beim Parsen von structuredData:', e);
+            dataToDisplay = structuredData;
+        }
+    }
+    
+    const containerId = 'modal-json-viewer-content-' + Date.now();
+    jsonViewer.innerHTML = '<div id="' + containerId + '"></div>';
+    const container = document.getElementById(containerId);
+    
+    if (container) {
+        container.innerHTML = renderJSONViewer(dataToDisplay, containerId);
+    }
+    
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+}
+
+function renderPerformanceChart(canvasId, results) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js nicht geladen');
+        return;
+    }
+    
+    const successfulResults = results
+        .filter(r => r.status === 'success' && r.duration_ms)
+        .sort((a, b) => (a.duration_ms || 0) - (b.duration_ms || 0));
+    
+    if (successfulResults.length === 0) {
+        canvas.parentElement.innerHTML = '<p class="text-muted">Keine erfolgreichen Ergebnisse für Diagramm verfügbar</p>';
+        return;
+    }
+    
+    const labels = successfulResults.map(r => r.model || 'Unknown');
+    const durations = successfulResults.map(r => r.duration_ms || 0);
+    const qualityScores = successfulResults.map(r => r.quality_score !== null && r.quality_score !== undefined ? r.quality_score : null);
+    
+    // Prüfe ob Quality Scores verfügbar sind
+    const hasQualityScores = qualityScores.some(q => q !== null);
+    
+    // Farbcodierung der Balken basierend auf Qualität
+    // Wenn Qualität < 0.6 (60%), dann ausgegraut (illegal)
+    // Sonst: Grün >0.8, Gelb 0.7-0.8, Rot <0.7
+    const backgroundColors = durations.map((d, index) => {
+        const quality = qualityScores[index];
+        
+        // Wenn Qualität unter 60%, dann ausgegraut
+        if (quality !== null && quality !== undefined && quality < 0.6) {
+            return 'rgba(128, 128, 128, 0.5)'; // Grau für illegal
+        }
+        
+        // Farbcodierung basierend auf Qualität
+        if (quality !== null && quality !== undefined) {
+            if (quality > 0.8) {
+                return 'rgba(40, 167, 69, 0.8)'; // Grün
+            } else if (quality >= 0.7) {
+                return 'rgba(255, 193, 7, 0.8)'; // Gelb
+            } else {
+                return 'rgba(220, 53, 69, 0.8)'; // Rot
+            }
+        }
+        
+        // Fallback: Wenn keine Qualität verfügbar, basierend auf Dauer
+        const sortedDurations = [...durations].sort((a, b) => a - b);
+        const p25 = sortedDurations[Math.floor(sortedDurations.length * 0.25)];
+        const p75 = sortedDurations[Math.floor(sortedDurations.length * 0.75)];
+        if (d <= p25) return 'rgba(40, 167, 69, 0.8)';
+        if (d <= p75) return 'rgba(255, 193, 7, 0.8)';
+        return 'rgba(220, 53, 69, 0.8)';
+    });
+    
+    // Normalisiere Quality Scores auf Dauer-Skala für gemeinsame X-Achse
+    let normalizedQualityScores = null;
+    if (hasQualityScores) {
+        const maxDuration = Math.max(...durations);
+        normalizedQualityScores = qualityScores.map(q => {
+            if (q === null || q === undefined) return null;
+            // Normalisiere Quality (0-1) auf Dauer-Skala (0-maxDuration)
+            return q * maxDuration;
+        });
+    }
+    
+    // Erstelle borderColors basierend auf backgroundColors
+    const borderColors = backgroundColors.map(c => {
+        // Wenn grau (illegal), dann auch grauer Rand
+        if (c.includes('128, 128, 128')) {
+            return 'rgba(128, 128, 128, 1)';
+        }
+        return c.replace('0.8', '1');
+    });
+    
+    // Erstelle Datasets - beide auf derselben X-Achse
+    const datasets = [{
+        label: 'Dauer (ms)',
+        data: durations,
+        backgroundColor: backgroundColors,
+        borderColor: borderColors,
+        borderWidth: 1,
+        yAxisID: 'y'
+    }];
+    
+    // Füge Quality Score als Linie hinzu, falls verfügbar - auf derselben X-Achse
+    if (hasQualityScores && normalizedQualityScores) {
+        datasets.push({
+            label: 'Qualität (normalisiert auf Dauer-Skala)',
+            data: normalizedQualityScores,
+            type: 'line',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderWidth: 2,
+            fill: false,
+            yAxisID: 'y',
+            pointRadius: 4,
+            pointHoverRadius: 6
+        });
+    }
+    
+    // Chart-Konfiguration - beide Dimensionen auf derselben X-Achse
+    const chartOptions = {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const index = context.dataIndex;
+                        const result = successfulResults[index];
+                        let label = context.dataset.label || '';
+                        
+                        if (context.datasetIndex === 0) {
+                            // Dauer Dataset
+                            label += ': ' + context.parsed.x.toFixed(2) + ' ms';
+                        } else if (context.datasetIndex === 1 && hasQualityScores) {
+                            // Quality Dataset - zeige originalen Quality-Wert
+                            const quality = result.quality_score;
+                            if (quality !== null && quality !== undefined) {
+                                label += ': ' + (quality * 100).toFixed(1) + '%';
+                            }
+                        }
+                        
+                        return label;
+                    },
+                    afterLabel: function(context) {
+                        const index = context.dataIndex;
+                        const result = successfulResults[index];
+                        const tokens = result.llm_info?.total_tokens || 0;
+                        const quality = result.quality_score;
+                        let tooltip = `Tokens: ${tokens}`;
+                        if (quality !== null && quality !== undefined) {
+                            tooltip += `\nQualität: ${(quality * 100).toFixed(1)}%`;
+                        }
+                        return tooltip;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                position: 'bottom',
+                title: {
+                    display: true,
+                    text: 'Dauer (ms) / Qualität (normalisiert)'
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Modell'
+                },
+                position: 'left',
+                ticks: {
+                    autoSkip: false,
+                    maxRotation: 0,
+                    minRotation: 0
+                }
+            }
+        }
+    };
+    
+    new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: chartOptions
+    });
+}
+
+// ========== JSON Viewer Functions ==========
+function renderJSONViewer(data, containerId) {
+    let jsonString = '';
+    let isValidJSON = true;
+    let parseError = null;
+    
+    try {
+        jsonString = JSON.stringify(data, null, 2);
+    } catch (e) {
+        isValidJSON = false;
+        parseError = e.message;
+    }
+    
+    if (!isValidJSON) {
+        return `
+            <div class="alert alert-danger">
+                <strong>Ungültiges JSON:</strong> ${parseError}
+            </div>
+        `;
+    }
+    
+    return `
+        <div class="json-viewer-container" id="${containerId}">
+            <div class="json-viewer-controls mb-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="expandAllJSON('${containerId}')">Alle aufklappen</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="collapseAllJSON('${containerId}')">Alle zuklappen</button>
+            </div>
+            <div class="json-viewer-content">
+                ${renderJSONNode(data, containerId, 0)}
+            </div>
+        </div>
+    `;
+}
+
+function renderJSONNode(value, containerId, depth) {
+    const indent = '  '.repeat(depth);
+    
+    if (value === null) {
+        return `<span class="json-null">null</span>`;
+    }
+    
+    if (typeof value === 'string') {
+        return `<span class="json-string">"${escapeHtml(value)}"</span>`;
+    }
+    
+    if (typeof value === 'number') {
+        return `<span class="json-number">${value}</span>`;
+    }
+    
+    if (typeof value === 'boolean') {
+        return `<span class="json-boolean">${value}</span>`;
+    }
+    
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            return `<span class="json-array">[]</span>`;
+        }
+        
+        const nodeId = `json-node-${containerId}-${Math.random().toString(36).substr(2, 9)}`;
+        let html = `<span class="json-toggle" onclick="toggleJSONNode('${nodeId}')">[<span class="json-count">${value.length}</span>]</span> `;
+        html += `<span class="json-toggle-icon" onclick="toggleJSONNode('${nodeId}')">▼</span>`;
+        html += `<div class="json-children" id="${nodeId}">`;
+        
+        value.forEach((item, index) => {
+            html += `<div class="json-item">${indent}  ${index}: ${renderJSONNode(item, containerId, depth + 1)}</div>`;
+        });
+        
+        html += `${indent}</div>`;
+        return html;
+    }
+    
+    if (typeof value === 'object') {
+        const keys = Object.keys(value);
+        if (keys.length === 0) {
+            return `<span class="json-object">{}</span>`;
+        }
+        
+        const nodeId = `json-node-${containerId}-${Math.random().toString(36).substr(2, 9)}`;
+        let html = `<span class="json-toggle" onclick="toggleJSONNode('${nodeId}')">{<span class="json-count">${keys.length} keys</span>}</span> `;
+        html += `<span class="json-toggle-icon" onclick="toggleJSONNode('${nodeId}')">▼</span>`;
+        html += `<div class="json-children" id="${nodeId}">`;
+        
+        keys.forEach(key => {
+            html += `<div class="json-item">${indent}  <span class="json-key">"${escapeHtml(key)}"</span>: ${renderJSONNode(value[key], containerId, depth + 1)}</div>`;
+        });
+        
+        html += `${indent}</div>`;
+        return html;
+    }
+    
+    return `<span>${escapeHtml(String(value))}</span>`;
+}
+
+function toggleJSONNode(nodeId) {
+    const node = document.getElementById(nodeId);
+    if (!node) return;
+    
+    const icon = node.previousElementSibling;
+    if (node.style.display === 'none') {
+        node.style.display = '';
+        if (icon) icon.textContent = '▼';
+    } else {
+        node.style.display = 'none';
+        if (icon) icon.textContent = '▶';
+    }
+}
+
+function expandAllJSON(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    const children = container.querySelectorAll('.json-children');
+    children.forEach(child => {
+        child.style.display = '';
+        const icon = child.previousElementSibling;
+        if (icon && icon.classList.contains('json-toggle-icon')) {
+            icon.textContent = '▼';
+        }
+    });
+}
+
+function collapseAllJSON(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    const children = container.querySelectorAll('.json-children');
+    children.forEach(child => {
+        child.style.display = 'none';
+        const icon = child.previousElementSibling;
+        if (icon && icon.classList.contains('json-toggle-icon')) {
+            icon.textContent = '▶';
+        }
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
+
+<style>
+.json-viewer-container {
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+.json-viewer-controls {
+    margin-bottom: 0.5rem;
+}
+
+.json-toggle {
+    cursor: pointer;
+    color: #0066cc;
+    font-weight: bold;
+}
+
+.json-toggle:hover {
+    text-decoration: underline;
+}
+
+.json-toggle-icon {
+    cursor: pointer;
+    color: #0066cc;
+    margin-left: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.json-children {
+    margin-left: 1.5rem;
+    margin-top: 0.25rem;
+}
+
+.json-item {
+    margin: 0.25rem 0;
+}
+
+.json-key {
+    color: #0066cc;
+    font-weight: bold;
+}
+
+.json-string {
+    color: #28a745;
+}
+
+.json-number {
+    color: #dc3545;
+}
+
+.json-boolean {
+    color: #ffc107;
+}
+
+.json-null {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.json-object {
+    color: #6c757d;
+}
+
+.json-array {
+    color: #6c757d;
+}
+
+.json-count {
+    color: #6c757d;
+    font-size: 0.85em;
+    margin-left: 0.25rem;
+}
+
+.test-result-container {
+    margin-top: 1rem;
+}
+</style>
 {% endblock %}
-
-

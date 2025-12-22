@@ -1,0 +1,17 @@
+{
+  "use_case": "chat_completion",
+  "size": "large",
+  "description": "Komplexe Template-Transformation mit Session-Template - längerer Text",
+  "endpoint": "/api/transformer/template",
+  "method": "POST",
+  "parameters": {
+    "text": "Session: Nachhaltige Software-Entwicklung für die Zukunft\n\nDiese Session findet am 15. November 2024 in Bozen statt und behandelt die Bedeutung von Open Source Software für eine nachhaltige digitale Transformation. Die Sprecher Max Mustermann und Maria Musterfrau diskutieren über Gemeinschaftsbildung, FOSS-Finanzierung und die Rolle von Open Source in der Energiewende.\n\nDie Session zeigt konkrete Beispiele für nachhaltige Software-Projekte und wie diese zur ökosozialen Transformation beitragen können. Es werden Tools und Plattformen vorgestellt, die für Eco-Social Designer relevant sind.\n\nWichtige Themen umfassen: Offene Forschung, kulturelle Bewegung, inklusives Web und offene Hardware. Die Session hat eine hohe Relevanz für die ökosoziale Transformation (Bewertung: 8/10).",
+    "template": "Session_de",
+    "source_language": "de",
+    "target_language": "de",
+    "use_cache": false
+  },
+  "expected_fields": ["data.structured_data"],
+  "validate_json": true
+}
+

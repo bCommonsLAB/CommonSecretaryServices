@@ -1,0 +1,17 @@
+{
+  "use_case": "chat_completion",
+  "size": "small",
+  "description": "Einfache Template-Transformation mit person-Template",
+  "endpoint": "/api/transformer/template",
+  "method": "POST",
+  "parameters": {
+    "text": "Max Mustermann ist 35 Jahre alt und arbeitet als Software-Entwickler. Er interessiert sich für Open Source Software und nachhaltige Technologien.",
+    "template": "Besprechung",
+    "source_language": "de",
+    "target_language": "de",
+    "use_cache": false
+  },
+  "expected_fields": ["data.structured_data"],
+  "validate_json": true
+}
+

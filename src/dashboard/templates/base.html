@@ -30,6 +30,9 @@
                         <a class="nav-link {% if request.endpoint == 'main.config_page' %}active{% endif %}" href="{{ url_for('main.config_page') }}">Config</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'llm_config_dashboard.llm_config_page' or request.endpoint == 'llm_config_dashboard.models_overview_page' %}active{% endif %}" href="{{ url_for('llm_config_dashboard.llm_config_page') }}">LLM Config</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'main.test_procedures' %}active{% endif %}" href="{{ url_for('main.test_procedures') }}">Tests</a>
                     </li>
                     <li class="nav-item">

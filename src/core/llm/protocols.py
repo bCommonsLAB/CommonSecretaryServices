@@ -13,7 +13,6 @@ conform to this protocol to ensure consistent behavior across different provider
 
 from typing import Protocol, Any, List, Optional, Dict
 from pathlib import Path
-import io
 
 from ..models.audio import TranscriptionResult
 from ..models.llm import LLMRequest
@@ -131,6 +130,32 @@ class LLMProvider(Protocol):
             
         Returns:
             List[str]: Liste der verfügbaren Modell-Namen
+        """
+        ...
+    
+    def embedding(
+        self,
+        texts: List[str],
+        model: str,
+        input_type: str = "document",
+        dimensions: Optional[int] = None,
+        **kwargs: Any
+    ) -> tuple[List[List[float]], LLMRequest]:
+        """
+        Generiert Embeddings für eine Liste von Texten.
+        
+        Args:
+            texts: Liste von Texten, für die Embeddings generiert werden sollen
+            model: Zu verwendendes Embedding-Modell
+            input_type: Typ der Eingabe ('document' oder 'query')
+            dimensions: Optional, Anzahl der Embedding-Dimensionen
+            **kwargs: Zusätzliche Provider-spezifische Parameter
+            
+        Returns:
+            tuple[List[List[float]], LLMRequest]: Liste der Embeddings und LLM-Request-Info
+            
+        Raises:
+            ValueError: Wenn der Provider Embeddings nicht unterstützt
         """
         ...
     
