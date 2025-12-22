@@ -62,11 +62,23 @@ jobs:
           git add VERSION
           git add src/dashboard/templates/base.html
           git commit -m "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
-          git tag -a -m "${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
           # Verwende CI_PAT für Push-Berechtigung
           git remote set-url origin https://${{ secrets.CI_PAT }}@github.com/${{ github.repository }}.git
-          # Push Tag (funktioniert immer)
-          git push origin v${{ steps.bump.outputs.new_version }}
+          # Fetche Tags vom Remote, um zu prüfen ob Tag bereits existiert
+          git fetch --tags origin || true
+          # Prüfe ob Tag bereits existiert, erstelle nur wenn nicht vorhanden
+          TAG_NAME="v${{ steps.bump.outputs.new_version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME existiert bereits lokal, überspringe Erstellung"
+          else
+            git tag -a -m "${{ steps.bump.outputs.new_version }}" "$TAG_NAME"
+          fi
+          # Prüfe ob Tag auf Remote existiert, pushe nur wenn nicht vorhanden
+          if git ls-remote --tags origin "$TAG_NAME" | grep -q "$TAG_NAME"; then
+            echo "Tag $TAG_NAME existiert bereits auf Remote, überspringe Push"
+          else
+            git push origin "$TAG_NAME"
+          fi
           # Erstelle separaten Branch für PR (WICHTIG: vor dem Push!)
           BRANCH_NAME="chore/bump-version-${{ steps.bump.outputs.new_version }}"
           git checkout -b "$BRANCH_NAME"
