@@ -203,7 +203,7 @@
                         <button type="button" class="btn btn-success btn-sm" onclick="showImportModal()">
                             <i class="fas fa-upload"></i> Importieren
                         </button>
-                        <button type="button" class="btn btn-info btn-sm" onclick="exportConfig()">
+                        <button type="button" class="btn btn-info btn-sm" onclick="exportConfig(this)">
                             <i class="fas fa-download"></i> Exportieren
                         </button>
                         <button type="button" class="btn btn-primary btn-sm" onclick="showAddModelModal()">
@@ -1196,11 +1196,19 @@ function importConfig() {
     });
 }
 
-function exportConfig() {
+function exportConfig(buttonElement) {
+    // Verwende this als Fallback, falls kein Parameter übergeben wurde
+    const button = buttonElement || (window.event ? window.event.target : null);
+    if (!button) {
+        console.error('Export-Button konnte nicht gefunden werden');
+        alert('Fehler: Export-Button konnte nicht gefunden werden');
+        return;
+    }
+    
     // Zeige Loading-Indikator
-    const originalText = event.target.innerHTML;
-    event.target.disabled = true;
-    event.target.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exportiere...';
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exportiere...';
     
     fetch('/llm-config/api/export-config')
         .then(response => {
@@ -1239,8 +1247,8 @@ function exportConfig() {
             alert('Fehler beim Exportieren: ' + error.message);
         })
         .finally(() => {
-            event.target.disabled = false;
-            event.target.innerHTML = originalText;
+            button.disabled = false;
+            button.innerHTML = originalText;
         });
 }
 

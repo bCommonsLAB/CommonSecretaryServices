@@ -13,9 +13,11 @@ Uses the currently configured provider/model for the use case.
 
 import time
 import json
+import os
 from typing import Dict, Any, Optional, List
 
 import requests
+from dotenv import load_dotenv
 
 from ..models.llm_test import LLMTestCase
 from ..models.llm_models import LLMTestResult
@@ -24,6 +26,9 @@ from .use_cases import UseCase
 from .quality_calculator import QualityCalculator
 from ..config import Config
 import logging
+
+# Stelle sicher, dass .env-Datei geladen wird
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,13 @@ class LLMTestExecutor:
         self.config = Config()
         self.base_url = self.config.get('server', {}).get('api_base_url', 'http://localhost:5001')
         self.llm_config_manager = LLMConfigManager()
+        # Lade API-Key für Authentifizierung bei internen API-Requests
+        self.api_key = os.environ.get('SECRETARY_SERVICE_API_KEY', '')
+        # Debug: Logge ob API-Key geladen wurde (ohne den Key selbst zu loggen)
+        if self.api_key:
+            logger.debug(f"API-Key für Authentifizierung geladen (Länge: {len(self.api_key)} Zeichen)")
+        else:
+            logger.warning("SECRETARY_SERVICE_API_KEY nicht gefunden - API-Requests werden möglicherweise fehlschlagen")
     
     def execute_test(
         self,
@@ -142,6 +154,14 @@ class LLMTestExecutor:
             headers: Dict[str, str] = {
                 'Content-Type': 'application/json'
             }
+            
+            # Füge API-Key für Authentifizierung hinzu, falls vorhanden
+            if self.api_key:
+                headers['Authorization'] = f'Bearer {self.api_key}'
+                headers['X-Secretary-Api-Key'] = self.api_key
+                logger.debug(f"API-Key zu Request-Headers hinzugefügt für URL: {url}")
+            else:
+                logger.warning(f"Kein API-Key verfügbar für Request an {url} - Request wird möglicherweise mit 401 abgewiesen")
             
             # Führe Request aus
             if test_case.method.upper() == 'POST':

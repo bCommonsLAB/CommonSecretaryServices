@@ -21,8 +21,6 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.CI_PAT }}
 
       - name: read version file
         id: read_version
