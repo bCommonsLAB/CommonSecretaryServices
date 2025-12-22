@@ -195,7 +195,12 @@ def get_use_case_config_api() -> Any:
 @llm_config.route('/llm-config/api/save', methods=['POST'])
 def save_config_api() -> Any:
     """
-    Speichert die LLM-Konfiguration in config.yaml.
+    [DEPRECATED] Speichert die LLM-Konfiguration in config.yaml.
+    
+    WICHTIG: Diese Funktion ist veraltet! Das Frontend verwendet jetzt die MongoDB-API:
+    PUT /llm-config/api/use-cases/<use_case>/current-model
+    
+    Diese Funktion wird nur noch für Kompatibilität/Import-Zwecke aufrechterhalten.
     
     Request Body:
         use_cases: Dictionary mit Use-Case-Konfigurationen
@@ -1449,14 +1454,25 @@ def set_current_model_for_use_case_api(use_case: str) -> Any:
         if not model:
             return jsonify({
                 "status": "error",
-                "message": f"Modell {model_id} existiert nicht"
+                "message": f"Modell {model_id} existiert nicht in MongoDB. Bitte erstellen Sie das Modell zuerst im Tab 'Available LLMs'.",
+                "details": {
+                    "model_id": model_id,
+                    "use_case": use_case,
+                    "hint": "Gehen Sie zu 'Available LLMs' und erstellen Sie das Modell mit dem Use-Case 'chat_completion'"
+                }
             }), 404
         
         # Validiere dass Modell den Use-Case unterstützt
         if use_case not in model.use_cases:
             return jsonify({
                 "status": "error",
-                "message": f"Modell {model_id} unterstützt Use-Case {use_case} nicht"
+                "message": f"Modell {model_id} unterstützt Use-Case {use_case} nicht. Unterstützte Use-Cases: {', '.join(model.use_cases)}",
+                "details": {
+                    "model_id": model_id,
+                    "use_case": use_case,
+                    "supported_use_cases": model.use_cases,
+                    "hint": f"Bitte bearbeiten Sie das Modell im Tab 'Available LLMs' und fügen Sie '{use_case}' zu den unterstützten Use-Cases hinzu"
+                }
             }), 400
         
         # Setze aktuelles Modell

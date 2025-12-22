@@ -100,6 +100,15 @@ class TransformerData:
     summarized: bool = False
     structured_data: Optional[Any] = None
 
+    def has_structured_data(self) -> bool:
+        """
+        Prüft, ob strukturierte Daten vorhanden sind.
+        
+        Returns:
+            bool: True wenn structured_data vorhanden und ein Dictionary ist
+        """
+        return self.structured_data is not None and isinstance(self.structured_data, dict)
+
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
         return {
@@ -215,6 +224,15 @@ class TransformerResponse(BaseResponse):
         super().__init__(**kwargs)  # Übergibt alle Parameter an die Basis-Klasse
         object.__setattr__(self, 'data', data)
         object.__setattr__(self, 'translation', translation)
+
+    def has_structured_output(self) -> bool:
+        """
+        Prüft, ob die Response Structured Output enthält.
+        
+        Returns:
+            bool: True wenn data vorhanden ist und structured_data enthält
+        """
+        return self.data is not None and self.data.has_structured_data()
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Response in ein Dictionary."""

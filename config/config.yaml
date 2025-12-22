@@ -14,7 +14,7 @@ llm_config:
   use_cases:
     chat_completion:
       provider: openrouter
-      model: openrouter/mistralai/mistral-medium-3.1
+      model: openrouter/google/gemini-2.5-flash
     embedding:
       model: voyage-3-large
       provider: voyageai

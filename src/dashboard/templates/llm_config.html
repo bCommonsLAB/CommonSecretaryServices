@@ -577,10 +577,27 @@ function saveConfig() {
         const modelSelect = document.getElementById(`${useCase}-model`);
         
         if (providerSelect && modelSelect) {
-            config[useCase] = {
-                provider: providerSelect.value,
-                model: modelSelect.value
-            };
+            const provider = providerSelect.value;
+            const model = modelSelect.value;
+            
+            if (provider && model) {
+                // Prüfe ob model bereits eine vollständige model_id ist (enthält "/")
+                // Falls ja, verwende diese direkt, ansonsten konstruiere "provider/model"
+                let modelId;
+                if (model.includes('/')) {
+                    // model ist bereits eine vollständige model_id (z.B. "openrouter/google/gemini-2.5-flash")
+                    modelId = model;
+                } else {
+                    // model ist nur der Modellname, konstruiere "provider/model"
+                    modelId = `${provider}/${model}`;
+                }
+                
+                config[useCase] = {
+                    provider: provider,
+                    model: model,
+                    model_id: modelId
+                };
+            }
         }
     });
     
@@ -589,27 +606,36 @@ function saveConfig() {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Speichere...';
     
-    fetch('/llm-config/api/save', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            use_cases: config
+    // Speichere jeden Use-Case einzeln in MongoDB
+    const savePromises = Object.entries(config).map(([useCase, useCaseData]) => {
+        const modelId = useCaseData.model_id;
+        
+        return fetch(`/llm-config/api/use-cases/${useCase}/current-model`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model_id: modelId
+            })
         })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('Konfiguration erfolgreich gespeichert!');
-            window.location.reload();
-        } else {
-            alert(`Fehler beim Speichern: ${data.message}`);
-        }
+        .then(response => response.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                throw new Error(`Fehler bei ${useCase}: ${data.message || 'Unbekannter Fehler'}`);
+            }
+            return data;
+        });
+    });
+    
+    Promise.all(savePromises)
+    .then(() => {
+        alert('Konfiguration erfolgreich gespeichert!');
+        window.location.reload();
     })
     .catch(error => {
         console.error('Fehler beim Speichern:', error);
-        alert('Fehler beim Speichern der Konfiguration');
+        alert(`Fehler beim Speichern: ${error.message || 'Unbekannter Fehler'}`);
     })
     .finally(() => {
         submitBtn.disabled = false;

@@ -60,3 +60,6 @@ markdown
 
 # RAG / Vector Search
 voyageai>=0.2.0
+
+# JSON Schema Validation
+jsonschema>=4.20.0

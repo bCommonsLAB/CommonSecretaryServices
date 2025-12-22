@@ -18,9 +18,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from ...exceptions import ProcessingError
-from ...models.audio import TranscriptionResult, TranscriptionSegment
 from ...models.llm import LLMRequest
-from ..protocols import LLMProvider
 from ..use_cases import UseCase
 
 
@@ -135,9 +133,23 @@ class OpenRouterProvider:
             if max_tokens:
                 api_params["max_tokens"] = max_tokens
             
-            # Zusätzliche Parameter hinzufügen
+            # response_format explizit behandeln (OpenAI-kompatibel)
+            if 'response_format' in kwargs:
+                response_format_value = kwargs['response_format']
+                # OpenAI erwartet response_format als Dict mit {"type": "json_object"}
+                # oder als String "json_object"
+                if isinstance(response_format_value, dict):
+                    api_params["response_format"] = response_format_value
+                elif isinstance(response_format_value, str):
+                    # Konvertiere String zu Dict für OpenAI-kompatible API
+                    if response_format_value == "json_object":
+                        api_params["response_format"] = {"type": "json_object"}
+                    else:
+                        api_params["response_format"] = response_format_value
+            
+            # Zusätzliche Parameter hinzufügen (außer response_format, das bereits behandelt wurde)
             for key, value in kwargs.items():
-                if key not in ['model', 'messages', 'temperature', 'max_tokens']:
+                if key not in ['model', 'messages', 'temperature', 'max_tokens', 'response_format']:
                     api_params[key] = value
             
             # API-Aufruf

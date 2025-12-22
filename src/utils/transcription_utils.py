@@ -1273,43 +1273,22 @@ class WhisperTranscriber:
             if not raw_content or not raw_content.strip():
                 raise ValueError("Leere Antwort vom LLM erhalten")
 
-            # Versuche JSON zu extrahieren (entferne ggf. Markdown-Codeblöcke)
-            content = raw_content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-
+            # Versuche JSON zu extrahieren mit zentraler Utility
             try:
-                # 1) Direkter Parse-Versuch
-                result_json = json.loads(content)
-            except json.JSONDecodeError as e_primary:
-                # 2) Versuche JSON-Objekt aus Text zu extrahieren und zu sanitisieren
-                candidate: str = self._extract_json_substring(content) or content
-                sanitized: str = self._sanitize_json_for_loading(candidate)
-                try:
-                    result_json = json.loads(sanitized)
-                    if logger:
-                        logger.warning(
-                            "LLM-JSON musste saniert werden; ursprünglicher Parse schlug fehl",
-                            primary_error=str(e_primary)
-                        )
-                except json.JSONDecodeError as e_secondary:
-                    if logger:
-                        logger.error(
-                            "Ungültiges JSON vom LLM (auch nach Sanitizing)",
-                            primary_error=str(e_primary),
-                            secondary_error=str(e_secondary),
-                            snippet=sanitized[:500]
-                        )
-                    # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
-                    result_json = {
-                        name: f"Fehler bei der Extraktion: {str(e_secondary)}"
-                        for name in field_definitions.fields.keys()
-                    }
+                from src.utils.json_validation import extract_and_parse_json
+                result_json = extract_and_parse_json(raw_content)
+            except Exception as e:
+                if logger:
+                    logger.error(
+                        "Ungültiges JSON vom LLM",
+                        error=str(e),
+                        snippet=raw_content[:500]
+                    )
+                # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
+                result_json = {
+                    name: f"Fehler bei der Extraktion: {str(e)}"
+                    for name in field_definitions.fields.keys()
+                }
 
             # LLM-Nutzung tracken mit zentraler Methode
             if llm_request:

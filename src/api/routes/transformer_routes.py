@@ -42,7 +42,7 @@ Features:
 # type: ignore
 from datetime import datetime
 import time
-from typing import Dict, Any, Union, Optional, List, cast
+from typing import Dict, Any, Union, Optional, List
 import traceback
 import uuid
 import json
@@ -52,9 +52,9 @@ from flask import request
 from werkzeug.datastructures import FileStorage
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 
-from src.core.models.transformer import TransformerResponse
+from src.core.models.transformer import TransformerResponse, TransformerData
 from src.processors.transformer_processor import TransformerProcessor
-from src.processors.metadata_processor import MetadataProcessor, MetadataResponse
+from src.processors.metadata_processor import MetadataProcessor
 from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimitExceeded
 from werkzeug.exceptions import RequestEntityTooLarge
 from src.core.resource_tracking import ResourceCalculator
@@ -69,6 +69,7 @@ from src.core.models.base import (
     ProcessInfo,
     ErrorInfo
 )
+from src.core.llm.config_manager import LLMConfigManager
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="transformer-api")
@@ -169,7 +170,7 @@ def _track_llm_usage(model: str, tokens: int, duration: float, purpose: str = "a
     except Exception as e:
         logger.warning(
             "LLM-Tracking fehlgeschlagen",
-            error=e,
+            error=str(e),  # Konvertiere Exception zu String für JSON-Serialisierung
             model=model,
             tokens=tokens,
             duration=duration
@@ -257,6 +258,21 @@ html_table_transform_parser.add_argument('output_format', type=str, location='fo
 html_table_transform_parser.add_argument('table_index', type=int, location='form', required=False, help='Optional - Index der gewünschten Tabelle (0-basiert).')
 html_table_transform_parser.add_argument('start_row', type=int, location='form', required=False, help='Optional - Startzeile für das Paging (0-basiert)')
 html_table_transform_parser.add_argument('row_count', type=int, location='form', required=False, help='Optional - Anzahl der zurückzugebenden Zeilen')
+
+# Parser für den Chat-Completion-Endpunkt
+chat_parser = transformer_ns.parser()
+chat_parser.add_argument('messages', type=str, location='form', required=True, help='JSON-String mit Liste von Nachrichten (Chat-Historie). Format: [{"role": "system|user|assistant", "content": "..."}]. Unterstützt vollständige Chat-Historie mit mehreren Nachrichten.')
+chat_parser.add_argument('model', type=str, location='form', required=False, help='Zu verwendendes Modell (optional, verwendet Standard aus Config wenn nicht angegeben)')
+chat_parser.add_argument('provider', type=str, location='form', required=False, help='Provider-Name (optional, verwendet Standard aus Config wenn nicht angegeben)')
+chat_parser.add_argument('temperature', type=float, location='form', required=False, default=0.7, help='Temperature für die Antwort (0.0-2.0, default: 0.7)')
+chat_parser.add_argument('max_tokens', type=int, location='form', required=False, help='Maximale Anzahl Tokens (optional)')
+chat_parser.add_argument('stream', type=inputs.boolean, location='form', required=False, default=False, help='Ob Streaming aktiviert werden soll (default: false)')
+chat_parser.add_argument('response_format', type=str, location='form', required=False, default='text', help='Response-Format: "text" oder "json_object" (default: "text")')
+chat_parser.add_argument('schema_json', type=str, location='form', required=False, help='JSON Schema als String (optional, empfohlen wenn response_format=json_object)')
+chat_parser.add_argument('schema_id', type=str, location='form', required=False, help='Server-bekannte Schema-ID (optional, Alternative zu schema_json)')
+chat_parser.add_argument('strict', type=inputs.boolean, location='form', required=False, help='Ob Schema-Validierung strikt sein soll (default: true wenn response_format=json_object)')
+chat_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (default: true)')
+chat_parser.add_argument('timeout_ms', type=int, location='form', required=False, help='Request-Timeout in Millisekunden (optional, Server kann clammen)')
 
 # Text-Transformation Endpoint
 @transformer_ns.route('/text')  # type: ignore
@@ -848,6 +864,446 @@ class TemplateTransformEndpoint(Resource):
                 'error': {
                     'code': 'ProcessingError', 
                     'message': f'Fehler bei der Template-Transformation: {error}',
+                    'details': {}
+                }
+            }, 400
+
+# Chat-Completion-Endpunkt
+@transformer_ns.route('/chat')
+class ChatEndpoint(Resource):
+    """
+    Chat-Completion-Endpoint, der die Chat-Features von LLM-Providern direkt durchreicht.
+    Unterstützt alle Standard-Chat-Completion-Parameter wie OpenRouter.
+    """
+    @transformer_ns.doc(description='Chat-Completion-Endpoint für direkte LLM-Chat-Interaktionen. Unterstützt Chat-Historie durch Übergabe mehrerer Nachrichten in der messages-Liste. Beispiel: [{"role": "system", "content": "Du bist ein hilfreicher Assistent."}, {"role": "user", "content": "Hallo!"}, {"role": "assistant", "content": "Hallo! Wie kann ich dir helfen?"}, {"role": "user", "content": "Was ist 2+2?"}]')  # type: ignore
+    @transformer_ns.expect(chat_parser)  # type: ignore
+    @transformer_ns.response(200, 'Erfolgreiche Chat-Completion')  # type: ignore
+    @transformer_ns.response(400, 'Ungültige Anfrage')  # type: ignore
+    @transformer_ns.response(500, 'Server-Fehler')  # type: ignore
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        """
+        Verarbeitet Chat-Completion-Anfragen mit vollständiger Chat-Historie-Unterstützung.
+        
+        Erwartet:
+        - messages: JSON-String mit Liste von Nachrichten (Chat-Historie)
+          Format: [{"role": "system|user|assistant", "content": "..."}, ...]
+          Unterstützt vollständige Konversationshistorie:
+          - "system": System-Prompt (optional, sollte am Anfang stehen)
+          - "user": Benutzer-Nachrichten
+          - "assistant": Vorherige Assistenten-Antworten (für Kontext)
+          
+          Beispiel für Chat-Historie:
+          [
+            {"role": "system", "content": "Du bist ein hilfreicher Assistent."},
+            {"role": "user", "content": "Hallo!"},
+            {"role": "assistant", "content": "Hallo! Wie kann ich dir helfen?"},
+            {"role": "user", "content": "Was ist 2+2?"}
+          ]
+        
+        - model: Optional, Modellname (verwendet Standard aus Config wenn nicht angegeben)
+        - provider: Optional, Provider-Name (verwendet Standard aus Config wenn nicht angegeben)
+        - temperature: Optional, Temperature (default: 0.7)
+        - max_tokens: Optional, Maximale Anzahl Tokens
+        - stream: Optional, Ob Streaming aktiviert werden soll (default: false)
+        
+        Returns:
+            TransformerResponse mit der Chat-Antwort im üblichen Format
+        """
+        start_time: float = time.time()
+        
+        try:
+            # Parse Request-Parameter
+            args = chat_parser.parse_args()
+            messages_json: str = args.get('messages', '')
+            model: Optional[str] = args.get('model')
+            provider: Optional[str] = args.get('provider')
+            temperature: float = args.get('temperature', 0.7)
+            max_tokens: Optional[int] = args.get('max_tokens')
+            stream: bool = args.get('stream', False)
+            response_format: str = args.get('response_format', 'text')
+            schema_json: Optional[str] = args.get('schema_json')
+            schema_id: Optional[str] = args.get('schema_id')
+            strict: Optional[bool] = args.get('strict')
+            use_cache: bool = args.get('use_cache', True)
+            timeout_ms: Optional[int] = args.get('timeout_ms')
+            
+            # Validiere response_format
+            if response_format not in ['text', 'json_object']:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidRequest',
+                        'message': f'Ungültiger response_format: {response_format}. Erlaubt: "text", "json_object"',
+                        'details': {}
+                    }
+                }, 400
+            
+            # Setze strict default basierend auf response_format
+            if strict is None:
+                strict = (response_format == 'json_object')
+            
+            # Lade Schema wenn response_format=json_object
+            schema: Optional[Dict[str, Any]] = None
+            if response_format == 'json_object':
+                if schema_json:
+                    try:
+                        schema = json.loads(schema_json)
+                    except json.JSONDecodeError as e:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'InvalidSchema',
+                                'message': f'Ungültiger JSON-String für schema_json: {str(e)}',
+                                'details': {}
+                            }
+                        }, 400
+                elif schema_id:
+                    from src.core.llm.schema_registry import get_schema
+                    schema = get_schema(schema_id)
+                    if not schema:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'SchemaNotFound',
+                                'message': f'Schema mit ID "{schema_id}" nicht gefunden',
+                                'details': {}
+                            }
+                        }, 400
+                # Wenn kein Schema angegeben, aber json_object gewünscht, warnen aber nicht fehlschlagen
+                if not schema:
+                    logger.warning(
+                        'response_format=json_object ohne Schema angegeben',
+                        schema_json=schema_json,
+                        schema_id=schema_id
+                    )
+            
+            # Parse Messages
+            try:
+                messages: List[Dict[str, str]] = json.loads(messages_json)
+                if not isinstance(messages, list):
+                    raise ValueError("messages muss eine Liste sein")
+                if not messages:
+                    raise ValueError("messages darf nicht leer sein")
+                # Validiere Message-Format
+                valid_roles = {'system', 'user', 'assistant'}
+                for i, msg in enumerate(messages):
+                    if not isinstance(msg, dict):
+                        raise ValueError(f"Nachricht {i+1} muss ein Dictionary sein")
+                    if 'role' not in msg or 'content' not in msg:
+                        raise ValueError(f"Nachricht {i+1} muss 'role' und 'content' haben")
+                    if msg['role'] not in valid_roles:
+                        raise ValueError(f"Nachricht {i+1}: Ungültige Rolle '{msg['role']}'. Erlaubt: {', '.join(valid_roles)}")
+            except json.JSONDecodeError as e:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidJSON',
+                        'message': f'Ungültiger JSON-String für messages: {str(e)}',
+                        'details': {}
+                    }
+                }, 400
+            except ValueError as e:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'InvalidMessages',
+                        'message': str(e),
+                        'details': {}
+                    }
+                }, 400
+            
+            # Streaming wird aktuell nicht unterstützt
+            if stream:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'NotSupported',
+                        'message': 'Streaming wird aktuell nicht unterstützt',
+                        'details': {}
+                    }
+                }, 400
+            
+            # Hole Transformer-Processor für Response-Erstellung
+            transformer_processor = get_transformer_processor()
+            
+            # Initialisiere LLM Config Manager
+            llm_config_manager = LLMConfigManager()
+            
+            # Bestimme Provider und Modell
+            use_case = "chat_completion"
+            provider_name: Optional[str] = None
+            default_model_name: Optional[str] = None
+            
+            # Wenn Provider angegeben, verwende diesen, sonst Standard aus Config
+            if provider:
+                provider_name = provider
+            else:
+                # Hole Standard-Modell für chat_completion
+                default_model_name = llm_config_manager.get_model_for_use_case(use_case)
+                if not default_model_name:
+                    return {
+                        'status': 'error',
+                        'error': {
+                            'code': 'NoDefaultModel',
+                            'message': 'Kein Standard-Modell für chat_completion konfiguriert',
+                            'details': {}
+                        }
+                    }, 400
+                # Extrahiere Provider aus Modell-ID (Format: provider/model_name)
+                if '/' in default_model_name:
+                    provider_name, _ = default_model_name.split('/', 1)
+                else:
+                    # Fallback: Versuche Provider aus Config zu holen
+                    use_case_config = llm_config_manager.get_use_case_config(use_case)
+                    if use_case_config:
+                        provider_name = use_case_config.provider
+                    else:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'NoProvider',
+                                'message': 'Kein Provider für chat_completion konfiguriert',
+                                'details': {}
+                            }
+                        }, 400
+                if not model:
+                    model = default_model_name
+            
+            # Hole Provider-Instanz
+            try:
+                provider_instance = llm_config_manager.get_provider_for_use_case(use_case)
+                if not provider_instance:
+                    # Fallback: Versuche Provider direkt zu holen, wenn explizit angegeben
+                    if provider:
+                        provider_config = llm_config_manager.get_provider_config(provider)
+                        if provider_config:
+                            from src.core.llm.provider_manager import ProviderManager
+                            pm = ProviderManager()
+                            provider_instance = pm.get_provider(
+                                provider_name=provider,
+                                api_key=provider_config.api_key,
+                                base_url=provider_config.base_url,
+                                **provider_config.additional_config
+                            )
+                    
+                    if not provider_instance:
+                        return {
+                            'status': 'error',
+                            'error': {
+                                'code': 'ProviderNotFound',
+                                'message': f'Provider nicht gefunden: {provider_name}',
+                                'details': {}
+                            }
+                        }, 400
+            except Exception as e:
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'ProviderError',
+                        'message': f'Fehler beim Laden des Providers: {str(e)}',
+                        'details': {}
+                    }
+                }, 400
+            
+            # Rufe chat_completion auf
+            try:
+                # Bereite Parameter vor
+                chat_kwargs: Dict[str, Any] = {
+                    'temperature': temperature
+                }
+                if max_tokens:
+                    chat_kwargs['max_tokens'] = max_tokens
+                
+                # Setze response_format für Provider (OpenAI-kompatibel)
+                if response_format == 'json_object':
+                    # OpenAI-kompatible response_format Struktur
+                    response_format_dict: Dict[str, Any] = {"type": "json_object"}
+                    # Wenn Schema vorhanden und Provider unterstützt es, füge Schema hinzu
+                    # (OpenAI unterstützt schema im response_format, OpenRouter möglicherweise auch)
+                    if schema:
+                        # Versuche Schema hinzuzufügen (Provider-abhängig)
+                        response_format_dict["schema"] = schema
+                    chat_kwargs['response_format'] = response_format_dict
+                
+                # Rufe chat_completion auf
+                response_text: str
+                llm_request: Any
+                response_text, llm_request = provider_instance.chat_completion(
+                    messages=messages,
+                    model=model or "",
+                    **chat_kwargs
+                )
+                
+                # Verarbeite Structured Output wenn response_format=json_object
+                structured_data: Optional[Dict[str, Any]] = None
+                if response_format == 'json_object':
+                    try:
+                        # Extrahiere und parse JSON aus LLM-Antwort
+                        from src.utils.json_validation import extract_and_parse_json, validate_json_schema
+                        structured_data = extract_and_parse_json(response_text)
+                        
+                        # Validiere gegen Schema wenn vorhanden
+                        if schema:
+                            is_valid, error_message = validate_json_schema(
+                                data=structured_data,
+                                schema=schema,
+                                strict=strict
+                            )
+                            if not is_valid:
+                                if strict:
+                                    return {
+                                        'status': 'error',
+                                        'error': {
+                                            'code': 'SchemaValidationError',
+                                            'message': error_message or 'Schema-Validierung fehlgeschlagen',
+                                            'details': {
+                                                'schema_id': schema_id,
+                                                'response_text': response_text[:500]
+                                            }
+                                        }
+                                    }, 400
+                                else:
+                                    logger.warning(
+                                        'Schema-Validierung fehlgeschlagen (strict=false)',
+                                        error=error_message,
+                                        schema_id=schema_id
+                                    )
+                    except Exception as e:
+                        # Bei Fehler bei JSON-Extraktion/Validierung
+                        if strict:
+                            return {
+                                'status': 'error',
+                                'error': {
+                                    'code': 'JSONParseError',
+                                    'message': f'Fehler beim Extrahieren/Validieren von JSON: {str(e)}',
+                                    'details': {
+                                        'response_text': response_text[:500]
+                                    }
+                                }
+                            }, 400
+                        else:
+                            logger.warning(
+                                'Fehler bei JSON-Extraktion (strict=false)',
+                                error=str(e),
+                                response_text=response_text[:500]
+                            )
+                            # Versuche trotzdem zu parsen, falls möglich
+                            try:
+                                from src.utils.json_validation import extract_and_parse_json
+                                structured_data = extract_and_parse_json(response_text)
+                            except Exception:
+                                # Garantie: structured_data darf nicht null sein bei response_format=json_object
+                                # Setze leeres Dict statt None, um die Garantie zu erfüllen
+                                structured_data = {}
+                
+                # Erstelle TransformerData mit der Antwort
+                transformer_data = TransformerData(
+                    text=response_text if response_format == 'text' else "",  # Bei json_object kann text leer sein
+                    language="",  # Chat hat keine spezifische Sprache
+                    format=OutputFormat.TEXT,
+                    structured_data=structured_data
+                )
+                
+                # Tracke LLM-Nutzung (nur wenn tokens > 0)
+                if llm_request and hasattr(llm_request, 'model'):
+                    # Extrahiere tokens sicher
+                    tokens_value: int = 0
+                    if hasattr(llm_request, 'total_tokens'):
+                        tokens_value = int(llm_request.total_tokens) if llm_request.total_tokens else 0
+                    elif hasattr(llm_request, 'tokens'):
+                        tokens_value = int(llm_request.tokens) if llm_request.tokens else 0
+                    
+                    # Nur tracken wenn tokens > 0
+                    if tokens_value > 0:
+                        _track_llm_usage(
+                            model=llm_request.model if hasattr(llm_request, 'model') else model or "unknown",
+                            tokens=tokens_value,
+                            duration=time.time() - start_time,
+                            purpose="chat_completion"
+                        )
+                
+                # Erstelle Response mit üblicher Struktur
+                end_time: float = time.time()
+                duration_ms = int((end_time - start_time) * 1000)
+                
+                response: TransformerResponse = transformer_processor.create_response(
+                    processor_name="transformer",
+                    result=transformer_data,
+                    request_info={
+                        'messages_count': len(messages),
+                        'model': model,
+                        'provider': provider_name or "unknown",
+                        'temperature': temperature,
+                        'max_tokens': max_tokens,
+                        'response_format': response_format,
+                        'schema_id': schema_id,
+                        'strict': strict,
+                        'duration_ms': duration_ms
+                    },
+                    response_class=TransformerResponse,
+                    from_cache=False,
+                    cache_key=""
+                )
+                
+                # Füge LLM-Info hinzu, falls verfügbar
+                if llm_request:
+                    from src.core.models.llm import LLMRequest, LLMInfo
+                    # Extrahiere Informationen aus llm_request
+                    model_name: str = model or "unknown"
+                    total_tokens: int = 0
+                    duration_ms: float = (time.time() - start_time) * 1000
+                    
+                    if hasattr(llm_request, 'model'):
+                        model_name = str(llm_request.model)
+                    if hasattr(llm_request, 'total_tokens'):
+                        total_tokens = int(llm_request.total_tokens)
+                    elif hasattr(llm_request, 'tokens'):
+                        total_tokens = int(llm_request.tokens)
+                    
+                    # Erstelle LLMRequest-Objekt
+                    llm_req = LLMRequest(
+                        model=model_name,
+                        purpose="chat_completion",
+                        tokens=total_tokens if total_tokens > 0 else 1,  # Mindestens 1 Token
+                        duration=duration_ms,
+                        processor="transformer"
+                    )
+                    
+                    # Erstelle LLMInfo mit dem Request
+                    llm_info = LLMInfo(requests=[llm_req])
+                    
+                    # Füge LLM-Info zur Process-Info hinzu
+                    if transformer_processor.process_info:
+                        object.__setattr__(transformer_processor.process_info, 'llm_info', llm_info)
+                
+                return response.to_dict()
+                
+            except Exception as e:
+                logger.error(
+                    'Fehler bei Chat-Completion',
+                    error=e,
+                    traceback=traceback.format_exc()
+                )
+                return {
+                    'status': 'error',
+                    'error': {
+                        'code': 'ChatCompletionError',
+                        'message': f'Fehler bei Chat-Completion: {str(e)}',
+                        'details': {}
+                    }
+                }, 400
+                
+        except Exception as error:
+            logger.error(
+                'Fehler bei Chat-Completion-Endpoint',
+                error=error,
+                traceback=traceback.format_exc()
+            )
+            return {
+                'status': 'error',
+                'error': {
+                    'code': 'ProcessingError',
+                    'message': f'Fehler bei Chat-Completion: {error}',
                     'details': {}
                 }
             }, 400
