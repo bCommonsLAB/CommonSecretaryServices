@@ -63,9 +63,37 @@ jobs:
           git add src/dashboard/templates/base.html
           git commit -m "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
           git tag -a -m "${{ steps.bump.outputs.new_version }}" v${{ steps.bump.outputs.new_version }}
-          # Verwende CI_PAT für Push-Berechtigung trotz Branch Protection Rules
+          # Verwende CI_PAT für Push-Berechtigung
           git remote set-url origin https://${{ secrets.CI_PAT }}@github.com/${{ github.repository }}.git
-          git push --follow-tags
+          # Push Tag (funktioniert immer)
+          git push origin v${{ steps.bump.outputs.new_version }}
+          # Push Commit in separaten Branch für PR
+          BRANCH_NAME="chore/bump-version-${{ steps.bump.outputs.new_version }}"
+          git checkout -b $BRANCH_NAME
+          git push origin $BRANCH_NAME
+          
+      - name: Create Pull Request for version bump
+        uses: peter-evans/create-pull-request@v5
+        id: create-pr
+        with:
+          token: ${{ secrets.CI_PAT }}
+          branch: chore/bump-version-${{ steps.bump.outputs.new_version }}
+          base: main
+          title: "Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
+          body: "Automatischer Version-Bump durch CI-Workflow"
+          labels: |
+            skip-ci
+          delete-branch: true
+          
+      - name: Auto-merge Pull Request
+        if: steps.create-pr.outputs.pull-request-number != ''
+        run: |
+          PR_NUMBER="${{ steps.create-pr.outputs.pull-request-number }}"
+          curl -X PUT \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.CI_PAT }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUMBER}/merge" \
+            -d "{\"merge_method\":\"squash\",\"commit_title\":\"Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]\"}"
           
       - name: Publish Release
         uses: softprops/action-gh-release@v2
