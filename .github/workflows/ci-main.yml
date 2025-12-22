@@ -67,10 +67,11 @@ jobs:
           git remote set-url origin https://${{ secrets.CI_PAT }}@github.com/${{ github.repository }}.git
           # Push Tag (funktioniert immer)
           git push origin v${{ steps.bump.outputs.new_version }}
-          # Push Commit in separaten Branch für PR
+          # Erstelle separaten Branch für PR (WICHTIG: vor dem Push!)
           BRANCH_NAME="chore/bump-version-${{ steps.bump.outputs.new_version }}"
-          git checkout -b $BRANCH_NAME
-          git push origin $BRANCH_NAME
+          git checkout -b "$BRANCH_NAME"
+          # Push NUR den Branch, nicht main
+          git push origin "$BRANCH_NAME" --set-upstream
           
       - name: Create Pull Request for version bump
         uses: peter-evans/create-pull-request@v5
