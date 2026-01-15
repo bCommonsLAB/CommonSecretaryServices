@@ -30,7 +30,8 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const ui = SwaggerUIBundle({
-        url: "/api/swagger.json",  // URL to your OpenAPI spec
+        // Cache-Buster: Swagger/OpenAPI wird im Browser sonst oft gecached und zeigt neue Parameter nicht.
+        url: "/api/swagger.json?ts=" + Date.now(),
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

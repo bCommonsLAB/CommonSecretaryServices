@@ -46,146 +46,53 @@
                     </p>
                     
                     <form id="llm-config-form">
+                        {# Dynamische Use-Case-Konfiguration #}
+                        {% for uc in all_use_cases %}
+                        {% set uc_cfg = use_cases[uc] if use_cases and uc in use_cases else None %}
+                        {% set uc_def = use_case_defaults[uc] if use_case_defaults and uc in use_case_defaults else None %}
+                        {% set selected_provider = (uc_cfg['provider'] if uc_cfg else (uc_def['provider'] if uc_def and 'provider' in uc_def else '')) %}
+                        {% set selected_model = (uc_cfg['model'] if uc_cfg else (uc_def['model'] if uc_def and 'model' in uc_def else '')) %}
+                        {# Wichtig: In der Use-Case-Konfiguration erwarten wir als Value eine vollständige model_id: "{provider}/{model_name}".
+                           Das Backend speichert Use-Case-Zuordnungen als model_id und validiert gegen MongoDB. #}
+                        {% set selected_model_value = selected_model %}
+                        {% if selected_provider and selected_model and not selected_model.startswith(selected_provider ~ '/') %}
+                        {% set selected_model_value = selected_provider ~ '/' ~ selected_model %}
+                        {% endif %}
                         <div class="form-group mb-4">
-                            <label for="transcription-provider"><strong>Transcription (Audio/Video)</strong></label>
+                            <label for="{{ uc }}-provider">
+                                <strong>
+                                    {{ (use_case_labels[uc] if use_case_labels and uc in use_case_labels else (uc|replace('_',' ')|title)) }}
+                                </strong>
+                            </label>
                             <div class="row">
                                 <div class="col-md-6">
-                                    <select class="form-control" id="transcription-provider" name="transcription-provider">
-                                        {% if use_cases and 'transcription' in use_cases %}
-                                        <option value="{{ use_cases['transcription']['provider'] }}" selected>{{ use_cases['transcription']['provider']|title }}</option>
-                                        {% else %}
-                                        <option value="openai" selected>OpenAI</option>
+                                    <select class="form-control" id="{{ uc }}-provider" name="{{ uc }}-provider">
+                                        {# Wenn der aktuell gespeicherte Provider nicht in der Provider-Liste ist: als ersten Eintrag zeigen #}
+                                        {% if selected_provider and (not providers or selected_provider not in providers) %}
+                                        <option value="{{ selected_provider }}" selected>{{ selected_provider|title }}</option>
                                         {% endif %}
-                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'openai' %}
-                                        <option value="openai">OpenAI</option>
+                                        {% for p in providers.keys() %}
+                                        {% set p_info = providers[p] %}
+                                        {% set suffix = "" %}
+                                        {% if p_info and ((p_info.get('enabled') is not true) or (p_info.get('has_api_key') is not true)) %}
+                                        {% set suffix = " (nicht verfügbar)" %}
                                         {% endif %}
-                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'mistral' %}
-                                        <option value="mistral">Mistral</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'transcription' not in use_cases or use_cases['transcription']['provider'] != 'openrouter' %}
-                                        <option value="openrouter">OpenRouter</option>
-                                        {% endif %}
+                                        <option value="{{ p }}" {% if p == selected_provider %}selected{% endif %}>{{ p|title }}{{ suffix }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                                 <div class="col-md-6">
-                                    <select class="form-control" id="transcription-model" name="transcription-model">
-                                        {% if use_cases and 'transcription' in use_cases %}
-                                        <option value="{{ use_cases['transcription']['model'] }}" selected>{{ use_cases['transcription']['model'] }}</option>
+                                    <select class="form-control" id="{{ uc }}-model" name="{{ uc }}-model">
+                                        {% if selected_model %}
+                                        <option value="{{ selected_model_value }}" selected>{{ selected_model }}</option>
                                         {% else %}
-                                        <option value="whisper-1" selected>whisper-1</option>
+                                        <option value="" selected>Bitte Provider wählen...</option>
                                         {% endif %}
                                     </select>
                                 </div>
                             </div>
                         </div>
-                        
-                        <div class="form-group mb-4">
-                            <label for="image2text-provider"><strong>Image2Text (Vision API)</strong></label>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <select class="form-control" id="image2text-provider" name="image2text-provider">
-                                        {% if use_cases and 'image2text' in use_cases %}
-                                        <option value="{{ use_cases['image2text']['provider'] }}" selected>{{ use_cases['image2text']['provider']|title }}</option>
-                                        {% else %}
-                                        <option value="openai" selected>OpenAI</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'openai' %}
-                                        <option value="openai">OpenAI</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'mistral' %}
-                                        <option value="mistral">Mistral</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'openrouter' %}
-                                        <option value="openrouter">OpenRouter</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'image2text' not in use_cases or use_cases['image2text']['provider'] != 'ollama' %}
-                                        <option value="ollama">Ollama</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <select class="form-control" id="image2text-model" name="image2text-model">
-                                        {% if use_cases and 'image2text' in use_cases %}
-                                        <option value="{{ use_cases['image2text']['model'] }}" selected>{{ use_cases['image2text']['model'] }}</option>
-                                        {% else %}
-                                        <option value="gpt-4o" selected>gpt-4o</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group mb-4">
-                            <label for="ocr_pdf-provider"><strong>OCR PDF</strong></label>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <select class="form-control" id="ocr_pdf-provider" name="ocr_pdf-provider">
-                                        {% if use_cases and 'ocr_pdf' in use_cases %}
-                                        <option value="{{ use_cases['ocr_pdf']['provider'] }}" selected>{{ use_cases['ocr_pdf']['provider']|title }}</option>
-                                        {% else %}
-                                        <option value="mistral" selected>Mistral</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'openai' %}
-                                        <option value="openai">OpenAI</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'mistral' %}
-                                        <option value="mistral">Mistral</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'openrouter' %}
-                                        <option value="openrouter">OpenRouter</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'ocr_pdf' not in use_cases or use_cases['ocr_pdf']['provider'] != 'ollama' %}
-                                        <option value="ollama">Ollama</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <select class="form-control" id="ocr_pdf-model" name="ocr_pdf-model">
-                                        {% if use_cases and 'ocr_pdf' in use_cases %}
-                                        <option value="{{ use_cases['ocr_pdf']['model'] }}" selected>{{ use_cases['ocr_pdf']['model'] }}</option>
-                                        {% else %}
-                                        <option value="pixtral-large-latest" selected>pixtral-large-latest</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group mb-4">
-                            <label for="chat_completion-provider"><strong>Chat Completion & Translation</strong></label>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <select class="form-control" id="chat_completion-provider" name="chat_completion-provider">
-                                        {% if use_cases and 'chat_completion' in use_cases %}
-                                        <option value="{{ use_cases['chat_completion']['provider'] }}" selected>{{ use_cases['chat_completion']['provider']|title }}</option>
-                                        {% else %}
-                                        <option value="openai" selected>OpenAI</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'openai' %}
-                                        <option value="openai">OpenAI</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'mistral' %}
-                                        <option value="mistral">Mistral</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'openrouter' %}
-                                        <option value="openrouter">OpenRouter</option>
-                                        {% endif %}
-                                        {% if not use_cases or 'chat_completion' not in use_cases or use_cases['chat_completion']['provider'] != 'ollama' %}
-                                        <option value="ollama">Ollama</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <select class="form-control" id="chat_completion-model" name="chat_completion-model">
-                                        {% if use_cases and 'chat_completion' in use_cases %}
-                                        <option value="{{ use_cases['chat_completion']['model'] }}" selected>{{ use_cases['chat_completion']['model'] }}</option>
-                                        {% else %}
-                                        <option value="gpt-4.1-mini" selected>gpt-4.1-mini</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
+                        {% endfor %}
                         
                         <button type="submit" class="btn btn-primary">Konfiguration speichern</button>
                         <button type="button" class="btn btn-secondary ms-2" id="test-config-btn">Konfiguration testen</button>
@@ -245,11 +152,9 @@
                             <label for="filter-use-case" class="form-label">Use-Case:</label>
                             <select class="form-select" id="filter-use-case" onchange="loadModels()">
                                 <option value="">Alle Use-Cases</option>
-                                <option value="chat_completion">Chat Completion</option>
-                                <option value="transcription">Transcription</option>
-                                <option value="image2text">Image2Text</option>
-                                <option value="ocr_pdf">OCR PDF</option>
-                                <option value="embedding">Embedding</option>
+                                {% for uc in all_use_cases %}
+                                <option value="{{ uc }}">{{ (use_case_labels[uc] if use_case_labels and uc in use_case_labels else uc) }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-3">
@@ -371,26 +276,14 @@
                     
                     <div class="mb-3">
                         <label class="form-label">Use-Cases <span class="text-danger">*</span></label>
+                        {% for uc in all_use_cases %}
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="chat_completion" id="uc-chat-completion" name="use_cases">
-                            <label class="form-check-label" for="uc-chat-completion">Chat Completion</label>
+                            <input class="form-check-input" type="checkbox" value="{{ uc }}" id="uc-{{ uc|replace('_','-') }}" name="use_cases">
+                            <label class="form-check-label" for="uc-{{ uc|replace('_','-') }}">
+                                {{ (use_case_labels[uc] if use_case_labels and uc in use_case_labels else uc) }}
+                            </label>
                         </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="transcription" id="uc-transcription" name="use_cases">
-                            <label class="form-check-label" for="uc-transcription">Transcription</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="image2text" id="uc-image2text" name="use_cases">
-                            <label class="form-check-label" for="uc-image2text">Image2Text</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="ocr_pdf" id="uc-ocr-pdf" name="use_cases">
-                            <label class="form-check-label" for="uc-ocr-pdf">OCR PDF</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="embedding" id="uc-embedding" name="use_cases">
-                            <label class="form-check-label" for="uc-embedding">Embedding</label>
-                        </div>
+                        {% endfor %}
                     </div>
                     
                     <div class="mb-3">
@@ -403,6 +296,14 @@
                     <div class="mb-3">
                         <label for="model-description" class="form-label">Beschreibung</label>
                         <textarea class="form-control" id="model-description" name="description" rows="3" placeholder="Optionale Beschreibung des Modells"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="model-context-length" class="form-label">Kontextfenster (Tokens)</label>
+                        <input type="number" class="form-control" id="model-context-length" name="context_length" min="1" step="1" placeholder="z.B. 1000000">
+                        <small class="form-text text-muted">
+                            Wird als <code>metadata.context_length</code> gespeichert. Für XXL-Chunking wird dieser Wert zur Berechnung der Chunk-Größe verwendet.
+                        </small>
                     </div>
                 </form>
             </div>
@@ -448,7 +349,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ========== Use-Case-Konfiguration (bestehende Funktionen) ==========
-const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
+// Dynamisch aus dem Backend injiziert, damit neue Use-Cases automatisch erscheinen.
+const useCases = {{ all_use_cases | tojson }};
 
 useCases.forEach(useCase => {
     const providerSelect = document.getElementById(`${useCase}-provider`);
@@ -485,9 +387,6 @@ if (testBtn) {
 }
 
 function reloadAllUseCaseDropdowns() {
-    // Liste aller Use-Cases
-    const useCases = ['transcription', 'image2text', 'ocr_pdf', 'chat_completion'];
-    
     useCases.forEach(useCase => {
         const providerSelect = document.getElementById(`${useCase}-provider`);
         const modelSelect = document.getElementById(`${useCase}-model`);
@@ -534,7 +433,10 @@ function loadModelsForUseCase(useCase, provider, modelSelect, savedModel = null)
                     
                     const option = document.createElement('option');
                     option.value = modelId;
-                    option.textContent = modelName;
+                    // Wichtig: im Dropdown zeigen wir bewusst die vollständige model_id an,
+                    // damit klar ist, welcher Wert später in MongoDB validiert wird.
+                    // (OpenRouter: model_name kann selbst "/" enthalten, z.B. "google/gemini-2.5-flash")
+                    option.textContent = modelId;
                     if (modelId === currentValue) {
                         option.selected = true;
                     }
@@ -578,23 +480,24 @@ function saveConfig() {
         
         if (providerSelect && modelSelect) {
             const provider = providerSelect.value;
-            const model = modelSelect.value;
+            const modelValue = modelSelect.value; // in der UI idealerweise immer model_id
             
-            if (provider && model) {
-                // Prüfe ob model bereits eine vollständige model_id ist (enthält "/")
-                // Falls ja, verwende diese direkt, ansonsten konstruiere "provider/model"
-                let modelId;
-                if (model.includes('/')) {
-                    // model ist bereits eine vollständige model_id (z.B. "openrouter/google/gemini-2.5-flash")
-                    modelId = model;
-                } else {
-                    // model ist nur der Modellname, konstruiere "provider/model"
-                    modelId = `${provider}/${model}`;
-                }
+            if (provider && modelValue) {
+                // Robust: Model-Namen können selbst "/" enthalten (OpenRouter: "google/gemini-...").
+                // Daher reicht "includes('/')" NICHT aus. Vollständige model_id erkennen wir daran,
+                // dass sie mit "{provider}/" beginnt.
+                const modelId = modelValue.startsWith(`${provider}/`)
+                    ? modelValue
+                    : `${provider}/${modelValue}`;
+
+                // Für Anzeige/Debug: reiner Modellname ohne Provider-Präfix
+                const modelName = modelId.startsWith(`${provider}/`)
+                    ? modelId.slice(provider.length + 1)
+                    : modelValue;
                 
                 config[useCase] = {
                     provider: provider,
-                    model: model,
+                    model: modelName,
                     model_id: modelId
                 };
             }
@@ -755,8 +658,9 @@ function renderModelsTable(models) {
                 <thead>
                     <tr>
                         <th>Modell-ID</th>
-                        <th>Provider</th>
-                        <th>Modell-Name</th>
+                        <th style="cursor: pointer;" onclick="sortTable('context')">
+                            Kontextfenster (Tokens) <i class="fas fa-sort" id="sort-context-icon"></i>
+                        </th>
                         <th>Use-Cases</th>
                         <th style="cursor: pointer;" onclick="sortTable('quality')">
                             Qualität <i class="fas fa-sort" id="sort-quality-icon"></i>
@@ -777,6 +681,10 @@ function renderModelsTable(models) {
             const useCasesBadges = (model.use_cases || []).map(uc => 
                 `<span class="badge bg-secondary me-1">${uc}</span>`
             ).join('');
+
+        // Kontextfenster (Tokens) aus metadata (falls vorhanden)
+        const contextLen = (model.metadata && model.metadata.context_length) ? parseInt(model.metadata.context_length, 10) : 0;
+        const contextDisplay = contextLen > 0 ? contextLen.toLocaleString('de-DE') : '<span class="text-muted">-</span>';
         
         const statusBadge = model.enabled 
             ? '<span class="badge bg-success">Aktiviert</span>'
@@ -785,8 +693,7 @@ function renderModelsTable(models) {
         html += `
             <tr id="model-row-${escapeHtml(model.model_id)}">
                 <td><code>${escapeHtml(model.model_id)}</code></td>
-                <td>${escapeHtml(model.provider)}</td>
-                <td><strong>${escapeHtml(model.model_name)}</strong></td>
+                <td data-context="${contextLen}">${contextDisplay}</td>
                 <td>${useCasesBadges}</td>
                 <td id="quality-${escapeHtml(model.model_id)}" data-quality="0"><span class="text-muted">Lädt...</span></td>
                 <td id="duration-${escapeHtml(model.model_id)}" data-duration="0"><span class="text-muted">Lädt...</span></td>
@@ -997,6 +904,11 @@ function sortTable(column) {
             const bCell = b.querySelector('[data-duration]');
             aValue = aCell ? parseFloat(aCell.getAttribute('data-duration') || '0') : 0;
             bValue = bCell ? parseFloat(bCell.getAttribute('data-duration') || '0') : 0;
+        } else if (column === 'context') {
+            const aCell = a.querySelector('[data-context]');
+            const bCell = b.querySelector('[data-context]');
+            aValue = aCell ? parseFloat(aCell.getAttribute('data-context') || '0') : 0;
+            bValue = bCell ? parseFloat(bCell.getAttribute('data-context') || '0') : 0;
         } else {
             return 0;
         }
@@ -1030,6 +942,10 @@ function showAddModelModal() {
     document.getElementById('model-form').reset();
     document.getElementById('model-id-input').value = '';
     document.getElementById('model-enabled').checked = true;
+    document.getElementById('model-context-length').value = '';
+    // Beim neuen Modell dürfen Provider und Modell-Name bearbeitet werden.
+    document.getElementById('model-provider').disabled = false;
+    document.getElementById('model-name').disabled = false;
     
     const modal = new bootstrap.Modal(document.getElementById('modelModal'));
     modal.show();
@@ -1048,6 +964,10 @@ function editModel(modelId) {
                 document.getElementById('model-name').value = model.model_name;
                 document.getElementById('model-description').value = model.description || '';
                 document.getElementById('model-enabled').checked = model.enabled !== false;
+
+                // Kontextfenster aus metadata laden (falls vorhanden)
+                const contextLen = model.metadata && model.metadata.context_length ? model.metadata.context_length : '';
+                document.getElementById('model-context-length').value = contextLen;
                 
                 // Setze Use-Cases
                 document.querySelectorAll('input[name="use_cases"]').forEach(cb => {
@@ -1075,10 +995,15 @@ function saveModel() {
     const formData = new FormData(form);
     
     const modelId = formData.get('model_id');
-    const provider = formData.get('provider');
-    const modelName = formData.get('model_name');
+    // Wichtig:
+    // In `editModel()` werden Provider und Modell-Name bewusst deaktiviert.
+    // Deaktivierte Inputs werden NICHT in FormData übernommen.
+    // Daher lesen wir die Werte direkt aus den DOM-Elementen.
+    const provider = document.getElementById('model-provider').value;
+    const modelName = document.getElementById('model-name').value;
     const enabled = document.getElementById('model-enabled').checked;
     const description = formData.get('description');
+    const contextLengthRaw = document.getElementById('model-context-length').value;
     const useCases = Array.from(form.querySelectorAll('input[name="use_cases"]:checked')).map(cb => cb.value);
     
     if (!provider || !modelName || useCases.length === 0) {
@@ -1091,8 +1016,17 @@ function saveModel() {
         model_name: modelName,
         use_cases: useCases,
         enabled: enabled,
-        description: description || null
+        description: description || null,
+        metadata: {}
     };
+
+    // metadata.context_length (optional)
+    if (contextLengthRaw) {
+        const ctx = parseInt(contextLengthRaw, 10);
+        if (!Number.isNaN(ctx) && ctx > 0) {
+            modelData.metadata.context_length = ctx;
+        }
+    }
     
     const url = modelId ? `/llm-config/api/models/${encodeURIComponent(modelId)}` : '/llm-config/api/models';
     const method = modelId ? 'PUT' : 'POST';

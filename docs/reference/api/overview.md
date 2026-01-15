@@ -37,7 +37,7 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/audio/process` | Process audio file with transcription and optional translation |
+| POST | `/api/audio/process` | Process audio file with transcription and optional template-based transformation (supports async via webhook) |
 
 **See**: [Audio Endpoints](endpoints/audio.md) for detailed documentation.
 
@@ -60,7 +60,12 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/pdf/process` | Process PDF file with text extraction and OCR |
-| POST | `/api/pdf/job` | Process PDF asynchronously as a job |
+| POST | `/api/pdf/process-mistral-ocr` | Process PDF with Mistral OCR transformation and parallel image extraction |
+| POST | `/api/pdf/process-url` | Process PDF from URL with text extraction and OCR |
+| GET | `/api/pdf/text-content/<path:file_path>` | Retrieve text content of a file created by PDF processor |
+| GET | `/api/pdf/jobs/<job_id>/download-pages-archive` | Download ZIP archive with PDF pages as images (Mistral OCR jobs only) |
+| GET | `/api/pdf/jobs/<job_id>/mistral-ocr-raw` | Download full Mistral OCR raw data (JSON) |
+| GET | `/api/pdf/jobs/<job_id>/mistral-ocr-images` | Download ZIP archive with Mistral OCR extracted images |
 
 **See**: [PDF Endpoints](endpoints/pdf.md) for detailed documentation.
 
@@ -81,11 +86,12 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/transformer/text` | Translate text between languages |
+| POST | `/api/transformer/text` | Translate text between languages (with optional summarization) |
+| POST | `/api/transformer/text/file` | Transform text file (TXT, MD) between languages |
 | POST | `/api/transformer/template` | Transform text using template |
-| POST | `/api/transformer/summarize` | Summarize text |
-| POST | `/api/transformer/html-to-markdown` | Convert HTML to Markdown |
-| POST | `/api/transformer/extract-tables` | Extract tables from HTML |
+| POST | `/api/transformer/chat` | Chat completion endpoint for direct LLM chat interactions |
+| POST | `/api/transformer/html-table` | Extract tables from HTML |
+| POST | `/api/transformer/metadata` | Extract metadata from files (images, videos, PDFs, documents) |
 
 **See**: [Transformer Endpoints](endpoints/transformer.md) for detailed documentation.
 
@@ -178,6 +184,21 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 **See**: [Event Job Endpoints](endpoints/event-job.md) for detailed documentation.
 
+### LLM Configuration
+
+**Namespace**: `/api/llm-config`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/llm-config` | Get current LLM configuration with providers and use cases |
+| GET | `/api/llm-config/providers` | List all available providers |
+| GET | `/api/llm-config/models` | Get available models for provider and use case |
+| POST | `/api/llm-config/test` | Test connection to a provider |
+| GET | `/api/llm-config/presets` | Get preset configurations |
+| GET | `/api/llm-config/available-models` | Get overview of all available models per provider and use case |
+
+**Note**: These endpoints are not documented in separate endpoint files yet.
+
 ### Common Endpoints
 
 **Namespace**: `/api/common`
@@ -196,6 +217,8 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/` | API welcome message |
+| GET | `/api/samples` | List sample files (alternative to `/api/common/samples`) |
+| GET | `/api/samples/<filename>` | Download sample file (alternative to `/api/common/samples/<filename>`) |
 
 ## Response Format
 

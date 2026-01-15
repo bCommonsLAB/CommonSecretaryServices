@@ -21,6 +21,26 @@ try:
 except Exception:
     pass
 
+try:
+    from .handlers.office_handler import handle_office_job
+    register("office", handle_office_job)
+except Exception:
+    pass
+
+try:
+    from .handlers.office_via_pdf_handler import handle_office_via_pdf_job
+    register("office_via_pdf", handle_office_via_pdf_job)
+except Exception:
+    pass
+
+try:
+    # Audio async über den generischen Job-Worker (analog zu PDF)
+    from .handlers.audio_handler import handle_audio_job
+    register("audio", handle_audio_job)
+except Exception:
+    # defensive: Registry muss auch ohne Audio funktionieren
+    pass
+
 __all__ = ["register", "get_handler", "available_job_types"]
 
 

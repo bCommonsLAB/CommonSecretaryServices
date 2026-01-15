@@ -10,6 +10,7 @@ Provides web interface for selecting providers and models per use case.
 @exports
 - llm_config: Blueprint - Flask blueprint for LLM config dashboard routes
 """
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportGeneralTypeIssues=false, reportUnnecessaryIsInstance=false
 
 from flask import Blueprint, render_template, request, jsonify, Response
 from typing import Any, Dict, List, Optional
@@ -31,7 +32,7 @@ from src.core.mongodb.llm_model_repository import (
     LLMUseCaseConfigRepository
 )
 from pymongo import DESCENDING
-from src.core.models.llm_models import LLMModel, LLMUseCaseConfig, LLMTestResult
+from src.core.models.llm_models import LLMModel, LLMTestResult
 from src.core.llm.model_selector import LLMModelSelector
 
 # Create the blueprint
@@ -70,6 +71,30 @@ def llm_config_page() -> str:
                 name: config.to_dict() 
                 for name, config in use_cases.items()
             }
+
+            # Dynamische Use-Case-Liste (aus Enum), damit neue Use-Cases ohne Template-Anpassung
+            # automatisch in der UI erscheinen.
+            all_use_cases: List[str] = [uc.value for uc in UseCase]
+
+            # UI-Labels (Fallback: use_case string)
+            use_case_labels: Dict[str, str] = {
+                "transcription": "Transcription (Audio/Video)",
+                "image2text": "Image2Text (Vision API)",
+                "ocr_pdf": "OCR PDF",
+                "chat_completion": "Chat Completion & Translation",
+                "embedding": "Embedding",
+                "transformer_xxl": "Transformer XXL (Large-File Summarization)",
+            }
+
+            # Konservative Defaults (nur wenn noch nicht konfiguriert)
+            use_case_defaults: Dict[str, Dict[str, str]] = {
+                "transcription": {"provider": "openai", "model": "whisper-1"},
+                "image2text": {"provider": "openai", "model": "gpt-4o"},
+                "ocr_pdf": {"provider": "mistral", "model": "pixtral-large-latest"},
+                "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},
+                # XXL: Default wie spezifiziert
+                "transformer_xxl": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
+            }
             
             # Lade aktuelle Konfiguration für Anzeige
             app_config = Config()
@@ -79,7 +104,10 @@ def llm_config_page() -> str:
             context = {
                 'providers': providers_dict,
                 'use_cases': use_cases_dict,
-                'llm_config': llm_config_data
+                'llm_config': llm_config_data,
+                'all_use_cases': all_use_cases,
+                'use_case_labels': use_case_labels,
+                'use_case_defaults': use_case_defaults,
             }
             
             return render_template('llm_config.html', **context)
@@ -90,10 +118,22 @@ def llm_config_page() -> str:
                                  error=f"Fehler beim Laden der Konfiguration: {str(e)}",
                                  providers={},
                                  use_cases={},
-                                 llm_config={})
+                                 llm_config={},
+                                 all_use_cases=[uc.value for uc in UseCase],
+                                 use_case_labels={},
+                                 use_case_defaults={})
     except Exception as e:
         logger.error(f"Fehler beim Laden der LLM-Konfigurationsseite: {str(e)}")
-        return render_template('llm_config.html', error=str(e))
+        return render_template(
+            'llm_config.html',
+            error=str(e),
+            providers={},
+            use_cases={},
+            llm_config={},
+            all_use_cases=[uc.value for uc in UseCase],
+            use_case_labels={},
+            use_case_defaults={},
+        )
 
 
 @llm_config.route('/llm-config/api/providers', methods=['GET'])
@@ -862,8 +902,17 @@ def batch_execute_test_cases_api() -> Any:
                     result = future.result()
                     results.append(result)
             
-            # Sortiere Ergebnisse nach Index, um Reihenfolge beizubehalten
-            results.sort(key=lambda x: x.get('index', 0))
+            # Sortiere Ergebnisse nach Index, um Reihenfolge beizubehalten.
+            # Defensive Typisierung, da `results` dynamische JSON-Dicts enthält.
+            def _sort_key(item: Any) -> int:
+                if isinstance(item, dict):
+                    try:
+                        return int(item.get("index", 0))
+                    except Exception:
+                        return 0
+                return 0
+
+            results.sort(key=_sort_key)
         
         return jsonify({
             "status": "success",
@@ -1854,17 +1903,25 @@ def get_openrouter_models_from_api() -> Any:
             **provider_kwargs
         )
         
-        # Rufe Modelle von API ab
-        # Prüfe ob Provider OpenRouterProvider ist (hat fetch_models_from_api Methode)
-        from src.core.llm.providers.openrouter_provider import OpenRouterProvider
-        if type(provider).__name__ == 'OpenRouterProvider':
-            models = provider.fetch_models_from_api()
-            
+        # Rufe Modelle von API ab (nur wenn der Provider diese Methode anbietet).
+        # Typisch: OpenRouterProvider besitzt `fetch_models_from_api`.
+        fetch_fn = getattr(provider, "fetch_models_from_api", None)
+        if callable(fetch_fn):
+            models_any = fetch_fn()
+            if not isinstance(models_any, list):
+                return jsonify({
+                    "status": "error",
+                    "message": "Unerwartetes Format der OpenRouter-Model-API (erwartet: Liste)"
+                }), 500
+
+            # Filtere auf Dicts, damit wir stabil `.get(...)` verwenden können.
+            models: List[Dict[str, Any]] = [m for m in models_any if isinstance(m, dict)]
+
             if models:
                 # Filtere nach Mistral-Modellen für bessere Übersicht
-                mistral_models = [
-                    m for m in models 
-                    if m and isinstance(m, dict) and 'id' in m and 'mistral' in str(m.get('id', '')).lower()
+                mistral_models: List[Dict[str, Any]] = [
+                    m for m in models
+                    if 'id' in m and 'mistral' in str(m.get('id', '')).lower()
                 ]
                 
                 return jsonify({
@@ -1880,7 +1937,11 @@ def get_openrouter_models_from_api() -> Any:
                             }
                             for m in mistral_models[:20]  # Zeige max. 20 Mistral-Modelle
                         ],
-                        "all_model_ids": [m.get('id') for m in models[:50]] if len(models) <= 50 else [m.get('id') for m in models[:50]] + [f"... und {len(models) - 50} weitere"]
+                        "all_model_ids": (
+                            [m.get('id') for m in models[:50]]
+                            if len(models) <= 50
+                            else [m.get('id') for m in models[:50]] + [f"... und {len(models) - 50} weitere"]
+                        )
                     }
                 })
             else:

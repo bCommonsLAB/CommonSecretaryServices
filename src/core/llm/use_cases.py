@@ -34,6 +34,13 @@ class UseCase(str, Enum):
 
     # Embeddings für Retrieval, RAG, Vektorspeicher
     EMBEDDING = "embedding"
+
+    # XXL-Text-Zusammenfassung (separater Use-Case, damit Modell/Provider konfigurierbar sind)
+    # Motivation:
+    # - Sehr große Texte (mehrere Mio Zeichen) können nicht über den normalen Transformer/Text Pfad laufen,
+    #   weil dort strengere Validierungen greifen und typische Kontextfenster nicht reichen.
+    # - Dieser Use-Case erlaubt, ein Modell mit sehr großem Kontextfenster (z.B. 1M Tokens) zu wählen.
+    TRANSFORMER_XXL = "transformer_xxl"
     
     def __str__(self) -> str:
         """Gibt den String-Wert des Use-Cases zurück."""

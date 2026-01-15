@@ -48,6 +48,20 @@ from src.utils.logger import get_logger
 # Erstelle den Haupt-API-Blueprint
 blueprint = Blueprint('api', __name__)
 
+# Swagger/OpenAPI werden im Browser häufig aggressiv gecached.
+# Das führt dazu, dass neue Parameter im Swagger-UI nicht auftauchen, obwohl sie serverseitig existieren.
+@blueprint.after_request
+def _disable_swagger_cache(response: Any) -> Any:
+    try:
+        path = request.path or ""
+        if path.startswith("/api/swagger.json") or path.startswith("/api/doc"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return response
+
 # Erstelle die API mit dem Blueprint
 api = Api(
     blueprint,
@@ -220,6 +234,7 @@ from .event_job_routes import event_job_ns
 from .track_routes import track_ns
 from .event_routes import event_ns
 from .pdf_routes import pdf_ns
+from .office_routes import office_ns
 from .imageocr_routes import imageocr_ns
 from .story_routes import story_ns
 from .secretary_job_routes import secretary_ns
@@ -236,6 +251,7 @@ api.add_namespace(event_job_ns, path='/event-job')  # type: ignore
 api.add_namespace(track_ns, path='/tracks')  # type: ignore
 api.add_namespace(event_ns, path='/events')  # type: ignore
 api.add_namespace(pdf_ns, path='/pdf')  # type: ignore
+api.add_namespace(office_ns, path='/office')  # type: ignore
 api.add_namespace(imageocr_ns, path='/imageocr')  # type: ignore
 api.add_namespace(story_ns, path='/story')  # type: ignore
 api.add_namespace(secretary_ns, path='/jobs')  # type: ignore

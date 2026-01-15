@@ -15,22 +15,42 @@ Process a PDF file with text extraction and optional OCR.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file` | File | Yes | - | PDF file |
-| `extraction_method` | String | No | `native` | Extraction method: `native`, `tesseract_ocr`, `openai_vision`, `combined` |
+| `extraction_method` | String | No | `native` | Extraction method: `native`, `tesseract_ocr`, `both`, `preview`, `preview_and_native`, `llm`, `llm_and_native`, `llm_and_ocr` |
 | `template` | String | No | `""` | Optional template for text transformation |
 | `context` | JSON | No | `{}` | Additional context for template |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
 | `includeImages` | Boolean | No | `false` | Base64-kodiertes ZIP-Archiv mit generierten Bildern erstellen |
 | `page_start` | Integer | No | - | Start page (1-indexed) |
 | `page_end` | Integer | No | - | End page (1-indexed) |
+| `target_language` | String | No | - | Optional: Zielsprache (z.B. `de`) für nachgelagerte Template-Verarbeitung |
+| `callback_url` | String | No | - | Optional: Webhook-URL für **asynchrone** Verarbeitung (Endpoint antwortet mit `202 Accepted`) |
+| `callback_token` | String | No | - | Optional: Token für Webhook-Auth (`Authorization: Bearer ...` und `X-Callback-Token`) |
+| `jobId` | String | No | - | Optional: Externe Job-ID (client-generated), wird im 202 ACK als `job.id` zurückgegeben |
+| `wait_ms` | Integer | No | `0` | Optional: Wartezeit (ms) auf Abschluss (nur ohne `callback_url`) |
+| `force_refresh` | Boolean | No | - | Optional: Cache umgehen/Neuberechnung erzwingen |
 
 ### Extraction Methods
 
 - **native**: Extract text directly from PDF structure (fastest)
 - **tesseract_ocr**: Use Tesseract OCR for text extraction
-- **openai_vision**: Use OpenAI Vision API for OCR
-- **combined**: Try multiple methods and combine results
+- **both**: Native + Tesseract OCR
+- **preview**: Create preview images only
+- **preview_and_native**: Preview images + native text
+- **llm**: LLM-based OCR
+- **llm_and_native**: LLM OCR + native text
+- **llm_and_ocr**: LLM OCR + Tesseract OCR
 
 **Note**: For Mistral OCR transformation with integrated images, use the dedicated endpoint [`POST /api/pdf/process-mistral-ocr`](#post-apipdfprocess-mistral-ocr) instead.
+
+### Async Processing via Webhook (optional)
+
+Wenn du `callback_url` setzt, wird der Request **asynchron** abgearbeitet:
+
+- Der Endpoint antwortet sofort mit **`202 Accepted`** (ACK).
+- Die Verarbeitung läuft im Secretary Worker (Job Queue).
+- Am Ende sendet der Worker einen finalen Webhook (`phase=completed` oder `phase=error`).
+
+Job-Status und vollständige Ergebnisse können zusätzlich über `GET /api/jobs/<job_id>` abgefragt werden.
 
 ### Request Example
 
@@ -91,7 +111,7 @@ This endpoint is specifically designed for Mistral OCR transformation with integ
 | `file` | File | Yes | - | PDF file |
 | `page_start` | Integer | No | - | Start page (1-indexed) |
 | `page_end` | Integer | No | - | End page (1-indexed, inclusive) |
-| `includeOCRImages` | Boolean | No | `true` | **Deprecated**: This parameter is ignored. Mistral OCR images are ALWAYS extracted and stored separately. They are NEVER embedded in `mistral_ocr_raw`. Use `mistral_ocr_images_url` in the webhook callback or download endpoint to retrieve images. This parameter maps to the `include_image_base64` field in the Mistral API payload, but images are always extracted and stored separately. |
+| `includeOCRImages` | Boolean | No | `true` | Hinweis: Der Server liefert Bilder **nicht** als Base64 im `mistral_ocr_raw` zurück. Bilder werden immer separat extrahiert und über `mistral_ocr_images_url` / Download-Endpoint bereitgestellt. Empfehlung: `includeOCRImages=false`, um Payload/Overhead zu reduzieren. |
 | `includePageImages` | Boolean | No | `true` | Extract PDF pages as images and return as ZIP archive. Runs in parallel to Mistral OCR transformation. |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
 | `callback_url` | String | No | - | Absolute HTTPS URL for webhook callback |
@@ -362,9 +382,11 @@ If MongoDB document size limits are exceeded (e.g., for very large documents wit
 
 In this case, the processing completed successfully, but the results were too large to store in MongoDB. The `mistral_ocr_raw` data is still available via the download endpoint.
 
-## POST /api/pdf/job
+## POST /api/pdf/job (Deprecated / nicht mehr aktuell)
 
-Process PDF asynchronously as a job.
+Dieser Abschnitt ist **nicht mehr aktuell**: Im aktuellen System wird Async-Processing über
+`POST /api/pdf/process` bzw. `POST /api/pdf/process-mistral-ocr` mit `callback_url` (Webhook)
+realisiert, oder generisch über `POST /api/jobs/` (Job-Queue).
 
 ### Request
 

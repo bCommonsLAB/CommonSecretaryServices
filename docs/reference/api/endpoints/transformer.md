@@ -501,6 +501,12 @@ requests.forEach(req => {
 - **Cache Semantik**: `use_cache=true` (default) gilt auch für structured requests. Cached responses behalten ihr `structured_data` Format bei.
 - **Timeout**: `timeout_ms` wird serverseitig auf einen maximalen Wert begrenzt (implementation-dependent). Wenn nicht angegeben, wird der Provider-Default verwendet.
 
+### Hinweis zu Async/Webhooks
+
+Einige Endpoints (z.B. PDF und Audio) unterstützen asynchrone Verarbeitung über `callback_url` + `callback_token`
+mit einem `202 Accepted` ACK und einem finalen Webhook-Callback (`phase=completed/error`).
+Für Details siehe die jeweiligen Endpoint-Dokumentationen.
+
 ## POST /api/transformer/text/file
 
 Transform a text file (TXT, MD) from one language to another.
@@ -529,6 +535,42 @@ curl -X POST "http://localhost:5001/api/transformer/text/file" \
   -F "target_language=de" \
   -F "use_cache=true"
 ```
+
+## POST /api/transformer/xxl-text
+
+Summarize a very large text file (TXT, MD) using chunking and a final "summary-of-summaries".
+
+This endpoint uses the dedicated LLM Use-Case **`transformer_xxl`** (configurable via `/llm-config`)
+to pick provider/model. Default should be set to `openrouter/google/gemini-2.5-flash`.
+
+### Request
+
+**Content-Type**: `multipart/form-data`
+
+**Form Parameters**:
+
+- `file` (required): Text file (`.txt`, `.md`)
+- `target_language` (optional): Output language (ISO 639-1, default: `de`)
+- `max_parallel` (optional): Parallel chunk processing (1..3, default: 3)
+- `overlap_ratio` (optional): Overlap ratio relative to chunk size (default: 0.04)
+- `use_cache` (optional): Whether to use cache (`true`/`false`, default: `true`)
+
+### Request Example
+
+```bash
+curl -X POST "http://localhost:5001/api/transformer/xxl-text" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@big-document.txt" \
+  -F "target_language=de" \
+  -F "max_parallel=3" \
+  -F "overlap_ratio=0.04" \
+  -F "use_cache=true"
+```
+
+### Response (Success)
+
+Response follows the standardized format and includes aggregated `process.llm_info`.
+
 
 ### Response (Success)
 

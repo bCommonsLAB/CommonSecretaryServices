@@ -42,8 +42,13 @@ Features:
 - Internal: src.core.models.transformer - Transformer models (TransformerResponse, etc.)
 - Internal: src.core.config - Configuration
 """
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportGeneralTypeIssues=false, reportUnnecessaryIsInstance=false
+# Hinweis:
+# Dieses Modul enthält umfangreiche HTML/BS4-Verarbeitung und dynamische JSON-Strukturen,
+# die in Pyright sonst sehr viele "Unknown"-Warnungen erzeugen würden. Die fachliche
+# Typisierung/Validierung erfolgt dennoch in den Dataclasses und an den API-Rändern.
 import hashlib
-from typing import Dict, Any, Optional, Tuple,List, Union, cast, TYPE_CHECKING
+from typing import Dict, Any, Optional, Tuple, List, Union, cast, TYPE_CHECKING
 from datetime import datetime, UTC
 import traceback
 import time
@@ -71,6 +76,14 @@ from src.core.models.transformer import (
 from src.core.models.enums import OutputFormat
 from .cacheable_processor import CacheableProcessor
 from src.core.config import Config
+from src.core.llm.use_cases import UseCase
+from src.utils.text_chunking import chunk_text_by_chars  # type: ignore
+from src.utils.xxl_chunk_sizing import XXLChunkSizingConfig, compute_xxl_chunk_sizing
+from src.utils.xxl_model_metadata import extract_context_length_tokens_from_metadata
+from src.utils.xxl_text_summarization import (
+    summarize_xxl_text as summarize_xxl_text_map_reduce,
+    build_prompt_templates_without_text,
+)
 
 # Type-Alias für bessere Lesbarkeit
 TableElement = Tag | PageElement
@@ -516,6 +529,359 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                 cache_key="",
                 error=error_info
             )
+
+    def summarize_xxl_text(
+        self,
+        *,
+        source_text: str,
+        source_filename: str | None = None,
+        source_file_size_bytes: int | None = None,
+        source_detected_encoding: str | None = None,
+        source_sha256: str | None = None,
+        target_language: str = "de",
+        max_parallel: int = 3,
+        overlap_ratio: float = 0.04,
+        use_cache: bool = False,
+        detail_level: str = "high",
+        instructions: str | None = None,
+        prompt_use_case: str = "cursor_chat_analysis",
+        min_chunk_summary_chars: int = 5000,
+        min_final_summary_chars: int = 7000,
+        chunk_max_tokens: int = 8000,
+        final_max_tokens: int = 8000,
+    ) -> TransformerResponse:
+        """
+        XXL-Zusammenfassung für sehr große Texte.
+
+        Motivation:
+        - `transform()` hat eine harte Längenvalidierung (z.B. 100k Zeichen).
+        - Große Dateien müssen in Chunks verarbeitet werden.
+
+        Strategie:
+        - Use-Case `transformer_xxl` bestimmt Provider + Modell.
+        - Chunk-Größe/Overlap werden dynamisch aus `metadata.context_length` berechnet.
+        - Verarbeitung iterativ/parallelisiert (max. 3 gleichzeitig).
+        - Final: Summary-of-summaries.
+        """
+
+        # Minimale Validierung (keine harte Längenbegrenzung!)
+        if not source_text or not source_text.strip():
+            raise ValueError("source_text darf nicht leer sein")
+        if not target_language or not target_language.strip():
+            raise ValueError("target_language darf nicht leer sein")
+
+        # Clamp Parallelität
+        if max_parallel < 1:
+            max_parallel = 1
+        if max_parallel > 3:
+            max_parallel = 3
+
+        # Clamp overlap_ratio defensiv (API wird zusätzlich clampen)
+        if overlap_ratio < 0.0:
+            overlap_ratio = 0.0
+        if overlap_ratio >= 1.0:
+            overlap_ratio = 0.99
+
+        # Prompt-Steuerung (optional): ermöglicht präzisere/ausführlichere Summaries.
+        # Guardrails: Wir halten das bewusst simpel, damit der Endpoint stabil bleibt.
+        if detail_level not in {"normal", "high"}:
+            raise ValueError("detail_level muss 'normal' oder 'high' sein")
+        if instructions is not None:
+            instructions = instructions.strip()
+            # Zu lange Anweisungen erhöhen Kosten/Fehlerwahrscheinlichkeit (Prompt wird zu groß).
+            if len(instructions) > 5000:
+                raise ValueError("instructions darf maximal 5000 Zeichen lang sein")
+            if not instructions:
+                instructions = None
+
+        if prompt_use_case not in {"general", "cursor_chat_analysis"}:
+            raise ValueError("prompt_use_case muss 'general' oder 'cursor_chat_analysis' sein")
+        if min_chunk_summary_chars < 0 or min_final_summary_chars < 0:
+            raise ValueError("min_*_summary_chars muss >= 0 sein")
+        if chunk_max_tokens <= 0 or final_max_tokens <= 0:
+            raise ValueError("chunk_max_tokens und final_max_tokens müssen > 0 sein")
+
+        # WICHTIG: KEINE Manipulation des Input-Texts.
+        # Der "prompt_use_case" ist nur ein Prompt-Hinweis an das LLM.
+        original_chars = len(source_text)
+        sanitized_text = source_text
+        sanitized_chars = original_chars
+
+        start_time = time.time()
+
+        llm_config_manager = self.llm_config_manager
+        provider = llm_config_manager.get_provider_for_use_case(UseCase.TRANSFORMER_XXL)
+        if not provider:
+            raise ProcessingError("Kein Provider für Use-Case 'transformer_xxl' konfiguriert")
+
+        model_name = llm_config_manager.get_model_for_use_case(UseCase.TRANSFORMER_XXL)
+        if not model_name:
+            raise ProcessingError("Kein Modell für Use-Case 'transformer_xxl' konfiguriert")
+
+        # Modell-ID für MongoDB Lookup: "{provider}/{model_name}"
+        model_id = f"{provider.get_provider_name()}/{model_name}"
+
+        # Kontextfenster (Tokens) aus MongoDB-Metadaten lesen
+        context_length_tokens: int | None = None
+        try:
+            llm_model = llm_config_manager.get_model_from_mongodb(model_id)
+            if llm_model:
+                context_length_tokens = extract_context_length_tokens_from_metadata(llm_model.metadata)
+        except Exception:
+            context_length_tokens = None
+
+        # Fallback (konservativ), falls kein Kontextfenster gepflegt ist
+        if context_length_tokens is None:
+            # 128k ist ein sinnvoller konservativer Default für moderne Modelle.
+            context_length_tokens = 128_000
+            self.logger.warning(
+                "Kein metadata.context_length für Modell gefunden; verwende Fallback",
+                model_id=model_id,
+                fallback_context_length_tokens=context_length_tokens,
+            )
+
+        sizing_cfg = XXLChunkSizingConfig(
+            context_length_tokens=context_length_tokens,
+            overlap_ratio=overlap_ratio,
+        )
+        sizing = compute_xxl_chunk_sizing(sizing_cfg)
+
+        # Chunks erstellen
+        chunks = chunk_text_by_chars(
+            text=sanitized_text,
+            chunk_size_chars=sizing.chunk_size_chars,
+            overlap_chars=sizing.overlap_chars,
+        )
+
+        # Debug/Analyse: diese Werte erklären oft "abgeschnittene" Outputs.
+        self.logger.info(
+            "XXL summarization config",
+            model_id=model_id,
+            prompt_use_case=prompt_use_case,
+            detail_level=detail_level,
+            chunk_count=len(chunks),
+            input_chars_original=original_chars,
+            input_chars_sanitized=sanitized_chars,
+            removed_chars=0,
+            source_filename=source_filename,
+            source_file_size_bytes=source_file_size_bytes,
+            source_detected_encoding=source_detected_encoding,
+            chunk_size_chars=sizing.chunk_size_chars,
+            overlap_chars=sizing.overlap_chars,
+            min_chunk_summary_chars=min_chunk_summary_chars,
+            min_final_summary_chars=min_final_summary_chars,
+            chunk_max_tokens=chunk_max_tokens,
+            final_max_tokens=final_max_tokens,
+        )
+
+        # Caching: nur finaler Output (kein Chunk-Cache im ersten Wurf)
+        cache_key = ""
+        if use_cache and self.is_cache_enabled():
+            text_hash = hashlib.sha256(sanitized_text.encode("utf-8")).hexdigest()
+            instructions_hash = ""
+            if instructions:
+                instructions_hash = hashlib.sha256(instructions.encode("utf-8")).hexdigest()
+            raw_key = (
+                f"xxl_summary::{text_hash}::model={model_id}::lang={target_language}"
+                f"::overlap_ratio={overlap_ratio}::chunk={sizing.chunk_size_chars}::overlap={sizing.overlap_chars}"
+                f"::detail_level={detail_level}::instructions_hash={instructions_hash}"
+                f"::prompt_use_case={prompt_use_case}"
+                f"::min_chunk_summary_chars={min_chunk_summary_chars}::min_final_summary_chars={min_final_summary_chars}"
+                f"::chunk_max_tokens={chunk_max_tokens}::final_max_tokens={final_max_tokens}"
+            )
+            cache_key = self.generate_cache_key(raw_key)
+            cache_hit, cached = self.get_from_cache(cache_key)
+            if cache_hit and cached:
+                transformer_data = TransformerData(
+                    text=cached.text,
+                    language=target_language,
+                    format=OutputFormat.TEXT,
+                    summarized=True,
+                    structured_data=cached.structured_data,
+                )
+                return self.create_response(
+                    processor_name="transformer",
+                    result=transformer_data,
+                    request_info={
+                        "method": "xxl_text_summary",
+                        "model_id": model_id,
+                        "target_language": target_language,
+                        "max_parallel": max_parallel,
+                        "overlap_ratio": overlap_ratio,
+                        "detail_level": detail_level,
+                        "instructions_provided": bool(instructions),
+                        "prompt_use_case": prompt_use_case,
+                        "min_chunk_summary_chars": min_chunk_summary_chars,
+                        "min_final_summary_chars": min_final_summary_chars,
+                        "chunk_max_tokens": chunk_max_tokens,
+                        "final_max_tokens": final_max_tokens,
+                        "chunk_size_chars": sizing.chunk_size_chars,
+                        "overlap_chars": sizing.overlap_chars,
+                        "context_length_tokens": context_length_tokens,
+                        "input_chars": len(sanitized_text),
+                        "chunk_count": len(chunks),
+                    },
+                    response_class=TransformerResponse,
+                    from_cache=True,
+                    cache_key=cache_key,
+                )
+
+        # Map-Reduce Summarization
+        result = summarize_xxl_text_map_reduce(
+            provider=provider,
+            model=model_name,
+            chunks=chunks,
+            target_language=target_language,
+            max_parallel=max_parallel,
+            detail_level=detail_level,
+            instructions=instructions,
+            prompt_use_case=prompt_use_case,
+            min_chunk_summary_chars=min_chunk_summary_chars,
+            min_final_summary_chars=min_final_summary_chars,
+            chunk_max_tokens=chunk_max_tokens,
+            final_max_tokens=final_max_tokens,
+        )
+
+        # LLM-Tracking übernehmen
+        self.add_llm_requests(result.llm_requests)
+
+        # Speichere final im Cache
+        prompt_templates = build_prompt_templates_without_text(
+            target_language=target_language,
+            detail_level=detail_level,
+            instructions=instructions,
+            prompt_use_case=prompt_use_case,
+            min_chunk_summary_chars=min_chunk_summary_chars,
+            min_final_summary_chars=min_final_summary_chars,
+        )
+
+        llm_call_params = {
+            "provider": provider.get_provider_name(),
+            "model_id": model_id,
+            "temperature": 0.2,  # entspricht Default in `src/utils/xxl_text_summarization.py`
+            "phases": {
+                "chunk": {
+                    "max_tokens": chunk_max_tokens,
+                    "min_summary_chars": min_chunk_summary_chars,
+                },
+                "final": {
+                    "max_tokens": final_max_tokens,
+                    "min_summary_chars": min_final_summary_chars,
+                },
+            },
+            "prompt_use_case": prompt_use_case,
+            "detail_level": detail_level,
+            "instructions_provided": bool(instructions),
+        }
+
+        structured = {
+            "source": {
+                "filename": source_filename,
+                "file_size_bytes": source_file_size_bytes,
+                "detected_encoding": source_detected_encoding,
+                "sha256": source_sha256,
+                "input_chars_original": original_chars,
+                "input_chars_sanitized": sanitized_chars,
+                "removed_chars": 0,
+                "input_transformations": [],
+            },
+            "model_id": model_id,
+            "context_length_tokens": context_length_tokens,
+            "detail_level": detail_level,
+            "instructions_provided": bool(instructions),
+            "prompt_use_case": prompt_use_case,
+            "min_chunk_summary_chars": min_chunk_summary_chars,
+            "min_final_summary_chars": min_final_summary_chars,
+            "chunk_max_tokens": chunk_max_tokens,
+            "final_max_tokens": final_max_tokens,
+            "llm_call_params": llm_call_params,
+            "prompt_templates": prompt_templates,
+            "chunking": {
+                "chunk_size_chars": sizing.chunk_size_chars,
+                "overlap_chars": sizing.overlap_chars,
+                "overlap_ratio": overlap_ratio,
+                "chunk_count": len(chunks),
+            },
+            "chunk_summaries": [
+                {
+                    # Vollständige Chunk-Summaries ausgeben (gewünscht für Debugging).
+                    "chunk_index": cs.chunk_index,
+                    "start": cs.start,
+                    "end": cs.end,
+                    "summary_text": cs.summary_text,
+                }
+                for cs in result.chunk_summaries
+            ],
+        }
+
+        transformer_data = TransformerData(
+            text=result.final_summary,
+            language=target_language,
+            format=OutputFormat.TEXT,
+            summarized=True,
+            structured_data=structured,
+        )
+
+        if use_cache and self.is_cache_enabled() and cache_key:
+            self.save_to_cache(
+                cache_key=cache_key,
+                result=TransformationResult(
+                    text=transformer_data.text,
+                    target_language=target_language,
+                    structured_data=structured,
+                ),
+            )
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        structured["duration_ms"] = duration_ms
+
+        # Debug: Output-Längen (hilft beim Erkennen von Truncation)
+        self.logger.info(
+            "XXL summarization result lengths",
+            final_summary_chars=len(result.final_summary),
+            chunk_summary_chars=[len(cs.summary_text) for cs in result.chunk_summaries],
+        )
+
+        # Debug: pro Chunk ein Log-Eintrag (hilft bei "abgeschnittenen" Sätzen).
+        # Wir loggen bewusst nur den letzten Teil, um keine riesigen Logs zu erzeugen.
+        for cs in result.chunk_summaries:
+            tail = cs.summary_text[-240:] if len(cs.summary_text) > 240 else cs.summary_text
+            self.logger.info(
+                "XXL chunk summary",
+                chunk_index=cs.chunk_index,
+                start=cs.start,
+                end=cs.end,
+                summary_chars=len(cs.summary_text),
+                tail=tail,
+            )
+
+        return self.create_response(
+            processor_name="transformer",
+            result=transformer_data,
+            request_info={
+                "method": "xxl_text_summary",
+                "model_id": model_id,
+                "target_language": target_language,
+                "max_parallel": max_parallel,
+                "overlap_ratio": overlap_ratio,
+                "detail_level": detail_level,
+                "instructions_provided": bool(instructions),
+                "prompt_use_case": prompt_use_case,
+                "min_chunk_summary_chars": min_chunk_summary_chars,
+                "min_final_summary_chars": min_final_summary_chars,
+                "chunk_max_tokens": chunk_max_tokens,
+                "final_max_tokens": final_max_tokens,
+                "chunk_size_chars": sizing.chunk_size_chars,
+                "overlap_chars": sizing.overlap_chars,
+                "context_length_tokens": context_length_tokens,
+                "input_chars": len(sanitized_text),
+                "chunk_count": len(chunks),
+                "duration_ms": duration_ms,
+            },
+            response_class=TransformerResponse,
+            from_cache=False,
+            cache_key=cache_key,
+        )
 
     def _create_system_message(self,
                                source_language: str,

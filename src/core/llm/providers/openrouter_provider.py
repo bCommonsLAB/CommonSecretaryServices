@@ -11,15 +11,24 @@ LLM providers through a unified API that is compatible with OpenAI's API.
 - OpenRouterProvider: Class - OpenRouter provider implementation
 """
 
-from typing import List, Optional, Dict, Any
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportGeneralTypeIssues=false
+# Hinweis:
+# Die OpenRouter-API nutzt OpenAI-kompatible Response-Typen, deren Stubs in der Praxis je nach Version
+# von `openai` unvollständig/inkonsistent sind. Ohne diese Einstellungen erzeugt Pyright hier sehr viele
+# "Unknown"-Warnungen, obwohl der Runtime-Code korrekt ist.
+
+from typing import List, Optional, Dict, Any, cast
 import time
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
+from src.utils.logger import get_logger
 from ...exceptions import ProcessingError
 from ...models.llm import LLMRequest
 from ..use_cases import UseCase
+
+logger = get_logger(process_id="openrouter-provider")
 
 
 class OpenRouterProvider:
@@ -162,12 +171,38 @@ class OpenRouterProvider:
             if not response.choices or not response.choices[0].message:
                 raise ProcessingError("Keine gültige Antwort von OpenRouter erhalten")
             
-            content = response.choices[0].message.content or ""
+            content = str(response.choices[0].message.content or "")
+
+            # Debug-Logging (mit Guardrails):
+            # - Keine API Keys/Secrets
+            # - Content nur gekürzt, damit die Console nicht explodiert
+            choice0 = cast(Any, response.choices[0])
+            finish_reason = getattr(choice0, "finish_reason", None)
+            prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
+            content_chars = len(content)
+            tail = content[-240:] if content_chars > 240 else content
+
+            usage = getattr(response, "usage", None)
+            prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+
+            logger.info(
+                "OpenRouter chat_completion",
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                finish_reason=finish_reason,
+                prompt_chars=prompt_chars,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                content_chars=content_chars,
+                content_tail=tail,
+            )
             
             # Tokens extrahieren
-            tokens = 0
-            if response.usage:
-                tokens = response.usage.total_tokens if hasattr(response.usage, 'total_tokens') else 0
+            tokens = total_tokens
             
             # Stelle sicher, dass tokens mindestens 1 ist (eine API-Anfrage verbraucht immer Tokens)
             if tokens <= 0:
@@ -262,12 +297,11 @@ class OpenRouterProvider:
             if not response.choices or not response.choices[0].message:
                 raise ProcessingError("Keine gültige Antwort von OpenRouter Vision API erhalten")
             
-            content = response.choices[0].message.content or ""
+            content = str(response.choices[0].message.content or "")
             
             # Tokens extrahieren
-            tokens = 0
-            if response.usage:
-                tokens = response.usage.total_tokens if hasattr(response.usage, 'total_tokens') else 0
+            usage = getattr(response, "usage", None)
+            tokens = int(getattr(usage, "total_tokens", 0) or 0)
             
             # Stelle sicher, dass tokens mindestens 1 ist (eine API-Anfrage verbraucht immer Tokens)
             if tokens <= 0:

@@ -19,6 +19,9 @@ Process an audio file with transcription and optional template-based transformat
 | `target_language` | String | No | `de` | Target language for translation (ISO 639-1 code) |
 | `template` | String | No | `""` | Optional template name for text transformation |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
+| `callback_url` | String | No | - | If set, processing is **asynchronous** and results are delivered via webhook (HTTP 202 response) |
+| `callback_token` | String | No | - | Optional token sent as `Authorization: Bearer ...` and `X-Callback-Token` to the webhook |
+| `jobId` | String | No | - | Optional external job id (client-generated). Returned in the 202 ACK `job.id` |
 
 ### Supported Formats
 
@@ -34,6 +37,24 @@ curl -X POST "http://localhost:5001/api/audio/process" \
   -F "target_language=de" \
   -F "template=MeetingMinutes" \
   -F "useCache=true"
+```
+
+### Request Example (Async via Webhook)
+
+If you provide a `callback_url`, the endpoint returns immediately with `202 Accepted`
+and the worker sends the result to the webhook URL.
+
+```bash
+curl -X POST "http://localhost:5001/api/audio/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@audio.mp3" \
+  -F "source_language=en" \
+  -F "target_language=de" \
+  -F "template=MeetingMinutes" \
+  -F "useCache=true" \
+  -F "callback_url=https://your-client.example.com/webhook/audio" \
+  -F "callback_token=YOUR_WEBHOOK_TOKEN" \
+  -F "jobId=client-job-123"
 ```
 
 ### Response (Success)
@@ -85,6 +106,74 @@ curl -X POST "http://localhost:5001/api/audio/process" \
   }
 }
 ```
+
+### Response (Accepted, Async)
+
+**Status Code**: `202 Accepted`
+
+```json
+{
+  "status": "accepted",
+  "worker": "secretary",
+  "process": {
+    "id": "process-id-123",
+    "main_processor": "audio",
+    "started": "2026-01-01T00:00:00Z",
+    "is_from_cache": false
+  },
+  "job": { "id": "client-job-123" },
+  "webhook": { "delivered_to": "https://your-client.example.com/webhook/audio" },
+  "error": null
+}
+```
+
+### Webhook Payload (Async Completion)
+
+The webhook receives one final message when finished.
+**Webhook schema is standardized** and uses `phase` = `progress` | `completed` | `error`.
+
+```json
+{
+  "phase": "completed",
+  "message": "Audio-Verarbeitung abgeschlossen",
+  "data": {
+    "transcription": { "text": "..." }
+  }
+}
+```
+
+### Webhook Payload (Progress)
+
+```json
+{
+  "phase": "progress",
+  "message": "Job initialisiert",
+  "job": { "id": "client-job-123" },
+  "data": { "progress": 5 }
+}
+```
+
+On failure:
+
+```json
+{
+  "phase": "error",
+  "message": "Audio-Verarbeitung fehlgeschlagen",
+  "job": { "id": "client-job-123" },
+  "error": {
+    "code": "SomeError",
+    "message": "Details...",
+    "details": { "traceback": "..." }
+  },
+  "data": null
+}
+```
+
+### Job Status / Full Results
+
+For async jobs you can query the job status and full stored results via:
+
+- `GET /api/jobs/<job_id>`
 
 ### Response (Error)
 

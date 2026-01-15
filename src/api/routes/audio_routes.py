@@ -36,13 +36,14 @@ Features:
 - Internal: src.core.exceptions - ProcessingError
 - Internal: src.utils.logger - Logging system
 """
+# pyright: reportMissingTypeStubs=false
 # type: ignore
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields, inputs
-from typing import Dict, Any, Union, Optional, IO, cast, Tuple
+from typing import Dict, Any, Union, Optional, IO, cast
 import asyncio
 import uuid
-import tempfile
 import os
+import time
 from pathlib import Path
 from werkzeug.datastructures import FileStorage
 
@@ -52,6 +53,7 @@ from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from src.utils.logger import ProcessingLogger
+from src.core.mongodb import SecretaryJobRepository
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="audio-api")
@@ -69,6 +71,10 @@ upload_parser.add_argument('source_language', location='form', type=str, default
 upload_parser.add_argument('target_language', location='form', type=str, default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
 upload_parser.add_argument('template', location='form', type=str, default='', help='Optional Template für die Verarbeitung')
 upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')
+# Async/Webhook (analog zu PDF)
+upload_parser.add_argument('callback_url', location='form', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
+upload_parser.add_argument('callback_token', location='form', type=str, required=False, help='Optional: Token für Webhook-Auth')
+upload_parser.add_argument('jobId', location='form', type=str, required=False, help='Optional: Externe Job-ID (vom Client) für Callback-Kontext')
 
 # Definiere Error-Modell, identisch zum alten Format
 error_model: Model | OrderedModel = audio_ns.model('Error', {
@@ -160,7 +166,8 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
         if temp_file:
             temp_file.close()
             try:
-                os.unlink(temp_file_path)
+                if temp_file_path:
+                    os.unlink(temp_file_path)
             except OSError:
                 pass
 
@@ -188,6 +195,8 @@ class AudioProcessEndpoint(Resource):
         target_language: str = 'de'
         temp_file = None
         temp_file_path = None
+        job_enqueued: bool = False
+        callback_url: Optional[str] = None
         
         try:
             # DEBUG: Request-Headers protokollieren
@@ -218,9 +227,17 @@ class AudioProcessEndpoint(Resource):
                     }
                 }, 400
             
+            # jobId früh lesen (Parser-Eigenheiten umgehen, analog PDF)
+            job_id_form_early: Optional[str] = None
+            try:
+                job_id_form_early = request.form.get('jobId')  # type: ignore
+            except Exception:
+                job_id_form_early = None
+
             # Parse request mit Fehlerbehandlung
             try:
-                args = upload_parser.parse_args()
+                args_any = upload_parser.parse_args()
+                args = cast(Dict[str, Any], args_any)
             except Exception as parse_error:
                 logger.error(f"Fehler beim Parsen der Request-Argumente: {parse_error}")
                 return {
@@ -235,7 +252,7 @@ class AudioProcessEndpoint(Resource):
                     }
                 }, 400
             
-            audio_file = args.get('file')
+            audio_file = cast(Optional[FileStorage], args.get('file'))
             
             if not audio_file:
                 logger.error("Keine Audio-Datei gefunden in Request")
@@ -253,6 +270,7 @@ class AudioProcessEndpoint(Resource):
                 }, 400
             
             # DEBUG: Dateigröße-Informationen protokollieren
+            actual_file_size: int = 0
             try:
                 # Position sichern und Größe durch Lesen ermitteln
                 current_pos = audio_file.tell()
@@ -264,19 +282,29 @@ class AudioProcessEndpoint(Resource):
                 logger.info(f"Audiodatei: {audio_file.filename}, gemeldete Größe: {audio_file.content_length}, tatsächliche Größe: {actual_file_size}")
             except Exception as e:
                 logger.warning(f"Fehler beim Ermitteln der tatsächlichen Dateigröße: {e}")
+                actual_file_size = audio_file.content_length
             
-            source_language = args.get('source_language', 'de')
-            target_language = args.get('target_language', 'de')
-            template = args.get('template', '')
-            use_cache = args.get('useCache', True)
+            source_language = str(args.get('source_language', 'de') or 'de')
+            target_language = str(args.get('target_language', 'de') or 'de')
+            template = str(args.get('template', '') or '')
+            use_cache = bool(args.get('useCache', True))
+            callback_url = str(args.get('callback_url', '') or '') or None
+            callback_token = str(args.get('callback_token', '') or '') or None
+
+            # Bevorzuge früh gelesene jobId; fallback auf Parser-Wert
+            job_id_form: Optional[str] = None
+            if job_id_form_early and str(job_id_form_early).strip():
+                job_id_form = str(job_id_form_early).strip()
+            elif args.get('jobId'):
+                job_id_form = str(args.get('jobId')).strip()
 
             # Validiere Dateiformat
-            filename = audio_file.filename.lower()
+            filename = str(audio_file.filename or "").lower()
             supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'}
             file_ext = Path(filename).suffix.lstrip('.')
             source_info = {
                 'original_filename': audio_file.filename,
-                'file_size': audio_file.content_length,
+                'file_size': getattr(audio_file, "content_length", None),
                 'file_type': audio_file.content_type,
                 'file_ext': file_ext
             }
@@ -287,16 +315,78 @@ class AudioProcessEndpoint(Resource):
                     details={'error_type': 'INVALID_FORMAT', 'supported_formats': list(supported_formats)}
                 )
 
-            # Verarbeite die Datei
+            # Async Mode (wie PDF): Wenn callback_url gesetzt ist, Job enqueuen und 202 zurückgeben
+            if callback_url:
+                process_id = str(uuid.uuid4())
+
+                # Upload persistieren, damit der Worker später zugreifen kann
+                upload_dir = Path("cache") / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                suffix = Path(audio_file.filename).suffix if audio_file.filename else ".audio"
+                temp_file_path = str(upload_dir / f"upload_{uuid.uuid4()}{suffix}")
+                audio_file.save(temp_file_path)
+                temp_file_path = os.path.abspath(temp_file_path)
+                try:
+                    temp_file_path = Path(temp_file_path).as_posix()
+                except Exception:
+                    temp_file_path = temp_file_path.replace('\\', '/')
+
+                params_flat: Dict[str, Any] = {
+                    "filename": temp_file_path,
+                    "use_cache": bool(use_cache),
+                    "source_language": str(source_language),
+                    "target_language": str(target_language),
+                    "template": str(template) if template else None,
+                    # Kontext/Metadaten: minimal, aber hilfreich (AudioProcessor nutzt es fürs Template)
+                    "context": {
+                        "original_filename": audio_file.filename,
+                        "file_size_bytes": int(actual_file_size or 0),
+                        "file_type": audio_file.content_type,
+                        "file_ext": file_ext,
+                    },
+                    "webhook": {
+                        "url": callback_url,
+                        "token": callback_token,
+                        "jobId": job_id_form or job_id_form_early or None,
+                    },
+                }
+
+                job_repo = SecretaryJobRepository()
+                created_job_id: str = job_repo.create_job({"job_type": "audio", "parameters": params_flat})
+                job_enqueued = True
+
+                ack: Dict[str, Any] = {
+                    "status": "accepted",
+                    "worker": "secretary",
+                    "process": {
+                        "id": process_id,
+                        "main_processor": "audio",
+                        "started": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        "is_from_cache": False,
+                    },
+                    # Für den Client die externe jobId (falls gesetzt) zurückgeben
+                    "job": {"id": job_id_form or job_id_form_early or created_job_id},
+                    "webhook": {"delivered_to": callback_url},
+                    "error": None,
+                }
+                logger.info(
+                    "Webhook-ACK gesendet (Audio Job enqueued)",
+                    process_id=process_id,
+                    job_id_external=(job_id_form or job_id_form_early),
+                    job_id_internal=created_job_id,
+                    callback_url=callback_url,
+                )
+                return ack, 202
+
+            # Sync fallback (bestehendes Verhalten)
             result = asyncio.run(process_file(
-                audio_file, 
-                source_info, 
-                source_language, 
-                target_language, 
+                audio_file,
+                source_info,
+                source_language,
+                target_language,
                 template,
                 use_cache
-            )) 
-
+            ))
             return result
 
         except ProcessingError as e:
@@ -331,11 +421,12 @@ class AudioProcessEndpoint(Resource):
             }, 500
             
         finally:
-            # Räume auf
-            if temp_file:
-                temp_file.close()
-                try:
-                    if temp_file_path:
-                        os.unlink(temp_file_path)
-                except OSError:
-                    pass 
+            # Cleanup nur im Sync-Fall. Wenn ein Job enqueued wurde, muss die Datei bestehen bleiben.
+            if not job_enqueued:
+                if temp_file:
+                    temp_file.close()
+                    try:
+                        if temp_file_path:
+                            os.unlink(temp_file_path)
+                    except OSError:
+                        pass 

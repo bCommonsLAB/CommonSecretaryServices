@@ -39,14 +39,19 @@ Features:
 - Internal: src.core.models.enums - OutputFormat
 - Internal: src.utils.performance_tracker - Performance tracking
 """
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnusedFunction=false, reportGeneralTypeIssues=false, reportCallIssue=false, reportPossiblyUnboundVariable=false, reportUnusedVariable=false, reportUnnecessaryIsInstance=false
+# Hinweis:
+# Dieses Modul ist bewusst "API-glue" und verwendet flask-restx RequestParser, dynamische JSON-Payloads
+# und third-party Typen ohne vollständige Stub-Pakete. Pyright würde hier sehr viele Unknown-Reports erzeugen.
+# Die inhaltliche Validierung erfolgt in den Processors/Dataclasses.
 # type: ignore
-from datetime import datetime
 import time
 from typing import Dict, Any, Union, Optional, List
 import traceback
 import uuid
 import json
 import asyncio
+import hashlib
 
 from flask import request
 from werkzeug.datastructures import FileStorage
@@ -63,13 +68,9 @@ from src.utils.performance_tracker import get_performance_tracker
 from src.utils.logger import ProcessingLogger
 from src.utils.performance_tracker import PerformanceTracker
 from src.core.models.enums import OutputFormat
-from src.core.models.base import (
-    BaseResponse,
-    RequestInfo,
-    ProcessInfo,
-    ErrorInfo
-)
+from src.core.models.base import ErrorInfo
 from src.core.llm.config_manager import LLMConfigManager
+from src.core.llm.use_cases import UseCase
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="transformer-api")
@@ -285,18 +286,27 @@ class TransformTextEndpoint(Resource):
     @transformer_ns.response(500, 'Server-Fehler')  # type: ignore
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Transformiert Text von einer Sprache in eine andere, mit optionaler Zusammenfassung."""
+        # Default-Werte, damit Error-Handling keine "unbound" Variablen erzeugt.
+        processor: TransformerProcessor | None = None
+        source_text: str = ""
+        source_language: str = "de"
+        target_language: str = "de"
+        summarize: bool = False
+        target_format_str: str = "TEXT"
+        context: Dict[str, Any] = {}
+        use_cache: bool = True
         try:
             # Request-Daten extrahieren mit dem Parser
             args = text_transform_parser.parse_args()
             
             # Parameter extrahieren
-            source_text = args.get('text', '')
-            source_language = args.get('source_language', 'de')
-            target_language = args.get('target_language', 'de')
-            summarize = args.get('summarize', False)
-            target_format_str = args.get('target_format', 'TEXT')
+            source_text = str(args.get('text', '') or '')
+            source_language = str(args.get('source_language', 'de') or 'de')
+            target_language = str(args.get('target_language', 'de') or 'de')
+            summarize = bool(args.get('summarize', False))
+            target_format_str = str(args.get('target_format', 'TEXT') or 'TEXT')
             context_str = args.get('context')
-            use_cache = args.get('use_cache', True)
+            use_cache = bool(args.get('use_cache', True))
 
             # Kontext parsen, falls vorhanden
             context = {}
@@ -355,7 +365,7 @@ class TransformTextEndpoint(Resource):
             start_time: float = time.time()
 
             # Processor initialisieren und Text transformieren
-            processor: TransformerProcessor = get_transformer_processor()
+            processor = get_transformer_processor()
             result: TransformerResponse = processor.transform(
                 source_text=source_text,
                 source_language=source_language,
@@ -383,7 +393,7 @@ class TransformTextEndpoint(Resource):
                 },
                 response_class=TransformerResponse,
                 from_cache=processor.process_info.is_from_cache,    
-                cache_key=processor.process_info.cache_key
+                cache_key=processor.process_info.cache_key or ""
             )
 
             return response.to_dict()
@@ -391,47 +401,9 @@ class TransformTextEndpoint(Resource):
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
             # Spezifische Fehlerbehandlung
             logger.error(f"Bekannter Fehler bei der Text-Transformation: {str(e)}")
-            
-            # Processor könnte nicht initialisiert worden sein, daher prüfen
-            processor = None
-            try:
-                processor = get_transformer_processor()
-            except Exception as proc_error:
-                # Falls Processor nicht erstellt werden kann, erstelle minimale Fehlerantwort
-                from src.core.models.transformer import ErrorInfo, TransformerData
-                error_response = TransformerResponse(
-                    status="error",
-                    error=ErrorInfo(
-                        code="PROCESSOR_INIT_ERROR",
-                        message=f"Processor konnte nicht initialisiert werden: {str(proc_error)}"
-                    ),
-                    data=TransformerData(
-                        text="",
-                        transformed_text="",
-                        source_language=source_language if 'source_language' in locals() else "unknown",
-                        target_language=target_language if 'target_language' in locals() else "unknown"
-                    )
-                )
-                return error_response.to_dict(), 500
-            
-            if processor is None:
-                from src.core.models.transformer import ErrorInfo, TransformerData
-                error_response = TransformerResponse(
-                    status="error",
-                    error=ErrorInfo(
-                        code="PROCESSOR_INIT_ERROR",
-                        message=str(e)
-                    ),
-                    data=TransformerData(
-                        text="",
-                        transformed_text="",
-                        source_language=source_language if 'source_language' in locals() else "unknown",
-                        target_language=target_language if 'target_language' in locals() else "unknown"
-                    )
-                )
-                return error_response.to_dict(), 500
-            
-            error_response = processor.create_response(
+
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
                 processor_name="transformer",
                 result=None,
                 request_info={
@@ -448,7 +420,7 @@ class TransformTextEndpoint(Resource):
                 error=ErrorInfo(
                     code=e.__class__.__name__,
                     message=str(e),
-                    details=traceback.format_exc()
+                    details={"traceback": traceback.format_exc()}
                 )
             )
             return error_response.to_dict(), 400
@@ -457,8 +429,9 @@ class TransformTextEndpoint(Resource):
             # Allgemeine Fehlerbehandlung
             logger.error(f"Fehler bei der Text-Transformation: {str(e)}")
             logger.error(traceback.format_exc())
-            
-            error_response = processor.create_response(
+
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
                 processor_name="transformer",
                 result=None,
                 request_info={
@@ -475,7 +448,7 @@ class TransformTextEndpoint(Resource):
                 error=ErrorInfo(
                     code="ProcessingError",
                     message=f"Fehler bei der Text-Transformation: {str(e)}",
-                    details=traceback.format_exc()
+                    details={"traceback": traceback.format_exc()}
                 )
             )
             return error_response.to_dict(), 400
@@ -779,7 +752,7 @@ class TemplateTransformEndpoint(Resource):
                         logger.info(f"Container-Selector automatisch bestimmt: {container_selector} für URL: {url}")
                 
                 # URL-basierte Transformation
-                result: TransformerResponse = transformer_processor.transformByUrl(
+                transform_result: TransformerResponse = transformer_processor.transformByUrl(
                     url=url,
                     source_language=source_language,
                     target_language=target_language,
@@ -793,7 +766,7 @@ class TemplateTransformEndpoint(Resource):
             else:
                 # Text-basierte Transformation
                 # Übergebe Modell/Provider-Überschreibung falls vorhanden
-                result: TransformerResponse = transformer_processor.transformByTemplate(
+                transform_result = transformer_processor.transformByTemplate(
                     text=text,
                     source_language=source_language,
                     target_language=target_language,
@@ -812,7 +785,7 @@ class TemplateTransformEndpoint(Resource):
 
             response: TransformerResponse = transformer_processor.create_response(
                 processor_name="transformer",
-                result=result,
+                result=transform_result,
                 request_info={
                     'text': _truncate_text(text) if text else None,
                     'url': url if url else None,
@@ -827,7 +800,7 @@ class TemplateTransformEndpoint(Resource):
                 },
                 response_class=TransformerResponse,
                 from_cache=transformer_processor.process_info.is_from_cache,    
-                cache_key=transformer_processor.process_info.cache_key
+                cache_key=transformer_processor.process_info.cache_key or ""
             )
 
             return response.to_dict()
@@ -1543,6 +1516,15 @@ class TransformTextFileEndpoint(Resource):
         """
         # Zeitmessung starten
         process_start_time = time.time()
+        processor: TransformerProcessor | None = None
+        filename: str = ""
+        source_text: str = ""
+        source_language: str = "de"
+        target_language: str = "de"
+        summarize: bool = False
+        target_format_str: str = "TEXT"
+        context: Dict[str, Any] = {}
+        use_cache: bool = True
         
         # Prozess-ID für Tracking
         process_id = str(uuid.uuid4())
@@ -1628,7 +1610,7 @@ class TransformTextFileEndpoint(Resource):
                 }, 400
                 
             # Processor initialisieren und Text transformieren
-            processor: TransformerProcessor = get_transformer_processor()
+            processor = get_transformer_processor()
             result: TransformerResponse = processor.transform(
                 source_text=source_text,
                 source_language=source_language,
@@ -1658,7 +1640,7 @@ class TransformTextFileEndpoint(Resource):
                 },
                 response_class=TransformerResponse,
                 from_cache=processor.process_info.is_from_cache,
-                cache_key=processor.process_info.cache_key
+                cache_key=processor.process_info.cache_key or ""
             )
             
             return response.to_dict()
@@ -1666,29 +1648,27 @@ class TransformTextFileEndpoint(Resource):
         except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
             # Spezifische Fehlerbehandlung
             logger.error(f"Bekannter Fehler bei der Text-Datei-Transformation: {str(e)}")
-            
-            error_response = BaseResponse(
-                status="error",
+
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'filename': filename,
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
                 error=ErrorInfo(
                     code=e.__class__.__name__,
                     message=str(e),
-                    details=traceback.format_exc()
-                ),
-                request=RequestInfo(
-                    processor="transformer",
-                    timestamp=datetime.now().isoformat(),
-                    parameters={
-                        'filename': getattr(uploaded_file, 'filename', None),
-                        'source_language': args.get('source_language', 'de'),
-                        'target_language': args.get('target_language', 'de')
-                    }
-                ),
-                process=ProcessInfo(
-                    id=process_id,
-                    main_processor="transformer",
-                    started=datetime.now().isoformat(),
-                    completed=datetime.now().isoformat(),
-                    duration_ms=int((time.time() - process_start_time) * 1000)
+                    details={"traceback": traceback.format_exc()}
                 )
             )
             return error_response.to_dict(), 400
@@ -1697,29 +1677,27 @@ class TransformTextFileEndpoint(Resource):
             # Allgemeine Fehlerbehandlung
             logger.error(f"Fehler bei der Text-Datei-Transformation: {str(e)}")
             logger.error(traceback.format_exc())
-            
-            error_response = BaseResponse(
-                status="error",
+
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={
+                    'filename': filename,
+                    'text': _truncate_text(source_text),
+                    'source_language': source_language,
+                    'target_language': target_language,
+                    'summarize': summarize,
+                    'target_format': target_format_str,
+                    'context': context
+                },
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
                 error=ErrorInfo(
                     code="ProcessingError",
                     message=f"Fehler bei der Text-Datei-Transformation: {str(e)}",
-                    details=traceback.format_exc()
-                ),
-                request=RequestInfo(
-                    processor="transformer",
-                    timestamp=datetime.now().isoformat(),
-                    parameters={
-                        'filename': getattr(uploaded_file, 'filename', None),
-                        'source_language': args.get('source_language', 'de') if args else 'de',
-                        'target_language': args.get('target_language', 'de') if args else 'de'
-                    }
-                ),
-                process=ProcessInfo(
-                    id=process_id,
-                    main_processor="transformer",
-                    started=datetime.now().isoformat(),
-                    completed=datetime.now().isoformat(),
-                    duration_ms=int((time.time() - process_start_time) * 1000)
+                    details={"traceback": traceback.format_exc()}
                 )
             )
             return error_response.to_dict(), 400
@@ -1763,6 +1741,312 @@ metadata_response = transformer_ns.model('MetadataResponse', {
     'data': fields.Raw(description='Extrahierte Metadaten'),
     'error': fields.Raw(description='Fehlerinformationen (falls vorhanden)')
 })
+
+# XXL-Text Upload Parser - für große Textdateien mit Chunking + Zusammenfassung
+xxl_text_upload_parser = transformer_ns.parser()
+xxl_text_upload_parser.add_argument(
+    'file',
+    type=FileStorage,
+    location='files',
+    required=True,
+    help='Die zu zusammenfassende Textdatei (TXT, MD)'
+)
+xxl_text_upload_parser.add_argument(
+    'target_language',
+    type=str,
+    location='form',
+    required=False,
+    default='de',
+    help='Zielsprache der Zusammenfassung (ISO 639-1 Code, default: de)'
+)
+xxl_text_upload_parser.add_argument(
+    'max_parallel',
+    type=int,
+    location='form',
+    required=False,
+    default=3,
+    help='Maximale Parallelität (1..3, default: 3)'
+)
+xxl_text_upload_parser.add_argument(
+    'overlap_ratio',
+    type=float,
+    location='form',
+    required=False,
+    default=0.04,
+    help='Overlap-Anteil relativ zur Chunkgröße (0.01..0.10 empfohlen, default: 0.04)'
+)
+xxl_text_upload_parser.add_argument(
+    'use_cache',
+    type=str,
+    location='form',
+    required=False,
+    default='false',
+    help='Ob der Cache verwendet werden soll (true/false, default: false)'
+)
+xxl_text_upload_parser.add_argument(
+    'detail_level',
+    type=str,
+    location='form',
+    required=False,
+    default='high',
+    help="Detailgrad der Zusammenfassung ('normal' oder 'high', default: high)"
+)
+xxl_text_upload_parser.add_argument(
+    'instructions',
+    type=str,
+    location='form',
+    required=False,
+    help='Optionale Zusatz-Anweisungen für den Prompt (max. 5000 Zeichen).'
+)
+xxl_text_upload_parser.add_argument(
+    'prompt_use_case',
+    type=str,
+    location='form',
+    required=False,
+    default='cursor_chat_analysis',
+    help="Prompt-Use-Case: 'general' oder 'cursor_chat_analysis' (default: cursor_chat_analysis)"
+)
+xxl_text_upload_parser.add_argument(
+    'min_chunk_summary_chars',
+    type=int,
+    location='form',
+    required=False,
+    default=5000,
+    help='Mindestlänge pro Chunk-Summary in Zeichen (default: 5000, 0 deaktiviert)'
+)
+xxl_text_upload_parser.add_argument(
+    'min_final_summary_chars',
+    type=int,
+    location='form',
+    required=False,
+    default=7000,
+    help='Mindestlänge der finalen Summary in Zeichen (default: 7000, 0 deaktiviert)'
+)
+xxl_text_upload_parser.add_argument(
+    'chunk_max_tokens',
+    type=int,
+    location='form',
+    required=False,
+    default=8000,
+    help='Maximale Output-Tokens pro Chunk-Summary (default: 8000)'
+)
+xxl_text_upload_parser.add_argument(
+    'final_max_tokens',
+    type=int,
+    location='form',
+    required=False,
+    default=8000,
+    help='Maximale Output-Tokens für die finale Summary (default: 8000)'
+)
+
+@transformer_ns.route('/xxl-text')
+class XXLTextSummarizeEndpoint(Resource):
+    @transformer_ns.expect(xxl_text_upload_parser)
+    @transformer_ns.response(200, 'Erfolg')
+    @transformer_ns.response(400, 'Validierungsfehler', error_model)
+    @transformer_ns.doc(description='Fasst eine sehr große Textdatei zusammen (Chunking + Summary-of-summaries).')
+    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+        process_start_time = time.time()
+        process_id = str(uuid.uuid4())
+        processor: TransformerProcessor | None = None
+        filename: str = ""
+        file_size_bytes: int = 0
+        detected_encoding: str = "unknown"
+        file_sha256: str = ""
+
+        try:
+            args = xxl_text_upload_parser.parse_args()
+
+            uploaded_file = args.get('file')
+            if not uploaded_file:
+                return {
+                    "status": "error",
+                    "error": {"code": "InvalidRequest", "message": "Keine Datei im Request gefunden."}
+                }, 400
+
+            filename = uploaded_file.filename or ""
+            if not filename.lower().endswith(('.txt', '.md')):
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": "InvalidFileType",
+                        "message": "Der Dateityp wird nicht unterstützt. Nur .txt und .md Dateien sind erlaubt."
+                    }
+                }, 400
+
+            # Dateiinhalt lesen (UTF-8 bevorzugt)
+            try:
+                raw_bytes = uploaded_file.read()
+                file_size_bytes = len(raw_bytes)
+                file_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+                source_text = raw_bytes.decode('utf-8')
+                detected_encoding = "utf-8"
+            except UnicodeDecodeError:
+                try:
+                    source_text = raw_bytes.decode('latin-1')
+                    detected_encoding = "latin-1"
+                except Exception:
+                    return {
+                        "status": "error",
+                        "error": {
+                            "code": "FileDecodingError",
+                            "message": "Die Datei konnte nicht korrekt dekodiert werden (UTF-8/Latin-1)."
+                        }
+                    }, 400
+
+            target_language = str(args.get('target_language', 'de') or 'de')
+            max_parallel = int(args.get('max_parallel', 3) or 3)
+            overlap_ratio = float(args.get('overlap_ratio', 0.04) or 0.04)
+            use_cache_str = str(args.get('use_cache', 'true') or 'true').lower()
+            use_cache = use_cache_str != 'false'
+            detail_level = str(args.get('detail_level', 'normal') or 'normal').strip().lower()
+            instructions_raw = args.get('instructions')
+            instructions = str(instructions_raw) if instructions_raw is not None else None
+            prompt_use_case = str(args.get('prompt_use_case', 'general') or 'general').strip().lower()
+            min_chunk_summary_chars = int(args.get('min_chunk_summary_chars', 5000) or 5000)
+            min_final_summary_chars = int(args.get('min_final_summary_chars', 5000) or 5000)
+            chunk_max_tokens = int(args.get('chunk_max_tokens', 4096) or 4096)
+            final_max_tokens = int(args.get('final_max_tokens', 4096) or 4096)
+
+            # Clamp defensiv im API-Layer
+            if max_parallel < 1:
+                max_parallel = 1
+            if max_parallel > 3:
+                max_parallel = 3
+            if overlap_ratio < 0.0:
+                overlap_ratio = 0.0
+            if overlap_ratio > 0.5:
+                overlap_ratio = 0.5
+            if detail_level not in {"normal", "high"}:
+                detail_level = "normal"
+            if instructions is not None:
+                instructions = instructions.strip()
+                if len(instructions) > 5000:
+                    return {
+                        "status": "error",
+                        "error": {
+                            "code": "InvalidRequest",
+                            "message": "instructions ist zu lang (max. 5000 Zeichen)."
+                        }
+                    }, 400
+                if not instructions:
+                    instructions = None
+            if prompt_use_case not in {"general", "cursor_chat_analysis"}:
+                prompt_use_case = "general"
+
+            # Mindestlängen defensiv clampen (0 erlaubt zum Deaktivieren)
+            if min_chunk_summary_chars < 0:
+                min_chunk_summary_chars = 0
+            if min_final_summary_chars < 0:
+                min_final_summary_chars = 0
+            if min_chunk_summary_chars > 50_000:
+                min_chunk_summary_chars = 50_000
+            if min_final_summary_chars > 50_000:
+                min_final_summary_chars = 50_000
+
+            # Token-Limits defensiv clampen (0 deaktiviert)
+            if chunk_max_tokens < 0:
+                chunk_max_tokens = 0
+            if final_max_tokens < 0:
+                final_max_tokens = 0
+            if chunk_max_tokens == 0:
+                chunk_max_tokens = 4096
+            if final_max_tokens == 0:
+                final_max_tokens = 4096
+            if chunk_max_tokens > 200_000:
+                chunk_max_tokens = 200_000
+            if final_max_tokens > 200_000:
+                final_max_tokens = 200_000
+
+            processor = get_transformer_processor()
+
+            result: TransformerResponse = processor.summarize_xxl_text(
+                source_text=source_text,
+                source_filename=filename,
+                source_file_size_bytes=file_size_bytes,
+                source_detected_encoding=detected_encoding,
+                source_sha256=file_sha256,
+                target_language=target_language,
+                max_parallel=max_parallel,
+                overlap_ratio=overlap_ratio,
+                use_cache=use_cache,
+                detail_level=detail_level,
+                instructions=instructions,
+                prompt_use_case=prompt_use_case,
+                min_chunk_summary_chars=min_chunk_summary_chars,
+                min_final_summary_chars=min_final_summary_chars,
+                chunk_max_tokens=chunk_max_tokens,
+                final_max_tokens=final_max_tokens,
+            )
+
+            duration_ms = int((time.time() - process_start_time) * 1000)
+
+            response: TransformerResponse = processor.create_response(
+                processor_name="transformer",
+                result=result,
+                request_info={
+                    "filename": filename,
+                    "text": _truncate_text(source_text),
+                    "file_size_bytes": file_size_bytes,
+                    "detected_encoding": detected_encoding,
+                    "file_sha256": file_sha256,
+                    "input_chars": len(source_text),
+                    "target_language": target_language,
+                    "max_parallel": max_parallel,
+                    "overlap_ratio": overlap_ratio,
+                    "use_cache": use_cache,
+                    "detail_level": detail_level,
+                    "instructions": _truncate_text(instructions) if instructions else None,
+                    "prompt_use_case": prompt_use_case,
+                    "min_chunk_summary_chars": min_chunk_summary_chars,
+                    "min_final_summary_chars": min_final_summary_chars,
+                    "chunk_max_tokens": chunk_max_tokens,
+                    "final_max_tokens": final_max_tokens,
+                    "duration_ms": duration_ms,
+                    "use_case": UseCase.TRANSFORMER_XXL.value,
+                },
+                response_class=TransformerResponse,
+                from_cache=processor.process_info.is_from_cache,
+                cache_key=processor.process_info.cache_key or "",
+            )
+
+            return response.to_dict()
+
+        except (ProcessingError, FileSizeLimitExceeded, RateLimitExceeded) as e:
+            logger.error(f"Bekannter Fehler bei XXL-Text-Zusammenfassung: {str(e)}")
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={"filename": filename, "use_case": UseCase.TRANSFORMER_XXL.value},
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code=e.__class__.__name__,
+                    message=str(e),
+                    details={"traceback": traceback.format_exc()},
+                ),
+            )
+            return error_response.to_dict(), 400
+        except Exception as e:
+            logger.error(f"Fehler bei XXL-Text-Zusammenfassung: {str(e)}")
+            logger.error(traceback.format_exc())
+            proc = processor or get_transformer_processor()
+            error_response = proc.create_response(
+                processor_name="transformer",
+                result=None,
+                request_info={"filename": filename, "use_case": UseCase.TRANSFORMER_XXL.value},
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="ProcessingError",
+                    message=f"Fehler bei XXL-Text-Zusammenfassung: {str(e)}",
+                    details={"traceback": traceback.format_exc()},
+                ),
+            )
+            return error_response.to_dict(), 400
 
 # Metadata-Extraktion Endpunkt (aus src/api/routes.py integriert)
 @transformer_ns.route('/metadata')
