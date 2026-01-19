@@ -85,6 +85,89 @@ class OpenRouterProvider:
     def get_client(self) -> OpenAI:
         """Gibt den OpenAI-kompatiblen Client zurück."""
         return self.client
+
+    def _is_images_endpoint_model(self, model: str) -> bool:
+        """
+        Prüft, ob ein Modell voraussichtlich den Images-Endpoint unterstützt.
+        
+        Der Images-Endpoint ist primär für OpenAI-Modelle dokumentiert
+        (z.B. DALL-E, GPT-Image). Für andere Modelle wird in der Regel
+        der Chat-Endpoint mit modalities verwendet.
+        """
+        model_lower = model.lower().strip()
+        return model_lower.startswith("openai/") or model_lower.startswith("openrouter/openai/")
+
+    def _extract_image_bytes_from_images_response(self, response: Any) -> bytes:
+        """
+        Extrahiert Bild-Bytes aus der /images/generations Response.
+        """
+        import base64
+        
+        data_items = getattr(response, "data", None)
+        if not data_items or len(data_items) == 0:
+            raise ProcessingError("Keine Bilddaten in der OpenRouter Response gefunden")
+        
+        first_image = data_items[0]
+        b64_json = getattr(first_image, "b64_json", None)
+        image_url = getattr(first_image, "url", None)
+        
+        if b64_json:
+            return base64.b64decode(b64_json)
+        if isinstance(image_url, str) and image_url.startswith("data:image"):
+            base64_data = image_url.split(",", 1)[1]
+            return base64.b64decode(base64_data)
+        if isinstance(image_url, str):
+            # Externe URL serverseitig laden, damit der Client keine externe URL braucht
+            from urllib.request import urlopen
+            with urlopen(image_url) as response_stream:
+                return response_stream.read()
+        
+        raise ProcessingError("Weder b64_json noch URL in der OpenRouter Response gefunden")
+
+    def _extract_image_bytes_from_chat_response(self, response: ChatCompletion) -> bytes:
+        """
+        Extrahiert Bild-Bytes aus der chat/completions Response.
+        
+        OpenRouter liefert Bilder als Data-URL im Feld message.images[].image_url.url.
+        """
+        import base64
+        
+        if not response.choices or not response.choices[0].message:
+            raise ProcessingError("Keine gültige Chat-Response für Bildgenerierung erhalten")
+        
+        message = response.choices[0].message
+        images = getattr(message, "images", None)
+        if not images or len(images) == 0:
+            raise ProcessingError("Keine Bilder in der Chat-Response gefunden")
+        
+        first_image = images[0]
+        
+        # Unterstütze verschiedene Response-Formate (dict oder Objekt)
+        image_url_obj = getattr(first_image, "image_url", None)
+        if image_url_obj is None and isinstance(first_image, dict):
+            image_url_obj = first_image.get("image_url")
+        
+        image_url = None
+        if image_url_obj is not None and hasattr(image_url_obj, "url"):
+            image_url = image_url_obj.url
+        elif isinstance(image_url_obj, dict):
+            image_url = image_url_obj.get("url")
+        
+        # Fallback: manchmal liegt die URL direkt im Objekt
+        if image_url is None:
+            image_url = getattr(first_image, "url", None)
+            if image_url is None and isinstance(first_image, dict):
+                image_url = first_image.get("url")
+        
+        if isinstance(image_url, str) and image_url.startswith("data:image"):
+            base64_data = image_url.split(",", 1)[1]
+            return base64.b64decode(base64_data)
+        if isinstance(image_url, str):
+            from urllib.request import urlopen
+            with urlopen(image_url) as response_stream:
+                return response_stream.read()
+        
+        raise ProcessingError(f"Unbekanntes Bild-URL-Format: {type(image_url)}")
     
     def transcribe(
         self,
@@ -403,6 +486,157 @@ class OpenRouterProvider:
             "Verwenden Sie VoyageAI für Embeddings."
         )
     
+    def text2image(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        n: int = 1,
+        seed: Optional[int] = None,
+        **kwargs: Any
+    ) -> tuple[bytes, LLMRequest]:
+        """
+        Generiert ein Bild aus einem Text-Prompt mit OpenRouter.
+        
+        OpenRouter unterstützt Bildgenerierung über den Chat-Endpoint
+        (/chat/completions) mit modalities. Für OpenAI-Modelle ist
+        alternativ der Images-Endpoint (/images/generations) möglich.
+        
+        Args:
+            prompt: Text-Prompt für Bildgenerierung
+            model: Zu verwendendes Modell (muss "image" in output_modalities haben)
+            size: Bildgröße (z.B. "1024x1024", "1792x1024", "1024x1792")
+            quality: Qualität ("standard" oder "hd")
+            n: Anzahl der Bilder (default: 1, max: 1 für die meisten Modelle)
+            **kwargs: Zusätzliche Parameter
+            
+        Returns:
+            tuple[bytes, LLMRequest]: Bild-Bytes (PNG) und LLM-Request-Info
+            
+        Raises:
+            ProcessingError: Wenn Bildgenerierung fehlschlägt
+        """
+        start_time = time.time()
+        endpoint_used = "unknown"
+        
+        try:
+            endpoint_used = "chat"
+            response: Any = None
+            
+            # API-Parameter vorbereiten
+            # Standard: Chat-Endpoint mit modalities (OpenRouter-Doku)
+            chat_params: Dict[str, Any] = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "modalities": ["image", "text"]
+            }
+            
+            # OpenAI-Images-Endpoint nur fuer OpenAI-Modelle verwenden
+            if self._is_images_endpoint_model(model):
+                endpoint_used = "images"
+                images_params: Dict[str, Any] = {
+                    "model": model,
+                    "prompt": prompt,
+                    "size": size,
+                    "quality": quality
+                }
+                
+                # Anzahl der Bilder (nur wenn > 1, da Default 1 ist)
+                if n and n > 1:
+                    images_params["n"] = min(n, 1)
+                
+                # Seed hinzufügen, falls angegeben
+                seed_value = seed if seed is not None else kwargs.get("seed")
+                if seed_value is not None:
+                    images_params["seed"] = seed_value
+                
+                # Zusätzliche Parameter aus kwargs hinzufügen
+                for key, value in kwargs.items():
+                    if key not in ["model", "prompt", "size", "quality", "n", "seed"]:
+                        images_params[key] = value
+                
+                response = self.client.images.generate(**images_params)
+                image_bytes = self._extract_image_bytes_from_images_response(response)
+            else:
+                # Zusätzliche Parameter für Chat-Endpoint
+                # image_config ist im OpenAI-SDK nicht immer erlaubt, daher nur whitelisted Keys
+                for key, value in kwargs.items():
+                    if key not in ["model", "messages", "modalities"]:
+                        chat_params[key] = value
+                
+                response = self.client.chat.completions.create(**chat_params)
+                image_bytes = self._extract_image_bytes_from_chat_response(response)
+            
+            # Dauer berechnen
+            duration = (time.time() - start_time) * 1000
+            
+            # Tokens extrahieren
+            usage = getattr(response, "usage", None)
+            tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            if tokens <= 0:
+                tokens = 1
+            
+            # LLMRequest erstellen
+            llm_request = LLMRequest(
+                model=model,
+                purpose="text2image",
+                tokens=tokens,
+                duration=duration,
+                processor="OpenRouterProvider"
+            )
+            
+            logger.info(
+                "OpenRouter text2image",
+                model=model,
+                size=size,
+                quality=quality,
+                prompt_length=len(prompt),
+                image_size_bytes=len(image_bytes),
+                tokens=tokens,
+                duration_ms=duration,
+                endpoint=endpoint_used
+            )
+            
+            return image_bytes, llm_request
+            
+        except Exception as e:
+            duration = (time.time() - start_time) * 1000
+            
+            # Fehlerdetails sammeln, damit die Fehlermeldung konkret genug ist
+            # fuer Debugging (Statuscode, Response-Body, Modell, Endpoint).
+            error_details: Dict[str, Any] = {
+                "error_type": "TEXT2IMAGE_ERROR",
+                "duration_ms": duration,
+                "model": model,
+                # Endpoint kann im Fehlerfall unbekannt sein, daher absichern
+                "endpoint": endpoint_used
+            }
+            
+            status_code = getattr(e, "status_code", None)
+            if status_code is not None:
+                error_details["status_code"] = status_code
+            
+            response = getattr(e, "response", None)
+            if response is not None:
+                try:
+                    error_details["response_text"] = response.text
+                except Exception:
+                    pass
+                try:
+                    error_details["response_json"] = response.json()
+                except Exception:
+                    pass
+            
+            body = getattr(e, "body", None)
+            if body is not None:
+                error_details["response_body"] = body
+            
+            raise ProcessingError(
+                f"Fehler bei der OpenRouter Bildgenerierung: {str(e)}",
+                details=error_details
+            ) from e
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.
@@ -416,7 +650,8 @@ class OpenRouterProvider:
         return use_case in [
             UseCase.CHAT_COMPLETION,
             UseCase.IMAGE2TEXT,
-            UseCase.OCR_PDF
+            UseCase.OCR_PDF,
+            UseCase.TEXT2IMAGE
         ]
 
 

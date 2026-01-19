@@ -84,6 +84,7 @@ def llm_config_page() -> str:
                 "chat_completion": "Chat Completion & Translation",
                 "embedding": "Embedding",
                 "transformer_xxl": "Transformer XXL (Large-File Summarization)",
+                "text2image": "Text2Image (Image Generation)",
             }
 
             # Konservative Defaults (nur wenn noch nicht konfiguriert)
@@ -94,6 +95,7 @@ def llm_config_page() -> str:
                 "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},
                 # XXL: Default wie spezifiziert
                 "transformer_xxl": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
+                "text2image": {"provider": "openrouter", "model": "openai/dall-e-3"},
             }
             
             # Lade aktuelle Konfiguration für Anzeige

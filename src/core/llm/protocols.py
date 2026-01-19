@@ -159,6 +159,34 @@ class LLMProvider(Protocol):
         """
         ...
     
+    def text2image(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        n: int = 1,
+        **kwargs: Any
+    ) -> tuple[bytes, LLMRequest]:
+        """
+        Generiert ein Bild aus einem Text-Prompt.
+        
+        Args:
+            prompt: Text-Prompt für Bildgenerierung
+            model: Zu verwendendes Modell (muss "image" in output_modalities haben)
+            size: Bildgröße (z.B. "1024x1024", "1792x1024", "1024x1792")
+            quality: Qualität ("standard" oder "hd")
+            n: Anzahl der Bilder (default: 1)
+            **kwargs: Zusätzliche Provider-spezifische Parameter
+            
+        Returns:
+            tuple[bytes, LLMRequest]: Bild-Bytes (PNG) und LLM-Request-Info
+            
+        Raises:
+            ProcessingError: Wenn Bildgenerierung fehlschlägt oder Provider nicht unterstützt
+        """
+        ...
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.

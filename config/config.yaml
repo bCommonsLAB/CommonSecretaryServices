@@ -28,6 +28,9 @@ llm_config:
     transcription:
       provider: openai
       model: whisper-1
+    text2image:
+      provider: openrouter
+      model: openai/dall-e-3
 llm_providers:
   mistral:
     api_key: ${MISTRAL_API_KEY}
@@ -130,6 +133,11 @@ llm_providers:
       - mistralai/pixtral-large-latest
       transcription:
       - openai/whisper-1
+      text2image:
+      - openai/dall-e-3
+      - stability-ai/stable-diffusion-xl-base-1.0
+      - black-forest-labs/flux-pro
+      - black-forest-labs/flux-schnell
     enabled: true
   voyageai:
     api_key: ${VOYAGE_API_KEY}

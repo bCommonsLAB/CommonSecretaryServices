@@ -42,6 +42,10 @@ class UseCase(str, Enum):
     # - Dieser Use-Case erlaubt, ein Modell mit sehr großem Kontextfenster (z.B. 1M Tokens) zu wählen.
     TRANSFORMER_XXL = "transformer_xxl"
     
+    # Text-zu-Bild Generierung mit Image-Generation-Modellen
+    # Unterstützt Modelle mit "image" in output_modalities (z.B. DALL-E, Stable Diffusion über OpenRouter)
+    TEXT2IMAGE = "text2image"
+    
     def __str__(self) -> str:
         """Gibt den String-Wert des Use-Cases zurück."""
         return self.value

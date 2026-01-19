@@ -405,6 +405,27 @@ class OpenAIProvider:
             "Verwenden Sie VoyageAI für Embeddings oder den OpenAI Embeddings-Endpoint direkt."
         )
     
+    def text2image(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        n: int = 1,
+        **kwargs: Any
+    ) -> tuple[bytes, LLMRequest]:
+        """
+        OpenAI unterstützt Text2Image über eine separate Images API.
+        Diese Implementierung nutzt OpenRouter für Text2Image.
+        
+        Raises:
+            ProcessingError: OpenAI Provider unterstützt Text2Image nicht über dieses Interface
+        """
+        raise ProcessingError(
+            "OpenAI Provider unterstützt Text2Image nicht über dieses Interface. "
+            "Verwenden Sie OpenRouter Provider für Text2Image oder die OpenAI Images API direkt."
+        )
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.

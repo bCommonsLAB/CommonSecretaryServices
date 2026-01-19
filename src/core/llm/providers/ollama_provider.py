@@ -339,6 +339,26 @@ class OllamaProvider:
             "Verwenden Sie VoyageAI für Embeddings."
         )
     
+    def text2image(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        n: int = 1,
+        **kwargs: Any
+    ) -> tuple[bytes, LLMRequest]:
+        """
+        Ollama unterstützt Text2Image nicht.
+        
+        Raises:
+            ProcessingError: Ollama unterstützt Text2Image nicht
+        """
+        raise ProcessingError(
+            "Ollama unterstützt Text2Image nicht. "
+            "Verwenden Sie OpenRouter Provider für Text2Image."
+        )
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.

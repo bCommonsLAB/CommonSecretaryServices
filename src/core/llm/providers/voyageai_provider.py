@@ -241,6 +241,26 @@ class VoyageAIProvider:
             f"Bitte konfigurieren Sie 'available_models.{use_case_str}' für Provider '{self.get_provider_name()}' in config.yaml"
         )
     
+    def text2image(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        n: int = 1,
+        **kwargs: Any
+    ) -> tuple[bytes, LLMRequest]:
+        """
+        VoyageAI unterstützt Text2Image nicht (nur Embeddings).
+        
+        Raises:
+            ProcessingError: VoyageAI unterstützt Text2Image nicht
+        """
+        raise ProcessingError(
+            "VoyageAI unterstützt Text2Image nicht (nur Embeddings). "
+            "Verwenden Sie OpenRouter Provider für Text2Image."
+        )
+    
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.
