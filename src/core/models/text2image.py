@@ -30,12 +30,73 @@ Features:
 - Internal: src.core.models.enums - ProcessingStatus
 """
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, cast
 import base64
 
 from .base import BaseResponse, ProcessInfo, ErrorInfo
 from .enums import ProcessingStatus
 from ..validation import is_non_empty_str
+
+
+@dataclass
+class Text2ImageItem:
+    """
+    Einzelnes Bild aus der Text2Image-Generierung.
+    
+    Enthält Bilddaten und den zugehörigen Seed.
+    """
+    image_base64: str
+    image_format: str
+    size: str
+    seed: Optional[int] = None
+    
+    def __post_init__(self) -> None:
+        """Validiert ein einzelnes Bildobjekt."""
+        if not is_non_empty_str(self.image_base64):
+            raise ValueError("image_base64 darf nicht leer sein")
+        if not is_non_empty_str(self.image_format):
+            raise ValueError("image_format darf nicht leer sein")
+        if self.image_format not in ["png", "jpeg", "jpg"]:
+            raise ValueError(f"image_format muss 'png', 'jpeg' oder 'jpg' sein, nicht '{self.image_format}'")
+        if not is_non_empty_str(self.size):
+            raise ValueError("size darf nicht leer sein")
+        if "x" not in self.size:
+            raise ValueError(f"size muss Format 'WIDTHxHEIGHT' haben, nicht '{self.size}'")
+        try:
+            width, height = self.size.split("x")
+            int(width)
+            int(height)
+        except ValueError:
+            raise ValueError(f"size muss Format 'WIDTHxHEIGHT' haben, nicht '{self.size}'")
+        if self.seed is not None and self.seed < 0:
+            raise ValueError("seed muss positiv sein oder None")
+        
+        # Validiere Base64-Format
+        try:
+            base64.b64decode(self.image_base64)
+        except Exception as e:
+            raise ValueError(f"image_base64 ist kein gültiges Base64: {str(e)}")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Bildobjekt in ein Dictionary."""
+        result: Dict[str, Any] = {
+            'image_base64': self.image_base64,
+            'image_format': self.image_format,
+            'size': self.size
+        }
+        if self.seed is not None:
+            result['seed'] = self.seed
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Text2ImageItem':
+        """Erstellt Text2ImageItem aus einem Dictionary."""
+        return cls(
+            image_base64=str(data.get('image_base64', '')),
+            image_format=str(data.get('image_format', 'png')),
+            size=str(data.get('size', '1024x1024')),
+            seed=int(data['seed']) if data.get('seed') is not None else None
+        )
 
 
 @dataclass
@@ -52,6 +113,7 @@ class Text2ImageData:
     model: str
     prompt: str
     seed: Optional[int] = None
+    images: Optional[List[Text2ImageItem]] = None
     
     def __post_init__(self) -> None:
         """Validiert die Text2Image-Daten."""
@@ -84,6 +146,11 @@ class Text2ImageData:
             base64.b64decode(self.image_base64)
         except Exception as e:
             raise ValueError(f"image_base64 ist kein gültiges Base64: {str(e)}")
+        
+        # Optional: Liste von Bildern validieren
+        if self.images is not None:
+            if len(self.images) == 0:
+                raise ValueError("images muss eine nicht-leere Liste sein, wenn gesetzt")
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Text2Image-Daten in ein Dictionary."""
@@ -96,6 +163,8 @@ class Text2ImageData:
         }
         if self.seed is not None:
             result['seed'] = self.seed
+        if self.images is not None:
+            result['images'] = [image.to_dict() for image in self.images]
         return result
     
     @classmethod
@@ -109,13 +178,23 @@ class Text2ImageData:
         Returns:
             Text2ImageData: Text2ImageData-Instanz
         """
+        images_raw = data.get('images')
+        images_list: Optional[List[Text2ImageItem]] = None
+        if isinstance(images_raw, list):
+            images_list = [
+                Text2ImageItem.from_dict(cast(Dict[str, Any], item))
+                for item in images_raw
+                if isinstance(item, dict)
+            ]
+        
         return cls(
             image_base64=str(data.get('image_base64', '')),
             image_format=str(data.get('image_format', 'png')),
             size=str(data.get('size', '1024x1024')),
             model=str(data.get('model', '')),
             prompt=str(data.get('prompt', '')),
-            seed=int(data['seed']) if data.get('seed') is not None else None
+            seed=int(data['seed']) if data.get('seed') is not None else None,
+            images=images_list
         )
 
 
@@ -179,7 +258,7 @@ class Text2ImageResponse(BaseResponse):
             from .llm import LLMInfo
             llm_info_data = process_data.get('llm_info', {})
             # LLMInfo hat eine from_dict Methode oder kann direkt erstellt werden
-            llm_info: Optional[Any] = None
+            llm_info: Optional[LLMInfo] = None
             if llm_info_data:
                 try:
                     if hasattr(LLMInfo, 'from_dict'):

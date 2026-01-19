@@ -31,7 +31,7 @@ Features:
 - Internal: src.core.exceptions - ProcessingError
 - Internal: src.utils.logger - Logging system
 """
-# pyright: reportMissingTypeStubs=false
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 # type: ignore
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields, inputs
 from typing import Dict, Any, Union, Optional, cast
@@ -62,6 +62,7 @@ generate_parser.add_argument('size', location='form', type=str, default='1024x10
 generate_parser.add_argument('quality', location='form', type=str, default='standard', choices=['standard', 'hd'], help='Qualität ("standard" oder "hd")')
 generate_parser.add_argument('n', location='form', type=int, default=1, help='Anzahl der Bilder (default: 1, max: 1 für die meisten Modelle)')
 generate_parser.add_argument('seed', location='form', type=int, required=False, help='Optional: Seed für Reproduzierbarkeit')
+generate_parser.add_argument('seeds', location='form', type=str, required=False, help='Optional: Kommaseparierte Liste von Seeds')
 generate_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')
 
 # Definiere Error-Modell
@@ -94,12 +95,18 @@ text2image_response: Model | OrderedModel = text2image_ns.model('Text2ImageRespo
         'cache_key': fields.String(description='Cache-Key (falls aus Cache)')
     })),
     'data': fields.Nested(text2image_ns.model('Text2ImageData', {
-        'image_base64': fields.String(description='Base64-kodiertes PNG-Bild'),
+        'image_base64': fields.String(description='Base64-kodiertes Bild (erstes Ergebnis)'),
         'image_format': fields.String(description='Bildformat (png)'),
         'size': fields.String(description='Bildgröße (z.B. "1024x1024")'),
         'model': fields.String(description='Verwendetes Modell'),
         'prompt': fields.String(description='Original-Prompt'),
-        'seed': fields.Integer(description='Seed für Reproduzierbarkeit (optional)')
+        'seed': fields.Integer(description='Seed für Reproduzierbarkeit (optional)'),
+        'images': fields.List(fields.Nested(text2image_ns.model('Text2ImageItem', {
+            'image_base64': fields.String(description='Base64-kodiertes Bild'),
+            'image_format': fields.String(description='Bildformat'),
+            'size': fields.String(description='Bildgröße'),
+            'seed': fields.Integer(description='Seed für dieses Bild')
+        })), description='Optionale Liste von Bildern für n>1')
     })),
     'error': fields.Nested(text2image_ns.model('Text2ImageError', {
         'code': fields.String(description='Fehlercode'),
@@ -141,17 +148,27 @@ class Text2ImageGenerateEndpoint(Resource):
                     n = int(n_val) if n_val else 1
                     seed_val = request.form.get('seed')
                     seed = int(seed_val) if seed_val and seed_val.strip() else None
+                    seeds_val = request.form.get('seeds')
+                    seeds = None
+                    if seeds_val and seeds_val.strip():
+                        seeds = [int(s.strip()) for s in seeds_val.split(",") if s.strip()]
                     use_cache_str = request.form.get('useCache', 'true')
                     use_cache = use_cache_str.lower() in ('true', '1', 'yes', 'on')
                 # Fallback auf JSON
                 elif request.is_json:
-                    json_data = request.get_json(silent=True) or {}
+                    json_data = cast(Dict[str, Any], request.get_json(silent=True) or {})
                     prompt = str(json_data.get('prompt', '') or '')
                     size = str(json_data.get('size', '1024x1024') or '1024x1024')
                     quality = str(json_data.get('quality', 'standard') or 'standard')
                     n = int(json_data.get('n', 1) or 1)
                     seed_val = json_data.get('seed')
                     seed = int(seed_val) if seed_val is not None else None
+                    seeds_raw = json_data.get('seeds')
+                    seeds = None
+                    if isinstance(seeds_raw, list):
+                        seeds = [int(s) for s in seeds_raw]
+                    elif isinstance(seeds_raw, str):
+                        seeds = [int(s.strip()) for s in seeds_raw.split(",") if s.strip()]
                     use_cache = bool(json_data.get('useCache', True))
                 # Fallback auf Parser (für Swagger UI)
                 else:
@@ -163,6 +180,10 @@ class Text2ImageGenerateEndpoint(Resource):
                     n = int(args.get('n', 1) or 1)
                     seed_val = args.get('seed')
                     seed = int(seed_val) if seed_val is not None else None
+                    seeds_val = args.get('seeds')
+                    seeds = None
+                    if isinstance(seeds_val, str) and seeds_val.strip():
+                        seeds = [int(s.strip()) for s in seeds_val.split(",") if s.strip()]
                     use_cache = bool(args.get('useCache', True))
             except Exception as parse_error:
                 logger.error(f"Fehler beim Parsen der Request-Daten: {parse_error}")
@@ -200,7 +221,8 @@ class Text2ImageGenerateEndpoint(Resource):
                 quality=quality,
                 n=n,
                 use_cache=use_cache,
-                seed=seed
+                seed=seed,
+                seeds=seeds
             ))
             
             # Konvertiere zu Dictionary

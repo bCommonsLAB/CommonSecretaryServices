@@ -19,6 +19,7 @@ Generate an image from a text prompt.
 | `quality` | String | No | `standard` | Image quality ("standard" or "hd") |
 | `n` | Integer | No | `1` | Number of images (most models support only n=1) |
 | `seed` | Integer | No | - | Optional seed for reproducibility |
+| `seeds` | Array/String | No | - | Optional list of seeds (JSON array or comma-separated string) |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
 
 ### Supported Sizes
@@ -38,6 +39,22 @@ curl -X POST "http://localhost:5001/api/text2image/generate" \
     "size": "1024x1024",
     "quality": "standard",
     "useCache": true
+  }'
+```
+
+### Request Example (JSON, 4 Vorschauen mit Seeds)
+
+```bash
+curl -X POST "http://localhost:5001/api/text2image/generate" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A serene mountain lake at sunset with snow-capped peaks in the background",
+    "size": "256x256",
+    "quality": "standard",
+    "n": 4,
+    "seeds": [101, 102, 103, 104],
+    "useCache": false
   }'
 ```
 
@@ -98,7 +115,15 @@ curl -X POST "http://localhost:5001/api/text2image/generate" \
     "size": "1024x1024",
     "model": "openai/dall-e-3",
     "prompt": "A serene mountain lake at sunset with snow-capped peaks in the background",
-    "seed": null
+    "seed": null,
+    "images": [
+      {
+        "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "image_format": "png",
+        "size": "1024x1024",
+        "seed": 101
+      }
+    ]
   },
   "error": null
 }
@@ -172,6 +197,8 @@ llm_providers:
 ### Notes
 
 - The generated image is returned as base64-encoded data in the `data.image_base64` field
+- For multiple images, the first image is mirrored in `data.image_base64` for backward compatibility
+- Use `data.images[*].seed` to re-generate a selected preview in higher resolution
 - To display the image in a client, build a data URL with the reported format:
   `data:image/{image_format};base64,{image_base64}`
 - Example (Browser):

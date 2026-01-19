@@ -35,12 +35,15 @@ Features:
 import hashlib
 import base64
 import time
-from typing import Optional, Dict, Any
+import random
+import asyncio
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
-from src.core.models.text2image import Text2ImageResponse, Text2ImageData
+from src.core.models.text2image import Text2ImageResponse, Text2ImageData, Text2ImageItem
+from src.core.models.llm import LLMInfo, LLMRequest
 from src.core.models.base import ProcessInfo, ErrorInfo
 from src.core.models.enums import ProcessingStatus
 from src.processors.cacheable_processor import CacheableProcessor
@@ -81,8 +84,8 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
     cache_collection_name = "text2image_cache"
     
     # Typ-Annotationen für Instanzvariablen
-    provider: LLMProvider
-    model: str
+    provider: Optional[LLMProvider]
+    model_name: str
     
     def __init__(
         self,
@@ -117,6 +120,10 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             self.default_size = text2image_config.get('default_size', '1024x1024')
             self.default_quality = text2image_config.get('default_quality', 'standard')
             self.max_prompt_length = text2image_config.get('max_prompt_length', 1000)
+            # Maximal erlaubte Anzahl Bilder fuer Preview-Workflows
+            self.max_images = int(text2image_config.get('max_images', 4))
+            # Maximal parallele Requests fuer Mehrfachgenerierung
+            self.max_parallel_images = int(text2image_config.get('max_parallel_images', 2))
             
             # LLM Provider-Konfiguration laden
             self.llm_config_manager = LLMConfigManager()
@@ -128,7 +135,7 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
                     "Kein Modell für Text2Image in der LLM-Config konfiguriert. "
                     "Bitte konfigurieren Sie 'llm_config.use_cases.text2image.model' in config.yaml"
                 )
-            self.model: str = configured_model
+            self.model_name = configured_model
             
             # Provider für Text2Image laden
             self.provider = self.llm_config_manager.get_provider_for_use_case(UseCase.TEXT2IMAGE)
@@ -148,7 +155,7 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             init_end = time.time()
             self.logger.debug(
                 "Text2Image Processor initialisiert",
-                model=self.model,
+                model=self.model_name,
                 provider=self.provider.get_provider_name(),
                 default_size=self.default_size,
                 default_quality=self.default_quality,
@@ -164,8 +171,9 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
         prompt: str,
         size: str,
         quality: str,
-        model: str,
-        n: int = 1
+        model_name: str,
+        n: int = 1,
+        seeds: Optional[List[int]] = None
     ) -> str:
         """
         Erstellt einen Cache-Key für die Bildgenerierung.
@@ -184,10 +192,78 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
         normalized_prompt = prompt.lower().strip()
         
         # Erstelle Hash aus allen Parametern
-        key_string = f"{normalized_prompt}|{size}|{quality}|{model}|{n}"
+        seeds_part = ",".join(str(s) for s in (seeds or []))
+        key_string = f"{normalized_prompt}|{size}|{quality}|{model_name}|{n}|{seeds_part}"
         key_hash = hashlib.sha256(key_string.encode('utf-8')).hexdigest()
         
         return f"text2image:{key_hash}"
+    
+    def _normalize_seeds(
+        self,
+        n: int,
+        seed: Optional[int],
+        seeds: Optional[List[int]]
+    ) -> List[int]:
+        """
+        Normalisiert Seeds fuer Mehrfachgenerierung.
+        
+        - Wenn seeds uebergeben wurden, muessen sie exakt n Elemente haben.
+        - Wenn seed gesetzt ist, erzeugen wir eine deterministische Sequenz.
+        - Wenn nichts gesetzt ist, generieren wir zufaellige Seeds.
+        """
+        if seeds is not None:
+            if len(seeds) != n:
+                raise ProcessingError("seeds muss genau n Werte enthalten")
+            for s in seeds:
+                if s < 0:
+                    raise ProcessingError("seeds darf keine negativen Werte enthalten")
+            return seeds
+        
+        if seed is not None:
+            if seed < 0:
+                raise ProcessingError("seed darf nicht negativ sein")
+            # Deterministisch: seed, seed+1, seed+2, ...
+            return [seed + i for i in range(n)]
+        
+        # Fallback: zufaellige Seeds, damit der Client spaeter reproduzieren kann
+        return [random.randint(0, 2**31 - 1) for _ in range(n)]
+
+    async def _generate_single_image(
+        self,
+        prompt: str,
+        size: str,
+        quality: str,
+        seed: int
+    ) -> tuple[Text2ImageItem, LLMRequest, int]:
+        """
+        Generiert ein einzelnes Bild in einem Thread, damit wir parallelisieren koennen.
+        """
+        if not self.provider:
+            raise ProcessingError("Provider für Text2Image nicht verfügbar")
+        
+        # Blocking Call in einen Thread auslagern
+        image_bytes, llm_request = await asyncio.to_thread(
+            self.provider.text2image,
+            prompt=prompt,
+            model=self.model_name,
+            size=size,
+            quality=quality,
+            n=1,
+            seed=seed
+        )
+        
+        image_byte_length = len(image_bytes)
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_format = "png"
+        
+        image_item = Text2ImageItem(
+            image_base64=image_base64,
+            image_format=image_format,
+            size=size,
+            seed=seed
+        )
+        
+        return image_item, llm_request, image_byte_length
     
     def serialize_for_cache(self, result: Text2ImageProcessingResult) -> Dict[str, Any]:
         """
@@ -240,7 +316,8 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
         quality: Optional[str] = None,
         n: int = 1,
         use_cache: bool = True,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        seeds: Optional[List[int]] = None
     ) -> Text2ImageResponse:
         """
         Generiert ein Bild aus einem Text-Prompt.
@@ -252,6 +329,7 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             n: Anzahl der Bilder (default: 1)
             use_cache: Ob Cache verwendet werden soll (default: True)
             seed: Optional, Seed für Reproduzierbarkeit
+            seeds: Optional, Liste von Seeds (muss n Werte haben)
             
         Returns:
             Text2ImageResponse: Response mit generiertem Bild
@@ -292,13 +370,28 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             
             # Validiere n
             final_n = n
-            if final_n < 1 or final_n > 1:
-                # Die meisten Modelle unterstützen nur n=1
+            if final_n < 1:
                 final_n = 1
-                self.logger.warning("n wurde auf 1 gesetzt (die meisten Modelle unterstützen nur n=1)")
+            if final_n > self.max_images:
+                self.logger.warning(
+                    "n wurde reduziert",
+                    requested_n=final_n,
+                    max_images=self.max_images
+                )
+                final_n = self.max_images
+            
+            # Seeds normalisieren, damit jedes Bild einen Seed hat
+            normalized_seeds = self._normalize_seeds(final_n, seed, seeds)
             
             # Cache-Key erstellen
-            cache_key = self._create_cache_key(prompt, final_size, final_quality, self.model, final_n)
+            cache_key = self._create_cache_key(
+                prompt,
+                final_size,
+                final_quality,
+                self.model_name,
+                final_n,
+                normalized_seeds
+            )
             
             # Cache prüfen
             if use_cache:
@@ -321,32 +414,43 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
                 prompt_length=len(prompt),
                 size=final_size,
                 quality=final_quality,
-                model=self.model
+                model=self.model_name
             )
             
-            image_bytes, llm_request = self.provider.text2image(
-                prompt=prompt,
-                model=self.model,
-                size=final_size,
-                quality=final_quality,
-                n=final_n,
-                seed=seed
-            )
+            image_items: List[Text2ImageItem] = []
+            image_byte_lengths: List[int] = []
+            llm_requests: List[LLMRequest] = []
             
-            # Bild zu Base64 kodieren
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            # Parallele Generierung mit Begrenzung
+            semaphore = asyncio.Semaphore(self.max_parallel_images)
             
-            # Bestimme Bildformat (PNG ist Standard für generierte Bilder)
-            image_format = "png"
+            async def _run_seed(image_seed: int) -> tuple[Text2ImageItem, LLMRequest, int]:
+                async with semaphore:
+                    return await self._generate_single_image(
+                        prompt=prompt,
+                        size=final_size,
+                        quality=final_quality,
+                        seed=image_seed
+                    )
             
-            # Erstelle Text2ImageData
+            tasks = [asyncio.create_task(_run_seed(s)) for s in normalized_seeds]
+            results = await asyncio.gather(*tasks)
+            
+            for image_item, llm_request, image_byte_length in results:
+                image_items.append(image_item)
+                llm_requests.append(llm_request)
+                image_byte_lengths.append(image_byte_length)
+            
+            # Erstelle Text2ImageData (erster Eintrag als Hauptbild)
+            first_image = image_items[0]
             image_data = Text2ImageData(
-                image_base64=image_base64,
-                image_format=image_format,
+                image_base64=first_image.image_base64,
+                image_format=first_image.image_format,
                 size=final_size,
-                model=self.model,
+                model=self.model_name,
                 prompt=prompt,
-                seed=seed
+                seed=first_image.seed,
+                images=image_items if len(image_items) > 1 else None
             )
             
             # Aktualisiere ProcessInfo mit LLM-Tracking
@@ -355,7 +459,14 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             if self.process_info:
                 # Aktualisiere LLM-Info
                 if self.process_info.llm_info:
-                    self.process_info.llm_info.add_request(llm_request)
+                    new_llm_info = self.process_info.llm_info.add_request(llm_requests)
+                    object.__setattr__(self.process_info, 'llm_info', new_llm_info)  # type: ignore
+                else:
+                    object.__setattr__(
+                        self.process_info,
+                        'llm_info',
+                        LLMInfo(requests=llm_requests)
+                    )  # type: ignore
                 
                 # Setze completed und duration
                 object.__setattr__(self.process_info, 'completed', datetime.now().isoformat())  # type: ignore
@@ -372,6 +483,7 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
                     "quality": final_quality,
                     "n": final_n,
                     "seed": seed,
+                    "seeds": normalized_seeds,
                     "use_cache": use_cache
                 }
             )
@@ -393,9 +505,10 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
             self.logger.info(
                 "Bildgenerierung erfolgreich",
                 prompt_length=len(prompt),
-                image_size_bytes=len(image_bytes),
+                image_count=len(image_items),
+                image_size_bytes=image_byte_lengths[0] if image_byte_lengths else 0,
                 duration_ms=duration,
-                tokens=llm_request.tokens
+                tokens=sum(r.tokens for r in llm_requests)
             )
             
             return response
