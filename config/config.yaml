@@ -30,7 +30,8 @@ llm_config:
       model: whisper-1
     text2image:
       provider: openrouter
-      model: openai/dall-e-3
+      # Gemini-Modell laut OpenRouter-Doku für Bildgenerierung unterstützt
+      model: google/gemini-2.5-flash-image-preview
 llm_providers:
   mistral:
     api_key: ${MISTRAL_API_KEY}

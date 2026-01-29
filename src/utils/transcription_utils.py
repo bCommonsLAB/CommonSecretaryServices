@@ -64,9 +64,6 @@ from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
-from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 from pydantic import Field
 
 from src.utils.logger import ProcessingLogger
@@ -1191,6 +1188,8 @@ class WhisperTranscriber:
             response: Optional[ChatCompletion] = None
             raw_content: str = ""
             duration: float = 0.0
+            # Initialisiere chat_model VOR dem try-Block, damit es im gesamten Scope verfügbar ist
+            chat_model: str = model if model else (self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model)
             
             try:
                 # Verwende überschriebenes Modell/Provider falls angegeben
@@ -1214,10 +1213,7 @@ class WhisperTranscriber:
                 if not chat_provider:
                     raise ValueError("Chat-Completion Provider nicht verfügbar")
                 
-                # Verwende überschriebenes Modell falls angegeben, sonst konfiguriertes Modell
-                chat_model = model if model else (self.llm_config_manager.get_model_for_use_case(UseCase.CHAT_COMPLETION) or self.model)
-                
-                # Verwende Provider
+                # Verwende Provider (chat_model wurde bereits vor dem try-Block initialisiert)
                 raw_content, llm_request = chat_provider.chat_completion(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -1231,43 +1227,25 @@ class WhisperTranscriber:
                     duration = llm_request.duration
                 response = None  # Für Kompatibilität mit bestehendem Code
             except Exception as e:
-                # Fallback auf direkten Client-Aufruf
-                if logger:
-                    logger.warning(f"Provider nicht verfügbar für Template-Transformation, verwende Fallback: {str(e)}")
+                # Kein Fallback - Fehler direkt mit klarer Meldung weiterleiten
+                provider_name = provider if provider else "konfigurierter LLM-Provider"
                 
-                # Zeitmessung starten
-                start_time: float = time.time()
-
-                # OpenAI Client-Aufruf mit korrekten Message-Typen
-                messages: list[ChatCompletionMessageParam] = [
-                    ChatCompletionSystemMessageParam(
-                        role="system",
-                        content=system_prompt
-                    ),
-                    ChatCompletionUserMessageParam(
-                        role="user",
-                        content=user_prompt
-                    )
-                ]
-
-                # Verwende chat_model statt self.model für Konsistenz
-                fallback_model = chat_model if 'chat_model' in locals() else self.model
-                response = self.client.chat.completions.create(
-                    model=fallback_model,
-                    messages=messages,
-                    temperature=self.temperature
+                # Erstelle eine verständliche Fehlermeldung für den Client
+                error_msg = (
+                    f"LLM-Anfrage fehlgeschlagen. "
+                    f"Provider: {provider_name}, Modell: {chat_model}. "
+                    f"Fehler: {str(e)}"
                 )
-
-                # Zeitmessung beenden
-                duration = (time.time() - start_time) * 1000
-
-                if not response.choices or not response.choices[0].message:
-                    raise ValueError("Keine gültige Antwort vom LLM erhalten")
-
-                # Validiere und bereinige die LLM-Antwort
-                raw_content = response.choices[0].message.content or ""
-                if not raw_content or not raw_content.strip():
-                    raise ValueError("Leere Antwort vom LLM erhalten")
+                
+                if logger:
+                    logger.error(
+                        "LLM-Provider-Anfrage fehlgeschlagen",
+                        error=e,
+                        provider=provider_name,
+                        model=chat_model
+                    )
+                
+                raise ValueError(error_msg)
             
             # Validiere und bereinige die LLM-Antwort (für beide Fälle)
             if not raw_content or not raw_content.strip():
@@ -1304,14 +1282,15 @@ class WhisperTranscriber:
                     processor=processor
                 )
             elif response:
-                # Fallback: Erstelle LLMRequest aus Response
+                # Fallback: Erstelle LLMRequest aus Response (aktuell nicht verwendet, 
+                # da kein Fallback mehr existiert - für zukünftige Kompatibilität beibehalten)
                 tokens = response.usage.total_tokens if response.usage else 0
                 if tokens > 0:  # Nur tracken wenn Tokens verbraucht wurden
                     self.create_llm_request(
                         purpose="template_transform",
                         tokens=tokens,
                         duration=duration,
-                        model=self.model,
+                        model=chat_model,
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         response=response,
@@ -1478,7 +1457,7 @@ class WhisperTranscriber:
             if logger:
                 logger.info("Template-Transformation abgeschlossen",
                     duration_ms=duration,
-                    model=self.model)
+                    model=chat_model)
 
             # Response erstellen (ohne automatische Kürzungs-Warnung;
             # etwaige Kontextlimit-Fehler sollen direkt vom LLM-Provider kommen)
@@ -1491,20 +1470,12 @@ class WhisperTranscriber:
             )
             
         except Exception as e:
+            # Fehler direkt weiterleiten, damit die API-Route sie als HTTP-Fehler behandelt
+            # und der Client einen klaren Fehlercode erhält
             if logger:
                 logger.error("Fehler bei der Template-Transformation", error=e)
-            # Erstelle eine Fehler-Response mit detaillierten Informationen
-            error_result = TransformationResult(
-                text=f"Fehler bei der Template-Transformation: {str(e)}",
-                target_language=target_language,
-                structured_data={
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "template": template,
-                    "traceback": traceback.format_exc()
-                }
-            )
-            return error_result
+            # Exception weiterwerfen - kein Verstecken im TransformationResult
+            raise
 
     def _read_template_file(self, template: str, logger: Optional[ProcessingLogger]) -> str:
         """Liest den Inhalt einer Template-Datei."""
@@ -1828,9 +1799,6 @@ class WhisperTranscriber:
 
             # Async-Funktion für API-Aufruf mit Timeout
             async def call_api_with_timeout():
-                if logger:
-                    logger.info(f"SEGMENT-DEBUG: API-Aufruf mit Timeout für Segment {segment_id} gestartet")
-                
                 # Thread-übergreifende Event-Objekte zur Signalisierung
                 import threading
                 from typing import Any, List, Optional
@@ -1842,9 +1810,6 @@ class WhisperTranscriber:
 
                 # Definiere die blockierende Funktion, die im Thread ausgeführt wird
                 def execute_api_call():
-                    if logger:
-                        logger.info(f"SEGMENT-DEBUG: Thread-API-Aufruf für Segment {segment_id} gestartet")
-                    
                     try:
                         # Verwende Provider-Abstraktion falls verfügbar
                         if self.provider:
@@ -1895,14 +1860,10 @@ class WhisperTranscriber:
                         
                         # Erfolgreicher Aufruf - speichere Ergebnis
                         operation_result[0] = response
-                        if logger:
-                            logger.info(f"SEGMENT-DEBUG: Thread-API-Aufruf für Segment {segment_id} erfolgreich")
                     
                     except Exception as e:
                         # Fehler - speichere Exception
                         operation_error[0] = e
-                        if logger:
-                            logger.error(f"SEGMENT-DEBUG: Thread-API-Fehler für Segment {segment_id}: {str(e)}")
                     
                     finally:
                         # In jedem Fall signalisieren, dass die Operation abgeschlossen ist
@@ -1919,9 +1880,6 @@ class WhisperTranscriber:
                     timeout_seconds = 120.0
                     check_interval = 1.0  # Prüfe jede Sekunde
                     elapsed = 0.0
-                    
-                    if logger:
-                        logger.info(f"SEGMENT-DEBUG: Warte auf Thread-API-Antwort für Segment {segment_id} mit Timeout von {timeout_seconds} Sekunden")
                     
                     # Asynchroner Timeout-Loop
                     while elapsed < timeout_seconds:
@@ -1940,7 +1898,7 @@ class WhisperTranscriber:
                             error_obj = operation_error[0]  # Typensichere Referenz
                             if logger:
                                 logger.error(
-                                    f"SEGMENT-DEBUG: API-Fehler für Segment {segment_id}",
+                                    f"API-Fehler für Segment {segment_id}",
                                     error=error_obj,  # Übergebe Exception-Objekt direkt
                                     error_type=type(error_obj).__name__
                                 )
@@ -1949,13 +1907,11 @@ class WhisperTranscriber:
                             return None
                         else:
                             # Erfolgreicher Abschluss
-                            if logger:
-                                logger.info(f"SEGMENT-DEBUG: API-Antwort für Segment {segment_id} erfolgreich empfangen")
                             return operation_result[0]
                     else:
                         # Timeout ist aufgetreten
                         if logger:
-                            logger.error(f"SEGMENT-DEBUG: Timeout bei API-Anfrage für Segment {segment_id} nach {timeout_seconds} Sekunden")
+                            logger.error(f"Timeout bei API-Anfrage für Segment {segment_id} nach {timeout_seconds} Sekunden")
                         # Thread wird als Daemon automatisch beendet
                         return None
                 
@@ -1963,7 +1919,7 @@ class WhisperTranscriber:
                     # Unerwartete Ausnahme während des Wartens
                     if logger:
                         logger.error(
-                            f"SEGMENT-DEBUG: Unerwartete Ausnahme beim Warten auf API-Antwort für Segment {segment_id}",
+                            f"Unerwartete Ausnahme beim Warten auf API-Antwort für Segment {segment_id}",
                             error=e,  # Übergebe Exception-Objekt direkt
                             error_type=type(e).__name__,
                             traceback=traceback.format_exc()
@@ -1976,7 +1932,7 @@ class WhisperTranscriber:
             except Exception as e:
                 if logger:
                     logger.error(
-                        f"SEGMENT-DEBUG: Unbehandelte Ausnahme bei API-Aufruf für Segment {segment_id}",
+                        f"Unbehandelte Ausnahme bei API-Aufruf für Segment {segment_id}",
                         error=e,
                         error_type=type(e).__name__,
                         traceback=traceback.format_exc()
@@ -1987,7 +1943,7 @@ class WhisperTranscriber:
             if not response or not hasattr(response, 'text'):
                 if logger:
                     logger.warning(
-                        f"SEGMENT-DEBUG: Keine gültige API-Antwort für Segment {segment_id} erhalten, überspringe Segment"
+                        f"Keine gültige API-Antwort für Segment {segment_id} erhalten, überspringe Segment"
                     )
                 
                 # Zeitmessung beenden
@@ -2206,27 +2162,16 @@ class WhisperTranscriber:
                 if chapter.title and chapter.title.strip():
                     combined_text_parts.append(f"\n## {chapter.title}\n")
                 all_segments.extend(chapter.segments)
-                if logger:
-                    logger.info(f"TRANSKRIPTION-DEBUG: Kapitel '{chapter.title}' mit {len(chapter.segments)} Segmenten extrahiert")
         else:
             all_segments = type_cast(List[AudioSegmentInfo], segments)
-            if logger:
-                logger.info(f"TRANSKRIPTION-DEBUG: {len(all_segments)} Segmente direkt verarbeitet")
 
         # Batch-Größe für parallele Verarbeitung
         BATCH_SIZE = 5
-        
-        # Verarbeite Segmente in Batches parallel
-        if logger:
-            logger.info(f"TRANSKRIPTION-DEBUG: Starte parallele Verarbeitung von {len(all_segments)} Segmenten mit {BATCH_SIZE} gleichzeitig")
         
         # Verarbeite alle Segmente in Batches
         for batch_start in range(0, len(all_segments), BATCH_SIZE):
             batch_end = min(batch_start + BATCH_SIZE, len(all_segments))
             current_batch = all_segments[batch_start:batch_end]
-            
-            if logger:
-                logger.info(f"TRANSKRIPTION-DEBUG: Verarbeite Batch {batch_start//BATCH_SIZE + 1} mit {len(current_batch)} Segmenten")
             
             # Erstelle Tasks für alle Segmente im aktuellen Batch
             segment_tasks: List[Coroutine[Any, Any, TranscriptionResult]] = []
@@ -2252,15 +2197,8 @@ class WhisperTranscriber:
                 for i, result in enumerate(batch_results):
                     segment_index = batch_start + i
                     
-                    if logger:
-                        logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Verarbeitung abgeschlossen, Textlänge: {len(result.text or '')}")
-                    
-                    
                     # Übersetzung, falls nötig
                     if result.source_language != target_language and result.text.strip():
-                        if logger:
-                            logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Starte Übersetzung von {result.source_language} nach {target_language}")
-                        
                         translation_result = self.translate_text(
                             text=result.text,
                             source_language=result.source_language,
@@ -2268,9 +2206,6 @@ class WhisperTranscriber:
                             logger=logger,
                             processor=processor
                         )
-                        
-                        if logger:
-                            logger.info(f"TRANSKRIPTION-DEBUG: Segment {segment_index} - Übersetzung abgeschlossen, Textlänge: {len(translation_result.text or '')}")
                         
                         # Verwende übersetzten Text
                         if translation_result.text.strip():
@@ -2288,7 +2223,7 @@ class WhisperTranscriber:
             except Exception as e:
                 if logger:
                     logger.error(
-                        f"TRANSKRIPTION-DEBUG: Batch {batch_start//BATCH_SIZE + 1} - Fehler bei der Verarbeitung",
+                        f"Fehler bei der Verarbeitung von Batch {batch_start//BATCH_SIZE + 1}",
                         error=e,
                         error_type=type(e).__name__,
                         traceback=traceback.format_exc()
@@ -2297,12 +2232,6 @@ class WhisperTranscriber:
         
         # Erstelle das finale Ergebnis
         result_text = "\n".join(combined_text_parts).strip()
-        
-        if logger:
-            logger.info(
-                f"TRANSKRIPTION-DEBUG: Parallele Verarbeitung abgeschlossen - Ergebnis mit {len(combined_text_parts)} Segmenten und {len(combined_requests)} Requests"
-            )
-            logger.info(f"TRANSKRIPTION-DEBUG: Finales Ergebnis erstellt, Textlänge: {len(result_text)}")
         
         return TranscriptionResult(
             text=result_text,

@@ -169,6 +169,58 @@ class OpenRouterProvider:
         
         raise ProcessingError(f"Unbekanntes Bild-URL-Format: {type(image_url)}")
     
+    def _extract_image_bytes_from_chat_response_dict(self, response: Dict[str, Any]) -> bytes:
+        """
+        Extrahiert Bild-Bytes aus einer Dictionary Chat-Response.
+        
+        Diese Methode wird für direkte HTTP-Anfragen verwendet,
+        wo die Response als Dictionary statt ChatCompletion-Objekt vorliegt.
+        
+        OpenRouter liefert Bilder als Data-URL im Feld message.images[].image_url.url.
+        """
+        import base64
+        
+        choices = response.get("choices", [])
+        if not choices:
+            raise ProcessingError("Keine choices in der Chat-Response für Bildgenerierung")
+        
+        message = choices[0].get("message", {})
+        if not message:
+            raise ProcessingError("Keine message in der Chat-Response für Bildgenerierung")
+        
+        images = message.get("images", [])
+        if not images:
+            # Debug: Zeige was wir bekommen haben
+            logger.error(
+                "Keine Bilder in der Response",
+                message_keys=list(message.keys()),
+                message_content_preview=str(message.get("content", ""))[:200]
+            )
+            raise ProcessingError(
+                f"Keine Bilder in der Chat-Response gefunden. "
+                f"Message-Keys: {list(message.keys())}"
+            )
+        
+        first_image = images[0]
+        
+        # Extrahiere image_url
+        image_url_obj = first_image.get("image_url", {})
+        image_url = image_url_obj.get("url") if isinstance(image_url_obj, dict) else None
+        
+        # Fallback: URL direkt im Objekt
+        if image_url is None:
+            image_url = first_image.get("url")
+        
+        if isinstance(image_url, str) and image_url.startswith("data:image"):
+            base64_data = image_url.split(",", 1)[1]
+            return base64.b64decode(base64_data)
+        if isinstance(image_url, str):
+            from urllib.request import urlopen
+            with urlopen(image_url) as response_stream:
+                return response_stream.read()
+        
+        raise ProcessingError(f"Unbekanntes Bild-URL-Format in Dict-Response: {type(image_url)}")
+    
     def transcribe(
         self,
         audio_data: bytes | Any,
@@ -525,13 +577,6 @@ class OpenRouterProvider:
             response: Any = None
             
             # API-Parameter vorbereiten
-            # Standard: Chat-Endpoint mit modalities (OpenRouter-Doku)
-            chat_params: Dict[str, Any] = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "modalities": ["image", "text"]
-            }
-            
             # OpenAI-Images-Endpoint nur fuer OpenAI-Modelle verwenden
             if self._is_images_endpoint_model(model):
                 endpoint_used = "images"
@@ -559,14 +604,48 @@ class OpenRouterProvider:
                 response = self.client.images.generate(**images_params)
                 image_bytes = self._extract_image_bytes_from_images_response(response)
             else:
-                # Zusätzliche Parameter für Chat-Endpoint
-                # image_config ist im OpenAI-SDK nicht immer erlaubt, daher nur whitelisted Keys
+                # Chat-Endpoint mit modalities für Bildgenerierung (OpenRouter-Doku)
+                # WICHTIG: Wir verwenden direkte HTTP-Anfrage statt OpenAI-Client,
+                # da der OpenAI-Client den 'modalities'-Parameter nicht korrekt weiterleitet
+                import requests as http_requests
+                
+                # Payload gemäß OpenRouter-Dokumentation
+                payload: Dict[str, Any] = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "modalities": ["image", "text"]
+                }
+                
+                # Zusätzliche Parameter hinzufügen
                 for key, value in kwargs.items():
                     if key not in ["model", "messages", "modalities"]:
-                        chat_params[key] = value
+                        payload[key] = value
                 
-                response = self.client.chat.completions.create(**chat_params)
-                image_bytes = self._extract_image_bytes_from_chat_response(response)
+                # Direkte HTTP-Anfrage an OpenRouter
+                api_url = "https://openrouter.ai/api/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/your-repo",
+                    "X-Title": "Common Secretary Services"
+                }
+                
+                http_response = http_requests.post(
+                    url=api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120
+                )
+                
+                # Fehlerbehandlung
+                if http_response.status_code != 200:
+                    error_data = http_response.json() if http_response.text else {}
+                    raise ProcessingError(
+                        f"OpenRouter Bildgenerierung fehlgeschlagen: {http_response.status_code} - {error_data}"
+                    )
+                
+                result = http_response.json()
+                image_bytes = self._extract_image_bytes_from_chat_response_dict(result)
             
             # Dauer berechnen
             duration = (time.time() - start_time) * 1000
