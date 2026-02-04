@@ -234,6 +234,8 @@ text_transform_parser.add_argument('summarize', type=inputs.boolean, location='f
 text_transform_parser.add_argument('target_format', type=str, location='form', required=False, help='Das Zielformat (TEXT, HTML, MARKDOWN, JSON)')
 text_transform_parser.add_argument('context', type=str, location='form', required=False, help='Optionaler JSON-String Kontext für die Transformation')
 text_transform_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (true/false)')
+text_transform_parser.add_argument('model', type=str, location='form', required=False, help='Zu verwendendes Modell (optional, verwendet Standard aus Config wenn nicht angegeben)')
+text_transform_parser.add_argument('provider', type=str, location='form', required=False, help='Provider-Name (optional, verwendet Standard aus Config wenn nicht angegeben)')
 
 # Parser für den Template-Transformations-Endpunkt
 template_transform_parser = transformer_ns.parser()
@@ -251,6 +253,8 @@ template_transform_parser.add_argument('callback_url', type=str, location='form'
 template_transform_parser.add_argument('callback_token', type=str, location='form', required=False, help='Per-Job-Secret für den Webhook-Callback')
 template_transform_parser.add_argument('jobId', type=str, location='form', required=False, help='Eindeutige Job-ID für den Callback')
 template_transform_parser.add_argument('wait_ms', type=int, location='form', required=False, default=0, help='Optional: Wartezeit in Millisekunden auf Abschluss (nur ohne callback_url)')
+template_transform_parser.add_argument('model', type=str, location='form', required=False, help='Zu verwendendes Modell (optional, verwendet Standard aus Config wenn nicht angegeben)')
+template_transform_parser.add_argument('provider', type=str, location='form', required=False, help='Provider-Name (optional, verwendet Standard aus Config wenn nicht angegeben)')
 
 # Parser für den HTML-Tabellen-Transformations-Endpunkt
 html_table_transform_parser = transformer_ns.parser()
@@ -307,6 +311,8 @@ class TransformTextEndpoint(Resource):
             target_format_str = str(args.get('target_format', 'TEXT') or 'TEXT')
             context_str = args.get('context')
             use_cache = bool(args.get('use_cache', True))
+            model: Optional[str] = args.get('model')
+            provider: Optional[str] = args.get('provider')
 
             # Kontext parsen, falls vorhanden
             context = {}
@@ -373,7 +379,9 @@ class TransformTextEndpoint(Resource):
                 summarize=summarize,
                 target_format=target_format,
                 context=context,
-                use_cache=use_cache
+                use_cache=use_cache,
+                model=model,
+                provider=provider
             )
             
             # Antwort erstellen
@@ -389,6 +397,8 @@ class TransformTextEndpoint(Resource):
                     'summarize': summarize,
                     'target_format': target_format_str,
                     'context': context,
+                    'model': model,
+                    'provider': provider,
                     'duration_ms': duration_ms
                 },
                 response_class=TransformerResponse,
@@ -505,6 +515,8 @@ class TemplateTransformEndpoint(Resource):
                     "callback_url": payload.get("callback_url"),
                     "callback_token": payload.get("callback_token"),
                     "jobId": payload.get("jobId"),
+                    "model": payload.get("model"),
+                    "provider": payload.get("provider"),
                     "wait_ms": payload.get("wait_ms", 0),
                 }
             else:
@@ -611,9 +623,9 @@ class TemplateTransformEndpoint(Resource):
             use_cache = args.get('use_cache', True)
             container_selector = args.get('container_selector')
             
-            # Modell- und Provider-Überschreibung für Tests (werden später entfernt)
-            test_model = args.get('_test_model')
-            test_provider = args.get('_test_provider')
+            # Modell- und Provider-Überschreibung (optional)
+            model: Optional[str] = args.get('model')
+            provider_override: Optional[str] = args.get('provider')
 
             # Validierung: Entweder Text oder URL muss angegeben werden
             if not text and not url:
@@ -761,7 +773,9 @@ class TemplateTransformEndpoint(Resource):
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
                     use_cache=use_cache,
-                    container_selector=container_selector
+                    container_selector=container_selector,
+                    model=model,
+                    provider=provider_override
                 )
             else:
                 # Text-basierte Transformation
@@ -775,8 +789,8 @@ class TemplateTransformEndpoint(Resource):
                     context=context,
                     additional_field_descriptions=additional_field_descriptions,
                     use_cache=use_cache,
-                    model=test_model,
-                    provider=test_provider
+                    model=model,
+                    provider=provider_override
                 )
 
             # Antwort erstellen

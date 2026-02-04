@@ -19,6 +19,8 @@ Translate text between languages.
 - `target_format` (optional): Target format (TEXT, HTML, MARKDOWN, JSON)
 - `context` (optional): JSON string with context for transformation
 - `use_cache` (optional): Whether to use cache (true/false, default: true)
+- `model` (optional): LLM model to use (uses default from config if not provided, e.g., "openai/gpt-4o")
+- `provider` (optional): Provider name (uses default from config if not provided, e.g., "openrouter")
 
 ### Request Example
 
@@ -29,8 +31,12 @@ curl -X POST "http://localhost:5001/api/transformer/text" \
   -d "text=Hello, world!" \
   -d "source_language=en" \
   -d "target_language=de" \
-  -d "use_cache=true"
+  -d "use_cache=true" \
+  -d "model=openai/gpt-4o" \
+  -d "provider=openrouter"
 ```
+
+**Note**: The `model` and `provider` parameters are optional. If not specified, the default model from the configuration will be used.
 
 ### Response (Success)
 
@@ -77,6 +83,8 @@ Transform text using a template.
 - `callback_token` (optional): Per-job secret for webhook callback
 - `jobId` (optional): Unique job ID for callback
 - `wait_ms` (optional): Wait time in milliseconds for completion (only without callback_url, default: 0)
+- `model` (optional): LLM model to use (uses default from config if not provided, e.g., "openai/gpt-4o")
+- `provider` (optional): Provider name (uses default from config if not provided, e.g., "openrouter")
 
 ### Alternative: Template Content
 
@@ -100,8 +108,12 @@ curl -X POST "http://localhost:5001/api/transformer/template" \
   -d "text=Meeting notes..." \
   -d "template=MeetingMinutes" \
   -d "source_language=en" \
-  -d 'context={"meeting_date":"2024-01-01","participants":["Alice","Bob"]}'
+  -d 'context={"meeting_date":"2024-01-01","participants":["Alice","Bob"]}' \
+  -d "model=openai/gpt-4o" \
+  -d "provider=openrouter"
 ```
+
+**Note**: The `model` and `provider` parameters are optional. If not specified, the default model from the configuration will be used.
 
 ### Response (Success)
 

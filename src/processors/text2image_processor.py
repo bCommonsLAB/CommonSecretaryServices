@@ -37,6 +37,8 @@ import base64
 import time
 import random
 import asyncio
+import json
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -264,6 +266,82 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
         )
         
         return image_item, llm_request, image_byte_length
+    
+    def _save_debug_log(
+        self,
+        prompt: str,
+        size: str,
+        quality: str,
+        model: str,
+        seeds: List[int],
+        duration_ms: float,
+        image_count: int,
+        total_image_bytes: int,
+        total_tokens: int
+    ) -> None:
+        """
+        Speichert Debug-Log für Text2Image-Generierung.
+        
+        Speichert detaillierte Informationen über die LLM-Interaktion als JSON-Datei
+        für Debugging- und Analysezwecke. Analog zum Debug-Logging in WhisperTranscriber.
+        
+        Args:
+            prompt: Der verwendete Text-Prompt
+            size: Bildgröße (z.B. "1024x1024")
+            quality: Qualitätseinstellung ("standard" oder "hd")
+            model: Name des verwendeten Modells
+            seeds: Liste der verwendeten Seeds für Reproduzierbarkeit
+            duration_ms: Gesamtdauer der Generierung in Millisekunden
+            image_count: Anzahl der generierten Bilder
+            total_image_bytes: Gesamtgröße aller generierten Bilder in Bytes
+            total_tokens: Verbrauchte Tokens (falls vom Provider gemeldet)
+        """
+        try:
+            # Debug-Verzeichnis erstellen (analog zu WhisperTranscriber)
+            debug_dir: Path = self.temp_dir / "debug" / "llm"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Eindeutigen Dateinamen erstellen
+            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename: str = f"{timestamp}_text2image.json"
+            
+            # Interaktionsdaten vorbereiten
+            interaction_data: Dict[str, Any] = {
+                'timestamp': datetime.now().isoformat(),
+                'purpose': 'text2image',
+                'prompt': prompt,
+                'parameters': {
+                    'size': size,
+                    'quality': quality,
+                    'image_count': image_count,
+                    'seeds': seeds
+                },
+                'model': model,
+                'provider': self.provider.get_provider_name() if self.provider else None,
+                'response': {
+                    'total_image_bytes': total_image_bytes,
+                    'total_tokens': total_tokens,
+                    'duration_ms': round(duration_ms, 2)
+                }
+            }
+            
+            # Interaktionsdaten speichern
+            file_path: Path = debug_dir / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(interaction_data, f, indent=2, ensure_ascii=False)
+                
+            self.logger.debug(
+                "Debug-Log gespeichert",
+                file_path=str(file_path),
+                prompt_length=len(prompt)
+            )
+            
+        except Exception as e:
+            # Debug-Logging sollte niemals die Hauptverarbeitung unterbrechen
+            self.logger.warning(
+                "Fehler beim Speichern des Debug-Logs",
+                error=str(e)
+            )
     
     def serialize_for_cache(self, result: Text2ImageProcessingResult) -> Dict[str, Any]:
         """
@@ -509,6 +587,19 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
                 image_size_bytes=image_byte_lengths[0] if image_byte_lengths else 0,
                 duration_ms=duration,
                 tokens=sum(r.tokens for r in llm_requests)
+            )
+            
+            # Debug-Log speichern (analog zu WhisperTranscriber)
+            self._save_debug_log(
+                prompt=prompt,
+                size=final_size,
+                quality=final_quality,
+                model=self.model_name,
+                seeds=normalized_seeds,
+                duration_ms=duration,
+                image_count=len(image_items),
+                total_image_bytes=sum(image_byte_lengths),
+                total_tokens=sum(r.tokens for r in llm_requests)
             )
             
             return response

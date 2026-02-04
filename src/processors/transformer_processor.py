@@ -313,7 +313,9 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
                  summarize: bool = False, 
                  target_format: Optional[OutputFormat] = None,
                  context: Optional[Dict[str, Any]] = None,
-                 use_cache: bool = True) -> TransformerResponse:
+                 use_cache: bool = True,
+                 model: Optional[str] = None,
+                 provider: Optional[str] = None) -> TransformerResponse:
         """
         Transformiert einen Text von einer Sprache in eine andere.
         
@@ -325,6 +327,8 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             target_format: Das Zielformat (TEXT, HTML, MARKDOWN)
             context: Optionaler Kontext für die Transformation
             use_cache: Ob der Cache verwendet werden soll (default: True)
+            model: Optionales LLM-Modell (überschreibt Standard aus Config)
+            provider: Optionaler Provider-Name (überschreibt Standard aus Config)
             
         Returns:
             TransformerResponse: Die Antwort mit dem transformierten Text
@@ -415,14 +419,39 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             transformed_text = ""
             llm_request = None
             
-            if hasattr(self, 'provider') and self.provider:
+            # Bestimme welchen Provider und welches Modell wir verwenden
+            # Falls explizit angegeben, überschreibe die Standard-Werte
+            effective_provider = self.provider
+            effective_model = model if model else self.model
+            
+            # Falls ein Provider-Name explizit angegeben wurde, hole die entsprechende Instanz
+            if provider:
                 try:
-                    transformed_text, llm_request = self.provider.chat_completion(
+                    from src.core.llm.config_manager import LLMConfigManager
+                    llm_config_manager = LLMConfigManager()
+                    provider_config = llm_config_manager.get_provider_config(provider)
+                    if provider_config:
+                        from src.core.llm.provider_manager import ProviderManager
+                        pm = ProviderManager()
+                        effective_provider = pm.get_provider(
+                            provider_name=provider,
+                            api_key=provider_config.api_key,
+                            base_url=provider_config.base_url,
+                            **provider_config.additional_config
+                        )
+                    else:
+                        self.logger.warning(f"Provider '{provider}' nicht in Config gefunden, verwende Standard-Provider")
+                except Exception as e:
+                    self.logger.warning(f"Konnte Provider '{provider}' nicht laden: {e}, verwende Standard-Provider")
+            
+            if effective_provider:
+                try:
+                    transformed_text, llm_request = effective_provider.chat_completion(
                         messages=[
                             {"role": "system", "content": system_message},
                             {"role": "user", "content": user_prompt}
                         ],
-                        model=self.model,
+                        model=effective_model,
                         temperature=0.2
                     )
                     
@@ -1840,7 +1869,9 @@ Anforderungen:
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         use_cache: bool = True,
         use_selector_extraction: bool = True,
-        container_selector: Optional[str] = None
+        container_selector: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None
     ) -> TransformerResponse:
         """
         Transformiert Webseiten-Inhalt nach einem Template.
@@ -1861,6 +1892,8 @@ Anforderungen:
             use_cache: Ob der Cache verwendet werden soll
             use_selector_extraction: Ob Selector-Extraktion verwendet werden soll (bei strukturierten Feldern)
             container_selector: CSS-Selector für Event-Container (z.B. "li.single-element")
+            model: Optionales LLM-Modell (überschreibt Standard aus Config)
+            provider: Optionaler Provider-Name (überschreibt Standard aus Config)
             
         Returns:
             TransformerResponse: Die Antwort mit dem transformierten Text
@@ -1981,7 +2014,9 @@ Anforderungen:
                 target_language=target_language,
                 context=context,
                 additional_field_descriptions=additional_field_descriptions,
-                use_cache=use_cache
+                use_cache=use_cache,
+                model=model,
+                provider=provider
             )
             
         except requests.RequestException as e:
