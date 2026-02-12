@@ -57,9 +57,11 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from dotenv import load_dotenv
 from typing import Dict, Any, Tuple
 
-# .env früh laden, bevor die API-Routen (mit Env-Auswertung) importiert werden
+# .env früh laden (Projektroot), damit z. B. OPENAI_API_KEY aus .env verwendet wird.
+# override=True: .env überschreibt bereits gesetzte Umgebungsvariablen (vermeidet veraltete Keys).
 try:
-    load_dotenv()
+    _env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+    load_dotenv(_env_path, override=True)
 except Exception:
     pass
 

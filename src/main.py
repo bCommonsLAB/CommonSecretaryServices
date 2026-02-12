@@ -47,10 +47,11 @@ import os
 # Füge das Projektverzeichnis zum Pythonpfad hinzu
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-# WICHTIG: .env explizit laden, BEVOR irgendwas anderes passiert
+# WICHTIG: .env explizit laden, BEVOR irgendwas anderes passiert.
+# override=True: Werte aus .env überschreiben bereits gesetzte Umgebungsvariablen (z. B. alten OPENAI_API_KEY).
 from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-load_dotenv(env_path)
+load_dotenv(env_path, override=True)
 print(f"[MAIN] .env geladen: {env_path}")
 print(f"[MAIN] PYTHONHTTPSVERIFY={os.getenv('PYTHONHTTPSVERIFY')}")
 print(f"[MAIN] YTDLP_COOKIES_FILE={os.getenv('YTDLP_COOKIES_FILE')}")

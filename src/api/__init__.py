@@ -54,9 +54,11 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     Returns:
         Die konfigurierte Flask-App
     """
-    # Lade .env sehr früh, damit Auth-Variablen (SECRETARY_SERVICE_API_KEY, ALLOW_*) sicher verfügbar sind
+    # Lade .env sehr früh (Projektroot, override=True), damit Auth und OPENAI_API_KEY aus .env kommen
     try:
-        load_dotenv()
+        import os as _os
+        _env_path = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '.env'))
+        load_dotenv(_env_path, override=True)
     except Exception as _:
         pass
 
