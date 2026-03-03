@@ -396,26 +396,38 @@ Diese Zeilen sind SSE-Kommentare und werden von SSE-Clients automatisch ignorier
 
 ### Typischer Workflow fuer Offline-Clients
 
-1. Job einreichen **ohne** `callback_url`:
-   ```bash
-   curl -X POST "http://localhost:5001/api/jobs/" \
-     -H "Authorization: Bearer YOUR_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{"job_type":"pdf","parameters":{"filename":"/path/to/file.pdf"}}'
-   ```
-   Response: `{"status":"success","data":{"job_id":"job-abc-123",...}}`
+SSE ist relevant fuer Endpoints, die immer die Job-Queue nutzen (PDF, Office). Audio, Video und Transformer verarbeiten ohne `callback_url` synchron – dort ist kein SSE noetig.
 
-2. SSE-Stream oeffnen:
-   ```bash
-   curl -N -H "Authorization: Bearer YOUR_API_KEY" \
-     "http://localhost:5001/api/jobs/job-abc-123/stream"
-   ```
+**Schritt 1**: Datei an den direkten Endpoint senden (ohne `callback_url`):
 
-3. Events empfangen bis `completed` oder `error`.
+```bash
+curl -X POST "http://localhost:5001/api/pdf/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@document.pdf" \
+  -F "extraction_method=combined"
+```
+
+Response (202): `{"status":"accepted","job":{"id":"job-abc-123"},...}`
+
+**Schritt 2**: SSE-Stream mit der `job_id` oeffnen:
+
+```bash
+curl -N -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://localhost:5001/api/jobs/job-abc-123/stream"
+```
+
+**Schritt 3**: Events empfangen bis `completed` oder `error`.
+
+### Endpoint-Verhalten ohne `callback_url`
+
+| Endpoint | Ohne `callback_url` | SSE noetig? |
+|---|---|---|
+| Audio, Video, Transformer | Synchron (200 + Ergebnis) | Nein |
+| PDF, Office | Asynchron (202 + `job_id`) | Ja, oder Polling |
 
 ### Client-Implementierung
 
-Siehe [Offline-Client Integration Guide](../../../guide/offline-clients.md) fuer ausfuehrliche Beispiele in Python und JavaScript.
+Siehe [Offline-Client Integration Guide](../../../guide/offline-clients.md) fuer ausfuehrliche Beispiele in Python, JavaScript und C#.
 
 ### Hinweise
 
