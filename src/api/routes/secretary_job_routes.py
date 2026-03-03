@@ -10,6 +10,7 @@ Main endpoints:
 - POST /api/jobs/enqueue: Enqueue single job
 - POST /api/jobs/enqueue-batch: Enqueue batch of jobs
 - GET /api/jobs/{job_id}: Retrieve job status
+- GET /api/jobs/{job_id}/stream: SSE-Stream fuer Echtzeit-Job-Updates (fuer Offline-Clients)
 - GET /api/jobs/batch/{batch_id}: Retrieve batch status
 - GET /api/jobs/health: Health check for secretary job service
 
@@ -18,6 +19,7 @@ Features:
 - Generic job types (job_type + parameters)
 - Batch job management
 - Job status tracking
+- Server-Sent Events (SSE) fuer Echtzeit-Updates ohne Webhook
 - Swagger UI documentation
 
 @module api.routes.secretary_job_routes
@@ -33,6 +35,7 @@ Features:
 @dependencies
 - External: flask_restx - REST API framework with Swagger UI
 - Internal: src.core.mongodb - SecretaryJobRepository
+- Internal: src.api.sse - SSE-Event-Stream-Generator
 """
 from typing import Any, Dict, List, Optional, Union, Tuple, cast
 
@@ -135,6 +138,38 @@ class SecretaryBatchGetEndpoint(Resource):
         if not batch:
             return json_response({'status': 'error', 'error': {'message': 'batch not found'}}, 404)
         return json_response({'status': 'success', 'data': batch.to_dict()})
+
+
+@secretary_ns.route('/<string:job_id>/stream')  # type: ignore
+class SecretaryJobStreamEndpoint(Resource):
+    @secretary_ns.doc(  # type: ignore
+        description='SSE-Stream fuer Echtzeit-Job-Updates. Ideal fuer Offline-Clients, '
+                    'die keinen Webhook-Endpunkt bereitstellen koennen. Der Client oeffnet '
+                    'eine langlebige HTTP-Verbindung und empfaengt Events bei Statusaenderungen.',
+        params={'job_id': 'Job-ID fuer die Updates gestreamt werden sollen'},
+        responses={
+            200: 'SSE-Event-Stream (Content-Type: text/event-stream)',
+            404: 'Job nicht gefunden'
+        }
+    )
+    def get(self, job_id: str) -> Response:
+        """Server-Sent Events Stream fuer Job-Updates.
+
+        Sendet SSE-Events bei Statusaenderungen (pending -> processing -> completed/failed).
+        Der Stream wird automatisch geschlossen wenn der Job abgeschlossen ist.
+        Heartbeats halten die Verbindung durch Proxies/Firewalls offen.
+        """
+        from src.api.sse import job_event_stream
+
+        return Response(
+            job_event_stream(job_id),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',  # Verhindert Nginx-Buffering
+                'Connection': 'keep-alive',
+            }
+        )
 
 
 @secretary_ns.route('/<string:job_id>/download-archive')  # type: ignore

@@ -60,6 +60,7 @@ from src.core.models.video import VideoSource, VideoResponse, VideoFramesRespons
 from src.core.models.youtube import YoutubeResponse
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
+from src.core.mongodb.secretary_repository import SecretaryJobRepository
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 
@@ -81,6 +82,10 @@ video_upload_parser.add_argument('source_language', location='form', type=str, d
 video_upload_parser.add_argument('template', location='form', type=str, required=False, help='Optional Template für die Verarbeitung')
 video_upload_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
 video_upload_parser.add_argument('force_refresh', location='form', type=str, default='false', required=False, help='Cache ignorieren und Verarbeitung erzwingen (true/false)')
+# Async/Webhook (analog zu Audio)
+video_upload_parser.add_argument('callback_url', location='form', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
+video_upload_parser.add_argument('callback_token', location='form', type=str, required=False, help='Optional: Token für Webhook-Auth')
+video_upload_parser.add_argument('jobId', location='form', type=str, required=False, help='Optional: Externe Job-ID (vom Client) für Callback-Kontext')
 
 # Parser für Frame-Extraktion (Form)
 frames_form_parser = video_ns.parser()
@@ -117,6 +122,9 @@ youtube_parser.add_argument('source_language', location='json', type=str, defaul
 youtube_parser.add_argument('target_language', location='json', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
 youtube_parser.add_argument('template', location='json', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
 youtube_parser.add_argument('useCache', location='json', type=bool, default=True, required=False, help='Cache verwenden (default: True)')
+youtube_parser.add_argument('callback_url', location='json', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
+youtube_parser.add_argument('callback_token', location='json', type=str, required=False, help='Optional: Token für Webhook-Auth')
+youtube_parser.add_argument('jobId', location='json', type=str, required=False, help='Optional: Externe Job-ID für Callback-Kontext')
 
 # Parser für YouTube-Anfragen mit Formular
 youtube_form_parser = video_ns.parser()
@@ -125,6 +133,10 @@ youtube_form_parser.add_argument('source_language', location='form', type=str, d
 youtube_form_parser.add_argument('target_language', location='form', type=str, default='de', required=False, help='Zielsprache (ISO 639-1 code)')
 youtube_form_parser.add_argument('template', location='form', type=str, default='youtube', required=False, help='Template für die Verarbeitung')
 youtube_form_parser.add_argument('useCache', location='form', type=str, default='true', required=False, help='Cache verwenden (true/false)')
+# Async/Webhook (analog zu Audio)
+youtube_form_parser.add_argument('callback_url', location='form', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
+youtube_form_parser.add_argument('callback_token', location='form', type=str, required=False, help='Optional: Token für Webhook-Auth')
+youtube_form_parser.add_argument('jobId', location='form', type=str, required=False, help='Optional: Externe Job-ID (vom Client) für Callback-Kontext')
 
 # Definiere Error-Modell, identisch zum alten Format
 error_model: Model | OrderedModel = video_ns.model('Error', {
@@ -362,8 +374,42 @@ class YoutubeEndpoint(Resource):
 
             if not url:
                 raise ProcessingError("Youtube-URL ist erforderlich")
+
+            # Webhook-Parameter aus Form oder JSON
+            json_data = request.get_json(silent=True) if request.is_json else None
+            callback_url = (request.form or {}).get('callback_url') or (json_data or {}).get('callback_url')
+            callback_token = (request.form or {}).get('callback_token') or (json_data or {}).get('callback_token')
+            job_id_form = (request.form or {}).get('jobId') or (json_data or {}).get('jobId')
+
+            # Async-Modus: callback_url gesetzt → Job enqueuen, 202 zurückgeben
+            if callback_url:
+                params_flat: Dict[str, Any] = {
+                    "url": url,
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "template": template or "youtube",
+                    "use_cache": use_cache,
+                    "webhook": {"url": callback_url, "token": callback_token, "jobId": job_id_form},
+                }
+                job_repo = SecretaryJobRepository()
+                created_job_id = job_repo.create_job({"job_type": "youtube", "parameters": params_flat})
+                ack: Dict[str, Any] = {
+                    "status": "accepted",
+                    "worker": "secretary",
+                    "process": {
+                        "id": process_id,
+                        "main_processor": "youtube",
+                        "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "is_from_cache": False,
+                    },
+                    "job": {"id": job_id_form or created_job_id},
+                    "webhook": {"delivered_to": callback_url},
+                    "error": None,
+                }
+                logger.info("YouTube-Job enqueued (Webhook)", process_id=process_id, job_id=created_job_id)
+                return ack, 202
             
-            # Verarbeite YouTube-Video mit der Hilfsfunktion
+            # Sync: Verarbeite YouTube-Video mit der Hilfsfunktion
             result = asyncio.run(process_youtube(
                 url=url,
                 source_language=source_language,
@@ -428,29 +474,33 @@ class YoutubeEndpoint(Resource):
 @video_ns.route('/process')
 class VideoProcessEndpoint(Resource):
     @video_ns.doc(id='process_video', 
-                 description='Verarbeitet ein Video und extrahiert den Audio-Inhalt. Unterstützt sowohl URLs als auch Datei-Uploads über Formular-Anfragen.')
+                 description='Verarbeitet ein Video und extrahiert den Audio-Inhalt. Unterstützt sowohl URLs als auch Datei-Uploads. Mit callback_url: asynchron per Webhook.')
     @video_ns.response(200, 'Erfolg', video_response)
+    @video_ns.response(202, 'Angenommen (Async)', video_response)
     @video_ns.response(400, 'Validierungsfehler', error_model)
     @video_ns.expect(video_upload_parser)
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """
         Verarbeitet ein Video und extrahiert den Audio-Inhalt.
         Unterstützt sowohl URLs als auch Datei-Uploads.
-        
-        Für Datei-Uploads verwende multipart/form-data mit dem Parameter 'file'.
-        Für URL-basierte Verarbeitung kann entweder multipart/form-data mit dem Parameter 'url' 
-        oder eine JSON-Anfrage mit dem Parameter 'url' verwendet werden.
+        Mit callback_url: asynchrone Verarbeitung, Ergebnis per Webhook.
         """
         try:
-            # Initialisiere Variablen
-            source: VideoSource = None
+            process_id = str(uuid.uuid4())
+            callback_url: Optional[str] = (request.form or {}).get('callback_url') or None
+            if not callback_url and request.is_json:
+                data_json = request.get_json(silent=True) or {}
+                callback_url = data_json.get('callback_url') or None
+            callback_token: Optional[str] = (request.form or {}).get('callback_token') or None
+            job_id_form: Optional[str] = (request.form or {}).get('jobId') or None
+
+            source: Optional[VideoSource] = None
             binary_data: Optional[bytes] = None
             target_language: str = 'de'
             source_language: str = 'auto'
             template: Optional[str] = None
             use_cache: bool = True
             force_refresh: bool = False
-            process_id = str(uuid.uuid4())
 
             # Prüfe ob Datei oder URL
             if request.files and 'file' in request.files and request.files['file'].filename:
@@ -459,7 +509,7 @@ class VideoProcessEndpoint(Resource):
                 # Lese binäre Daten, aber speichere sie NICHT in der VideoSource
                 binary_data = uploaded_file.read()
                 # Größe der Datei bestimmen
-                file_size = len(binary_data)
+                file_size = len(binary_data) if binary_data else 0
                 # Aktueller Zeitstempel
                 upload_timestamp = datetime.now().isoformat()
                 # Erstelle VideoSource mit zusätzlichen Identifikationsmerkmalen
@@ -514,7 +564,46 @@ class VideoProcessEndpoint(Resource):
             if not source:
                 raise ProcessingError("Keine gültige Video-Quelle gefunden")
 
-            # Verarbeite Video mit Hilfsfunktion
+            # Async-Modus: callback_url gesetzt → Job enqueuen, 202 zurückgeben
+            if callback_url:
+                params_flat: Dict[str, Any] = {
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "template": template or None,
+                    "use_cache": use_cache,
+                    "force_refresh": force_refresh,
+                    "webhook": {"url": callback_url, "token": callback_token, "jobId": job_id_form},
+                }
+                if source.url:
+                    params_flat["url"] = source.url
+                else:
+                    # Datei-Upload: speichern, damit Worker zugreifen kann
+                    upload_dir = Path("cache") / "uploads" / "video"
+                    upload_dir.mkdir(parents=True, exist_ok=True)
+                    suffix = Path(source.file_name or "video").suffix or ".mp4"
+                    temp_path = upload_dir / f"upload_{process_id}{suffix}"
+                    if binary_data:
+                        temp_path.write_bytes(binary_data)
+                    params_flat["filename"] = str(temp_path.resolve()).replace("\\", "/")
+                job_repo = SecretaryJobRepository()
+                created_job_id = job_repo.create_job({"job_type": "video", "parameters": params_flat})
+                ack: Dict[str, Any] = {
+                    "status": "accepted",
+                    "worker": "secretary",
+                    "process": {
+                        "id": process_id,
+                        "main_processor": "video",
+                        "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "is_from_cache": False,
+                    },
+                    "job": {"id": job_id_form or created_job_id},
+                    "webhook": {"delivered_to": callback_url},
+                    "error": None,
+                }
+                logger.info("Video-Job enqueued (Webhook)", process_id=process_id, job_id=created_job_id)
+                return ack, 202
+
+            # Sync: Verarbeite Video mit Hilfsfunktion
             result: VideoResponse = asyncio.run(process_video(
                 source=source,
                 binary_data=binary_data,  # Übergebe die Binärdaten separat
@@ -565,7 +654,7 @@ class VideoFramesEndpoint(Resource):
     @video_ns.expect(frames_form_parser)
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         try:
-            source: VideoSource = None
+            source: Optional[VideoSource] = None
             binary_data: Optional[bytes] = None
             interval_seconds: int = 5
             width: Optional[int] = None
@@ -578,7 +667,7 @@ class VideoFramesEndpoint(Resource):
             if request.files and 'file' in request.files and request.files['file'].filename:
                 uploaded_file: FileStorage = request.files['file']
                 binary_data = uploaded_file.read()
-                file_size = len(binary_data)
+                file_size = len(binary_data) if binary_data else 0
                 upload_timestamp = datetime.now().isoformat()
                 source = VideoSource(
                     file_name=uploaded_file.filename,

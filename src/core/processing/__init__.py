@@ -41,6 +41,18 @@ except Exception:
     # defensive: Registry muss auch ohne Audio funktionieren
     pass
 
+try:
+    from .handlers.video_handler import handle_video_job
+    register("video", handle_video_job)
+except Exception:
+    pass
+
+try:
+    from .handlers.youtube_handler import handle_youtube_job
+    register("youtube", handle_youtube_job)
+except Exception:
+    pass
+
 __all__ = ["register", "get_handler", "available_job_types"]
 
 

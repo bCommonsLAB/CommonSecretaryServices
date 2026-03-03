@@ -33,6 +33,7 @@ for alternative deployment scenarios.
 - Internal: src.dashboard.routes.* - Dashboard route blueprints
 - Internal: src.core.mongodb.connection - MongoDB connection
 """
+import os
 from flask import Flask
 from dotenv import load_dotenv
 from src.dashboard.routes.main_routes import main as dashboard_blueprint
@@ -84,10 +85,11 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     
     # Konfiguriere die App
     # Maximale Größe des kompletten Request-Bodys (Upload-Limit)
-    app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB upload limit
-    # Maximale Größe der im Speicher gehaltenen Form-/Multipart-Daten
-    # WICHTIG: Dieses Limit greift bei multipart/form-data unabhängig von MAX_CONTENT_LENGTH
-    app.config['MAX_FORM_MEMORY_SIZE'] = 100 * 1024 * 1024  # 100MB form-data limit
+    # Über MAX_UPLOAD_SIZE_MB in .env konfigurierbar; Default 100 MB
+    _max_upload_mb = int(os.environ.get('MAX_UPLOAD_SIZE_MB', '100') or '100')
+    _max_upload_bytes = _max_upload_mb * 1024 * 1024
+    app.config['MAX_CONTENT_LENGTH'] = _max_upload_bytes
+    app.config['MAX_FORM_MEMORY_SIZE'] = _max_upload_bytes
     app.config['PREFERRED_URL_SCHEME'] = 'http'
     
     # Registriere die API-Routen bei der App

@@ -160,6 +160,7 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | POST | `/api/jobs/` | Create new job |
 | POST | `/api/jobs/batch` | Create batch of jobs |
 | GET | `/api/jobs/<job_id>` | Get job status and results |
+| GET | `/api/jobs/<job_id>/stream` | SSE-Stream fuer Echtzeit-Job-Updates (Offline-Clients) |
 | GET | `/api/jobs/batch/<batch_id>` | Get batch status |
 | GET | `/api/jobs/<job_id>/download-archive` | Download job archive (ZIP) |
 
