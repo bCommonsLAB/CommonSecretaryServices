@@ -11,7 +11,7 @@ from datetime import datetime, UTC
 
 from src.api.sse import format_sse, build_event_from_job, event_type_for_status
 from src.core.models.job_models import (
-    Job, JobStatus, JobProgress, JobResults, JobError
+    Job, JobStatus, JobProgress, JobResults, JobError, JobParameters
 )
 
 
@@ -88,17 +88,68 @@ class TestBuildEventFromJob(unittest.TestCase):
         self.assertEqual(event["phase"], "running")
         self.assertEqual(event["data"]["progress"], 0)
 
-    def test_completed_job(self) -> None:
-        """COMPLETED-Job erzeugt Event mit Ergebnissen."""
+    def test_completed_pdf_job_webhook_format(self) -> None:
+        """COMPLETED PDF-Job erzeugt Event mit Webhook-kompatibler data-Struktur."""
         job = Job()
         job.job_id = "test-job-123"
         job.job_type = "pdf"
         job.status = JobStatus.COMPLETED
-        job.results = JobResults(markdown_content="# Test")
+        job.parameters = JobParameters(extraction_method="mistral_ocr_with_pages")
+        job.results = JobResults(
+            structured_data={
+                "data": {
+                    "extracted_text": "--- Seite 1 ---\nTest-Text",
+                    "metadata": {"page_count": 3, "text_contents": ["Seite 1"]},
+                }
+            },
+            assets=["/path/to/image.png"],
+        )
         event = build_event_from_job(job)
         self.assertEqual(event["phase"], "completed")
-        self.assertIn("results", event["data"])
-        self.assertEqual(event["data"]["results"]["markdown_content"], "# Test")
+        # Webhook-kompatible flache Struktur (kein data.results Wrapper)
+        self.assertEqual(event["data"]["extracted_text"], "--- Seite 1 ---\nTest-Text")
+        self.assertEqual(event["data"]["metadata"]["page_count"], 3)
+        # Mistral OCR URLs muessen vorhanden sein
+        self.assertIn("mistral_ocr_raw_url", event["data"])
+        self.assertIn("pages_archive_url", event["data"])
+        self.assertIn(job.job_id, event["data"]["mistral_ocr_raw_url"])
+
+    def test_completed_audio_job_webhook_format(self) -> None:
+        """COMPLETED Audio-Job erzeugt Event mit transcription.text."""
+        job = Job()
+        job.job_id = "test-job-456"
+        job.job_type = "audio"
+        job.status = JobStatus.COMPLETED
+        job.results = JobResults(markdown_content="Transkribierter Text hier")
+        event = build_event_from_job(job)
+        self.assertEqual(event["phase"], "completed")
+        self.assertEqual(event["data"]["transcription"]["text"], "Transkribierter Text hier")
+
+    def test_completed_video_job_webhook_format(self) -> None:
+        """COMPLETED Video-Job erzeugt Event mit transcription.text und result."""
+        job = Job()
+        job.job_id = "test-job-789"
+        job.job_type = "video"
+        job.status = JobStatus.COMPLETED
+        job.results = JobResults(
+            video_transcript="Video-Transkript",
+            structured_data={"some": "data"},
+        )
+        event = build_event_from_job(job)
+        self.assertEqual(event["phase"], "completed")
+        self.assertEqual(event["data"]["transcription"]["text"], "Video-Transkript")
+        self.assertEqual(event["data"]["result"]["some"], "data")
+
+    def test_completed_generic_job_fallback(self) -> None:
+        """COMPLETED Job mit unbekanntem Typ nutzt structured_data direkt."""
+        job = Job()
+        job.job_id = "test-job-gen"
+        job.job_type = "transformer_template"
+        job.status = JobStatus.COMPLETED
+        job.results = JobResults(structured_data={"transformed": "text"})
+        event = build_event_from_job(job)
+        self.assertEqual(event["phase"], "completed")
+        self.assertEqual(event["data"]["transformed"], "text")
 
     def test_failed_job(self) -> None:
         """FAILED-Job erzeugt Error-Event."""
@@ -167,7 +218,9 @@ class TestJobEventStream(unittest.TestCase):
         completed_job.job_id = "job-done"
         completed_job.job_type = "pdf"
         completed_job.status = JobStatus.COMPLETED
-        completed_job.results = JobResults(markdown_content="# Ergebnis")
+        completed_job.results = JobResults(
+            structured_data={"data": {"extracted_text": "# Ergebnis"}}
+        )
         mock_repo.get_job.return_value = completed_job
 
         events = list(job_event_stream("job-done"))
@@ -201,7 +254,9 @@ class TestJobEventStream(unittest.TestCase):
         completed_job.job_id = "job-1"
         completed_job.job_type = "pdf"
         completed_job.status = JobStatus.COMPLETED
-        completed_job.results = JobResults(markdown_content="Fertig")
+        completed_job.results = JobResults(
+            structured_data={"data": {"extracted_text": "Fertig"}}
+        )
 
         mock_repo = mock_repo_cls.return_value
         mock_repo.get_job.side_effect = [pending_job, processing_job, completed_job]
