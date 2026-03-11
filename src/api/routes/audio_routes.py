@@ -67,7 +67,7 @@ audio_ns = Namespace('audio', description='Audio-Verarbeitungs-Operationen')
 # Model für Audio-Upload Parameter
 upload_parser = audio_ns.parser()
 upload_parser.add_argument('file', location='files', type=FileStorage, required=True, help='Audio-Datei (multipart/form-data)')
-upload_parser.add_argument('source_language', location='form', type=str, default='de', help='Quellsprache (ISO 639-1 code, z.B. "en", "de")')
+upload_parser.add_argument('source_language', location='form', type=str, default='auto', help='Quellsprache (ISO 639-1 code, z.B. "en", "de"). "auto" fuer automatische Erkennung.')
 upload_parser.add_argument('target_language', location='form', type=str, default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
 upload_parser.add_argument('template', location='form', type=str, default='', help='Optional Template für die Verarbeitung')
 upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')
@@ -112,7 +112,7 @@ def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     )
 
 # Audio-Verarbeitungs-Funktion
-async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'de', target_language: str = 'de', template: str = '', use_cache: bool = True) -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'auto', target_language: str = 'de', template: str = '', use_cache: bool = True) -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
@@ -191,7 +191,7 @@ class AudioProcessEndpoint(Resource):
     @audio_ns.doc(description='Verarbeitet eine Audio-Datei. Mit dem Parameter useCache=false kann die Cache-Nutzung deaktiviert werden.')
     def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
         """Verarbeitet eine Audio-Datei"""
-        source_language: str = 'de'  # Default-Wert
+        source_language: str = 'auto'
         target_language: str = 'de'
         temp_file = None
         temp_file_path = None
@@ -284,7 +284,7 @@ class AudioProcessEndpoint(Resource):
                 logger.warning(f"Fehler beim Ermitteln der tatsächlichen Dateigröße: {e}")
                 actual_file_size = audio_file.content_length
             
-            source_language = str(args.get('source_language', 'de') or 'de')
+            source_language = str(args.get('source_language', 'auto') or 'auto')
             target_language = str(args.get('target_language', 'de') or 'de')
             template = str(args.get('template', '') or '')
             use_cache = bool(args.get('useCache', True))
@@ -300,7 +300,7 @@ class AudioProcessEndpoint(Resource):
 
             # Validiere Dateiformat
             filename = str(audio_file.filename or "").lower()
-            supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm'}
+            supported_formats = {'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'opus', 'wav', 'webm'}
             file_ext = Path(filename).suffix.lstrip('.')
             source_info = {
                 'original_filename': audio_file.filename,

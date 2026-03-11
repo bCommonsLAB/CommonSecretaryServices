@@ -205,7 +205,13 @@ RETRY_DELAY_SEC = 5
 
 
 def stream_with_reconnect(job_id: str) -> dict:
-    """SSE-Stream mit automatischem Reconnect."""
+    """SSE-Stream mit automatischem Reconnect.
+
+    Bei Verbindungsabbruch wird geprueft, ob der Job bereits fertig ist.
+    Falls ja, wird der SSE-Stream neu geoeffnet (liefert sofort das
+    completed-Event im Webhook-kompatiblen Format).
+    Falls nein, wird der Stream ebenfalls neu geoeffnet.
+    """
     for attempt in range(MAX_RETRIES):
         try:
             result = stream_job_updates(job_id)
@@ -214,19 +220,9 @@ def stream_with_reconnect(job_id: str) -> dict:
         except requests.exceptions.ConnectionError:
             print(f"Verbindung verloren (Versuch {attempt + 1}/{MAX_RETRIES})")
 
-            # Pruefen ob Job bereits fertig ist
-            status_resp = requests.get(
-                f"{BASE_URL}/jobs/{job_id}",
-                headers=HEADERS,
-            )
-            if status_resp.ok:
-                job_data = status_resp.json().get("data", {})
-                status = job_data.get("status")
-                if status == "completed":
-                    return {"phase": "completed", "data": {"results": job_data.get("results")}}
-                if status == "failed":
-                    return {"phase": "error", "error": job_data.get("error")}
-
+            # Kurz warten, dann SSE-Stream erneut oeffnen.
+            # Der Stream liefert den aktuellen Status sofort als erstes Event
+            # (auch wenn der Job bereits completed ist).
             time.sleep(RETRY_DELAY_SEC)
 
     return {"phase": "error", "message": "Max Retries erreicht"}
@@ -336,7 +332,7 @@ if (result) {
   streamJobUpdates(
     jobId,
     (data) => console.log(`Fortschritt: ${data.data?.progress}%`),
-    (data) => console.log("Fertig:", data.data?.results),
+    (data) => console.log("Fertig:", data.data?.extracted_text || data.data),
     (data) => console.error("Fehler:", data.error || data.message)
   );
 }

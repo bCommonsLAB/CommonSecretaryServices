@@ -353,9 +353,24 @@ data: {"phase":"running","message":"Transkription laeuft (45%)","job":{"id":"job
 
 #### `completed` - Job abgeschlossen
 
+Das `data`-Feld hat die gleiche Struktur wie der Webhook-Payload (je nach job_type):
+
+**PDF** (`main_processor: "pdf"`):
 ```
 event: completed
-data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"pdf"},"data":{"results":{"markdown_content":"...","structured_data":{...}}}}
+data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"pdf"},"data":{"extracted_text":"--- Seite 1 ---\n...","metadata":{"page_count":16},"mistral_ocr_raw_url":"/api/pdf/jobs/job-id-123/mistral-ocr-raw","pages_archive_url":"/api/pdf/jobs/job-id-123/download-pages-archive"}}
+```
+
+**Audio** (`main_processor: "audio"`):
+```
+event: completed
+data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"transcription":{"text":"Transkribierter Text..."}}}
+```
+
+**Video** (`main_processor: "video"` oder `"youtube"`):
+```
+event: completed
+data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"video"},"data":{"transcription":{"text":"..."},"result":{...}}}
 ```
 
 #### `error` - Job fehlgeschlagen

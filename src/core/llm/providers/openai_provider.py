@@ -17,7 +17,6 @@ import io
 import time
 
 from openai import OpenAI
-from openai.types.audio.transcription_verbose import TranscriptionVerbose
 from openai.types.chat import ChatCompletion
 
 from ...exceptions import ProcessingError
@@ -113,8 +112,35 @@ class OpenAIProvider:
             if language and language != "auto":
                 api_params["language"] = language
             
-            # API-Aufruf
-            response: TranscriptionVerbose = self.client.audio.transcriptions.create(**api_params)
+            # API-Aufruf mit automatischem Retry bei bekannten Fehlern
+            response: Any
+            try:
+                response = self.client.audio.transcriptions.create(**api_params)
+            except Exception as first_error:
+                error_str = str(first_error).lower()
+                needs_retry = False
+                
+                # Retry-Grund 1: Sprache nicht unterstuetzt -> ohne language-Parameter
+                if "unsupported_language" in error_str and "language" in api_params:
+                    del api_params["language"]
+                    needs_retry = True
+                
+                # Retry-Grund 2: response_format nicht kompatibel (gpt-4o-transcribe)
+                if "response_format" in error_str and "not compatible" in error_str:
+                    api_params["response_format"] = "json"
+                    needs_retry = True
+                
+                if needs_retry:
+                    # File-Handle resetten (wurde bereits gelesen)
+                    if isinstance(audio_data, Path):
+                        audio_file.close()
+                        audio_file = open(audio_data, 'rb')
+                    else:
+                        audio_file = io.BytesIO(audio_data)
+                    api_params["file"] = ("audio.mp3", audio_file, "audio/mpeg")
+                    response = self.client.audio.transcriptions.create(**api_params)
+                else:
+                    raise
             
             # Datei schließen falls nötig
             if isinstance(audio_data, Path) and hasattr(audio_file, 'close'):
@@ -470,14 +496,30 @@ class OpenAIProvider:
             'bengali': 'bn',
             'polish': 'pl',
             'czech': 'cs',
-            'dutch': 'nl'
+            'dutch': 'nl',
+            'amharic': 'am',
+            'swahili': 'sw',
+            'thai': 'th',
+            'vietnamese': 'vi',
+            'ukrainian': 'uk',
+            'indonesian': 'id',
+            'malay': 'ms',
+            'persian': 'fa',
+            'hebrew': 'he',
+            'greek': 'el',
         }
         
         normalized = language.lower().strip()
         
+        # "auto" oder leerer String bleiben erhalten
+        if not normalized or normalized == "auto":
+            return "auto"
+        
         if len(normalized) == 2:
             return normalized
         
-        return language_map.get(normalized, 'en')
+        # Unbekannte Sprache: "auto" statt falschem 'en'-Fallback
+        mapped = language_map.get(normalized)
+        return mapped if mapped else "auto"
 
 

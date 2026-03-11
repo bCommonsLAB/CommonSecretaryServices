@@ -327,8 +327,12 @@ class AudioProcessingResult:
     
     @property
     def status(self) -> ProcessingStatus:
-        """Status des Ergebnisses."""
-        return ProcessingStatus.SUCCESS if self.transcription and self.transcription.text else ProcessingStatus.ERROR
+        """Status des Ergebnisses. Fehlgeschlagene Transkriptionen werden als ERROR markiert."""
+        if not self.transcription or not self.transcription.text:
+            return ProcessingStatus.ERROR
+        if self.transcription.text.startswith("[Transkription fehlgeschlagen"):
+            return ProcessingStatus.ERROR
+        return ProcessingStatus.SUCCESS
 
     def __post_init__(self) -> None:
         """Initialisiert das AudioProcessingResult."""

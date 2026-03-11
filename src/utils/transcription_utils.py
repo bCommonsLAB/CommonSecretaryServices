@@ -163,11 +163,14 @@ class WhisperTranscriber:
         
         # Versuche Provider für Transcription zu laden
         try:
+            # Config immer frisch laden, damit Dashboard-Aenderungen wirksam werden
+            self.llm_config_manager.reload_config()
             self.provider = self.llm_config_manager.get_provider_for_use_case(UseCase.TRANSCRIPTION)
-            # Modell aus Konfiguration holen, falls verfügbar
             configured_model = self.llm_config_manager.get_model_for_use_case(UseCase.TRANSCRIPTION)
             if configured_model:
                 self.model = configured_model
+            if self._logger:
+                self._logger.info(f"Transcription-Modell: {self.model} (Provider: {type(self.provider).__name__})")
         except Exception as e:
             # Fallback auf direkten OpenAI-Client wenn Provider nicht verfügbar
             if self._logger:
@@ -1765,7 +1768,7 @@ class WhisperTranscriber:
         logger: Optional[ProcessingLogger] = None,
         segment_id: Optional[int] = None,
         segment_title: Optional[str] = None,
-        source_language: str = "de",
+        source_language: str = "auto",
         target_language: str = "de",
         processor: Optional[str] = None
     ) -> TranscriptionResult:
@@ -1894,17 +1897,16 @@ class WhisperTranscriber:
                     # Prüfe, ob die Operation abgeschlossen wurde oder ob ein Timeout aufgetreten ist
                     if operation_completed.is_set():
                         if operation_error[0]:
-                            # Es ist ein Fehler aufgetreten
-                            error_obj = operation_error[0]  # Typensichere Referenz
+                            # Fehler aufgetreten – Fehlermeldung fuer Aufrufer bereitstellen
+                            error_obj = operation_error[0]
                             if logger:
                                 logger.error(
                                     f"API-Fehler für Segment {segment_id}",
-                                    error=error_obj,  # Übergebe Exception-Objekt direkt
+                                    error=error_obj,
                                     error_type=type(error_obj).__name__
                                 )
-                            # Fehler weiterleiten an Fehlerbehandlung
-                            self._handle_api_error(error_obj)
-                            return None
+                            # Fehler direkt als Exception weiterleiten (nicht verschlucken)
+                            raise error_obj
                         else:
                             # Erfolgreicher Abschluss
                             return operation_result[0]
@@ -1912,58 +1914,64 @@ class WhisperTranscriber:
                         # Timeout ist aufgetreten
                         if logger:
                             logger.error(f"Timeout bei API-Anfrage für Segment {segment_id} nach {timeout_seconds} Sekunden")
-                        # Thread wird als Daemon automatisch beendet
                         return None
                 
-                except Exception as e:
-                    # Unerwartete Ausnahme während des Wartens
-                    if logger:
-                        logger.error(
-                            f"Unerwartete Ausnahme beim Warten auf API-Antwort für Segment {segment_id}",
-                            error=e,  # Übergebe Exception-Objekt direkt
-                            error_type=type(e).__name__,
-                            traceback=traceback.format_exc()
-                        )
-                    return None
+                except Exception:
+                    # Exception nach oben weiterleiten statt verschlucken
+                    raise
 
             # API aufrufen mit Timeout und klarer Fallback
+            api_error_message: Optional[str] = None
             try:
                 response = await call_api_with_timeout()
             except Exception as e:
+                api_error_message = str(e)
                 if logger:
                     logger.error(
-                        f"Unbehandelte Ausnahme bei API-Aufruf für Segment {segment_id}",
+                        f"API-Fehler bei Transkription für Segment {segment_id}: {api_error_message}",
                         error=e,
-                        error_type=type(e).__name__,
-                        traceback=traceback.format_exc()
+                        error_type=type(e).__name__
                     )
                 response = None
 
             # Wenn keine Antwort oder ungültige Antwort, gib Fehler-Ergebnis zurück
             if not response or not hasattr(response, 'text'):
-                if logger:
-                    logger.warning(
-                        f"Keine gültige API-Antwort für Segment {segment_id} erhalten, überspringe Segment"
-                    )
-                
                 # Zeitmessung beenden
                 duration = (time.time() - start_time) * 1000
-                
-                # Erstelle Fehler-Segment mit gültigen Werten
-                # end muss größer als start sein, daher verwenden wir eine minimale Dauer
+
+                # Aussagekraeftige Fehlermeldung statt generischem Platzhalter
+                error_detail = api_error_message or "Keine gültige API-Antwort"
+                error_text = f"[Transkription fehlgeschlagen: {error_detail}]"
+
+                if logger:
+                    logger.warning(
+                        f"Transkription fehlgeschlagen für Segment {segment_id}",
+                        error_detail=error_detail,
+                        duration_ms=duration
+                    )
+
+                # Fehlgeschlagenen Whisper-Aufruf tracken (tokens=1 Minimum, da LLMRequest positive Werte erfordert)
+                try:
+                    self.create_llm_request(
+                        processor=processor,
+                        purpose="transcription_failed",
+                        tokens=1,
+                        duration=duration,
+                        model=self.model
+                    )
+                except (ValueError, Exception):
+                    pass
+
                 segment = TranscriptionSegment(
-                    text="[Transkription fehlgeschlagen: Keine gültige API-Antwort]",
+                    text=error_text,
                     segment_id=segment_id or 0,
                     start=0.0,
-                    end=max(duration / 1000.0, 0.1),  # Mindestens 0.1 Sekunden, damit end > start
+                    end=max(duration / 1000.0, 0.1),
                     title=segment_title
                 )
-                
-                # Kein LLMRequest erstellen bei Fehlern, da keine Tokens verbraucht wurden
-                # Die Dauer wird trotzdem im ProcessInfo getrackt
 
                 return TranscriptionResult(
-                    text="[Transkription fehlgeschlagen: Keine gültige API-Antwort]",
+                    text=error_text,
                     source_language=source_language,
                     segments=[segment]
                 )
@@ -1994,7 +2002,7 @@ class WhisperTranscriber:
                     purpose="transcription",
                     tokens=tokens,
                     duration=duration,
-                    model="whisper-1"  # Explizit Whisper-Modell angeben
+                    model=self.model
                 )
 
             if source_language == "auto":
@@ -2089,19 +2097,37 @@ class WhisperTranscriber:
             'bengali': 'bn',
             'polish': 'pl',
             'czech': 'cs',
-            'dutch': 'nl'
-            # Weitere Sprachen können hier hinzugefügt werden
+            'dutch': 'nl',
+            'amharic': 'am',
+            'swahili': 'sw',
+            'thai': 'th',
+            'vietnamese': 'vi',
+            'ukrainian': 'uk',
+            'indonesian': 'id',
+            'malay': 'ms',
+            'persian': 'fa',
+            'hebrew': 'he',
+            'greek': 'el',
         }
         
         # Konvertiere zu Kleinbuchstaben und entferne Leerzeichen
         normalized = language.lower().strip()
+        
+        # "auto" oder leerer String bleiben als "auto" erhalten
+        if not normalized or normalized == "auto":
+            return "auto"
         
         # Wenn der Code bereits im ISO-Format ist (2 Buchstaben), gib ihn direkt zurück
         if len(normalized) == 2:
             return normalized
             
         # Versuche die Sprache im Mapping zu finden
-        return language_map.get(normalized, 'en')  # Fallback auf 'en' wenn unbekannt
+        mapped = language_map.get(normalized)
+        if mapped:
+            return mapped
+        
+        # Unbekannte Sprache: "auto" zurueckgeben statt falschem Fallback auf 'en'
+        return "auto"
 
     def _handle_api_error(self, api_error: Exception) -> None:
         """Behandelt spezifische API-Fehler."""
@@ -2128,7 +2154,7 @@ class WhisperTranscriber:
         self,
         *,  # Erzwinge Keyword-Argumente
         segments: Union[List[AudioSegmentInfo], List[Chapter]],
-        source_language: str = "de",
+        source_language: str = "auto",
         target_language: str = "de",
         logger: Optional[ProcessingLogger] = None,
         processor: Optional[str] = None
@@ -2196,12 +2222,25 @@ class WhisperTranscriber:
                 # Verarbeite die Ergebnisse des Batches
                 for i, result in enumerate(batch_results):
                     segment_index = batch_start + i
+
+                    # Fehlerhafte Transkriptionen nicht uebersetzen
+                    is_error = result.text.startswith("[Transkription fehlgeschlagen")
+                    if is_error:
+                        combined_text_parts.append(result.text)
+                        continue
                     
-                    # Übersetzung, falls nötig
-                    if result.source_language != target_language and result.text.strip():
+                    # Übersetzung, falls noetig (auch bei "auto" als source_language,
+                    # da die Sprache nicht sicher bestimmt werden konnte)
+                    needs_translation = (
+                        result.source_language != target_language
+                        or result.source_language == "auto"
+                    )
+                    if needs_translation and result.text.strip():
+                        # Bei "auto" keinen falschen Sprachcode an Translator senden
+                        effective_source = result.source_language if result.source_language != "auto" else ""
                         translation_result = self.translate_text(
                             text=result.text,
-                            source_language=result.source_language,
+                            source_language=effective_source,
                             target_language=target_language,
                             logger=logger,
                             processor=processor
