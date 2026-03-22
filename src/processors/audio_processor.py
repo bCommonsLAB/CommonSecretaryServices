@@ -73,7 +73,7 @@ from src.core.models.audio import (
 )
 from src.core.models.base import ProcessInfo, ErrorInfo
 from src.processors.cacheable_processor import CacheableProcessor
-from src.core.models.enums import ProcessorType
+from src.core.models.enums import ProcessorType, ProcessingStatus
 from src.utils.logger import ProcessingLogger
 from src.core.config import Config
 from src.processors.base_processor import BaseProcessor
@@ -770,6 +770,18 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             if use_cache and self.is_cache_enabled():
                 cache_hit, cached_result = self.get_from_cache(cache_key)
                 if cache_hit and cached_result:
+                    # Gecachte Fehler-Ergebnisse (z.B. invalid_api_key) nicht als Erfolg zurückgeben.
+                    # Verhindert, dass phase=completed mit Fehlertext gesendet wird.
+                    if cached_result.status == ProcessingStatus.ERROR:
+                        err_msg = (
+                            cached_result.transcription.text
+                            if cached_result.transcription
+                            else "Transkription fehlgeschlagen (gecacht)"
+                        )
+                        raise ProcessingError(
+                            str(err_msg).strip("[]"),
+                            details={"error_code": "TRANSCRIPTION_FAILED"}
+                        )
                     return self.create_response(
                         processor_name="audio",
                         result=cached_result,
@@ -831,6 +843,19 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 ),
                 process_id=self.process_id
             )
+            
+            # Fehler-Transkriptionen (z.B. invalid_api_key) nicht als Erfolg behandeln.
+            # Wirft Exception → Handler sendet phase=error statt phase=completed.
+            if result.status == ProcessingStatus.ERROR:
+                err_msg = (
+                    result.transcription.text
+                    if result.transcription
+                    else "Transkription fehlgeschlagen"
+                )
+                raise ProcessingError(
+                    str(err_msg).strip("[]"),
+                    details={"error_code": "TRANSCRIPTION_FAILED"}
+                )
             
             # Im Cache speichern
             if use_cache:

@@ -27,6 +27,16 @@ from src.core.resource_tracking import ResourceCalculator
 from src.processors.audio_processor import AudioProcessor
 
 
+def _is_transcription_error_text(text: Optional[str]) -> bool:
+    """Prüft, ob der Text ein Fehler-Transkript aus transcription_utils ist.
+    Defense-in-Depth: Verhindert phase=completed mit Fehlertext (z.B. invalid_api_key).
+    """
+    if not text:
+        return False
+    t = str(text).strip()
+    return t.startswith("[Transkription fehlgeschlagen") or t.startswith("[Transkriptionsfehler")
+
+
 async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCalculator) -> None:
     """
     Verarbeitet einen Audio-Job asynchron.
@@ -172,6 +182,13 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
             ),
         )
         _post_progress("postprocessing", 95, "Ergebnisse werden gespeichert")
+
+        # Defense-in-Depth: Verhindert phase=completed mit Fehlertext (z.B. invalid_api_key).
+        # Falls der Processor einen Fehlertext durchgelassen hat, hier nicht als Erfolg senden.
+        if _is_transcription_error_text(transcript_text):
+            raise RuntimeError(
+                f"TRANSCRIPTION_FAILED: {str(transcript_text or '').strip('[]')}"
+            )
 
         # Finaler Webhook (analog PDF)
         if callback_url:

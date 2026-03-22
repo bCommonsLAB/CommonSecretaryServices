@@ -327,10 +327,14 @@ class AudioProcessingResult:
     
     @property
     def status(self) -> ProcessingStatus:
-        """Status des Ergebnisses. Fehlgeschlagene Transkriptionen werden als ERROR markiert."""
+        """Status des Ergebnisses. Fehlgeschlagene Transkriptionen werden als ERROR markiert.
+        Erkennt sowohl [Transkription fehlgeschlagen: ...] als auch [Transkriptionsfehler: ...]
+        aus transcription_utils, damit API-Fehler (z.B. invalid_api_key) nicht als Erfolg gelten.
+        """
         if not self.transcription or not self.transcription.text:
             return ProcessingStatus.ERROR
-        if self.transcription.text.startswith("[Transkription fehlgeschlagen"):
+        text = self.transcription.text.strip()
+        if text.startswith("[Transkription fehlgeschlagen") or text.startswith("[Transkriptionsfehler"):
             return ProcessingStatus.ERROR
         return ProcessingStatus.SUCCESS
 
