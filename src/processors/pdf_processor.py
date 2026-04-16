@@ -74,6 +74,7 @@ from src.processors.transformer_processor import TransformerProcessor
 from src.processors.imageocr_processor import ImageOCRProcessor  # Neue Import
 from src.core.models.enums import ProcessingStatus
 from src.utils.image2text_utils import Image2TextService
+from src.core.llm import LLMConfigManager, UseCase
 
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_PDF = "pdf"
@@ -409,6 +410,39 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 pass
         return ext
 
+    def _resolve_mistral_ocr_api_model(self) -> str:
+        """
+        Modell-ID für die Mistral Document-OCR API (POST /v1/ocr).
+
+        Priorität:
+        1. MISTRAL_MODEL (Umgebungsvariable) — bewusster Override z. B. in Deployments.
+        2. LLM-Konfiguration Use-Case ``ocr_pdf``, wenn Provider ``mistral`` ist
+           (Dashboard / config.yaml / MongoDB wie übrige Use-Cases).
+        3. Fallback ``mistral-ocr-latest``.
+
+        Die OCR-API erwartet OCR-Modell-IDs (z. B. ``mistral-ocr-2512``), nicht
+        zwingend Pixtral/Vision-Chat-Modelle; falsche IDs führen zu API-Fehlern.
+        """
+        import os as _os
+
+        env_model = (_os.environ.get("MISTRAL_MODEL") or "").strip()
+        if env_model:
+            return env_model
+        try:
+            mgr = LLMConfigManager()
+            uc = mgr.get_use_case_config(UseCase.OCR_PDF)
+            if uc and uc.provider and uc.provider.lower() == "mistral":
+                name = (uc.model or "").strip()
+                if name:
+                    return name
+        except Exception as ex:
+            # Kein harter Abbruch: OCR soll ohne LLM-Repo/Mongo weiterlaufen können.
+            self.logger.warning(
+                "Mistral-OCR: ocr_pdf aus LLM-Config nicht nutzbar, Fallback mistral-ocr-latest",
+                error=str(ex),
+            )
+        return "mistral-ocr-latest"
+
     async def _process_mistral_ocr(
         self,
         file_path: Path,
@@ -499,7 +533,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             pages_payload = list(range(ps0, pe0 + 1))
         
         payload: Dict[str, Any] = {
-            "model": _os.environ.get("MISTRAL_MODEL", "mistral-ocr-latest"),
+            "model": self._resolve_mistral_ocr_api_model(),
             "document": {"type": "file", "file_id": file_id},
             "include_image_base64": True  # Bilder werden immer angefordert, aber separat gespeichert
         }

@@ -241,6 +241,7 @@ from .secretary_job_routes import secretary_ns
 from .llm_config_routes import llm_config
 from .rag_routes import rag_ns
 from .text2image_routes import text2image_ns
+from .image_analyzer_routes import image_analyzer_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -258,6 +259,7 @@ api.add_namespace(story_ns, path='/story')  # type: ignore
 api.add_namespace(secretary_ns, path='/jobs')  # type: ignore
 api.add_namespace(rag_ns, path='/rag')  # type: ignore
 api.add_namespace(text2image_ns, path='/text2image')  # type: ignore
+api.add_namespace(image_analyzer_ns, path='/image-analyzer')  # type: ignore
 
 # Root-Namespace für die API-Root-Seite
 root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ignore

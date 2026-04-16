@@ -50,7 +50,6 @@ from typing import (
     Tuple
 )
 from pathlib import Path
-import os
 import time
 import io
 import json
@@ -1481,181 +1480,26 @@ class WhisperTranscriber:
             raise
 
     def _read_template_file(self, template: str, logger: Optional[ProcessingLogger]) -> str:
-        """Liest den Inhalt einer Template-Datei."""
-        template_dir: str = 'templates'
-        template_path: str = os.path.join(template_dir, f"{template}.md")
-        
+        """Liest den Inhalt einer Template-Datei. Delegiert an template_utils."""
+        from src.utils.template_utils import load_template
         try:
-            with open(template_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except Exception as e:
+            return load_template(template_name=template)
+        except ValueError as e:
             if logger:
                 logger.error("Template konnte nicht gelesen werden",
                     error=e,
-                    template_path=template_path)
-            raise ValueError(f"Template '{template}' konnte nicht gelesen werden: {str(e)}")
+                    template_path=f"templates/{template}.md")
+            raise
 
     def _replace_context_variables(self, template_content: str, context: Optional[Dict[str, Any]], text: str, logger: Optional[ProcessingLogger]) -> str:
-        """Ersetzt einfache Kontext-Variablen im Template."""
-        if not isinstance(context, dict):
-            context = {}
-        
-        try:
-            # Füge text als spezielle Variable hinzu
-            if text:
-                # Ersetze {{text}} mit dem tatsächlichen Text
-                # WICHTIG: Replacement als Funktion, damit Backslashes im Text NICHT als Escape interpretiert werden
-                template_content = re.sub(r'\{\{text\}\}', lambda _m: text, template_content)
-            
-            # Finde alle einfachen Template-Variablen (ohne Description)
-            simple_variables: list[str] = re.findall(r'\{\{([a-zA-Z][a-zA-Z0-9_]*?)\}\}', template_content)
-            
-            for key, value in context.items():
-                try:
-                    if value is not None and key in simple_variables:
-                        pattern: str = r'\{\{' + re.escape(str(key)) + r'\}\}'
-                        str_value: str = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-                        # Replacement als Funktion, damit Backslashes im Wert nicht als Escape interpretiert werden
-                        template_content = re.sub(pattern, (lambda _m, s=str_value: s), template_content)
-                except Exception as variable_error:
-                    # Detaillierte Fehlerinformationen für eine spezifische Variable
-                    # Bereite eine sichere String-Version des problematischen Werts vor
-                    safe_value = ""
-                    try:
-                        if isinstance(value, (dict, list)):
-                            safe_value = json.dumps(value, ensure_ascii=False)[:100]
-                        else:
-                            safe_value = str(value)[:100]
-                    except:
-                        safe_value = f"<Nicht darstellbarer Wert vom Typ {type(type_cast(object, value)).__name__}>"
-                    # Versuche Positions-Infos aus der Exception zu extrahieren (z. B. "at position 2843")
-                    detail_msg = str(variable_error)
-                    pos_idx: Optional[int] = None
-                    try:
-                        import re as _re
-                        m = _re.search(r"position\s+(\d+)", detail_msg)
-                        if m:
-                            pos_idx = int(m.group(1))
-                    except Exception:
-                        pos_idx = None
-                    # Wenn Position extrahiert werden konnte, bereite Zeile+Caret auf Basis des Ersatz-Strings vor
-                    caret_block = ""
-                    if pos_idx is not None:
-                        try:
-                            repl_str = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
-                            # Begrenze extrem lange Strings für Darstellung
-                            idx = max(0, min(pos_idx, len(repl_str)))
-                            # Zeilennummer und Spalte bestimmen
-                            cumulative = 0
-                            line_no = 0
-                            col_no = 0
-                            for line_no_iter, line in enumerate(repl_str.splitlines(True)):
-                                if cumulative + len(line) > idx:
-                                    line_no = line_no_iter
-                                    col_no = idx - cumulative
-                                    line_text = line.rstrip("\r\n")
-                                    # Kürzen der Zeile für bessere Lesbarkeit
-                                    start = max(0, col_no - 100)
-                                    end = min(len(line_text), col_no + 100)
-                                    view = line_text[start:end]
-                                    caret_pos = col_no - start
-                                    caret_line = (" " * max(0, caret_pos)) + "^"
-                                    caret_block = f"\nZeile {line_no + 1}, Spalte {col_no + 1}:\n{view}\n{caret_line}"
-                                    break
-                                cumulative += len(line)
-                        except Exception:
-                            caret_block = ""
-                    
-                    error_msg = (
-                        f"Fehler beim Ersetzen der Variable '{key}': {detail_msg}. "
-                        f"Problematischer Wert (gekürzt): {safe_value}{caret_block}"
-                    )
-                    if logger:
-                        logger.error(error_msg, 
-                                   variable=key, 
-                                   value_type=type(type_cast(object, value)).__name__, 
-                                   error=variable_error)
-                    raise ValueError(error_msg)
-
-            return template_content
-            
-        except Exception as e:
-            if isinstance(e, ValueError) and "Fehler beim Ersetzen der Variable" in str(e):
-                # Weiterleiten des speziellen Fehlers
-                raise
-            else:
-                # Allgemeiner Fehler beim Ersetzen von Variablen
-                error_msg = f"Fehler beim Ersetzen von Kontext-Variablen: {str(e)}"
-                if logger:
-                    logger.error(error_msg, error=e)
-                raise ValueError(error_msg)
+        """Ersetzt einfache Kontext-Variablen im Template. Delegiert an template_utils."""
+        from src.utils.template_utils import replace_context_variables
+        return replace_context_variables(template_content, context, text)
 
     def _extract_structured_variables(self, template_content: str, logger: Optional[ProcessingLogger]) -> TemplateFields:
-        """Extrahiert strukturierte Variablen aus dem Template.
-        
-        Args:
-            template_content: Der Inhalt des Templates
-            logger: Optional Logger
-            
-        Returns:
-            TemplateFields: Die extrahierten Felder mit Beschreibungen
-        """
-        pattern: str = r'\{\{([a-zA-Z][a-zA-Z0-9_]*)\|([^}]+)\}\}'
-        matches: list[re.Match[str]] = list(re.finditer(pattern, template_content))
-        
-        seen_vars: set[str] = set()
-        field_definitions: TemplateFields = TemplateFields(fields={})
-        
-        # Extrahiere YAML Frontmatter
-        yaml_pattern = r'^---\n(.*?)\n---'
-        yaml_match = re.search(yaml_pattern, template_content, re.DOTALL)
-        
-        if yaml_match:
-            yaml_content = yaml_match.group(1)
-            # Extrahiere Variablen aus YAML-Zeilen
-            yaml_lines = yaml_content.split('\n')
-            for line in yaml_lines:
-                line = line.strip()
-                if line and ':' in line:
-                    # Extrahiere den Variablennamen vor dem ersten Doppelpunkt
-                    var_name = line.split(':', 1)[0].strip()
-                    if var_name and var_name not in seen_vars:
-                        seen_vars.add(var_name)
-                        # Suche nach einer Beschreibung in den Template-Variablen
-                        description = "YAML Frontmatter Variable"
-                        # Suche nach einer möglichen Beschreibung im Template
-                        desc_pattern = r'\{\{' + re.escape(var_name) + r'\|([^}]+)\}\}'
-                        desc_match = re.search(desc_pattern, template_content)
-                        if desc_match:
-                            description = desc_match.group(1).strip()
-                        
-                        field_def = TemplateField(
-                            description=description,
-                            max_length=5000,  # Standard-Länge
-                            isFrontmatter=True,
-                            default=None
-                        )
-                        field_definitions.fields[var_name] = field_def
-        
-        # Füge weitere Template-Variablen hinzu
-        for match in matches:
-            var_name: str = match.group(1).strip()
-            if var_name in seen_vars:
-                continue
-                
-            seen_vars.add(var_name)
-            description: str = match.group(2).strip()
-            
-            field_def = TemplateField(
-                description=description,
-                max_length=5000,
-                default=None,
-                isFrontmatter=False
-            )
-            
-            field_definitions.fields[var_name] = field_def
-                    
-        return field_definitions
+        """Extrahiert strukturierte Variablen aus dem Template. Delegiert an template_utils."""
+        from src.utils.template_utils import extract_structured_variables
+        return extract_structured_variables(template_content)
 
     def extract_field_descriptions(
         self,
@@ -1666,101 +1510,34 @@ class WhisperTranscriber:
     ) -> Dict[str, str]:
         """
         Extrahiert Feldbeschreibungen aus Template ohne vollständige Transformation.
-        
-        Wiederverwendet die bestehende Logik aus transform_by_template.
-        Filtert FrontMatter-Kontext-Only-Felder und fügt additional_field_descriptions hinzu.
-        
-        Args:
-            template: Name des Templates
-            template_content: Template-Inhalt direkt
-            additional_field_descriptions: Zusätzliche Feldbeschreibungen
-            logger: Optional Logger
-            
-        Returns:
-            Dict mit Feldnamen -> Beschreibungen (ohne FrontMatter-Kontext-Only-Felder)
+        Delegiert an template_utils für die Kernlogik.
         """
-        # Template-Inhalt ermitteln (gleiche Logik wie in transform_by_template)
-        if template_content:
-            template_content_str = template_content
-        elif template:
-            template_content_str = self._read_template_file(template, logger)
-        else:
-            # Kein Template vorhanden, nur additional_field_descriptions zurückgeben
+        from src.utils.template_utils import (
+            load_template, extract_system_prompt,
+            extract_structured_variables, get_required_field_descriptions
+        )
+
+        if not template and not template_content:
             return additional_field_descriptions or {}
-        
-        # Systemprompt extrahieren (nur um Template zu bereinigen, wird nicht verwendet)
-        template_content_str, _ = self._extract_system_prompt(template_content_str, logger)
-        
-        # Strukturierte Variablen extrahieren
-        field_definitions = self._extract_structured_variables(template_content_str, logger)
-        
+
+        try:
+            content = load_template(template_name=template, template_content=template_content)
+        except ValueError:
+            return additional_field_descriptions or {}
+
+        content, _ = extract_system_prompt(content)
+        field_definitions = extract_structured_variables(content)
+
         if not field_definitions.fields:
             return additional_field_descriptions or {}
-        
-        # Feldbeschreibungen extrahieren
-        field_descriptions = {
-            name: field.description 
-            for name, field in field_definitions.fields.items()
-        }
-        
-        # FrontMatter-Kontext-Only-Felder filtern (gleiche Logik wie in transform_by_template)
-        fm_context_only = {
-            name for name, field in field_definitions.fields.items()
-            if getattr(field, 'isFrontmatter', False) and 
-               str(getattr(field, 'description', '')).strip() == "YAML Frontmatter Variable"
-        }
-        
-        # Nur relevante Felder behalten
-        filtered_field_descriptions = {
-            name: desc for name, desc in field_descriptions.items()
-            if name not in fm_context_only
-        }
-        
-        # Zusätzliche Feldbeschreibungen hinzufügen
-        if additional_field_descriptions:
-            filtered_field_descriptions.update(additional_field_descriptions)
-        
-        return filtered_field_descriptions
+
+        required, _ = get_required_field_descriptions(field_definitions, additional_field_descriptions)
+        return required
 
     def _extract_system_prompt(self, template_content: str, logger: Optional[ProcessingLogger] = None) -> Tuple[str, str]:
-        """
-        Extrahiert den Systemprompt aus dem Template-Inhalt.
-        
-        Args:
-            template_content: Der Inhalt des Templates
-            logger: Optional Logger
-            
-        Returns:
-            Tuple[str, str]: (Template-Inhalt ohne Systemprompt, Systemprompt)
-        """
-        # Standard-Systemprompt, falls keiner im Template gefunden wird
-        default_system_prompt = (
-            "You are a precise assistant for text analysis and data extraction. "
-            "Analyze the text and extract the requested information. "
-            "Provide all answers in the target language ISO 639-1 code:{target_language}. "
-            "IMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
-        )
-        
-        # Prüfe, ob ein Systemprompt im Template vorhanden ist
-        if "--- systemprompt" in template_content:
-            parts = template_content.split("--- systemprompt", 1)
-            template_without_prompt = parts[0].strip()
-            
-            # Extrahiere den Systemprompt
-            system_prompt = parts[1].strip()
-            
-            if logger:
-                logger.info("Systemprompt aus Template extrahiert", 
-                           prompt_length=len(system_prompt))
-            
-            # Füge die Formatierungsanweisung hinzu
-            system_prompt += "\n\nIMPORTANT: Your response must be a valid JSON object where each key corresponds to a template variable."
-            
-            return template_without_prompt, system_prompt
-        else:
-            if logger:
-                logger.info("Kein Systemprompt im Template gefunden, verwende Standard-Prompt")
-            return template_content, default_system_prompt
+        """Extrahiert den Systemprompt aus dem Template-Inhalt. Delegiert an template_utils."""
+        from src.utils.template_utils import extract_system_prompt
+        return extract_system_prompt(template_content, input_type="text")
 
     async def transcribe_segment(
         self,

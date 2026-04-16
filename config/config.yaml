@@ -24,7 +24,8 @@ llm_config:
       model: gpt-4o
     ocr_pdf:
       provider: mistral
-      model: pixtral-large-latest
+      # Document-OCR API (/v1/ocr), nicht Pixtral-Vision — siehe PDFProcessor._resolve_mistral_ocr_api_model
+      model: mistral-ocr-latest
     transcription:
       provider: openai
       model: whisper-1
@@ -32,6 +33,10 @@ llm_config:
       provider: openrouter
       # Gemini-Modell laut OpenRouter-Doku für Bildgenerierung unterstützt
       model: google/gemini-2.5-flash-image-preview
+    image_analysis:
+      provider: openrouter
+      # Vision-Modell für template-basierte Bildanalyse und Klassifizierung
+      model: google/gemini-2.5-flash
 llm_providers:
   mistral:
     api_key: ${MISTRAL_API_KEY}
@@ -45,6 +50,9 @@ llm_providers:
       - pixtral-large-latest
       - pixtral-small-latest
       ocr_pdf:
+      - pixtral-large-latest
+      - pixtral-small-latest
+      image_analysis:
       - pixtral-large-latest
       - pixtral-small-latest
     enabled: true
@@ -65,6 +73,10 @@ llm_providers:
       - bakllava
       - llava:13b
       ocr_pdf:
+      - llava
+      - bakllava
+      - llava:13b
+      image_analysis:
       - llava
       - bakllava
       - llava:13b
@@ -90,6 +102,9 @@ llm_providers:
       - gpt-4o
       - gpt-4-turbo
       - gpt-4-vision-preview
+      image_analysis:
+      - gpt-4o
+      - gpt-4-turbo
       transcription:
       - whisper-1
     enabled: true
@@ -132,6 +147,11 @@ llm_providers:
       - openai/gpt-4-turbo
       - openai/gpt-4-vision-preview
       - mistralai/pixtral-large-latest
+      image_analysis:
+      - google/gemini-2.5-flash
+      - google/gemini-2.5-pro
+      - openai/gpt-4o
+      - openai/gpt-4-turbo
       transcription:
       - openai/whisper-1
       text2image:
@@ -183,6 +203,14 @@ processors:
     max_concurrent_tasks: 5
     max_video_size: 1000
     request_timeout: 30
+  imageanalyzer:
+    cache:
+      collection_name: image_analyzer_cache
+      enabled: true
+      ttl_days: 30
+    cache_dir: cache/imageanalyzer
+    max_file_size: 10485760
+    max_resolution: 4096
   imageocr:
     cache:
       collection_name: ocr_cache

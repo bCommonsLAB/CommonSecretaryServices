@@ -46,6 +46,11 @@ class UseCase(str, Enum):
     # Unterstützt Modelle mit "image" in output_modalities (z.B. DALL-E, Stable Diffusion über OpenRouter)
     TEXT2IMAGE = "text2image"
     
+    # Bild-Analyse und Klassifizierung mit Vision API
+    # Template-basierte Feature-Extraktion aus Bildern (Klassifizierung, Merkmale, Eigenschaften)
+    # Separater Use-Case von IMAGE2TEXT (OCR), da hier ein anderes Modell sinnvoll sein kann
+    IMAGE_ANALYSIS = "image_analysis"
+    
     def __str__(self) -> str:
         """Gibt den String-Wert des Use-Cases zurück."""
         return self.value
