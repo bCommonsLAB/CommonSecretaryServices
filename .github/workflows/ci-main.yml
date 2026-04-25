@@ -10,7 +10,6 @@ permissions:
   contents: write
   packages: write
   actions: write
-  pull-requests: write
 
 jobs:
   build:
@@ -80,50 +79,9 @@ jobs:
           else
             git push origin "$TAG_NAME"
           fi
-          # Erstelle separaten Branch für PR (WICHTIG: vor dem Push!)
-          BRANCH_NAME="chore/bump-version-${{ steps.bump.outputs.new_version }}"
-          git checkout -b "$BRANCH_NAME"
-          # Der Versions-Branch kann nach einem Retry bereits existieren.
-          # force-with-lease aktualisiert nur diesen Bot-Branch und bricht bei
-          # unerwarteten Remote-Aenderungen ab.
-          git fetch origin "$BRANCH_NAME" || true
-          # Push NUR den Branch, nicht main
-          git push origin "$BRANCH_NAME" --set-upstream --force-with-lease
-          
-      - name: Create Pull Request for version bump
-        id: create-pr
-        env:
-          CI_PAT_VALUE: ${{ secrets.CI_PAT }}
-          BRANCH_NAME: chore/bump-version-${{ steps.bump.outputs.new_version }}
-          VERSION: ${{ steps.bump.outputs.new_version }}
-        run: |
-          # CI_PAT funktioniert fuer Git-HTTPS. Falls es als username:token
-          # gespeichert ist, braucht gh nur den Token-Teil nach dem Doppelpunkt.
-          export GH_TOKEN="${CI_PAT_VALUE##*:}"
-          # Der Branch wurde im vorherigen Schritt bereits committed und gepusht.
-          # Deshalb nutzen wir gh direkt und vermeiden eine zweite Git-Branch-Logik.
-          PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base main --state open --json number --jq '.[0].number // ""')
-          if [ -n "$PR_NUMBER" ]; then
-            echo "Pull Request #$PR_NUMBER existiert bereits"
-          else
-            PR_URL=$(gh pr create \
-              --head "$BRANCH_NAME" \
-              --base main \
-              --title "Bump version to $VERSION [skip ci]" \
-              --body "Automatischer Version-Bump durch CI-Workflow")
-            PR_NUMBER="${PR_URL##*/}"
-          fi
-          echo "pull-request-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          
-      - name: Auto-merge Pull Request
-        if: steps.create-pr.outputs.pull-request-number != ''
-        run: |
-          PR_NUMBER="${{ steps.create-pr.outputs.pull-request-number }}"
-          curl -X PUT \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.CI_PAT }}" \
-            "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUMBER}/merge" \
-            -d "{\"merge_method\":\"squash\",\"commit_title\":\"Bump version to ${{ steps.bump.outputs.new_version }} [skip ci]\"}"
+          # Der Commit enthaelt [skip ci]. Dadurch wird beim Push auf main
+          # kein neuer ci-main Lauf erzeugt und der Versionsstand bleibt trotzdem persistiert.
+          git push origin HEAD:main
           
       - name: Publish Release
         uses: softprops/action-gh-release@v2
