@@ -26,3 +26,5 @@ Nach dieser Aenderung lief `Push version and tag` erfolgreich durch. Der naechst
 Der Workflow hatte zu diesem Zeitpunkt den Versions-Branch bereits selbst erstellt, committed und gepusht. Die `create-pull-request` Action fuehrt danach erneut eigene Git-Branch-Logik aus. Das ist unnoetig und fehleranfaellig.
 
 Die PR-Erstellung wird deshalb direkt ueber `gh pr list` und `gh pr create` erledigt. Der Schritt ist idempotent: Wenn ein offener PR fuer denselben Head-Branch existiert, wird dessen Nummer wiederverwendet.
+
+Der erste `gh`-Versuch mit `CI_PAT` scheiterte mit `HTTP 401: Bad credentials` gegen die GraphQL-API. Git-Push ueber dasselbe Secret funktioniert, aber `gh` akzeptiert es nicht als API-Token. Fuer PR-Erstellung wird deshalb der eingebaute `github.token` mit expliziter `pull-requests: write` Permission verwendet.
