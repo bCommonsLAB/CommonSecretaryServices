@@ -82,8 +82,12 @@ jobs:
           # Erstelle separaten Branch für PR (WICHTIG: vor dem Push!)
           BRANCH_NAME="chore/bump-version-${{ steps.bump.outputs.new_version }}"
           git checkout -b "$BRANCH_NAME"
+          # Der Versions-Branch kann nach einem Retry bereits existieren.
+          # force-with-lease aktualisiert nur diesen Bot-Branch und bricht bei
+          # unerwarteten Remote-Aenderungen ab.
+          git fetch origin "$BRANCH_NAME" || true
           # Push NUR den Branch, nicht main
-          git push origin "$BRANCH_NAME" --set-upstream
+          git push origin "$BRANCH_NAME" --set-upstream --force-with-lease
           
       - name: Create Pull Request for version bump
         uses: peter-evans/create-pull-request@v5
