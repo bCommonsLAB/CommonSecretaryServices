@@ -79,9 +79,10 @@ jobs:
           else
             git push origin "$TAG_NAME"
           fi
-          # Der Commit enthaelt [skip ci]. Dadurch wird beim Push auf main
-          # kein neuer ci-main Lauf erzeugt und der Versionsstand bleibt trotzdem persistiert.
-          git push origin HEAD:main
+          # GitHub Actions darf den geschuetzten main-Branch je nach Repo-Regel
+          # nicht aktualisieren. Der Versions-Push ist deshalb nicht fatal:
+          # Image, Tag, Release und Deployment sollen trotzdem durchlaufen.
+          git push origin HEAD:main || echo "::warning::Versionsstand konnte nicht nach main gepusht werden"
           
       - name: Publish Release
         uses: softprops/action-gh-release@v2

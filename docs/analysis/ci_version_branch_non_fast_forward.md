@@ -29,4 +29,4 @@ Die PR-Erstellung wurde testweise direkt ueber `gh pr list` und `gh pr create` v
 
 Der erste `gh`-Versuch mit `CI_PAT` scheiterte mit `HTTP 401: Bad credentials` gegen die GraphQL-API. Git-Push ueber dasselbe Secret funktioniert, aber `gh` akzeptiert es nicht als API-Token. Ein Versuch mit `github.token` scheiterte danach mit `GitHub Actions is not permitted to create or approve pull requests`.
 
-Die finale Entscheidung ist deshalb: Kein PR fuer den reinen Versions-Bump. Der Workflow pusht den erzeugten Version-Bump-Commit direkt nach `main`. Die Commit-Message enthaelt `[skip ci]`, damit dieser Push keinen neuen `ci-main` Lauf startet. Das nutzt denselben Git-Authentifizierungspfad, der in den Runs bereits erfolgreich war.
+Die finale Entscheidung ist deshalb: Kein PR fuer den reinen Versions-Bump. Der Workflow versucht, den erzeugten Version-Bump-Commit direkt nach `main` zu pushen. Falls GitHub Actions durch Branch-Regeln blockiert wird, ist dieser Push nicht fatal. Image, Tag, Release und Deployment sollen in diesem Fall trotzdem durchlaufen. Der Versionsstand kann danach separat als `[skip ci]` Commit persistiert werden.
