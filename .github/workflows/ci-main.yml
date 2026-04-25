@@ -93,10 +93,13 @@ jobs:
       - name: Create Pull Request for version bump
         id: create-pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          CI_PAT_VALUE: ${{ secrets.CI_PAT }}
           BRANCH_NAME: chore/bump-version-${{ steps.bump.outputs.new_version }}
           VERSION: ${{ steps.bump.outputs.new_version }}
         run: |
+          # CI_PAT funktioniert fuer Git-HTTPS. Falls es als username:token
+          # gespeichert ist, braucht gh nur den Token-Teil nach dem Doppelpunkt.
+          export GH_TOKEN="${CI_PAT_VALUE##*:}"
           # Der Branch wurde im vorherigen Schritt bereits committed und gepusht.
           # Deshalb nutzen wir gh direkt und vermeiden eine zweite Git-Branch-Logik.
           PR_NUMBER=$(gh pr list --head "$BRANCH_NAME" --base main --state open --json number --jq '.[0].number // ""')

@@ -27,4 +27,6 @@ Der Workflow hatte zu diesem Zeitpunkt den Versions-Branch bereits selbst erstel
 
 Die PR-Erstellung wird deshalb direkt ueber `gh pr list` und `gh pr create` erledigt. Der Schritt ist idempotent: Wenn ein offener PR fuer denselben Head-Branch existiert, wird dessen Nummer wiederverwendet.
 
-Der erste `gh`-Versuch mit `CI_PAT` scheiterte mit `HTTP 401: Bad credentials` gegen die GraphQL-API. Git-Push ueber dasselbe Secret funktioniert, aber `gh` akzeptiert es nicht als API-Token. Fuer PR-Erstellung wird deshalb der eingebaute `github.token` mit expliziter `pull-requests: write` Permission verwendet.
+Der erste `gh`-Versuch mit `CI_PAT` scheiterte mit `HTTP 401: Bad credentials` gegen die GraphQL-API. Git-Push ueber dasselbe Secret funktioniert, aber `gh` akzeptiert es nicht als API-Token. Ein Versuch mit `github.token` scheiterte danach mit `GitHub Actions is not permitted to create or approve pull requests`.
+
+Der PR-Schritt nutzt deshalb weiter `CI_PAT`, extrahiert fuer `gh` aber nur den Token-Teil nach einem optionalen Doppelpunkt. Das deckt beide Secret-Formate ab: `token` und `username:token`.
