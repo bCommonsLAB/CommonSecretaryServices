@@ -54,6 +54,7 @@ import hashlib
 import json
 import uuid
 import requests
+import re
 from datetime import datetime
 import math
 import time
@@ -177,6 +178,21 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
     start_time: Optional[datetime] = None  # Startzeit des Verarbeitungsprozesses
     end_time: Optional[datetime] = None  # Endzeit des Verarbeitungsprozesses
     duration: Optional[float] = None
+
+    @staticmethod
+    def sanitize_error_message(error: Exception) -> str:
+        """Maskiert API-Schlüssel, bevor Fehlertexte an Clients zurückgegeben werden."""
+        message = str(error).strip() or type(error).__name__
+        return re.sub(r"sk-[A-Za-z0-9_-]{8,}", "sk-***", message)
+
+    @classmethod
+    def create_failure_transcription(cls, error: Exception, source_language: Optional[str]) -> TranscriptionResult:
+        """Erzeugt ein valides Fehler-Transkript, damit die Originalursache erhalten bleibt."""
+        safe_message = cls.sanitize_error_message(error)
+        return TranscriptionResult(
+            text=f"[Transkription fehlgeschlagen: {safe_message}]",
+            source_language=source_language or "unknown"
+        )
     
     def __init__(self, resource_calculator: ResourceCalculator, 
                  process_id: Optional[str] = None, 
@@ -882,15 +898,13 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             self.logger.error("Fehler bei der Audio-Verarbeitung",
                             error=e,
                             error_type=type(e).__name__)
+            safe_error_message = self.sanitize_error_message(e)
             
             # Erstelle eine Fehler-Response mit create_response
             return self.create_response(
                 processor_name=ProcessorType.AUDIO.value,
                 result=AudioProcessingResult(
-                    transcription=TranscriptionResult(
-                        text="",
-                        source_language=source_language or "unknown"
-                    ),
+                    transcription=self.create_failure_transcription(e, source_language),
                     metadata=AudioMetadata(
                         duration=0.0,
                         process_dir="",
@@ -911,7 +925,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 cache_key="",
                 error=ErrorInfo(
                     code="AUDIO_PROCESSING_ERROR",
-                    message=str(e),
+                    message=safe_error_message,
                     details={"error_type": type(e).__name__}
                 )
             )
