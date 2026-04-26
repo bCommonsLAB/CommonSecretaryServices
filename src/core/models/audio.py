@@ -233,8 +233,10 @@ class AudioMetadata:
         """Validiert die Metadaten."""
         if not self.title.strip():
             raise ValueError("Title darf nicht leer sein")
-        if self.duration <= 0:
-            raise ValueError("Duration muss positiv sein")
+        # 0.0 ist erlaubt als Sentinel-Wert für Fehlerszenarien (z.B. fehlgeschlagene Transkription).
+        # Nur negative Werte sind ungültig, da 0.0 "unbekannte Dauer" signalisiert.
+        if self.duration < 0:
+            raise ValueError("Duration darf nicht negativ sein")
         if not self.format.strip():
             raise ValueError("Format darf nicht leer sein")
         if self.channels <= 0:
