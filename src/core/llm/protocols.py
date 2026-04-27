@@ -11,7 +11,7 @@ conform to this protocol to ensure consistent behavior across different provider
 - LLMProvider: Protocol - Interface for LLM provider implementations
 """
 
-from typing import Protocol, Any, List, Optional, Dict
+from typing import Protocol, Any, List, Optional, Dict, Union
 from pathlib import Path
 
 from ..models.audio import TranscriptionResult
@@ -97,27 +97,31 @@ class LLMProvider(Protocol):
     
     def vision(
         self,
-        image_data: bytes,
+        image_data: Union[bytes, List[bytes]],
         prompt: str,
         model: str,
         max_tokens: Optional[int] = None,
         **kwargs: Any
     ) -> tuple[str, LLMRequest]:
         """
-        Verarbeitet ein Bild mit Vision API.
-        
+        Verarbeitet ein oder mehrere Bilder mit Vision API.
+
         Args:
-            image_data: Bild-Daten als Bytes
+            image_data: Bild-Daten als einzelne Bytes ODER als Liste von Bytes
+                (Multi-Image-Aufruf, ein einziger LLM-Call mit allen Bildern).
+                Reihenfolge wird beibehalten und ist für das LLM relevant.
             prompt: Text-Prompt für die Bildanalyse
             model: Zu verwendendes Modell (z.B. 'gpt-4o')
             max_tokens: Optional, maximale Anzahl Tokens
             **kwargs: Zusätzliche Provider-spezifische Parameter
-            
+
         Returns:
             tuple[str, LLMRequest]: Extrahierter Text und LLM-Request-Info
-            
+
         Raises:
             ValueError: Wenn der Provider Vision API nicht unterstützt
+            ProcessingError: Wenn der Provider keine Multi-Image-Calls
+                unterstützt, aber eine Liste mit > 1 Bildern übergeben wird.
         """
         ...
     

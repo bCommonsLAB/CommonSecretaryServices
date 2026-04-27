@@ -11,7 +11,7 @@ chat completion and OCR operations.
 - MistralProvider: Class - Mistral provider implementation
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import time
 
 try:
@@ -202,7 +202,7 @@ class MistralProvider:
     
     def vision(
         self,
-        image_data: bytes,
+        image_data: Union[bytes, List[bytes]],
         prompt: str,
         model: str,
         max_tokens: Optional[int] = None,
@@ -210,27 +210,42 @@ class MistralProvider:
     ) -> tuple[str, LLMRequest]:
         """
         Verarbeitet ein Bild mit Mistral (über Chat-Completion mit Bildern).
-        
+
+        Hinweis: Diese Implementierung unterstützt aktuell **nur Einzelbilder**.
+        Bei Multi-Image-Aufrufen wird ein `ProcessingError` geworfen.
+
         Args:
-            image_data: Bild-Daten als Bytes
+            image_data: Bild-Daten als Bytes oder 1-elementige Liste.
             prompt: Text-Prompt für die Bildanalyse
             model: Zu verwendendes Modell
             max_tokens: Optional, maximale Anzahl Tokens
             **kwargs: Zusätzliche Parameter
-            
+
         Returns:
             tuple[str, LLMRequest]: Extrahierter Text und LLM-Request-Info
-            
+
         Raises:
             ProcessingError: Bei Fehlern während der Vision-API-Verarbeitung
+                oder wenn Multi-Image angefordert wird.
         """
         start_time = time.time()
-        
+
+        # Eingabe normalisieren: nur Einzelbild zugelassen.
+        if isinstance(image_data, (bytes, bytearray)):
+            img_bytes: bytes = bytes(image_data)
+        else:
+            if len(image_data) != 1:
+                raise ProcessingError(
+                    "Mistral-Provider: Multi-Image-Vision wird nicht unterstützt. "
+                    "Bitte nur ein Bild pro Aufruf übergeben.",
+                    details={'error_type': 'VISION_MULTI_IMAGE_NOT_SUPPORTED'}
+                )
+            img_bytes = image_data[0]
+
         try:
             import base64
-            
-            # Bild zu Base64 kodieren
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
+
+            image_base64 = base64.b64encode(img_bytes).decode('utf-8')
             
             # Mistral unterstützt Bilder über Chat-Completion mit ContentChunks
             # Erstelle Message mit Bild

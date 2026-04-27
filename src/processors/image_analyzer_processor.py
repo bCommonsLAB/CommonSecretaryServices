@@ -33,12 +33,9 @@ Wiederverwendete Komponenten:
 """
 
 import hashlib
+import io
 import json
-import time
-import requests
-from pathlib import Path
-from typing import Any, Dict, Optional, Union
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
@@ -88,13 +85,18 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
 
         self.llm_config_manager = LLMConfigManager()
 
-    # --- Bild-Hilfsfunktionen (wiederverwendet aus Image2TextService-Logik) ---
+    # --- Bild-Hilfsfunktionen (in-memory, keine Disk-IO durch unseren Code) ---
 
-    def _convert_image_to_bytes(self, image_path: Path) -> bytes:
-        """Konvertiert eine Bilddatei zu JPEG-Bytes für die Vision-API."""
-        import io
+    def _resize_image_bytes(self, image_bytes: bytes) -> bytes:
+        """
+        Resized Eingabe-Bytes auf max_image_size x max_image_size und liefert
+        wieder JPEG-Bytes für die Vision-API.
+
+        Vorher arbeitete diese Funktion auf einer Datei vom Pfad. Jetzt
+        komplett in-memory: kein Disk-IO im eigenen Code.
+        """
         try:
-            with Image.open(image_path) as img:
+            with Image.open(io.BytesIO(image_bytes)) as img:
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 if img.width > self.max_image_size or img.height > self.max_image_size:
@@ -103,39 +105,29 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                 img.save(buf, format="JPEG", quality=self.image_quality, optimize=True)
                 return buf.getvalue()
         except Exception as e:
-            raise ProcessingError(f"Fehler beim Konvertieren der Bilddatei: {e}")
+            raise ProcessingError(f"Fehler beim Konvertieren der Bild-Bytes: {e}")
 
-    def _download_image(self, url: str, working_dir: Path) -> Path:
-        """Lädt ein Bild von einer URL herunter und gibt den lokalen Pfad zurück."""
-        parsed = urlparse(url)
-        file_name = parsed.path.split('/')[-1] if parsed.path else ""
-        valid_exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
-        if not file_name or not any(file_name.lower().endswith(ext) for ext in valid_exts):
-            file_name = f"downloaded_{int(time.time())}.jpg"
-
-        local_path = working_dir / file_name
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            with open(local_path, 'wb') as f:
-                f.write(response.content)
-            return local_path
-        except Exception as e:
-            raise ProcessingError(f"Fehler beim Herunterladen des Bildes: {e}")
-
-    def _validate_image(self, file_path: Path) -> None:
-        """Prüft Dateigröße und Auflösung."""
-        file_size = file_path.stat().st_size
+    def _validate_image_bytes(self, image_bytes: bytes) -> None:
+        """
+        Prüft Dateigröße und Auflösung anhand der Bytes (in-memory).
+        Wirft ProcessingError, wenn Limits überschritten sind.
+        """
+        file_size = len(image_bytes)
         if file_size > self.max_file_size:
             raise ProcessingError(
                 f"Datei zu groß: {file_size} Bytes (Maximum: {self.max_file_size})"
             )
-        with Image.open(file_path) as img:
-            w, h = img.size
-            if w > self.max_resolution or h > self.max_resolution:
-                raise ProcessingError(
-                    f"Bildauflösung zu groß: {w}x{h} (Maximum: {self.max_resolution}x{self.max_resolution})"
-                )
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                w, h = img.size
+                if w > self.max_resolution or h > self.max_resolution:
+                    raise ProcessingError(
+                        f"Bildauflösung zu groß: {w}x{h} (Maximum: {self.max_resolution}x{self.max_resolution})"
+                    )
+        except ProcessingError:
+            raise
+        except Exception as e:
+            raise ProcessingError(f"Bild konnte nicht gelesen/dekodiert werden: {e}")
 
     # --- Provider-Auflösung ---
 
@@ -180,58 +172,137 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
 
     # --- Hauptmethode ---
 
+    # Hartes Limit für Multi-Image: schützt vor übergroßen LLM-Calls und RAM.
+    # Bewusst hier als Klassenkonstante, damit es leicht änderbar ist.
+    MAX_IMAGES_PER_REQUEST: int = 10
+
     def analyze_by_template(
         self,
-        file_path: Union[str, Path],
+        image_data_list: List[bytes],
         template: Optional[str] = None,
         template_content: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         additional_field_descriptions: Optional[Dict[str, str]] = None,
         target_language: str = "de",
         use_cache: bool = True,
-        file_hash: Optional[str] = None,
+        file_hashes: Optional[List[str]] = None,
+        file_names: Optional[List[str]] = None,
+        image_urls: Optional[List[str]] = None,
         model: Optional[str] = None,
         provider: Optional[str] = None,
-        is_url: bool = False
     ) -> TransformerResponse:
         """
-        Analysiert ein Bild anhand eines Templates und liefert strukturierte Daten.
-        
+        Analysiert ein oder mehrere Bilder anhand eines Templates und liefert
+        strukturierte Daten.
+
+        Multi-Image: Alle Bilder werden in einem einzigen Vision-Call übergeben
+        (siehe docs/multi_image_analyzer.md – Variante 1). Die Reihenfolge
+        wird beibehalten und gibt dem LLM Kontext (Seite 1, Seite 2, ...).
+
         Args:
-            file_path: Pfad zur Bilddatei oder URL
-            template: Name des Templates
-            template_content: Direkter Template-Inhalt
-            context: Zusätzlicher Kontext
-            additional_field_descriptions: Extra Feldbeschreibungen
-            target_language: Zielsprache
-            use_cache: Cache nutzen
-            file_hash: Optional vorkompulierter Hash
-            model: Modell-Override
-            provider: Provider-Override
-            is_url: Ob file_path eine URL ist
+            image_data_list: Liste der Bild-Bytes (mind. 1, max. MAX_IMAGES_PER_REQUEST).
+            template: Name des Templates (alternativ template_content).
+            template_content: Direkter Template-Inhalt (alternativ template).
+            context: Zusätzlicher Kontext, fließt in System-/User-Prompt + Cache-Key.
+            additional_field_descriptions: Extra Feldbeschreibungen (nur Logging).
+            target_language: Zielsprache (default 'de').
+            use_cache: Wenn True, wird der Cache geprüft/geschrieben.
+            file_hashes: Optional, Hashes der Bilder (für Cache-Key + Logging).
+                Wenn None, werden Hashes nicht in den Key aufgenommen
+                (Cache-Hit ist dann unwahrscheinlich).
+            file_names: Optional, Original-Dateinamen (nur Logging).
+            image_urls: Optional, Quell-URLs (nur Logging).
+            model: Optional Modell-Override.
+            provider: Optional Provider-Override.
+
+        Returns:
+            TransformerResponse: Erfolgs- oder Fehlerantwort.
         """
-        working_dir = self.temp_dir / "working"
-        working_dir.mkdir(parents=True, exist_ok=True)
-        local_file_path = Path(file_path)
+        # Validierung der Bild-Liste — fail fast, bevor irgendwas Ressourcen kostet.
+        if not image_data_list:
+            return self.create_response(
+                processor_name="image_analyzer",
+                result=None,
+                request_info=self._request_info(file_names, image_urls, template, context),
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="ProcessingError",
+                    message="Keine Bilder übergeben (leere Liste).",
+                    details={"error_type": "ProcessingError"}
+                )
+            )
+        if len(image_data_list) > self.MAX_IMAGES_PER_REQUEST:
+            return self.create_response(
+                processor_name="image_analyzer",
+                result=None,
+                request_info=self._request_info(file_names, image_urls, template, context),
+                response_class=TransformerResponse,
+                from_cache=False,
+                cache_key="",
+                error=ErrorInfo(
+                    code="ProcessingError",
+                    message=(
+                        f"Zu viele Bilder: {len(image_data_list)} (Maximum: "
+                        f"{self.MAX_IMAGES_PER_REQUEST})"
+                    ),
+                    details={"error_type": "ProcessingError"}
+                )
+            )
 
         try:
-            # URL herunterladen falls nötig
-            if is_url:
-                local_file_path = self._download_image(str(file_path), working_dir)
+            # 1. Bilder validieren (in-memory, keine Disk-IO durch eigenen Code).
+            for idx, img_bytes in enumerate(image_data_list):
+                try:
+                    self._validate_image_bytes(img_bytes)
+                except ProcessingError as e:
+                    raise ProcessingError(f"Bild #{idx + 1}: {e}") from e
 
-            # Bild validieren
-            self._validate_image(local_file_path)
+            # Provider/Modell VOR dem Cache-Check auflösen.
+            # Grund: Beide fließen in den Cache-Key ein, damit unterschiedliche
+            # LLM-Konfigurationen separate Cache-Einträge erzeugen.
+            vision_provider, vision_model = self._resolve_provider_and_model(provider, model)
+            provider_name = vision_provider.get_provider_name()
 
-            # Cache prüfen
+            # Eingangsparameter strukturiert loggen (Diagnose / Cache-Key-Auditing).
+            # template_content wird gehasht, damit das Log nicht aufgeblasen wird.
+            tc_len = len(template_content) if template_content else 0
+            tc_hash_log = (
+                hashlib.md5(template_content.encode()).hexdigest()[:8]
+                if template_content else None
+            )
+            self.logger.info(
+                "ImageAnalyzer: analyze_by_template aufgerufen",
+                image_count=len(image_data_list),
+                file_names=file_names,
+                file_hashes=file_hashes,
+                image_urls=image_urls,
+                image_bytes_per_image=[len(b) for b in image_data_list],
+                template=template,
+                template_content_length=tc_len,
+                template_content_md5_8=tc_hash_log,
+                context=context,
+                additional_field_descriptions=additional_field_descriptions,
+                target_language=target_language,
+                use_cache=use_cache,
+                provider_override=provider,
+                model_override=model,
+                resolved_provider=provider_name,
+                resolved_model=vision_model,
+            )
+
+            # 2. Cache prüfen.
             cache_key = ""
             if use_cache and self.is_cache_enabled():
                 cache_key = self._build_cache_key(
-                    file_path=str(file_path),
                     template=template,
                     template_content=template_content,
                     context=context,
                     target_language=target_language,
-                    file_hash=file_hash
+                    file_hashes=file_hashes,
+                    provider=provider_name,
+                    model=vision_model,
                 )
                 hit, cached = self.get_from_cache(cache_key)
                 if hit and cached:
@@ -239,13 +310,13 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                     return self.create_response(
                         processor_name="image_analyzer",
                         result=cached,
-                        request_info=self._request_info(file_path, template, context),
+                        request_info=self._request_info(file_names, image_urls, template, context),
                         response_class=TransformerResponse,
                         from_cache=True,
                         cache_key=cache_key
                     )
 
-            # 1. Template vorbereiten (shared mit WhisperTranscriber)
+            # 3. Template vorbereiten (shared mit WhisperTranscriber).
             tmpl_content, system_prompt, field_defs, required_fields, fm_context_only = (
                 template_utils.prepare_template_for_extraction(
                     template_name=template,
@@ -259,11 +330,11 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             if not field_defs.fields:
                 raise ProcessingError("Keine strukturierten Variablen im Template gefunden")
 
-            # 2. Systemprompt mit target_language füllen
+            # 4. Systemprompt mit target_language füllen.
             if "{target_language}" in system_prompt:
                 system_prompt = system_prompt.replace("{target_language}", target_language)
 
-            # 3. Extraction-Prompt bauen (shared)
+            # 5. Extraction-Prompt bauen (shared).
             user_prompt = template_utils.build_extraction_prompt(
                 context=context,
                 required_field_descriptions=required_fields,
@@ -272,32 +343,60 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             )
 
             # System- und User-Prompt kombinieren für Vision-API
-            # (Vision-API akzeptiert nur einen einzelnen Prompt)
+            # (Vision-API akzeptiert nur einen einzelnen Prompt).
             combined_prompt = f"{system_prompt}\n\n{user_prompt}"
 
-            # 4. Bild konvertieren und Vision-API aufrufen
-            image_bytes = self._convert_image_to_bytes(local_file_path)
-            vision_provider, vision_model = self._resolve_provider_and_model(provider, model)
+            # 6. Alle Bilder resizen / JPEG-normalisieren (in-memory).
+            #    Reihenfolge wird beibehalten — relevant für den LLM-Kontext.
+            resized_images: List[bytes] = [
+                self._resize_image_bytes(img) for img in image_data_list
+            ]
 
-            raw_content, llm_request = vision_provider.vision(
-                image_data=image_bytes,
-                prompt=combined_prompt,
+            # Hardcoded LLM-Parameter; bei Änderung muss der Cache invalidiert werden.
+            vision_max_tokens = 4000
+            vision_temperature = 0.1
+            vision_detail = "high"
+
+            # Vollständiger Parameter-Log direkt vor dem LLM-Aufruf.
+            # Prompts werden bewusst nur als Längen+Snippet geloggt, um
+            # vertrauliche Inhalte nicht im Klartext zu protokollieren.
+            self.logger.info(
+                "ImageAnalyzer: Vision-API-Aufruf",
+                provider=provider_name,
                 model=vision_model,
-                max_tokens=4000,
-                temperature=0.1,
-                detail="high"
+                image_count=len(resized_images),
+                total_image_bytes=sum(len(b) for b in resized_images),
+                system_prompt_length=len(system_prompt),
+                user_prompt_length=len(user_prompt),
+                combined_prompt_length=len(combined_prompt),
+                combined_prompt_snippet=combined_prompt[:300],
+                required_fields=list(required_fields.keys()),
+                max_tokens=vision_max_tokens,
+                temperature=vision_temperature,
+                detail=vision_detail,
+                target_language=target_language,
+                cache_key=cache_key
             )
 
-            # LLM-Tracking
+            # 7. Vision-API mit allen Bildern in einem Call.
+            raw_content, llm_request = vision_provider.vision(
+                image_data=resized_images,
+                prompt=combined_prompt,
+                model=vision_model,
+                max_tokens=vision_max_tokens,
+                temperature=vision_temperature,
+                detail=vision_detail
+            )
+
             if llm_request:
                 self.add_llm_requests([llm_request])
 
-            # 5. JSON parsen (shared)
+            # 8. JSON parsen (shared).
             result_json = template_utils.parse_llm_json_response(
                 raw_content, field_defs, self.logger
             )
 
-            # 6. Template mit Daten füllen (shared)
+            # 9. Template mit Daten füllen (shared).
             filled_template = template_utils.fill_template_with_data(
                 template_content=tmpl_content,
                 result_json=result_json,
@@ -306,14 +405,14 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                 fm_context_only=fm_context_only
             )
 
-            # 7. Ergebnis erstellen
+            # 10. Ergebnis erstellen.
             result = TransformationResult(
                 text=filled_template,
                 target_language=target_language,
                 structured_data=result_json.copy()
             )
 
-            # Cache speichern
+            # 11. Cache speichern.
             if use_cache and self.is_cache_enabled() and cache_key:
                 self.save_to_cache(cache_key, result)
 
@@ -325,7 +424,7 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                     format=OutputFormat.TEXT,
                     structured_data=result_json.copy()
                 ),
-                request_info=self._request_info(file_path, template, context),
+                request_info=self._request_info(file_names, image_urls, template, context),
                 response_class=TransformerResponse,
                 from_cache=False,
                 cache_key=cache_key
@@ -336,7 +435,7 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             return self.create_response(
                 processor_name="image_analyzer",
                 result=None,
-                request_info=self._request_info(file_path, template, context),
+                request_info=self._request_info(file_names, image_urls, template, context),
                 response_class=TransformerResponse,
                 from_cache=False,
                 cache_key="",
@@ -358,12 +457,36 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
     # --- Hilfsmethoden ---
 
     def _build_cache_key(self, **kwargs: Any) -> str:
-        """Erzeugt einen Cache-Key aus den relevanten Parametern."""
+        """
+        Erzeugt einen Cache-Key aus den relevanten Parametern.
+
+        Berücksichtigte Parameter:
+        - file_hashes (Liste, Reihenfolge erhalten — andere Reihenfolge der
+          Bilder ergibt einen anderen Key, weil das LLM die Reihenfolge als
+          Kontext nutzt).
+        - template (Name)
+        - template_content (gehasht)
+        - context (sortiert+gehasht)
+        - target_language
+        - provider (LLM-Provider-Name, z.B. "openrouter")
+        - model (LLM-Modell, z.B. "google/gemini-3-flash-preview")
+
+        WICHTIG: Provider und Modell sind im Key, damit unterschiedliche
+        LLM-Konfigurationen separate Cache-Einträge erzeugen.
+        Hardcoded Parameter (max_tokens, temperature, detail) sind NICHT im
+        Key – Änderungen daran erfordern manuelle Cache-Invalidierung.
+        """
         parts: list[str] = []
-        if kwargs.get("file_hash"):
-            parts.append(f"hash_{kwargs['file_hash']}")
-        else:
-            parts.append(f"path_{kwargs.get('file_path', '')}")
+
+        # file_hashes: Liste reihenfolgeerhaltend einfließen lassen.
+        # Wenn keine Hashes vorliegen, lassen wir den Key absichtlich ohne
+        # Bild-Identität — Cache-Hit ist dann unwahrscheinlich, was korrekt
+        # ist (wir wissen nicht, ob es dasselbe Bild ist).
+        file_hashes = kwargs.get("file_hashes")
+        if file_hashes:
+            joined = "|".join(str(h) for h in file_hashes)
+            fh_hash = hashlib.md5(joined.encode()).hexdigest()[:16]
+            parts.append(f"imgs_{len(file_hashes)}_{fh_hash}")
         if kwargs.get("template"):
             parts.append(f"tmpl_{kwargs['template']}")
         if kwargs.get("template_content"):
@@ -373,16 +496,29 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             ctx_hash = hashlib.md5(json.dumps(kwargs["context"], sort_keys=True).encode()).hexdigest()[:8]
             parts.append(f"ctx_{ctx_hash}")
         parts.append(f"lang_{kwargs.get('target_language', 'de')}")
+        if kwargs.get("provider"):
+            parts.append(f"prov_{kwargs['provider']}")
+        if kwargs.get("model"):
+            parts.append(f"model_{kwargs['model']}")
         return self.generate_cache_key("_".join(parts))
 
     @staticmethod
     def _request_info(
-        file_path: Union[str, Path],
+        file_names: Optional[List[str]],
+        image_urls: Optional[List[str]],
         template: Optional[str],
         context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
+        """
+        Baut die `request_info` für die Response.
+
+        Liefert eine Liste von Datei-Identifikatoren (Namen oder URLs),
+        damit der Aufrufer nachvollziehen kann, welche Bilder analysiert
+        wurden. `file_path` (Single-Wert) gibt es nicht mehr.
+        """
         return {
-            "file_path": str(file_path),
+            "file_names": file_names,
+            "image_urls": image_urls,
             "template": template,
-            "context": context
+            "context": context,
         }

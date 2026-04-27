@@ -11,7 +11,7 @@ for generating text embeddings.
 - VoyageAIProvider: Class - VoyageAI provider implementation
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import time
 
 try:
@@ -111,7 +111,7 @@ class VoyageAIProvider:
     
     def vision(
         self,
-        image_data: bytes,
+        image_data: Union[bytes, List[bytes]],
         prompt: str,
         model: str,
         max_tokens: Optional[int] = None,
@@ -119,7 +119,7 @@ class VoyageAIProvider:
     ) -> tuple[str, LLMRequest]:
         """
         VoyageAI unterstützt keine Vision API.
-        
+
         Raises:
             ProcessingError: VoyageAI unterstützt keine Vision API
         """

@@ -17,7 +17,7 @@ LLM providers through a unified API that is compatible with OpenAI's API.
 # von `openai` unvollständig/inkonsistent sind. Ohne diese Einstellungen erzeugt Pyright hier sehr viele
 # "Unknown"-Warnungen, obwohl der Runtime-Code korrekt ist.
 
-from typing import List, Optional, Dict, Any, cast
+from typing import List, Optional, Dict, Any, Union, cast
 import time
 
 from openai import OpenAI
@@ -363,85 +363,133 @@ class OpenRouterProvider:
     
     def vision(
         self,
-        image_data: bytes,
+        image_data: Union[bytes, List[bytes]],
         prompt: str,
         model: str,
         max_tokens: Optional[int] = None,
         **kwargs: Any
     ) -> tuple[str, LLMRequest]:
         """
-        Verarbeitet ein Bild mit Vision API (wenn das Modell Vision unterstützt).
-        
+        Verarbeitet ein oder mehrere Bilder mit Vision API.
+
+        Bei einer Liste von Bildern wird ein einziger LLM-Call gemacht, der
+        alle Bilder als `image_url`-Parts in einer User-Nachricht enthält.
+        Die Reihenfolge der Bilder wird beibehalten und gibt dem Modell
+        Kontext (z. B. "Seite 1, Seite 2, ...").
+
         Args:
-            image_data: Bild-Daten als Bytes
-            prompt: Text-Prompt für die Bildanalyse
-            model: Zu verwendendes Modell (muss Vision unterstützen)
-            max_tokens: Optional, maximale Anzahl Tokens
-            **kwargs: Zusätzliche Parameter
-            
+            image_data: Bild-Daten als Bytes ODER Liste von Bytes (Multi-Image).
+            prompt: Text-Prompt für die Bildanalyse.
+            model: Zu verwendendes Modell (muss Vision unterstützen).
+            max_tokens: Optional, maximale Anzahl Tokens.
+            **kwargs: Zusätzliche Parameter (temperature, detail).
+
         Returns:
-            tuple[str, LLMRequest]: Extrahierter Text und LLM-Request-Info
-            
+            tuple[str, LLMRequest]: Antwort-Text und LLM-Request-Info.
+
         Raises:
             ProcessingError: Bei Fehlern während der Vision-API-Verarbeitung
+                oder wenn die Bild-Liste leer ist.
         """
         start_time = time.time()
-        
+
+        # Eingabe normalisieren: Single-Bytes -> 1-elementige Liste.
+        # So bleibt der restliche Code einheitlich.
+        if isinstance(image_data, (bytes, bytearray)):
+            image_list: List[bytes] = [bytes(image_data)]
+        else:
+            image_list = list(image_data)
+
+        if not image_list:
+            raise ProcessingError(
+                "Vision-API: Keine Bilder übergeben (leere Liste).",
+                details={'error_type': 'VISION_NO_IMAGES'}
+            )
+
         try:
             import base64
-            
-            # Bild zu Base64 kodieren
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
-            
-            # API-Parameter vorbereiten
+
+            # Detail-Stufe gilt für alle Bilder gleichermaßen.
+            detail = kwargs.get("detail", "high")
+
+            # Content-Liste aufbauen: zuerst der Prompt-Text, dann N Bilder.
+            content_parts: List[Dict[str, Any]] = [
+                {"type": "text", "text": prompt}
+            ]
+            total_image_bytes = 0
+            for img_bytes in image_list:
+                total_image_bytes += len(img_bytes)
+                image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{image_base64}",
+                        "detail": detail,
+                    },
+                })
+
             api_params: Dict[str, Any] = {
                 "model": model,
                 "messages": [
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}",
-                                    "detail": kwargs.get("detail", "high")
-                                }
-                            }
-                        ]
+                        "content": content_parts,
                     }
-                ]
+                ],
             }
-            
+
             if max_tokens:
                 api_params["max_tokens"] = max_tokens
-            
+
             if "temperature" in kwargs:
                 api_params["temperature"] = kwargs["temperature"]
-            
-            # API-Aufruf
+
             response: ChatCompletion = self.client.chat.completions.create(**api_params)
-            
-            # Dauer berechnen
+
             duration = (time.time() - start_time) * 1000
-            
-            # Antwort extrahieren
+
             if not response.choices or not response.choices[0].message:
                 raise ProcessingError("Keine gültige Antwort von OpenRouter Vision API erhalten")
-            
+
             content = str(response.choices[0].message.content or "")
-            
-            # Tokens extrahieren
+
+            # Debug-Logging analog zu chat_completion (mit Guardrails):
+            # - Keine Bilddaten/Base64 im Log (nur Anzahl + Bytes)
+            # - Antwort nur als Tail (letzte 240 Zeichen), damit das Log lesbar bleibt
+            # - finish_reason hilft, Token-Limits oder Content-Filter zu erkennen
+            choice0 = cast(Any, response.choices[0])
+            finish_reason = getattr(choice0, "finish_reason", None)
+            content_chars = len(content)
+            tail = content[-240:] if content_chars > 240 else content
+
             usage = getattr(response, "usage", None)
-            tokens = int(getattr(usage, "total_tokens", 0) or 0)
-            
-            # Stelle sicher, dass tokens mindestens 1 ist (eine API-Anfrage verbraucht immer Tokens)
+            prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+
+            logger.info(
+                "OpenRouter vision",
+                model=model,
+                temperature=kwargs.get("temperature"),
+                max_tokens=max_tokens,
+                detail=detail,
+                image_count=len(image_list),
+                total_image_bytes=total_image_bytes,
+                prompt_chars=len(prompt),
+                finish_reason=finish_reason,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                duration_ms=round(duration, 2),
+                content_chars=content_chars,
+                content_tail=tail,
+            )
+
+            # Tokens für LLMRequest – mindestens 1, weil jede API-Anfrage Tokens verbraucht.
+            tokens = total_tokens
             if tokens <= 0:
-                tokens = 1  # Mindestwert für eine API-Anfrage
-            
+                tokens = 1
+
             # LLMRequest erstellen
             llm_request = LLMRequest(
                 model=model,

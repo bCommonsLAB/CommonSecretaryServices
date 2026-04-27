@@ -4,9 +4,13 @@ Endpoints for template-based image analysis and classification. Extracts structu
 
 **Difference to ImageOCR**: ImageOCR reads *text* from images. Image Analyzer extracts *features and classifications* based on a template.
 
+**Single- and Multi-Image**: A single request can carry one *or* multiple images. With multiple images, the analyzer sends **all images in a single LLM call**, allowing the model to correlate information across them (e.g. table on page 1, dimensions on page 2). See [docs/multi_image_analyzer.md](../../../multi_image_analyzer.md) for design details.
+
+**In-Memory only**: Uploads are streamed directly to RAM; nothing is written to disk by this code. Werkzeug may spool very large uploads into a `SpooledTemporaryFile`, which is the default Flask behavior and outside this code's control.
+
 ## POST /api/image-analyzer/process
 
-Analyze an uploaded image using a template and return structured data.
+Analyze one or more uploaded images using a template and return structured data.
 
 ### Request
 
@@ -16,7 +20,8 @@ Analyze an uploaded image using a template and return structured data.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `file` | File | Yes | - | Image file (JPG, PNG, WebP, GIF) |
+| `file` | File | No*** | - | Single image file (JPG, PNG, WebP, GIF). Backwards-compatible with the legacy single-image API. |
+| `files` | File (repeatable) | No*** | - | One or more image files. Send the parameter once per image (`-F "files=@a.jpg" -F "files=@b.jpg"`). Up to **10** images per request. |
 | `template` | String | No* | - | Template name from `templates/` (e.g. `"image_classify"`) |
 | `template_content` | String | No* | - | Direct template content as string |
 | `context` | String (JSON) | No | - | Additional context as JSON (e.g. `{"domain": "nature"}`) |
@@ -28,12 +33,32 @@ Analyze an uploaded image using a template and return structured data.
 
 *Exactly one of `template` or `template_content` must be provided.
 
-### Request Example
+***At least one image must be provided via `file` and/or `files` (they can be combined; both contribute to the merged image list).
+
+**Multi-Image notes**:
+
+- Order matters. The first uploaded image is treated as image 1, the second as image 2, etc. The same images in a different order will produce a different cache entry, because the order gives the LLM context.
+- Multi-image is fully supported by the `openrouter` provider. The other providers currently accept only single-image calls and will reject multi-image requests with a `ProcessingError`.
+- The Swagger UI shows only a single file picker for the `files` parameter — this is a known limitation. Use `curl`/Postman or a custom frontend (`FormData.append('files', blob)` per image) to test multiple images.
+
+### Request Example (single image, backwards-compatible)
 
 ```bash
 curl -X POST "http://localhost:5001/api/image-analyzer/process" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "file=@photo.jpg" \
+  -F "template=image_classify" \
+  -F "target_language=de"
+```
+
+### Request Example (multiple images)
+
+```bash
+curl -X POST "http://localhost:5001/api/image-analyzer/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@page_009.jpeg" \
+  -F "files=@page_010.jpeg" \
+  -F "files=@page_011.jpeg" \
   -F "template=image_classify" \
   -F "target_language=de"
 ```
@@ -63,7 +88,8 @@ category: {{category|Main category}}
     "processor": "image_analyzer",
     "timestamp": "2026-04-15T10:00:00Z",
     "parameters": {
-      "file_path": "temp_abc123.jpg",
+      "file_names": ["photo.jpg"],
+      "image_urls": null,
       "template": "image_classify",
       "context": null
     }
@@ -111,7 +137,7 @@ category: {{category|Main category}}
 
 ## POST /api/image-analyzer/process-url
 
-Analyze an image from a URL using a template.
+Analyze an image from a URL using a template. The image is downloaded into RAM and not written to disk.
 
 ### Request
 
@@ -133,6 +159,8 @@ Analyze an image from a URL using a template.
 
 *Exactly one of `template` or `template_content` must be provided.
 
+This endpoint accepts only a single URL. For multi-image analysis, use `/process` and upload the files via the `files` parameter.
+
 ### Request Example
 
 ```bash
@@ -145,7 +173,7 @@ curl -X POST "http://localhost:5001/api/image-analyzer/process-url" \
 
 ### Response (Success)
 
-Same format as `/api/image-analyzer/process`.
+Same format as `/api/image-analyzer/process`. The `request.parameters` block contains `image_urls: ["https://example.com/photo.jpg"]` and `file_names: null`.
 
 ## Response (Error)
 
@@ -168,8 +196,8 @@ Same format as `/api/image-analyzer/process`.
 
 | Code | Description |
 |------|-------------|
-| `ProcessingError` | General processing error (missing config, invalid image, etc.) |
-| `ValueError` | Invalid parameters (both template and template_content, etc.) |
+| `ProcessingError` | General processing error (missing config, invalid image, no images uploaded, more than 10 images, empty upload, multi-image not supported by selected provider, etc.) |
+| `ValueError` | Invalid parameters (both `template` and `template_content`, etc.) |
 
 ## Template Format
 
@@ -235,6 +263,8 @@ The provider and model can also be configured via the Dashboard under "Image Ana
 - `data.structured_data` contains the extracted fields as a JSON object
 - `data.text` contains the filled template with all placeholders replaced
 - The `model` and `provider` parameters allow per-request overrides of the configured defaults
-- Caching is based on a hash of the image content, template, context, and target language
+- Caching is based on a combined key built from: ordered list of MD5 hashes of the image bytes, template name and/or content, sorted JSON of `context`, `target_language`, resolved provider, and resolved model. Different image order ⇒ different cache entry.
+- Hardcoded LLM parameters (`max_tokens=4000`, `temperature=0.1`, `detail="high"`) are **not** part of the cache key — changing them in code requires manual cache invalidation.
 - Supported image formats: JPG, PNG, WebP, GIF
-- Maximum file size and resolution are controlled by the `processors.imageocr` config section
+- Maximum file size and resolution per image are controlled by the `processors.imageanalyzer` config section (`max_file_size`, `max_resolution`). These limits apply to *each* uploaded image individually.
+- Maximum number of images per request is `ImageAnalyzerProcessor.MAX_IMAGES_PER_REQUEST` (currently `10`).
