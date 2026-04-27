@@ -46,7 +46,7 @@ Features:
 - Standard: uuid - Unique job IDs
 """
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Any, Optional, Literal
+from typing import Dict, List, Any, Optional, Literal, cast
 from datetime import datetime, UTC
 import uuid
 from enum import Enum
@@ -169,15 +169,37 @@ class JobParameters:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "JobParameters":
-        """Erstellt Parameter aus einem Dictionary."""
-        # bekannte Felder ziehen
+        """Erstellt Parameter aus einem Dictionary.
+
+        WICHTIG (Round-Trip-Verhalten):
+        - Beim ersten Aufruf (z.B. aus den Routes) enthaelt ``data`` flache Keys
+          wie ``include_high_res_pages``. Unbekannte Top-Level-Keys landen im
+          ``extra``-Dict.
+        - Beim zweiten Aufruf (z.B. wenn der Worker den Job aus MongoDB laedt)
+          ist ``data`` das Ergebnis von ``to_dict()`` und enthaelt selbst ein
+          ``extra``-Feld. Wuerde man dieses naiv wie jeden anderen unbekannten
+          Key behandeln, entstuende eine doppelte Verschachtelung
+          ``extra.extra.include_high_res_pages``. Deshalb wird der Inhalt eines
+          vorhandenen ``extra``-Feldes hier explizit ausgepackt und mit den
+          uebrigen unbekannten Top-Level-Keys gemergt. Top-Level-Keys haben
+          Vorrang vor dem nested ``extra`` (deterministische Reihenfolge).
+        """
         known_keys = {
             "event","session","url","filename","track","day","starttime","endtime",
             "speakers","video_url","attachments_url","source_language","target_language","use_cache",
-            # neue flache Felder
             "extraction_method","template","context","include_images","force_refresh","file_hash","webhook"
         }
-        extra: Dict[str, Any] = {k: v for k, v in data.items() if k not in known_keys}
+        # Vorhandenes nested 'extra' explizit auspacken (Round-Trip-Schutz).
+        nested_extra_raw: Any = data.get("extra")
+        nested_extra: Dict[str, Any] = (
+            cast(Dict[str, Any], nested_extra_raw) if isinstance(nested_extra_raw, dict) else {}
+        )
+        # Unbekannte Top-Level-Keys (ohne 'extra' selbst) einsammeln.
+        top_level_unknown: Dict[str, Any] = {
+            k: v for k, v in data.items() if k not in known_keys and k != "extra"
+        }
+        # Merge: nested_extra zuerst, top_level_unknown ueberschreibt es bei Konflikten.
+        extra: Dict[str, Any] = {**nested_extra, **top_level_unknown}
         return cls(
             event=data.get("event"),
             session=data.get("session"),

@@ -384,6 +384,53 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         # Explizit als String zurückgeben
         return str(preview_path)
 
+    def _generate_page_image_high_res(self, page: Any, page_num: int, working_dir: Path) -> str:
+        """Rendert eine PDF-Seite bei fester 200-DPI-Aufloesung als JPEG.
+
+        Diese Methode wird vom Mistral-OCR-Pfad verwendet, wenn der Client per
+        ``includeHighResPages=true`` hochaufgeloeste Seitenbilder anfordert. Die Aufloesung
+        ist bewusst hardcoded, damit die Preview-Logik (``_generate_preview_image``)
+        unveraendert bleibt und bestehende Konsumenten der Preview-Bilder nicht
+        beeintraechtigt werden.
+
+        Begruendung der Konstanten:
+        - 200 DPI: Pragmatischer Mittelweg fuer OCR-/Weiterverarbeitungsqualitaet.
+          A4 ergibt ca. 1654x2339 px, deutlich groesser als die ~360 px der Preview.
+        - JPEG-Qualitaet 85: Etwas hoeher als der Preview-Default (80), weil die
+          Bilder sichtbar groesser sind und Quality-Loss eher auffaellt.
+        - Dateiname-Schema ``page_{NNN}.jpeg``: Bewusst unterschiedlich vom
+          Preview-Schema (``preview_{NNN}.jpg``), damit die Bilder im pages.zip
+          klar unterscheidbar sind und Clients die Variante am Namen erkennen.
+
+        Args:
+            page: Die PDF-Seite (PyMuPDF Page-Objekt)
+            page_num: Die Seitennummer (0-basiert)
+            working_dir: Arbeitsverzeichnis
+
+        Returns:
+            Pfad zum generierten Seitenbild als String
+        """
+        # Hardcoded Konstanten - dokumentiert in Docstring, bewusst nicht aus config geladen
+        page_image_dpi: int = 200
+        page_image_quality: int = 85
+
+        # PyMuPDF rendert intern bei 72 DPI - Skalierungsfaktor entsprechend berechnen
+        scale_factor: float = page_image_dpi / 72.0
+        matrix = fitz.Matrix(scale_factor, scale_factor)
+
+        # Pixmap mit hoher Aufloesung erzeugen
+        pix = page.get_pixmap(matrix=matrix)
+
+        # Als JPEG speichern - Dateiname bewusst anders als bei Preview, damit
+        # Clients und ZIP-Inhalt eindeutig unterscheidbar sind
+        page_path = working_dir / f"page_{page_num+1:03d}.jpeg"
+        pix.save(str(page_path), output="jpeg", jpg_quality=page_image_quality)
+
+        # Ressourcen explizit freigeben (wichtig bei vielen Seiten, sonst Memory-Druck)
+        del pix
+
+        return str(page_path)
+
     def _get_file_extension(self, url: str) -> str:
         """Extrahiert die Dateiendung aus einer URL.
         
@@ -639,28 +686,47 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         file_path: Path,
         page_start: Optional[int] = None,
         page_end: Optional[int] = None,
-        working_dir: Optional[Path] = None
+        working_dir: Optional[Path] = None,
+        include_preview: bool = True,
+        include_high_res: bool = False
     ) -> Tuple[List[str], Optional[str]]:
         """
         Extrahiert PDF-Seiten als Bilder und erstellt ein ZIP-Archiv.
-        
+
+        Die beiden Schalter ``include_preview`` und ``include_high_res`` sind
+        vollstaendig unabhaengig. Sind beide True, werden pro Seite zwei Bilder
+        erzeugt (preview_NNN.jpg + page_NNN.jpeg) und gemeinsam in pages.zip
+        abgelegt. Sind beide False, wird kein Bild erzeugt und kein ZIP geschrieben.
+
         Args:
             file_path: Pfad zur PDF-Datei
             page_start: Startseite (1-basiert, optional)
             page_end: Endseite (1-basiert, optional)
             working_dir: Arbeitsverzeichnis für die Bilder
-            
+            include_preview: Wenn True, werden low-res Preview-Bilder
+                erzeugt (preview_NNN.jpg, ca. 360 px Kantenlaenge, JPEG q80).
+            include_high_res: Wenn True, werden hochaufgeloeste Bilder erzeugt
+                (page_NNN.jpeg, 200 DPI, JPEG q85).
+
         Returns:
-            Tuple[List[str], Optional[str]]: (preview_paths, zip_path)
+            Tuple[List[str], Optional[str]]: (image_paths, zip_path)
         """
         import zipfile
-        
+
+        # Variable wird fuer Preview- und High-Res-Pfade gemeinsam genutzt -
+        # der Name "preview_paths" stammt aus der urspruenglichen Logik und
+        # bleibt aus Kompatibilitaetsgruenden erhalten (Aufrufer erwarten ihn so)
         preview_paths: List[str] = []
         zip_path: Optional[str] = None
-        
+
         if working_dir is None:
             raise ProcessingError("working_dir darf nicht None sein")
-        
+
+        # Wenn beide Flags false sind, gibt es nichts zu tun.
+        # Kein Render-Aufruf, kein ZIP -> Aufrufer erhaelt leere Liste, None.
+        if not include_preview and not include_high_res:
+            return preview_paths, zip_path
+
         try:
             with fitz.open(file_path) as pdf:
                 total_pages = len(pdf)
@@ -673,13 +739,19 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     page_indices = range(ps0, min(pe0 + 1, total_pages))
                 else:
                     page_indices = range(0, total_pages)
-                
+
+                # Render-Loop: die Schalter sind unabhaengig, daher koennen pro
+                # Seite 0, 1 oder 2 Bilder erzeugt werden. Bei "beides aktiv" wird
+                # zweimal gerendert (akzeptabel fuer V1; Optimierung via Downscale
+                # vom High-Res-Bild ist spaeter moeglich).
                 for i in page_indices:
                     page_obj = pdf[i]
-                    p = self._generate_preview_image(page_obj, i, working_dir)
-                    preview_paths.append(p)
-                
-                # ZIP der Previews erzeugen
+                    if include_preview:
+                        preview_paths.append(self._generate_preview_image(page_obj, i, working_dir))
+                    if include_high_res:
+                        preview_paths.append(self._generate_page_image_high_res(page_obj, i, working_dir))
+
+                # ZIP der Bilder erzeugen
                 if preview_paths:
                     zip_path_local: Path = working_dir / "pages.zip"
                     with zipfile.ZipFile(zip_path_local, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -688,10 +760,14 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                             if _pp_obj.exists():
                                 zipf.write(str(_pp_obj), _pp_obj.name)
                     zip_path = str(zip_path_local)
-                    self.logger.info(f"PDF-Seiten als Bilder extrahiert: {len(preview_paths)} Seiten, ZIP: {zip_path}")
+                    self.logger.info(
+                        f"PDF-Seiten als Bilder extrahiert: {len(preview_paths)} Datei(en), "
+                        f"include_preview={include_preview}, include_high_res={include_high_res}, "
+                        f"ZIP: {zip_path}"
+                    )
         except Exception as err:
             self.logger.warning(f"Fehler beim Extrahieren der PDF-Seiten als Bilder: {str(err)}")
-        
+
         return preview_paths, zip_path
 
     async def process_mistral_ocr_with_pages(
@@ -700,30 +776,42 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         page_start: Optional[int] = None,
         page_end: Optional[int] = None,
         include_ocr_images: bool = True,
-        include_page_images: bool = True,
+        include_preview_pages: bool = True,
+        include_high_res_pages: bool = False,
         use_cache: bool = True,
         file_hash: Optional[str] = None,
         force_overwrite: bool = False
     ) -> PDFResponse:
         """
         Verarbeitet PDF mit Mistral OCR und extrahiert parallel PDF-Seiten als Bilder.
-        
+
         Args:
             file_path: Pfad zur PDF-Datei
             page_start: Startseite (1-basiert, optional)
             page_end: Endseite (1-basiert, optional)
             include_ocr_images: Ob Mistral OCR Bilder als Base64 enthalten sein sollen
-            include_page_images: Ob PDF-Seiten als Bilder extrahiert werden sollen
+            include_preview_pages: Wenn True, werden low-res Preview-Bilder
+                (preview_NNN.jpg, ca. 360 px) erzeugt und ins pages.zip gelegt.
+            include_high_res_pages: Wenn True, werden hochaufgeloeste Seitenbilder
+                (page_NNN.jpeg, 200 DPI) erzeugt und ins pages.zip gelegt.
+                Vollstaendig unabhaengig von include_preview_pages; bei beiden True
+                enthaelt pages.zip beide Sets parallel. Sind beide False, wird
+                kein pages.zip erzeugt.
             use_cache: Ob Cache verwendet werden soll
             file_hash: Optional Hash der Datei
             force_overwrite: Ob Datei neu verarbeitet werden soll
-            
+
         Returns:
             PDFResponse mit Mistral OCR Ergebnis und optional Seiten-Bildern
         """
         path = Path(file_path) if isinstance(file_path, str) else file_path
-        
-        # Cache-Key erstellen
+
+        # Wahrheitswert: gibt es UEBERHAUPT einen Page-Image-Output?
+        any_pages = include_preview_pages or include_high_res_pages
+
+        # Cache-Key erstellen. Beide Page-Flags sind unabhaengig stapelbar:
+        # _preview und _highres koennen einzeln oder zusammen am Key haengen.
+        # Damit erhaelt jede der vier Kombinationen einen eindeutigen Cache-Eintrag.
         cache_key = self._create_cache_key(
             file_path=str(file_path),
             template=None,
@@ -733,8 +821,10 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         )
         if include_ocr_images:
             cache_key += "_with_ocr_images"
-        if include_page_images:
-            cache_key += "_with_pages"
+        if include_preview_pages:
+            cache_key += "_preview"
+        if include_high_res_pages:
+            cache_key += "_highres"
         
         # Cache-Prüfung
         if use_cache and self.is_cache_enabled():
@@ -780,12 +870,16 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         )
         
         pages_task = None
-        if include_page_images:
+        if any_pages:
+            # Beide Flags unabhaengig durchreichen: der Extractor entscheidet
+            # selbst, ob 0, 1 oder 2 Renderer pro Seite laufen.
             pages_task = self._extract_pdf_pages_as_images(
                 file_path=path,
                 page_start=page_start,
                 page_end=page_end,
-                working_dir=working_dir
+                working_dir=working_dir,
+                include_preview=include_preview_pages,
+                include_high_res=include_high_res_pages
             )
         
         # Warte auf beide Tasks

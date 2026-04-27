@@ -274,11 +274,20 @@ pdf_mistral_ocr_parser.add_argument('includeOCRImages',  # type: ignore
                           type=inputs.boolean,  # type: ignore
                           default=True, 
                           help='Mistral OCR Bilder als Base64 in Response anfordern (default: True). Bilder liegen dann in data.mistral_ocr_raw.pages[*].images[*].image_base64.')
-pdf_mistral_ocr_parser.add_argument('includePageImages',  # type: ignore
-                          location='form', 
+# Zwei vollstaendig unabhaengige Schalter fuer das pages.zip:
+# - includePreviewPages -> liefert preview_NNN.jpg (max 360 px, JPEG q80)
+# - includeHighResPages -> liefert page_NNN.jpeg (200 DPI, JPEG q85)
+# Beide koennen gleichzeitig aktiv sein; das pages.zip enthaelt dann beide Sets parallel.
+pdf_mistral_ocr_parser.add_argument('includePreviewPages',  # type: ignore
+                          location='form',
                           type=inputs.boolean,  # type: ignore
-                          default=True, 
-                          help='PDF-Seiten als Bilder extrahieren und als ZIP zurückgeben (default: True). Läuft parallel zur Mistral OCR Transformation.')
+                          default=True,
+                          help='Wenn true (default): erzeugt low-res Preview-Bilder (preview_NNN.jpg, ca. 360 px Kantenlaenge, JPEG q80) und legt sie in pages.zip ab. Vollstaendig unabhaengig von includeHighResPages.')
+pdf_mistral_ocr_parser.add_argument('includeHighResPages',  # type: ignore
+                          location='form',
+                          type=inputs.boolean,  # type: ignore
+                          default=False,
+                          help='Wenn true: erzeugt hochaufgeloeste Seitenbilder (page_NNN.jpeg, 200 DPI, JPEG q85) und legt sie in pages.zip ab. Default false. Vollstaendig unabhaengig von includePreviewPages; bei beiden true enthaelt pages.zip beide Sets.')
 pdf_mistral_ocr_parser.add_argument('useCache',  # type: ignore
                           location='form', 
                           type=inputs.boolean,  # type: ignore
@@ -623,7 +632,12 @@ class PDFMistralOCREndpoint(Resource):
                 args = cast(Dict[str, Any], args)
                 uploaded_file = cast(FileStorage, args['file'])
                 include_ocr_images = bool(args.get('includeOCRImages', True))
-                include_page_images = bool(args.get('includePageImages', True))
+                # Zwei unabhaengige Bool-Schalter fuer das pages.zip:
+                # - include_preview_pages -> low-res preview_NNN.jpg (Default true)
+                # - include_high_res_pages -> 200 DPI page_NNN.jpeg (Default false)
+                # Beide koennen gleichzeitig true sein; pages.zip enthaelt dann beide Sets.
+                include_preview_pages = bool(args.get('includePreviewPages', True))
+                include_high_res_pages = bool(args.get('includeHighResPages', False))
                 use_cache = bool(args.get('useCache', True))
                 callback_url = str(args.get('callback_url', '')) if args.get('callback_url') else None
                 callback_token = str(args.get('callback_token', '')) if args.get('callback_token') else None
@@ -683,7 +697,11 @@ class PDFMistralOCREndpoint(Resource):
                     "use_cache": use_cache,
                     "extraction_method": "mistral_ocr_with_pages",
                     "include_ocr_images": include_ocr_images,
-                    "include_page_images": include_page_images,
+                    # Beide Page-Image-Flags landen ueber JobParameters.from_dict im
+                    # 'extra'-Dict (sind keine flachen Felder im JobParameters-Modell).
+                    # Der Handler liest sie spaeter aus params.extra heraus.
+                    "include_preview_pages": include_preview_pages,
+                    "include_high_res_pages": include_high_res_pages,
                     "file_hash": file_hash,
                 }
                 if page_start is not None:
@@ -991,7 +1009,7 @@ class PDFTextContentEndpoint(Resource):
 
 @pdf_ns.route('/jobs/<string:job_id>/download-pages-archive')  # type: ignore
 class PDFJobPagesArchiveDownloadEndpoint(Resource):
-    @pdf_ns.doc(description='Lädt das ZIP-Archiv mit PDF-Seiten als Bilder herunter (nur für Mistral OCR Jobs mit includePageImages=true)')  # type: ignore
+    @pdf_ns.doc(description='Lädt das ZIP-Archiv mit PDF-Seiten als Bilder herunter (nur für Mistral OCR Jobs, bei denen includePreviewPages=true oder includeHighResPages=true gesetzt war)')  # type: ignore
     @pdf_ns.response(200, 'ZIP-Datei als Download')  # type: ignore
     @pdf_ns.response(404, 'Job nicht gefunden', error_model)  # type: ignore
     @pdf_ns.response(400, 'Kein Seiten-Archiv verfügbar', error_model)  # type: ignore
@@ -1054,7 +1072,7 @@ class PDFJobPagesArchiveDownloadEndpoint(Resource):
                     if status_str in ("pending", "processing"):
                         return {'status': 'processing', 'message': 'Seiten-Archiv noch nicht bereit, bitte später erneut versuchen'}, 202
                     logger.error(f"Download pages archive: Kein Seiten-Archiv für Job {job_id} verfügbar. target_dir={target_dir}, filename={filename}")
-                    return {'error': 'Kein Seiten-Archiv für diesen Job verfügbar. Stellen Sie sicher, dass includePageImages=true gesetzt war.'}, 400
+                    return {'error': 'Kein Seiten-Archiv für diesen Job verfügbar. Stellen Sie sicher, dass includePreviewPages=true oder includeHighResPages=true gesetzt war.'}, 400
             
             # Datei aus dem Filesystem lesen
             try:

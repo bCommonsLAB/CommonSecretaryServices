@@ -153,8 +153,20 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 
 	_post_progress("initializing", 5, "Job initialisiert")
 
-	# Prüfe ob es sich um den neuen Mistral OCR mit Seiten Flow handelt
-	include_page_images: bool = bool(getattr(params, "include_page_images", True))
+	# Prüfe ob es sich um den neuen Mistral OCR mit Seiten Flow handelt.
+	# Zwei vollstaendig unabhaengige Schalter steuern das pages.zip:
+	# - include_preview_pages -> low-res preview_NNN.jpg (Default true)
+	# - include_high_res_pages -> 200 DPI page_NNN.jpeg (Default false)
+	# WICHTIG: Beide Flags sind KEINE direkten Felder im JobParameters-Modell und
+	# landen daher per JobParameters.from_dict im 'extra'-Dict. Wir lesen zuerst
+	# dort nach, mit Fallback auf das Objekt selbst (defensive Vorsorge).
+	_params_extra: Dict[str, Any] = getattr(params, "extra", {}) or {}
+	include_preview_pages: bool = bool(
+		_params_extra.get("include_preview_pages", getattr(params, "include_preview_pages", True))
+	)
+	include_high_res_pages: bool = bool(
+		_params_extra.get("include_high_res_pages", getattr(params, "include_high_res_pages", False))
+	)
 	if extraction_method == "mistral_ocr_with_pages":
 		# Verwende neue Methode für parallele Verarbeitung
 		result = await processor.process_mistral_ocr_with_pages(
@@ -162,7 +174,8 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 			page_start=int(page_start) if isinstance(page_start, int) else None,
 			page_end=int(page_end) if isinstance(page_end, int) else None,
 			include_ocr_images=include_ocr_images,
-			include_page_images=include_page_images,
+			include_preview_pages=include_preview_pages,
+			include_high_res_pages=include_high_res_pages,
 			use_cache=use_cache,
 			file_hash=None,
 			force_overwrite=False
@@ -384,9 +397,10 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 		# Download-URL für Bilder-Archiv bereitstellen (on-demand ZIP via API) - für andere Endpoints
 		if include_images and image_paths and extraction_method != "mistral_ocr_with_pages":
 			data_section["images_archive_url"] = f"/api/jobs/{job.job_id}/download-archive"
-		# Download-URL für Seiten-Archiv bereitstellen (für Mistral OCR mit Seiten)
-		# Prüfe sowohl extraction_method als auch include_page_images
-		if extraction_method == "mistral_ocr_with_pages" and include_page_images:
+		# Download-URL für Seiten-Archiv bereitstellen (für Mistral OCR mit Seiten).
+		# Pruefe sowohl extraction_method als auch ob mindestens einer der beiden
+		# Page-Image-Schalter aktiv war (sonst gibt es kein pages.zip zum Download).
+		if extraction_method == "mistral_ocr_with_pages" and (include_preview_pages or include_high_res_pages):
 			data_section["pages_archive_url"] = f"/api/pdf/jobs/{job.job_id}/download-pages-archive"
 		payload_final: Dict[str, Any] = {
 			"phase": "completed",

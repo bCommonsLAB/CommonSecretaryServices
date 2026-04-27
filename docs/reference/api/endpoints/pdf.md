@@ -112,12 +112,15 @@ This endpoint is specifically designed for Mistral OCR transformation with integ
 | `page_start` | Integer | No | - | Start page (1-indexed) |
 | `page_end` | Integer | No | - | End page (1-indexed, inclusive) |
 | `includeOCRImages` | Boolean | No | `true` | Hinweis: Der Server liefert Bilder **nicht** als Base64 im `mistral_ocr_raw` zurück. Bilder werden immer separat extrahiert und über `mistral_ocr_images_url` / Download-Endpoint bereitgestellt. Empfehlung: `includeOCRImages=false`, um Payload/Overhead zu reduzieren. |
-| `includePageImages` | Boolean | No | `true` | Extract PDF pages as images and return as ZIP archive. Runs in parallel to Mistral OCR transformation. |
+| `includePreviewPages` | Boolean | No | `true` | Extract low-res preview images (`preview_NNN.jpg`, ~360 px, JPEG q80) and include them in `pages.zip`. |
+| `includeHighResPages` | Boolean | No | `false` | Extract high-resolution page images (`page_NNN.jpeg`, 200 DPI, JPEG q85) and include them in `pages.zip`. Independent from `includePreviewPages` — set both to `true` to receive both image sets in the same archive. |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
 | `callback_url` | String | No | - | Absolute HTTPS URL for webhook callback |
 | `callback_token` | String | No | - | Per-job secret for webhook callback |
 | `jobId` | String | No | - | Unique job ID for callback |
 | `wait_ms` | Integer | No | `0` | Optional: Wait time in milliseconds for completion (only without callback_url) |
+
+> **Breaking change**: The previous parameters `includePageImages` and `highResPages` have been replaced by `includePreviewPages` and `includeHighResPages`. The new parameters are fully independent and can be combined freely (set both to `true` to receive both image sets in the same `pages.zip`).
 
 ### Request Example
 
@@ -126,7 +129,8 @@ curl -X POST "http://localhost:5001/api/pdf/process-mistral-ocr" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "file=@document.pdf" \
   -F "includeOCRImages=true" \
-  -F "includePageImages=true" \
+  -F "includePreviewPages=true" \
+  -F "includeHighResPages=true" \
   -F "page_start=1" \
   -F "page_end=10"
 ```
@@ -216,8 +220,9 @@ The response contains two types of images:
    - **Note**: `mistral_ocr_raw` contains image metadata (IDs, coordinates, etc.) but NO image data
 
 2. **Page Images** (`data.pages_archive_data`):
-   - All PDF pages converted to images
-   - Packaged as a Base64-encoded ZIP archive
+   - PDF pages converted to images, packaged as a Base64-encoded ZIP archive
+   - Depending on the flags, the archive contains `preview_NNN.jpg` (low-res, when `includePreviewPages=true`), `page_NNN.jpeg` (high-res 200 DPI, when `includeHighResPages=true`), or both file sets in parallel when both flags are `true`
+   - When both flags are `false`, no archive is produced
    - Filename available in `data.pages_archive_filename`
    - Extracted in parallel to Mistral OCR processing
    - For async jobs, use `data.pages_archive_url` to download
@@ -303,11 +308,11 @@ curl -X GET "http://localhost:5001/api/pdf/jobs/{job_id}/download-pages-archive"
 **Status Codes**:
 - `200`: Success - ZIP file returned
 - `202`: Processing - Job still running, try again later
-- `400`: No archive available (check if `includePageImages=true` was set)
+- `400`: No archive available (check if `includePreviewPages=true` or `includeHighResPages=true` was set)
 - `404`: Job not found
 - `500`: Server error
 
-**Note**: The download endpoint only works for jobs that were processed with `includePageImages=true`. The archive is stored in the job results and can be downloaded even after the initial response.
+**Note**: The download endpoint only works for jobs where at least one of `includePreviewPages` or `includeHighResPages` was set to `true`. The archive is stored in the job results and can be downloaded even after the initial response.
 
 ### Downloading Mistral OCR Raw Data
 
