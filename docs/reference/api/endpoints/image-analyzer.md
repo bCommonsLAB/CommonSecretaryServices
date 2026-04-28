@@ -175,6 +175,58 @@ curl -X POST "http://localhost:5001/api/image-analyzer/process-url" \
 
 Same format as `/api/image-analyzer/process`. The `request.parameters` block contains `image_urls: ["https://example.com/photo.jpg"]` and `file_names: null`.
 
+## Correlation Headers
+
+Both endpoints (`/process` and `/process-url`) accept optional **correlation headers** so callers can match a Vision response back to the original job. The headers are purely informational on the server side – they are logged and echoed back, but do **not** influence caching, deduplication or scheduling.
+
+### Request Headers (all optional)
+
+| Header | Purpose |
+|--------|---------|
+| `X-Job-Id` | ID of the calling business job (e.g. a CKS job). |
+| `X-Source-Item-Id` | ID of the item the call is processing. |
+| `X-Worker-Id` | ID of the worker / process that issued the call. |
+| `X-Start-Request-Id` | ID of the original start request that triggered the worker. |
+
+If a header is omitted, the server logs `null` for it. **Backwards compatible**: clients that don't send the headers see no behavior change.
+
+### Response Headers
+
+| Header | When set | Purpose |
+|--------|----------|---------|
+| `X-Process-Id` | Always | Server-side UUID of the analyzer call. Useful for grepping the log even when the client sent no correlation headers. |
+| `X-Job-Id` / `X-Source-Item-Id` / `X-Worker-Id` / `X-Start-Request-Id` | Only when sent in the request | 1:1 echo of the value sent by the client. |
+
+The headers are returned both for `200 OK` and `400 Bad Request` responses, so callers can also correlate failures.
+
+### Server Log Entry
+
+The values appear in the structured log entry `ImageAnalyzer-Route: /process aufgerufen` (and the equivalent `/process-url` entry) under the field `correlation`:
+
+```json
+{
+  "correlation": {
+    "X-Job-Id": "job-1234",
+    "X-Source-Item-Id": "item-abc",
+    "X-Worker-Id": "worker-7",
+    "X-Start-Request-Id": "start-req-xyz"
+  }
+}
+```
+
+### Request Example
+
+```bash
+curl -X POST "http://localhost:5001/api/image-analyzer/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "X-Job-Id: job-1234" \
+  -H "X-Source-Item-Id: item-abc" \
+  -H "X-Worker-Id: worker-7" \
+  -H "X-Start-Request-Id: start-req-xyz" \
+  -F "file=@photo.jpg" \
+  -F "template=image_classify"
+```
+
 ## Response (Error)
 
 **Status Code**: `400 Bad Request`
@@ -253,18 +305,47 @@ llm_providers:
         - google/gemini-2.5-flash
         - google/gemini-2.5-pro
         - openai/gpt-4o
+
+processors:
+  imageanalyzer:
+    cache:
+      collection_name: image_analyzer_cache
+      enabled: true
+      ttl_days: 30
+    max_file_size: 10485760    # max bytes per image
+    max_resolution: 4096       # max width/height in px
+    # LLM call parameters – changes are picked up on restart and
+    # automatically produce separate cache entries (see "Caching" below).
+    max_tokens: 16000          # output token limit; templates with many
+                               # required fields need significantly more
+                               # than 4000 to avoid mid-stream truncation
+    temperature: 0.1
+    vision_detail: high        # "high" | "low" | "auto"
 ```
 
 The provider and model can also be configured via the Dashboard under "Image Analysis (Bildklassifizierung)".
 
 ### Notes
 
-- The response uses the same `TransformerResponse` structure as the `/api/transformer/template` endpoint
-- `data.structured_data` contains the extracted fields as a JSON object
-- `data.text` contains the filled template with all placeholders replaced
-- The `model` and `provider` parameters allow per-request overrides of the configured defaults
-- Caching is based on a combined key built from: ordered list of MD5 hashes of the image bytes, template name and/or content, sorted JSON of `context`, `target_language`, resolved provider, and resolved model. Different image order ⇒ different cache entry.
-- Hardcoded LLM parameters (`max_tokens=4000`, `temperature=0.1`, `detail="high"`) are **not** part of the cache key — changing them in code requires manual cache invalidation.
-- Supported image formats: JPG, PNG, WebP, GIF
-- Maximum file size and resolution per image are controlled by the `processors.imageanalyzer` config section (`max_file_size`, `max_resolution`). These limits apply to *each* uploaded image individually.
+- The response uses the same `TransformerResponse` structure as the `/api/transformer/template` endpoint.
+- `data.structured_data` contains the extracted fields as a JSON object.
+- `data.text` contains the filled template with all placeholders replaced.
+- The `model` and `provider` parameters allow per-request overrides of the configured defaults.
+- Supported image formats: JPG, PNG, WebP, GIF.
+- Maximum file size and resolution per image are controlled by `processors.imageanalyzer.max_file_size` and `processors.imageanalyzer.max_resolution` and apply to *each* uploaded image individually.
 - Maximum number of images per request is `ImageAnalyzerProcessor.MAX_IMAGES_PER_REQUEST` (currently `10`).
+
+### Caching
+
+Cache hits live in MongoDB (collection `image_analyzer_cache` by default). The cache key is built from:
+
+- ordered list of MD5 hashes of the image bytes (different image order ⇒ different cache entry, because order gives the LLM context),
+- template name and/or template content,
+- sorted JSON of `context`,
+- `target_language`,
+- resolved provider and model,
+- LLM call parameters: `max_tokens`, `temperature`, `vision_detail` (see config above).
+
+Because the LLM call parameters are part of the key, changing `max_tokens` / `temperature` / `vision_detail` in the config automatically produces separate cache entries instead of returning a stale (e.g. previously truncated) response. Old entries are **not** deleted automatically; drop the collection manually if you want a clean state.
+
+Correlation headers (`X-Job-Id` etc.) are **not** part of the cache key – two calls with different job IDs but otherwise identical inputs share the same cache entry.

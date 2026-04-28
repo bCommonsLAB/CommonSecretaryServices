@@ -83,6 +83,16 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
         self.max_image_size: int = openai_config.get('max_image_size', 2048)
         self.image_quality: int = openai_config.get('image_quality', 85)
 
+        # LLM-Parameter für die Vision-API – konfigurierbar via config.yaml
+        # (processors.imageanalyzer.*). Defaults sind bewusst großzügig
+        # gewählt, damit Templates mit vielen Feldern nicht in einem
+        # max_tokens-Cutoff stecken bleiben.
+        # WICHTIG: Diese Werte fließen in den Cache-Key ein (siehe
+        # _build_cache_key) – Änderungen erzeugen separate Cache-Einträge.
+        self.vision_max_tokens: int = int(processor_config.get('max_tokens', 16000))
+        self.vision_temperature: float = float(processor_config.get('temperature', 0.1))
+        self.vision_detail: str = str(processor_config.get('vision_detail', 'high'))
+
         self.llm_config_manager = LLMConfigManager()
 
     # --- Bild-Hilfsfunktionen (in-memory, keine Disk-IO durch unseren Code) ---
@@ -190,6 +200,11 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
         image_urls: Optional[List[str]] = None,
         model: Optional[str] = None,
         provider: Optional[str] = None,
+        # Optionale Korrelations-Header vom Aufrufer (Routes-Layer).
+        # NICHT cache-relevant — dient ausschließlich der Diagnose, um
+        # Aufrufe einem fachlichen Job zuordnen zu können (siehe
+        # docs/reference/api/endpoints/image-analyzer.md).
+        correlation: Optional[Dict[str, Optional[str]]] = None,
     ) -> TransformerResponse:
         """
         Analysiert ein oder mehrere Bilder anhand eines Templates und liefert
@@ -214,6 +229,10 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             image_urls: Optional, Quell-URLs (nur Logging).
             model: Optional Modell-Override.
             provider: Optional Provider-Override.
+            correlation: Optional, Diagnose-Header vom Routes-Layer
+                (X-Job-Id, X-Source-Item-Id, X-Worker-Id, X-Start-Request-Id).
+                Wird nur ins Log geschrieben — beeinflusst weder Cache noch
+                Verarbeitung.
 
         Returns:
             TransformerResponse: Erfolgs- oder Fehlerantwort.
@@ -290,9 +309,16 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                 model_override=model,
                 resolved_provider=provider_name,
                 resolved_model=vision_model,
+                # Korrelations-Header zur Diagnose von Doppel-Aufrufen.
+                # Werden vom Routes-Layer durchgereicht; None wenn nicht gesetzt.
+                correlation=correlation,
             )
 
             # 2. Cache prüfen.
+            # WICHTIG: max_tokens/temperature/detail fließen in den Key,
+            # damit unterschiedliche LLM-Parameter separate Cache-Einträge
+            # bekommen. Sonst würde eine Erhöhung von max_tokens immer
+            # noch die alten, abgeschnittenen Antworten zurückliefern.
             cache_key = ""
             if use_cache and self.is_cache_enabled():
                 cache_key = self._build_cache_key(
@@ -303,6 +329,9 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                     file_hashes=file_hashes,
                     provider=provider_name,
                     model=vision_model,
+                    max_tokens=self.vision_max_tokens,
+                    temperature=self.vision_temperature,
+                    detail=self.vision_detail,
                 )
                 hit, cached = self.get_from_cache(cache_key)
                 if hit and cached:
@@ -352,10 +381,13 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                 self._resize_image_bytes(img) for img in image_data_list
             ]
 
-            # Hardcoded LLM-Parameter; bei Änderung muss der Cache invalidiert werden.
-            vision_max_tokens = 4000
-            vision_temperature = 0.1
-            vision_detail = "high"
+            # LLM-Parameter aus der Instanz (vorher hardcoded, jetzt
+            # konfigurierbar via config.yaml -> processors.imageanalyzer).
+            # Sie werden in den Cache-Key aufgenommen, damit Änderungen
+            # nicht zu falschen Cache-Treffern führen.
+            vision_max_tokens = self.vision_max_tokens
+            vision_temperature = self.vision_temperature
+            vision_detail = self.vision_detail
 
             # Vollständiger Parameter-Log direkt vor dem LLM-Aufruf.
             # Prompts werden bewusst nur als Längen+Snippet geloggt, um
@@ -391,9 +423,72 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             if llm_request:
                 self.add_llm_requests([llm_request])
 
+            # Diagnose-Log direkt nach dem Vision-Call.
+            # Hintergrund: Der OpenRouter-Provider hat zwar einen eigenen
+            # Log-Aufruf ("OpenRouter vision"), dessen Logger schreibt aber
+            # aktuell nicht ins File (siehe TODO unten / dev_detailed.log).
+            # Damit wir leere/abgeschnittene Antworten erkennen können,
+            # loggen wir die wichtigsten Kennzahlen hier nochmal über den
+            # Processor-Logger, der nachweislich funktioniert.
+            raw_len = len(raw_content) if raw_content else 0
+            raw_stripped_len = len(raw_content.strip()) if raw_content else 0
+            self.logger.info(
+                "ImageAnalyzer: Vision-API-Antwort empfangen",
+                raw_content_chars=raw_len,
+                raw_content_stripped_chars=raw_stripped_len,
+                raw_content_is_empty=raw_stripped_len == 0,
+                # Head + Tail je 240 Zeichen, um sowohl leere als auch
+                # abgeschnittene Antworten erkennen zu können, ohne den
+                # kompletten LLM-Output ins Log zu kippen.
+                raw_content_head=raw_content[:240] if raw_content else None,
+                raw_content_tail=raw_content[-240:] if raw_len > 240 else None,
+                llm_tokens=getattr(llm_request, "tokens", None) if llm_request else None,
+                llm_duration_ms=getattr(llm_request, "duration", None) if llm_request else None,
+            )
+
             # 8. JSON parsen (shared).
             result_json = template_utils.parse_llm_json_response(
                 raw_content, field_defs, self.logger
+            )
+
+            # Diagnose-Log nach dem JSON-Parsing.
+            # `result_json` ist im Fehlerfall ein Dict mit Fallback-Strings
+            # ("Fehler bei der Extraktion: ..." oder "Leere Antwort vom LLM"),
+            # in dem trotzdem ALLE erwarteten Keys vorkommen. Für die
+            # Diagnose ist daher entscheidend, wie viele Werte tatsächlich
+            # nicht-leer sind und wie viele auf einen bekannten Fehler-String
+            # zeigen.
+            def _is_filled(v: Any) -> bool:
+                # Container-Typen einzeln behandeln, damit der Type-Checker
+                # die `len()`-Aufrufe sauber sieht. 0 oder False zählen
+                # bewusst als "filled" – das LLM darf legitime Null-Werte
+                # zurückgeben.
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    return len(v) > 0
+                if isinstance(v, list):
+                    return len(v) > 0  # type: ignore[arg-type]
+                if isinstance(v, dict):
+                    return len(v) > 0  # type: ignore[arg-type]
+                if isinstance(v, (tuple, set)):
+                    return len(v) > 0  # type: ignore[arg-type]
+                return True
+
+            def _looks_like_error(v: Any) -> bool:
+                if not isinstance(v, str):
+                    return False
+                return v.startswith("Fehler bei der Extraktion") or v == "Leere Antwort vom LLM"
+
+            filled_count = sum(1 for v in result_json.values() if _is_filled(v))
+            error_count = sum(1 for v in result_json.values() if _looks_like_error(v))
+            self.logger.info(
+                "ImageAnalyzer: JSON-Parsing-Ergebnis",
+                result_keys=list(result_json.keys()),
+                result_total=len(result_json),
+                result_filled_count=filled_count,
+                result_error_count=error_count,
+                result_value_types={k: type(v).__name__ for k, v in result_json.items()},
             )
 
             # 9. Template mit Daten füllen (shared).
@@ -470,11 +565,15 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
         - target_language
         - provider (LLM-Provider-Name, z.B. "openrouter")
         - model (LLM-Modell, z.B. "google/gemini-3-flash-preview")
+        - max_tokens (LLM-Output-Limit)
+        - temperature (Sampling-Temperature)
+        - detail (Vision-Detail-Stufe: "high" / "low" / "auto")
 
-        WICHTIG: Provider und Modell sind im Key, damit unterschiedliche
-        LLM-Konfigurationen separate Cache-Einträge erzeugen.
-        Hardcoded Parameter (max_tokens, temperature, detail) sind NICHT im
-        Key – Änderungen daran erfordern manuelle Cache-Invalidierung.
+        WICHTIG: Provider, Modell UND die LLM-Aufruf-Parameter sind im Key,
+        damit unterschiedliche Konfigurationen separate Cache-Einträge
+        erzeugen. Sonst würde z.B. eine Erhöhung von max_tokens nach einem
+        abgeschnittenen Cache-Hit immer wieder die alte, kaputte Antwort
+        zurückliefern.
         """
         parts: list[str] = []
 
@@ -500,6 +599,16 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             parts.append(f"prov_{kwargs['provider']}")
         if kwargs.get("model"):
             parts.append(f"model_{kwargs['model']}")
+        # LLM-Aufruf-Parameter: nur einbeziehen, wenn explizit angegeben,
+        # damit alte Aufrufer (ohne diese Parameter) das gleiche
+        # Verhalten behalten wie vorher.
+        if kwargs.get("max_tokens") is not None:
+            parts.append(f"mt_{kwargs['max_tokens']}")
+        if kwargs.get("temperature") is not None:
+            # Float kompakt formatieren (z.B. 0.1 -> "0.1").
+            parts.append(f"temp_{kwargs['temperature']}")
+        if kwargs.get("detail"):
+            parts.append(f"det_{kwargs['detail']}")
         return self.generate_cache_key("_".join(parts))
 
     @staticmethod

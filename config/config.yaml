@@ -211,6 +211,18 @@ processors:
     cache_dir: cache/imageanalyzer
     max_file_size: 10485760
     max_resolution: 4096
+    # LLM-Parameter für die Vision-API.
+    # ACHTUNG: Diese Werte fließen in den Cache-Key ein – Änderungen
+    # erzeugen automatisch separate Cache-Einträge (alte werden NICHT
+    # automatisch gelöscht, müssen bei Bedarf manuell entfernt werden).
+    # max_tokens: Output-Token-Limit. Templates mit vielen Pflichtfeldern
+    # brauchen deutlich mehr als 4000 (sonst wird die JSON-Antwort
+    # mitten im Stream abgeschnitten und der Parser scheitert).
+    max_tokens: 16000
+    # temperature: niedrig halten für deterministische Extraktion.
+    temperature: 0.1
+    # vision_detail: "high" liefert beste OCR/Detail-Qualität, "low" ist günstiger.
+    vision_detail: high
   imageocr:
     cache:
       collection_name: ocr_cache

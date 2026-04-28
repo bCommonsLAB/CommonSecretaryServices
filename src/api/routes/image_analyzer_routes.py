@@ -36,6 +36,7 @@ import hashlib
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import requests
+from flask import request  # für Zugriff auf eingehende HTTP-Header
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 from flask_restx.reqparse import RequestParser  # type: ignore
 from werkzeug.datastructures import FileStorage
@@ -46,6 +47,53 @@ from src.utils.performance_tracker import get_performance_tracker
 from src.processors.image_analyzer_processor import ImageAnalyzerProcessor
 
 logger = get_logger(__name__)
+
+# --- Korrelations-Header ---
+# Optionale Header, die der Client setzen darf, um Aufrufe einem Job
+# zuzuordnen. Server-seitig sind sie rein informativ (Logging + Echo
+# in der Response). Werden sie nicht gesendet, steht im Log `null`
+# – das ist absichtlich backwards-kompatibel.
+#
+# - X-Job-Id:           ID eines fachlichen Jobs (z.B. CKS-Job)
+# - X-Source-Item-Id:   ID des Items, für das der Aufruf passiert
+# - X-Worker-Id:        ID des Workers/Prozesses, der den Aufruf startet
+# - X-Start-Request-Id: ID des ursprünglichen Start-Requests
+#                       (siehe CKS external-jobs-worker.ts)
+_CORRELATION_HEADERS: tuple[str, ...] = (
+    "X-Job-Id",
+    "X-Source-Item-Id",
+    "X-Worker-Id",
+    "X-Start-Request-Id",
+)
+
+
+def _correlation_from_request() -> Dict[str, Optional[str]]:
+    """
+    Liest die optionalen Korrelations-Header aus dem aktuellen Request.
+
+    Returns:
+        Dict mit Header-Namen -> Wert (oder None, wenn nicht gesendet).
+        Header-Lookup ist case-insensitiv (Werkzeug-Default).
+    """
+    return {h: request.headers.get(h) for h in _CORRELATION_HEADERS}
+
+
+def _correlation_response_headers(
+    correlation: Dict[str, Optional[str]],
+    process_id: str
+) -> Dict[str, str]:
+    """
+    Baut die HTTP-Response-Header für die Korrelation.
+
+    - X-Process-Id wird IMMER gesetzt (server-seitige UUID des Aufrufs).
+    - Vom Client gesendete Korrelations-Header werden 1:1 zurückgespiegelt,
+      damit der Client einen Vision-Response eindeutig dem Job zuordnen kann.
+    """
+    headers: Dict[str, str] = {"X-Process-Id": process_id}
+    for name, value in correlation.items():
+        if value:
+            headers[name] = value
+    return headers
 
 # --- Namespace ---
 
@@ -178,7 +226,13 @@ class ImageAnalyzerUploadEndpoint(Resource):
         'Mehrere Bilder werden in einem einzigen LLM-Call ausgewertet '
         '(siehe docs/multi_image_analyzer.md).'
     ))
-    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+    def post(self) -> Union[
+        Dict[str, Any],
+        tuple[Dict[str, Any], int],
+        # Flask-RESTX akzeptiert auch (body, status, headers) als 3-Tupel –
+        # das nutzen wir, um Korrelations-Header zurückzugeben.
+        tuple[Dict[str, Any], int, Dict[str, str]],
+    ]:
         """Bild(er) mit Template analysieren"""
         args = upload_parser.parse_args()
 
@@ -207,11 +261,19 @@ class ImageAnalyzerUploadEndpoint(Resource):
         use_cache = bool(args.get('useCache', True))
         process_id = str(uuid.uuid4())
 
+        # Korrelations-Header lesen (alle optional, alle dürfen None sein).
+        # Werden sowohl ins Log geschrieben als auch in der Response zurück
+        # gespiegelt, damit der Client jeden Vision-Aufruf einem Job
+        # zuordnen kann.
+        correlation = _correlation_from_request()
+        response_headers = _correlation_response_headers(correlation, process_id)
+
         # Eingehende Request-Parameter strukturiert loggen.
         # Hash/Längen statt Volltext, um keine sensiblen Inhalte ins Log zu schreiben.
         logger.info(
             "ImageAnalyzer-Route: /process aufgerufen",
             process_id=process_id,
+            correlation=correlation,
             file_count=len(uploaded_files),
             file_names=[f.filename for f in uploaded_files],
             file_mimetypes=[f.mimetype for f in uploaded_files],
@@ -264,6 +326,11 @@ class ImageAnalyzerUploadEndpoint(Resource):
                         file_names=file_names,
                         model=model_override,
                         provider=provider_override,
+                        # Korrelations-Header an den Processor durchreichen,
+                        # damit sie im funktionierenden Processor-Logger
+                        # landen (der Routes-Logger schreibt info-Einträge
+                        # aktuell nicht ins File – siehe Doku).
+                        correlation=correlation,
                     )
                     tracker.eval_result(result)
             else:
@@ -279,20 +346,26 @@ class ImageAnalyzerUploadEndpoint(Resource):
                     file_names=file_names,
                     model=model_override,
                     provider=provider_override,
+                    correlation=correlation,
                 )
 
-            return result.to_dict()
+            # Response als (body, status, headers)-Tuple, damit Flask-RESTX
+            # die Korrelations-Header mit zurückschickt.
+            return result.to_dict(), 200, response_headers
 
         except Exception as e:
             logger.error("Fehler bei der Bildanalyse", error=e)
-            return {
+            error_body = {
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
                     'message': str(e),
                     'details': {'error_type': type(e).__name__}
                 }
-            }, 400
+            }
+            # Auch im Fehlerfall die Korrelations-Header zurückgeben –
+            # sonst kann der Client den 400er nicht eindeutig zuordnen.
+            return error_body, 400, response_headers
 
 
 @image_analyzer_ns.route('/process-url')  # type: ignore
@@ -305,7 +378,11 @@ class ImageAnalyzerUrlEndpoint(Resource):
         'extrahiert strukturierte Daten. Das Bild wird in-memory geladen, '
         'es wird nichts auf Disk gespeichert.'
     ))
-    def post(self) -> Union[Dict[str, Any], tuple[Dict[str, Any], int]]:
+    def post(self) -> Union[
+        Dict[str, Any],
+        tuple[Dict[str, Any], int],
+        tuple[Dict[str, Any], int, Dict[str, str]],
+    ]:
         """Bild von URL mit Template analysieren"""
         args = url_parser.parse_args()
         url = str(args.get('url', ''))
@@ -321,9 +398,14 @@ class ImageAnalyzerUrlEndpoint(Resource):
         use_cache = bool(args.get('useCache', True))
         process_id = str(uuid.uuid4())
 
+        # Korrelations-Header lesen (siehe /process für Details).
+        correlation = _correlation_from_request()
+        response_headers = _correlation_response_headers(correlation, process_id)
+
         logger.info(
             "ImageAnalyzer-Route: /process-url aufgerufen",
             process_id=process_id,
+            correlation=correlation,
             url=url,
             template=template,
             template_content_length=len(template_content_arg) if template_content_arg else 0,
@@ -371,17 +453,19 @@ class ImageAnalyzerUrlEndpoint(Resource):
                 image_urls=[url],
                 model=model_override,
                 provider=provider_override,
+                correlation=correlation,
             )
 
-            return result.to_dict()
+            return result.to_dict(), 200, response_headers
 
         except Exception as e:
             logger.error("Fehler bei der Bildanalyse von URL", error=e)
-            return {
+            error_body = {
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
                     'message': str(e),
                     'details': {'error_type': type(e).__name__}
                 }
-            }, 400
+            }
+            return error_body, 400, response_headers
