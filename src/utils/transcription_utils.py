@@ -627,6 +627,21 @@ class WhisperTranscriber:
             TranslationResult: Das validierte Übersetzungsergebnis
         """
         try:
+            # No-Op: Wenn Quelle und Ziel identisch sind oder die Quelle leer/unbekannt
+            # ist, ist eine Übersetzung sinnlos. Wir geben den Originaltext direkt
+            # zurück, ohne LLM-Aufruf. Das spart Tokens und vermeidet Edge-Cases wie
+            # "Please translate this text to de" auf bereits deutschem Text.
+            # Stillschweigend (kein Log), siehe Entscheidung in
+            # docs/analysis/audio_unnecessary_translation_with_gpt4o_transcribe.md
+            src_norm = (source_language or "").lower().strip()
+            tgt_norm = (target_language or "").lower().strip()
+            if not src_norm or src_norm == tgt_norm:
+                return TranslationResult(
+                    text=text,
+                    source_language=source_language,
+                    target_language=target_language
+                )
+
             if logger:
                 logger.info(f"Starte Übersetzung von {source_language} nach {target_language}")
 
@@ -2006,18 +2021,26 @@ class WhisperTranscriber:
                         combined_text_parts.append(result.text)
                         continue
                     
-                    # Übersetzung, falls noetig (auch bei "auto" als source_language,
-                    # da die Sprache nicht sicher bestimmt werden konnte)
-                    needs_translation = (
-                        result.source_language != target_language
-                        or result.source_language == "auto"
+                    # Quellsprache bestimmen:
+                    # Wenn die Spracherkennung fehlschlug ("auto"), nehmen wir an,
+                    # dass die Sprache bereits der Zielsprache entspricht. Begründung:
+                    # Manche Transkriptions-Modelle (z.B. gpt-4o-transcribe mit
+                    # response_format="json") liefern keine Sprache zurück. Eine
+                    # Übersetzung mit unbekannter Quelle ist nachweislich nutzlos
+                    # und kostet nur Tokens. Siehe
+                    # docs/analysis/audio_unnecessary_translation_with_gpt4o_transcribe.md
+                    effective_source_lang = (
+                        target_language
+                        if result.source_language == "auto"
+                        else result.source_language
                     )
+
+                    # Übersetzung nur, wenn Quelle und Ziel wirklich verschieden sind
+                    needs_translation = effective_source_lang != target_language
                     if needs_translation and result.text.strip():
-                        # Bei "auto" keinen falschen Sprachcode an Translator senden
-                        effective_source = result.source_language if result.source_language != "auto" else ""
                         translation_result = self.translate_text(
                             text=result.text,
-                            source_language=effective_source,
+                            source_language=effective_source_lang,
                             target_language=target_language,
                             logger=logger,
                             processor=processor
@@ -2029,12 +2052,12 @@ class WhisperTranscriber:
                         else:
                             combined_text_parts.append(result.text if result.text.strip() else "")
                     else:
-                        # Verwende Original-Text
+                        # Verwende Original-Text (Quelle == Ziel oder leer)
                         combined_text_parts.append(result.text if result.text.strip() else "")
                     
-                    # Aktualisiere die erkannte Sprache
-                    if result.source_language != "auto" and result.source_language != detected_language:
-                        detected_language = result.source_language
+                    # Aktualisiere die erkannte Sprache (mit Fallback auf target_language bei "auto")
+                    if effective_source_lang and effective_source_lang != detected_language:
+                        detected_language = effective_source_lang
                 
             except Exception as e:
                 if logger:
