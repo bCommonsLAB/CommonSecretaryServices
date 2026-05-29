@@ -35,6 +35,8 @@ Wiederverwendete Komponenten:
 import hashlib
 import io
 import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PIL import Image
@@ -179,6 +181,97 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
             )
 
         return provider, model
+
+    def _save_debug_log(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        context: Optional[Dict[str, Any]],
+        file_names: Optional[List[str]],
+        file_hashes: Optional[List[str]],
+        image_bytes_per_image: List[int],
+        template: Optional[str],
+        template_content_md5: Optional[str],
+        provider: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        detail: str,
+        target_language: str,
+        raw_content: str,
+        structured_data: Dict[str, Any],
+        filled_template: str,
+        llm_tokens: Optional[int],
+        llm_duration_ms: Optional[float],
+        correlation: Optional[Dict[str, Optional[str]]] = None,
+    ) -> None:
+        """
+        Speichert die vollständige LLM-Interaktion als JSON für Debugging.
+
+        Analog zu WhisperTranscriber (Transformer) und Text2ImageProcessor.
+        Bilddaten werden nicht als Base64 gespeichert – nur Metadaten.
+        """
+        try:
+            debug_dir: Path = self.temp_dir / "debug" / "llm"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename: str = f"{timestamp}_image_analyze.json"
+
+            images: List[Dict[str, Any]] = []
+            for idx, byte_len in enumerate(image_bytes_per_image):
+                entry: Dict[str, Any] = {"index": idx + 1, "bytes": byte_len}
+                if file_names and idx < len(file_names):
+                    entry["file_name"] = file_names[idx]
+                if file_hashes and idx < len(file_hashes):
+                    entry["hash"] = file_hashes[idx]
+                images.append(entry)
+
+            interaction_data: Dict[str, Any] = {
+                "timestamp": datetime.now().isoformat(),
+                "purpose": "image_analyze",
+                "process_id": self.process_id,
+                "correlation": correlation,
+                "template": template,
+                "template_content_md5_8": template_content_md5,
+                "context": context,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "images": images,
+                "llm_parameters": {
+                    "provider": provider,
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "detail": detail,
+                    "target_language": target_language,
+                },
+                "response": {
+                    "raw_content": raw_content,
+                    "structured_data": structured_data,
+                    "filled_template": filled_template,
+                    "usage": {
+                        "total_tokens": llm_tokens,
+                        "duration_ms": llm_duration_ms,
+                    },
+                },
+            }
+
+            file_path: Path = debug_dir / filename
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(interaction_data, f, indent=2, ensure_ascii=False)
+
+            self.logger.debug(
+                "ImageAnalyzer: Debug-Log gespeichert",
+                file_path=str(file_path),
+                prompt_chars=len(system_prompt) + len(user_prompt),
+            )
+        except Exception as e:
+            self.logger.warning(
+                "ImageAnalyzer: Debug-Log konnte nicht gespeichert werden",
+                error=str(e),
+            )
 
     # --- Hauptmethode ---
 
@@ -498,6 +591,29 @@ class ImageAnalyzerProcessor(CacheableProcessor[TransformationResult]):
                 field_definitions=field_defs,
                 context=context,
                 fm_context_only=fm_context_only
+            )
+
+            self._save_debug_log(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                context=context,
+                file_names=file_names,
+                file_hashes=file_hashes,
+                image_bytes_per_image=[len(b) for b in resized_images],
+                template=template,
+                template_content_md5=tc_hash_log,
+                provider=provider_name,
+                model=vision_model,
+                max_tokens=vision_max_tokens,
+                temperature=vision_temperature,
+                detail=vision_detail,
+                target_language=target_language,
+                raw_content=raw_content,
+                structured_data=result_json,
+                filled_template=filled_template,
+                llm_tokens=getattr(llm_request, "tokens", None) if llm_request else None,
+                llm_duration_ms=getattr(llm_request, "duration", None) if llm_request else None,
+                correlation=correlation,
             )
 
             # 10. Ergebnis erstellen.
