@@ -71,7 +71,23 @@ class VoyageAIProvider:
     def get_client(self) -> Any:
         """Gibt den VoyageAI-Client zurück."""
         return self.client
-    
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        VoyageAI bietet keinen kostenlosen List-/Status-Endpoint; eine aktive
+        Probe würde Tokens (Guthaben) kosten. Daher nur Config-Check, keine
+        aktive Erreichbarkeitsprüfung.
+
+        Returns:
+            Dict mit reachable=None (unbekannt), detail, credit=None.
+        """
+        return {
+            "reachable": None,
+            "latency_ms": None,
+            "detail": "keine kostenlose Probe verfügbar (nur Config-Check)",
+            "credit": None,
+        }
+
     def transcribe(
         self,
         audio_data: bytes | Any,

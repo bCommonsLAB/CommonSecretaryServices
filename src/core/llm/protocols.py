@@ -194,12 +194,30 @@ class LLMProvider(Protocol):
     def is_use_case_supported(self, use_case: UseCase) -> bool:
         """
         Prüft, ob der Provider einen bestimmten Use-Case unterstützt.
-        
+
         Args:
             use_case: Der zu prüfende Use-Case
-            
+
         Returns:
             bool: True wenn unterstützt, False sonst
+        """
+        ...
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Billige Erreichbarkeits-/Auth-Probe für den Provider (optional).
+
+        Sollte ohne nennenswerte Kosten prüfen, ob der Provider erreichbar ist
+        und der API-Key gültig ist (z. B. GET /models). Provider, die das nicht
+        kostenlos können, dürfen ``reachable: None`` zurückgeben.
+
+        Returns:
+            Dict mit:
+            - reachable: Optional[bool] - True/False/None (unbekannt)
+            - latency_ms: Optional[int] - Probe-Dauer in Millisekunden
+            - detail: str - Kurzbeschreibung des Ergebnisses
+            - credit: Optional[Dict] - verbleibendes Guthaben (nur falls der
+              Provider das liefert, z. B. OpenRouter), sonst None
         """
         ...
 
