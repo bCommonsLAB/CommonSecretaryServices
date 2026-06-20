@@ -40,10 +40,8 @@ Features:
 """
 
 import time
-import json
-from pathlib import Path
 from typing import Dict, List, Optional, Any, TypedDict, Protocol, cast
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 from contextlib import contextmanager
 import logging
@@ -190,6 +188,23 @@ class PerformanceTracker:
             processor_name: Name des Hauptprozessors (z.B. 'event', 'video', etc.)
         """
         self.processor_name = processor_name
+
+    def set_model(self, model: str) -> None:
+        """
+        Vermerkt das tatsächlich verwendete Modell für diesen Aufruf.
+
+        Wird im Dashboard pro Anfrage angezeigt. Schreibt dedupliziert in
+        resources.models_used (kein Token-/Kosten-Tracking, nur der Modellname).
+        Leere Werte werden ignoriert.
+
+        Args:
+            model: Modell-Bezeichner (z. B. 'mistral-ocr-2512', 'voyage-3-large')
+        """
+        if not model:
+            return
+        models: List[str] = self.measurements['resources']['models_used']
+        if model not in models:
+            models.append(model)
 
     def set_event_metadata(self, event: str, track: str, session: str) -> None:
         """
@@ -376,35 +391,10 @@ class PerformanceTracker:
         resources: ResourceInfo = self.measurements['resources']
         resources['models_used'] = resources['models_used']
         
-        # Speichere die Messung in der Performance-Log-Datei
-        log_dir = Path('logs')
-        log_dir.mkdir(exist_ok=True)
-        
-        log_file = log_dir / 'performance.json'
+        # Persistiere die Messung in MongoDB (Variante B). Löst die frühere
+        # JSON-Datei logs/performance.json ab, die nie zuverlässig befüllt wurde.
+        # Die Aufbewahrung wird über einen TTL-Index im Repository geregelt.
         try:
-            logs: List[Dict[str, Any]] = []
-            if log_file.exists():
-                try:
-                    with open(log_file, 'r', encoding='utf-8') as f:
-                        logs = json.load(f)
-                except json.JSONDecodeError:
-                    self.logger.error("JSON-Fehler beim Lesen der Performance-Datei. Erstelle neue Datei.")
-                    # Erstelle ein Backup der möglicherweise korrupten Datei
-                    backup_file = log_file.with_suffix('.json.bak')
-                    try:
-                        import shutil
-                        shutil.copy2(log_file, backup_file)
-                        self.logger.info(f"Backup der Performance-Datei erstellt: {backup_file}")
-                    except Exception as backup_err:
-                        self.logger.error(f"Fehler beim Erstellen des Backups: {backup_err}")
-            
-            # Entferne alte Logs (älter als 30 Tage)
-            thirty_days_ago: datetime = datetime.now() - timedelta(days=30)
-            logs = [
-                log for log in logs 
-                if datetime.fromisoformat(log.get('timestamp', '2000-01-01')) > thirty_days_ago
-            ]
-            
             # Erstelle einen neuen Log-Eintrag mit flacher Struktur
             new_log = {
                 'timestamp': self.measurements['timestamp'],
@@ -441,11 +431,10 @@ class PerformanceTracker:
                 }
             )
             
-            logs.append(new_log)
-            
-            with open(log_file, 'w', encoding='utf-8') as f:
-                json.dump(logs, f, indent=2)
-                
+            # Lazy-Import vermeidet Import-Zyklen und hält den Tracker nutzbar,
+            # auch wenn MongoDB (noch) nicht verfügbar ist (record() wirft nie).
+            from src.core.mongodb import get_metrics_repository
+            get_metrics_repository().record(new_log)
         except Exception as e:
             self.logger.error(f"Fehler beim Speichern der Performance-Messung: {e}")
         

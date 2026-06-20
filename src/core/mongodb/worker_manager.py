@@ -205,6 +205,16 @@ class SessionWorkerManager:
         """
         job_id = job.job_id
         start_time = datetime.now(UTC)
+        # Metrik-Tracking für den Job starten (Variante B). Erfasst auch
+        # asynchrone Session-Jobs im Dashboard. Lazy-Import vermeidet Zyklen.
+        from src.utils.performance_tracker import (
+            get_performance_tracker,
+            clear_performance_tracker,
+        )
+        metric_tracker = get_performance_tracker(job_id)
+        if metric_tracker is not None:
+            metric_tracker.set_processor_name("session")
+            metric_tracker.set_endpoint_info("/jobs/session", "worker", "session-worker")
         
         try:
             # Initialisiere den Session-Processor
@@ -331,6 +341,8 @@ class SessionWorkerManager:
             
         except Exception as e:
             end_time = datetime.now(UTC)
+            if metric_tracker is not None:
+                metric_tracker.set_error(str(e), type(e).__name__)
             # Bei Fehler den Job-Status aktualisieren
             error_info = JobError(
                 code=type(e).__name__,
@@ -365,6 +377,15 @@ class SessionWorkerManager:
             
             logger.error(f"Fehler bei der Verarbeitung von Job {job_id}: {str(e)}")
             logger.debug(traceback.format_exc())
+        finally:
+            # Messung abschließen + in MongoDB persistieren, danach aufräumen.
+            if metric_tracker is not None:
+                try:
+                    metric_tracker.complete_tracking()
+                    logger.info(f"[METRICS] Job {job_id} in request_metrics persistiert")
+                except Exception as metric_err:
+                    logger.error(f"[METRICS] Persistenz für Job {job_id} fehlgeschlagen: {metric_err}")
+            clear_performance_tracker()
             
     def _run_worker_process(self, job: Job) -> None:
         """

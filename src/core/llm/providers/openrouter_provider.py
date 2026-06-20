@@ -86,6 +86,102 @@ class OpenRouterProvider:
         """Gibt den OpenAI-kompatiblen Client zurück."""
         return self.client
 
+    def get_quota_status(self, timeout: float = 8.0) -> Dict[str, Any]:
+        """
+        Liest verbleibendes OpenRouter-Guthaben (USD).
+
+        Strategie:
+        1. ``GET /api/v1/key`` (funktioniert mit dem normalen Inference-Key):
+           liefert ``usage`` und ggf. ``limit`` des Keys. Hat der Key ein
+           eigenes Limit, ist ``remaining = limit - usage``.
+        2. Hat der Key kein eigenes Limit (``limit == null``), wird der
+           Account-Kontostand über ``GET /api/v1/credits``
+           (``total_credits - total_usage``) ermittelt. Dieser Endpoint kann je
+           nach OpenRouter-Konfiguration einen Management-/Provisioning-Key
+           erfordern – schlägt er fehl, bleibt ``remaining_usd = None``.
+
+        Returns:
+            Dict mit reachable, remaining_usd, limit_usd, usage_usd,
+            is_free_tier, detail.
+        """
+        import requests
+
+        base = "https://openrouter.ai/api/v1"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        result: Dict[str, Any] = {
+            "reachable": False,
+            "remaining_usd": None,
+            "limit_usd": None,
+            "usage_usd": None,
+            "is_free_tier": None,
+            "detail": "",
+        }
+        try:
+            resp = requests.get(f"{base}/key", headers=headers, timeout=timeout)
+            if resp.status_code == 401:
+                result["detail"] = "401 Unauthorized (ungültiger API-Key)"
+                return result
+            result["reachable"] = True
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data", {}) or {}
+            usage = data.get("usage")
+            limit = data.get("limit")
+            result["usage_usd"] = usage
+            result["limit_usd"] = limit
+            result["is_free_tier"] = data.get("is_free_tier")
+
+            if limit is not None and usage is not None:
+                result["remaining_usd"] = max(0.0, float(limit) - float(usage))
+                result["detail"] = "Key-Limit (/key)"
+                return result
+
+            # Kein eigenes Key-Limit -> Account-Kontostand über /credits.
+            credits_resp = requests.get(f"{base}/credits", headers=headers, timeout=timeout)
+            if credits_resp.ok:
+                cdata = (credits_resp.json() or {}).get("data", {}) or {}
+                total_credits = cdata.get("total_credits")
+                total_usage = cdata.get("total_usage")
+                if total_credits is not None and total_usage is not None:
+                    result["remaining_usd"] = float(total_credits) - float(total_usage)
+                    result["detail"] = "Account-Guthaben (/credits)"
+                else:
+                    result["detail"] = "Guthaben unbekannt (credits-Felder fehlen)"
+            else:
+                result["detail"] = (
+                    f"Guthaben unbekannt (/credits HTTP {credits_resp.status_code}, "
+                    f"evtl. Management-Key nötig)"
+                )
+            return result
+        except requests.exceptions.RequestException as exc:
+            result["detail"] = f"nicht erreichbar: {type(exc).__name__}"
+            return result
+        except Exception as exc:  # defensiv: Probe darf nie hart fehlschlagen
+            result["detail"] = f"Probe-Fehler: {type(exc).__name__}: {str(exc)[:120]}"
+            return result
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Erreichbarkeits- + Guthaben-Probe für OpenRouter.
+
+        Returns:
+            Dict mit reachable, latency_ms, detail, credit.
+        """
+        start = time.time()
+        quota = self.get_quota_status()
+        latency_ms = int((time.time() - start) * 1000)
+        return {
+            "reachable": quota.get("reachable"),
+            "latency_ms": latency_ms,
+            "detail": quota.get("detail", ""),
+            "credit": {
+                "remaining_usd": quota.get("remaining_usd"),
+                "limit_usd": quota.get("limit_usd"),
+                "usage_usd": quota.get("usage_usd"),
+                "is_free_tier": quota.get("is_free_tier"),
+                "detail": quota.get("detail", ""),
+            },
+        }
+
     def _is_images_endpoint_model(self, model: str) -> bool:
         """
         Prüft, ob ein Modell voraussichtlich den Images-Endpoint unterstützt.

@@ -47,6 +47,7 @@ nav:
     - API Reference:
       - Overview: reference/api/overview.md
       - Endpoints:
+        - Health: reference/api/endpoints/health.md
         - Audio: reference/api/endpoints/audio.md
         - Video: reference/api/endpoints/video.md
         - PDF: reference/api/endpoints/pdf.md

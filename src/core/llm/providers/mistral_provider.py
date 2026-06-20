@@ -85,7 +85,33 @@ class MistralProvider:
     def get_client(self) -> Any:
         """Gibt den Mistral-Client zurück."""
         return self.client
-    
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Billige Erreichbarkeits-/Auth-Probe über die Mistral-Modelliste
+        (kostet kein Guthaben, validiert Key + Netz).
+
+        Returns:
+            Dict mit reachable, latency_ms, detail, credit (None – Mistral bietet
+            keinen zuverlässigen Guthaben-Endpoint).
+        """
+        start = time.time()
+        try:
+            self.client.models.list()
+            return {
+                "reachable": True,
+                "latency_ms": int((time.time() - start) * 1000),
+                "detail": "models.list ok",
+                "credit": None,
+            }
+        except Exception as exc:
+            return {
+                "reachable": False,
+                "latency_ms": int((time.time() - start) * 1000),
+                "detail": f"{type(exc).__name__}: {str(exc)[:160]}",
+                "credit": None,
+            }
+
     def transcribe(
         self,
         audio_data: bytes | Any,

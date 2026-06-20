@@ -39,10 +39,7 @@ Features:
 - Internal: src.utils.logger - Logging system
 """
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for, current_app
-from datetime import datetime, timedelta, timezone
-import json
-import os
-import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, cast, Optional
 import logging
 
@@ -70,125 +67,6 @@ def render_markdown(text: str) -> str:
     """Konvertiert Markdown-Text in HTML"""
     return markdown.markdown(text)
 
-def load_logs_for_requests(recent_requests: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """
-    Load log entries for a list of requests from the detailed log file
-    
-    Args:
-        recent_requests (list): List of request entries to load logs for
-        
-    Returns:
-        dict: Dictionary mapping process_ids to their log entries
-    """
-    # Lade Log-Pfad aus der Konfiguration
-    config = Config()
-    log_file = config.get_all().get('logging', {}).get('file', 'logs/detailed.log')
-    log_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', log_file)
-    request_logs: dict[str, list[dict[str, Any]]] = {}
-    
-    try:
-        with open(log_path, 'r') as f:
-            current_entry = None
-            details_lines = []
-            collecting_details = False
-            
-            for line in f:
-                line = line.strip()
-                
-                # Check if this is a new log entry
-                if re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}', line):
-                    # Save previous entry if exists
-                    if current_entry is not None:
-                        if details_lines:
-                            try:
-                                details_text = '\n'.join(details_lines)
-                                if details_text.startswith('Details: '):
-                                    details_text = details_text[9:]
-                                current_entry['details'] = cast(str, json.loads(details_text))
-                            except json.JSONDecodeError:
-                                current_entry['details'] = cast(str, {'raw': '\n'.join(details_lines)})
-                        
-                        if current_entry['process_id'] in request_logs:
-                            request_logs[current_entry['process_id']].append(current_entry)
-                    
-                    # Parse new entry
-                    parts = line.split(' - ')
-                    if len(parts) >= 5:
-                        timestamp = parts[0]
-                        level = parts[1]
-                        source = parts[2]  # [logger.py:97]
-                        process_info = parts[3]  # [TransformerProcessor] Process[1735640951800]
-                        message = ' - '.join(parts[4:])  # Join remaining parts in case message contains ' - '
-                        
-                        try:
-                            # Extrahiere processor_name und process_id
-                            # Format: "[YoutubeProcessor] Process[1735641423754]"
-                            if '] Process[' in process_info:
-                                parts = process_info.split('] Process[')
-                                processor_name = parts[0].strip('[')  # YoutubeProcessor
-                                process_id = parts[1].strip(']')      # 1735641423754
-                            else:
-                                processor_name = ""
-                                process_id = ""
-                            
-                            # Initialize logs list for process_id if it's in recent requests
-                            for request in recent_requests:
-                                if request.get('process_id') == process_id:
-                                    if process_id not in request_logs:
-                                        request_logs[process_id] = []
-                            
-                            current_entry = {
-                                'timestamp': timestamp,
-                                'level': level.strip(),
-                                'source': source.strip('[]'),
-                                'processor_name': processor_name,
-                                'process_id': process_id,
-                                'message': message.strip()
-                            }
-                        except Exception as e:
-                            print(f"Error parsing log line: {line}")
-                            print(f"Error: {str(e)}")
-                            current_entry = {
-                                'timestamp': timestamp,
-                                'level': level.strip(),
-                                'source': source.strip('[]'),
-                                'processor_name': "",
-                                'process_id': "",
-                                'message': message.strip()
-                            }
-                        details_lines = []
-                        collecting_details = False
-                
-                # Check if this is the start of details
-                elif line.startswith('Details: '):
-                    collecting_details = True
-                    details_lines = [line]
-                
-                # Add to details if we're collecting them
-                elif collecting_details and line:
-                    details_lines.append(line)
-            
-            
-            # Don't forget to add the last entry
-            if current_entry is not None:
-                if details_lines:
-                    try:
-                        details_text = '\n'.join(details_lines)
-                        if details_text.startswith('Details: '):
-                            details_text = details_text[9:]
-                        current_entry['details'] = cast(str, json.loads(details_text))
-                    except json.JSONDecodeError:
-                        current_entry['details'] = cast(str, {'raw': '\n'.join(details_lines)})
-                
-                # Add to request logs if process_id matches
-                if current_entry['process_id'] in request_logs:
-                    request_logs[current_entry['process_id']].append(current_entry)
-                    
-    except Exception as e:
-        print(f"Error reading log file: {e}")
-    
-    return request_logs
-
 @main.route('/')
 def home():
     """
@@ -209,149 +87,13 @@ def home():
     }
     
     try:
-        # Load performance data
-        perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
-        logger.info(f"Loading performance data from {perf_path}")
-        
-        if not os.path.exists(perf_path):
-            logger.warning(f"Performance file not found at {perf_path}")
-            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
-        
-        # Prüfe, ob die Datei leer ist
-        if os.path.getsize(perf_path) == 0:
-            logger.warning("Performance file is empty")
-            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
-            
-        with open(perf_path, 'r') as f:
-            perf_data = json.load(f)
-            
-        if not perf_data:
-            logger.warning("Performance data is empty")
-            return render_template('dashboard.html', stats=stats, system_info=get_system_info())
-            
-        # Calculate time window
-        now = datetime.now(timezone.utc)
-        day_ago = now - timedelta(days=1)
-        
-        # Filter recent requests and ensure timestamp is valid
-        recent_requests: list[dict[str, Any]] = []
-        for r in perf_data:
-            try:
-                timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
-                if timestamp > day_ago:
-                    r['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-                    recent_requests.append(r)
-            except (ValueError, KeyError) as e:
-                logger.error(f"Error processing request timestamp: {e}")
-                continue
-        
-        if recent_requests:
-            # Basic statistics
-            stats['total_requests'] = len(recent_requests)
-            total_duration = sum(float(r.get('total_duration', 0)) for r in recent_requests)
-            stats['avg_duration'] = total_duration / len(recent_requests)
-            
-            # Success rate calculation
-            success_count = sum(1 for r in recent_requests if r.get('status') == 'success')
-            stats['success_rate'] = (success_count / len(recent_requests)) * 100
-            
-            # Token calculation
-            total_tokens = sum(r.get('resources', {}).get('total_tokens', 0) for r in recent_requests)
-            stats['hourly_tokens'] = total_tokens // 24 if total_tokens > 0 else 0
-            
-            # Operation statistics
-            for r in recent_requests:
-                for op in r.get('operations', []):
-                    op_name = op.get('name', 'unknown')
-                    if 'operations' not in stats:
-                        stats['operations'] = {}
-                    operations_dict = cast(Dict[str, int], stats['operations'])
-                    operations_dict[op_name] = operations_dict.get(op_name, 0) + 1
-            
-            # Processor statistics
-            for r in recent_requests:
-                for processor, data in r.get('processors', {}).items():
-                    if processor not in stats['processor_stats']:
-                        stats['processor_stats'][processor] = {
-                            'request_count': 0,
-                            'total_duration': 0,
-                            'success_count': 0,
-                            'error_count': 0,
-                            'total_tokens': 0,
-                            'total_cost': 0
-                        }
-                    
-                    proc_stats = stats['processor_stats'][processor]
-                    proc_stats['request_count'] += 1
-                    proc_stats['total_duration'] += float(data.get('total_duration', 0))
-                    proc_stats['success_count'] += data.get('success_count', 0)
-                    proc_stats['error_count'] += data.get('error_count', 0)
-                    
-                    # Add token and cost data if available
-                    resources = r.get('resources', {})
-                    proc_stats['total_tokens'] += resources.get('total_tokens', 0)
-                    proc_stats['total_cost'] += float(resources.get('total_cost', 0))
-            
-            # Calculate averages for processor stats
-            for proc_stats in stats['processor_stats'].values():
-                req_count = proc_stats['request_count']
-                if req_count > 0:
-                    proc_stats['avg_duration'] = proc_stats['total_duration'] / req_count
-                    proc_stats['success_rate'] = (proc_stats['success_count'] / req_count) * 100
-                    proc_stats['avg_tokens'] = proc_stats['total_tokens'] // req_count
-                    proc_stats['avg_cost'] = proc_stats['total_cost'] / req_count
-            
-            # Hourly statistics
-            hour_counts: Dict[str, int] = {}
-            for r in recent_requests:
-                try:
-                    hour = datetime.strptime(r['timestamp'], '%Y-%m-%d %H:%M:%S').strftime('%H:00')
-                    hour_counts[hour] = hour_counts.get(hour, 0) + 1
-                except ValueError as e:
-                    logger.error(f"Error processing hour statistics: {e}")
-                    continue
-            
-            # Sort hours and create final hourly stats
-            sorted_hours = sorted(list(hour_counts.keys()))
-            stats['hourly_stats'] = {hour: hour_counts[hour] for hour in sorted_hours}
-            
-            # Process recent requests (last 10)
-            recent_requests = sorted(recent_requests, 
-                                  key=lambda x: x['timestamp'],
-                                  reverse=True)[:10]
-            
-            # Add logs to recent requests
-            request_logs = load_logs_for_requests(recent_requests)
-            for request in recent_requests:
-                process_id = request.get('process_id')
-                request['logs'] = request_logs.get(process_id, []) if process_id else []
-                
-                # Get the main operation
-                main_op: Dict[str, Any] = {}
-                for op in request.get('operations', []):
-                    if op.get('name') == request.get('operation'):
-                        main_op = op
-                        break
-                
-                # Prepare the main process data
-                request['main_process'] = {
-                    'timestamp': request['timestamp'],
-                    'duration_seconds': float(request.get('total_duration', 0)),
-                    'operation': main_op.get('name', ''),
-                    'processor': main_op.get('processor', ''),
-                    'success': request.get('status') == 'success',
-                    'file_size': request.get('file_size', 0),
-                    'duration': main_op.get('duration', 0),
-                    'text': request.get('text', ''),
-                    'text_length': len(request.get('text', '')),
-                    'llm_model': request.get('resources', {}).get('models_used', [''])[0],
-                    'tokens': request.get('resources', {}).get('total_tokens', 0)
-                }
-            
-            stats['recent_requests'] = recent_requests
-            
+        # Kennzahlen kommen aus MongoDB (RequestMetricsRepository, Variante B).
+        # Die frühere Implementierung las/parste logs/performance.json, das im
+        # Normalbetrieb nie befüllt wurde (complete_tracking() ohne Aufrufer).
+        from src.core.mongodb import get_metrics_repository
+        stats = get_metrics_repository().get_stats(hours=24, recent_limit=10)
     except Exception as e:
-        logger.error(f"Error processing dashboard data: {str(e)}", exc_info=True)
+        logger.error(f"Fehler beim Laden der Dashboard-Statistiken: {str(e)}", exc_info=True)
         stats['error'] = str(e)
     
     return render_template('dashboard.html', 
@@ -435,6 +177,20 @@ def config_page():
         logger.error("Fehler beim Laden der Konfiguration", exc_info=e)
         print("Error:", str(e))  # Debug-Ausgabe
         return render_template('config.html', config="", error=str(e))
+
+@main.route('/health')
+def health_dashboard():
+    """
+    Zeigt die LLM-Health-Check-Seite an.
+
+    Die Seite lädt ihre Daten clientseitig über GET /api/health/ (siehe
+    health.html). Sie wurde aus der Startseite (dashboard.html) in einen
+    eigenen Menüpunkt ausgelagert, um die Startseite schlank zu halten.
+
+    Returns:
+        rendered template: Die health.html Template
+    """
+    return render_template('health.html')
 
 @main.route('/test')
 def test_page():
@@ -545,40 +301,9 @@ def get_recent_requests():
         Response: JSON mit den neuesten Anfragen
     """
     try:
-        # Load performance data
-        perf_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'performance.json')
-        
-        if not os.path.exists(perf_path):
-            return jsonify([])
-            
-        with open(perf_path, 'r') as f:
-            perf_data = json.load(f)
-            
-        if not perf_data:
-            return jsonify([])
-            
-        # Calculate time window
-        now = datetime.now(timezone.utc)
-        day_ago = now - timedelta(days=1)
-        
-        # Filter recent requests and ensure timestamp is valid
-        recent_requests: List[Dict[str, Any]] = []
-        for r in perf_data:
-            try:
-                timestamp = datetime.fromisoformat(r['timestamp'].replace('Z', '+00:00'))
-                if timestamp > day_ago:
-                    r['timestamp'] = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-                    recent_requests.append(r)
-            except (ValueError, KeyError) as e:
-                logger.error(f"Error processing request timestamp: {e}")
-                continue
-        
-        # Sort by timestamp (newest first) and take last 10
-        recent_requests = sorted(
-            recent_requests,
-            key=lambda x: x.get('timestamp', ''),
-            reverse=True
-        )[:10]
+        # Letzte Requests aus MongoDB (RequestMetricsRepository, Variante B).
+        from src.core.mongodb import get_metrics_repository
+        recent_requests = get_metrics_repository().get_recent(limit=10)
         
         # Render only the requests list part
         html = render_template('_recent_requests.html', 

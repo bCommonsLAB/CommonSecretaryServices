@@ -142,6 +142,17 @@ class SecretaryWorkerManager:
 
     async def _process_job(self, job: Job) -> None:
         start_time = datetime.now(UTC)
+        # Metrik-Tracking für den Job starten (Variante B). Worker-Jobs laufen
+        # außerhalb des Flask-Request-Lifecycles; ohne dieses Tracking würden
+        # sie im Dashboard nicht auftauchen. Lazy-Import vermeidet Zyklen.
+        from src.utils.performance_tracker import (
+            get_performance_tracker,
+            clear_performance_tracker,
+        )
+        metric_tracker = get_performance_tracker(job.job_id)
+        if metric_tracker is not None:
+            metric_tracker.set_processor_name(job.job_type or "unknown")
+            metric_tracker.set_endpoint_info(f"/jobs/{job.job_type}", "worker", "secretary-worker")
         try:
             logger.info(f"Starte Job {job.job_id} (type={job.job_type})")
             handler = registry.get_handler(job.job_type)
@@ -288,6 +299,8 @@ class SecretaryWorkerManager:
                 self.job_repo.update_batch_progress(job.batch_id)
         except Exception as e:
             logger.error(f"Fehler in Job {job.job_id}: {e}")
+            if metric_tracker is not None:
+                metric_tracker.set_error(str(e), type(e).__name__)
             error_info = JobError(
                 code=type(e).__name__,
                 message=str(e),
@@ -342,6 +355,18 @@ class SecretaryWorkerManager:
             except Exception:
                 # Webhook-Fehler nicht weiter eskalieren
                 pass
+        finally:
+            # Messung abschließen + in MongoDB persistieren, danach das
+            # Thread-Local aufräumen (verhindert Vermischung zwischen Jobs).
+            if metric_tracker is not None:
+                try:
+                    metric_tracker.complete_tracking()
+                    # Eindeutiger Beweis-Log: zeigt, dass der neue Metrik-Pfad
+                    # durchlaufen wurde (hilft beim Verifizieren nach Neustart).
+                    logger.info(f"[METRICS] Job {job.job_id} in request_metrics persistiert")
+                except Exception as metric_err:
+                    logger.error(f"[METRICS] Persistenz für Job {job.job_id} fehlgeschlagen: {metric_err}")
+            clear_performance_tracker()
 
 
 _secretary_manager: Optional[SecretaryWorkerManager] = None

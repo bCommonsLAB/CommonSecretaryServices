@@ -4,7 +4,7 @@
 
 {% block content %}
     <h1>Processing Service Dashboard</h1>
-    
+
     <!-- Performance Metriken -->
     <div class="row mt-4">
         {% if stats.error %}
@@ -45,13 +45,19 @@
         <div class="col-md-6">
             <div class="chart-container bg-light p-3 rounded shadow-sm">
                 <h4>Operationen</h4>
-                <canvas id="operationsChart" height="200"></canvas>
+                <!-- Feste Höhe nötig, da maintainAspectRatio:false sonst zu
+                     einem Höhen-Kollaps (leeres Diagramm) führen kann. -->
+                <div style="position: relative; height: 260px;">
+                    <canvas id="operationsChart"></canvas>
+                </div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="chart-container bg-light p-3 rounded shadow-sm">
                 <h4>Stündliche Anfragen</h4>
-                <canvas id="hourlyChart" height="200"></canvas>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -101,63 +107,11 @@
                     <small class="text-muted">Automatische Aktualisierung alle 3 Sekunden</small>
                 </div>
                 <div id="recent-requests-list">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Status</th>
-                                    <th>Operation</th>
-                                    <th>Dauer</th>
-                                    <th>Ressource</th>
-                                    <th>Token</th>
-                                    <th>Kosten</th>
-                                    <th>Zeitpunkt</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for entry in stats.get('recent_requests', []) %}
-                                <tr>
-                                    <td>
-                                        {% if entry.get('status') == 'success' %}
-                                            <span class="badge bg-success">✓</span>
-                                        {% elif entry.get('status') == 'running' %}
-                                            <span class="badge bg-primary running-indicator">⟳</span>
-                                        {% else %}
-                                            <span class="badge bg-danger">✗</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ entry.get('operation', '') }}</td>
-                                    <td>
-                                        {% if entry.get('status') == 'running' %}
-                                            <div class="d-flex align-items-center">
-                                                <span>{{ "%.1f"|format(entry.get('total_duration', 0)) }}s</span>
-                                                <div class="progress ms-2" style="width: 50px; height: 3px;">
-                                                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
-                                                </div>
-                                            </div>
-                                        {% else %}
-                                            {{ "%.1f"|format(entry.get('total_duration', 0)) }}s
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if entry.get('operation') == 'pdf_processing' %}
-                                            📄 {{ entry.get('file_name', 'N/A') }}
-                                        {% elif entry.get('operation') == 'image_processing' %}
-                                            🖼️ {{ entry.get('file_name', 'N/A') }}
-                                        {% elif entry.get('operation') == 'youtube_processing' %}
-                                            🎥 {{ entry.get('url', 'N/A') }}
-                                        {% elif entry.get('operation') == 'audio_processing' %}
-                                            🎵 {{ entry.get('file_name', 'N/A') }}
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ entry.get('resources', {}).get('total_tokens', 0) }}</td>
-                                    <td>${{ "%.3f"|format(entry.get('resources', {}).get('total_cost', 0)) }}</td>
-                                    <td><small class="text-muted">{{ entry.get('timestamp', '').split('.')[0] }}</small></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
+                    {# Einzige Quelle für die Tabelle: identisch zum Auto-Refresh
+                       (/api/recent-requests rendert dasselbe Partial). #}
+                    {% with recent_requests=stats.get('recent_requests', []) %}
+                        {% include '_recent_requests.html' %}
+                    {% endwith %}
                 </div>
             </div>
         </div>
@@ -207,6 +161,14 @@
             scales: {
                 y: {
                     beginAtZero: true,
+                    // Anfragen sind ganze Zahlen -> keine krummen Zwischenwerte.
+                    // Schrittweite wählt Chart.js automatisch (skaliert mit).
+                    ticks: {
+                        precision: 0
+                    },
+                    // 'grace' fügt oben/unten Puffer hinzu, damit die Spitze
+                    // nicht direkt am oberen Rand klebt (abgeschnitten wirkt).
+                    grace: '15%',
                     grid: {
                         color: 'rgba(0, 0, 0, 0.05)'
                     }

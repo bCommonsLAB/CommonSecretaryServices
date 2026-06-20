@@ -401,6 +401,18 @@ class BaseProcessor(Generic[T]):
             return tracker.measure_operation(operation_name, self.__class__.__name__)
         return nullcontext()
 
+    def _record_model(self, model: str) -> None:
+        """
+        Vermerkt das verwendete Modell am aktuellen Performance-Tracker.
+
+        No-op, wenn kein Tracker im aktuellen Thread existiert. So kann jeder
+        Prozessor das real genutzte Modell melden, ohne Token-/Kosten-Tracking
+        umzubauen. Wird im Dashboard pro Anfrage angezeigt.
+        """
+        tracker = get_performance_tracker()
+        if tracker:
+            tracker.set_model(model)
+
     def load_processor_config(self, processor_name: str) -> Dict[str, Any]:
         """
         Lädt die Konfiguration für einen spezifischen Processor aus der config.yaml.

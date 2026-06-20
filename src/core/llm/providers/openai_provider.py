@@ -68,7 +68,38 @@ class OpenAIProvider:
     def get_client(self) -> OpenAI:
         """Gibt den OpenAI-Client zurück."""
         return self.client
-    
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Billige Erreichbarkeits-/Auth-Probe über ``GET /v1/models``.
+        Listet Modelle (kostet kein Guthaben) und validiert damit Key + Netz.
+
+        Returns:
+            Dict mit reachable, latency_ms, detail, credit (None – OpenAI bietet
+            keinen zuverlässigen Guthaben-Endpoint über dieses Interface).
+        """
+        start = time.time()
+        try:
+            client: Any = self.client
+            try:
+                client = client.with_options(timeout=8.0)
+            except Exception:
+                pass
+            client.models.list()
+            return {
+                "reachable": True,
+                "latency_ms": int((time.time() - start) * 1000),
+                "detail": "models.list ok",
+                "credit": None,
+            }
+        except Exception as exc:
+            return {
+                "reachable": False,
+                "latency_ms": int((time.time() - start) * 1000),
+                "detail": f"{type(exc).__name__}: {str(exc)[:160]}",
+                "credit": None,
+            }
+
     def transcribe(
         self,
         audio_data: bytes | Path,
