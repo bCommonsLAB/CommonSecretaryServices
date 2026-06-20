@@ -5,7 +5,7 @@
                 <th>Status</th>
                 <th>Operation</th>
                 <th>Dauer</th>
-                <th>Ressource</th>
+                <th>Modell</th>
                 <th>Token</th>
                 <th>Kosten</th>
                 <th>Zeitpunkt</th>
@@ -37,14 +37,10 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if entry.get('operation') == 'pdf_processing' %}
-                        📄 {{ entry.get('file_name', 'N/A') }}
-                    {% elif entry.get('operation') == 'image_processing' %}
-                        🖼️ {{ entry.get('file_name', 'N/A') }}
-                    {% elif entry.get('operation') == 'youtube_processing' %}
-                        🎥 {{ entry.get('url', 'N/A') }}
-                    {% elif entry.get('operation') == 'audio_processing' %}
-                        🎵 {{ entry.get('file_name', 'N/A') }}
+                    {% if entry.get('model') %}
+                        <small><code>{{ entry.get('model') }}</code></small>
+                    {% else %}
+                        <small class="text-muted">—</small>
                     {% endif %}
                 </td>
                 <td>{{ entry.get('resources', {}).get('total_tokens', 0) }}</td>

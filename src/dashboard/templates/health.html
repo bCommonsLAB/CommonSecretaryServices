@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}LLM Health-Check{% endblock %}
+
+{% block content %}
+    <h1>LLM Health-Check</h1>
+
+    <!-- LLM Health-Check -->
+    <div class="row mt-4">
+      <div class="col-12">
+        <div class="bg-light p-3 rounded shadow-sm">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">
+              Verfügbarkeit der LLM-Operationen
+              <span id="health-overall-badge" class="badge bg-secondary ms-2">lädt…</span>
+            </h4>
+            <div>
+              <small id="health-checked-at" class="text-muted me-3"></small>
+              <button id="health-refresh-btn" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-sync"></i> Aktualisieren
+              </button>
+            </div>
+          </div>
+
+          <div id="health-error" class="alert alert-warning d-none"></div>
+
+          <h6 class="text-muted">Endpunkte</h6>
+          <div class="table-responsive mb-3">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead>
+                <tr><th>Endpoint</th><th>Status</th><th>Benötigte Operationen (kaskadierend)</th></tr>
+              </thead>
+              <tbody id="health-endpoints-body">
+                <tr><td colspan="3" class="text-muted">Prüfe…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h6 class="text-muted">Operationen (Use-Cases)</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Use-Case</th><th>Status</th><th>Provider / Modell</th>
+                  <th>Config-Quelle</th><th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="health-usecases-body">
+                <tr><td colspan="5" class="text-muted">Prüfe…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      const STATUS_BADGE = {
+        healthy: 'bg-success', degraded: 'bg-warning text-dark',
+        unavailable: 'bg-danger', unknown: 'bg-secondary',
+        no_llm_dependency: 'bg-light text-dark border'
+      };
+      const STATUS_LABEL = {
+        healthy: '✓ verfügbar', degraded: '▲ eingeschränkt',
+        unavailable: '✗ nicht verfügbar', unknown: '? unbekannt',
+        no_llm_dependency: '– kein LLM'
+      };
+      function badge(status) {
+        return '<span class="badge ' + (STATUS_BADGE[status] || 'bg-secondary') + '">'
+          + (STATUS_LABEL[status] || status) + '</span>';
+      }
+      function esc(s) {
+        return (s == null ? '' : String(s)).replace(/[&<>"]/g, function(c) {
+          return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+        });
+      }
+      function setOverall(status, labelOverride) {
+        const el = document.getElementById('health-overall-badge');
+        el.className = 'badge ms-2 ' + (STATUS_BADGE[status] || 'bg-secondary');
+        el.textContent = labelOverride || STATUS_LABEL[status] || status;
+      }
+      function creditText(uc) {
+        const c = (uc.checks || {}).credit;
+        if (!c) return '';
+        let t = ' · Guthaben: ' + (c.status || 'unknown');
+        if (c.remaining_usd != null) t += ' (' + Number(c.remaining_usd).toFixed(2) + ' USD)';
+        return t;
+      }
+      function render(data) {
+        document.getElementById('health-error').classList.add('d-none');
+        setOverall(data.status);
+        if (data.checked_at) {
+          document.getElementById('health-checked-at').textContent =
+            'Letzte Prüfung: ' + new Date(data.checked_at).toLocaleString();
+        }
+        const eb = document.getElementById('health-endpoints-body');
+        eb.innerHTML = '';
+        const endpoints = data.endpoints || {};
+        Object.keys(endpoints).sort().forEach(function(name) {
+          const ep = endpoints[name];
+          const ucs = (ep.use_cases || []).map(function(u) { return esc(u.use_case); }).join(', ') || '—';
+          eb.insertAdjacentHTML('beforeend',
+            '<tr><td><code>/api/' + esc(name) + '</code></td><td>' + badge(ep.status)
+            + '</td><td><small class="text-muted">' + ucs + '</small></td></tr>');
+        });
+        const ub = document.getElementById('health-usecases-body');
+        ub.innerHTML = '';
+        const ucObj = data.use_cases || {};
+        Object.keys(ucObj).sort().forEach(function(key) {
+          const uc = ucObj[key];
+          const conn = (uc.checks || {}).connectivity || {};
+          const cfg = (uc.checks || {}).config || {};
+          const detail = esc(uc.detail || cfg.detail || conn.detail || '');
+          ub.insertAdjacentHTML('beforeend',
+            '<tr>'
+            + '<td>' + esc(uc.use_case) + '</td>'
+            + '<td>' + badge(uc.status) + '</td>'
+            + '<td><small>' + esc(uc.provider || '—') + ' / ' + esc(uc.model || '—') + '</small></td>'
+            + '<td><small class="text-muted">' + esc(uc.config_source || '') + '</small></td>'
+            + '<td><small class="text-muted">' + detail + esc(creditText(uc)) + '</small></td>'
+            + '</tr>');
+        });
+      }
+      function showError(msg) {
+        const e = document.getElementById('health-error');
+        e.textContent = 'Health-Check fehlgeschlagen: ' + msg;
+        e.classList.remove('d-none');
+        setOverall('unknown', 'Fehler');
+      }
+      function load() {
+        const btn = document.getElementById('health-refresh-btn');
+        btn.disabled = true;
+        document.getElementById('health-overall-badge').textContent = 'lädt…';
+        fetch('/api/health/')
+          .then(function(r) { return r.json(); })
+          .then(render)
+          .catch(function(e) { showError(e.message); })
+          .finally(function() { btn.disabled = false; });
+      }
+      document.getElementById('health-refresh-btn').addEventListener('click', load);
+      load();
+    })();
+    </script>
+{% endblock %}

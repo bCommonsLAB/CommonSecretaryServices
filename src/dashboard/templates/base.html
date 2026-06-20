@@ -33,6 +33,9 @@
                         <a class="nav-link {% if request.endpoint == 'llm_config_dashboard.llm_config_page' or request.endpoint == 'llm_config_dashboard.models_overview_page' %}active{% endif %}" href="{{ url_for('llm_config_dashboard.llm_config_page') }}">LLM Config</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main.health_dashboard' %}active{% endif %}" href="{{ url_for('main.health_dashboard') }}">Health</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'main.test_procedures' %}active{% endif %}" href="{{ url_for('main.test_procedures') }}">Tests</a>
                     </li>
                     <li class="nav-item">
@@ -52,6 +55,10 @@
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Chart.js für die Dashboard-Diagramme (Operationen, Stündliche Anfragen). -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     {% block scripts %}{% endblock %}
+    <!-- Seiten-spezifische Skripte (dashboard.html nutzt diesen Block). -->
+    {% block extra_scripts %}{% endblock %}
 </body>
 </html> 

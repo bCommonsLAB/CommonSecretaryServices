@@ -233,6 +233,55 @@ def signal_handler(sig: int, frame: Optional[FrameType]) -> NoReturn:
     
     sys.exit(0)
 
+# Variante 3: Namespaces, die NICHT auf Request-Ebene erfasst werden sollen.
+# 'doc'/'swagger.json'/'health' sind keine Verarbeitung. Async-Submissions
+# (HTTP 202) werden zusätzlich in after_request verworfen (Worker erfasst sie).
+_METRICS_DENY_NAMESPACES: set[str] = {'doc', 'swagger.json', 'health'}
+
+
+def _derive_processor_from_path(path: str) -> Optional[str]:
+    """
+    Leitet den Processor-Namen aus einem API-Pfad ab.
+
+    Beispiel: '/api/rag/embed-text' -> 'rag', '/api/transformer/x' -> 'transformer'.
+    Gibt None zurück, wenn der Pfad nicht zu einem erfassbaren Namespace gehört.
+    """
+    if not path.startswith('/api/'):
+        return None
+    parts = [p for p in path.split('/') if p]  # ['api', 'rag', 'embed-text']
+    if len(parts) < 2:
+        return None
+    namespace = parts[1]
+    if namespace in _METRICS_DENY_NAMESPACES:
+        return None
+    return namespace
+
+
+def _maybe_start_request_tracker() -> None:
+    """
+    Legt für synchrone API-POST-Requests einen PerformanceTracker an und setzt
+    den Processor-Namen aus dem Namespace (Variante 3). So werden auch Routen
+    erfasst, die selbst keinen Tracker starten (z. B. /api/rag/embed-text).
+
+    Bewusst nur POST: GET-Status-/Download-/Polling-Aufrufe sollen das Dashboard
+    nicht mit Rauschen füllen. Fehler dürfen den Request nie stören.
+    """
+    from flask import request
+    import uuid
+    from src.utils.performance_tracker import get_performance_tracker
+
+    if request.method != 'POST':
+        return
+    processor = _derive_processor_from_path(request.path)
+    if processor is None:
+        return
+    # Falls eine Route später selbst einen Tracker erwartet, nutzt sie denselben
+    # Thread-lokalen Tracker weiter (get_performance_tracker() ohne Neuanlage).
+    tracker = get_performance_tracker() or get_performance_tracker(str(uuid.uuid4()))
+    if tracker is not None and not tracker.processor_name:
+        tracker.set_processor_name(processor)
+
+
 @app.before_request
 def before_request() -> None:
     """Wird vor jedem Request ausgeführt"""
@@ -274,6 +323,76 @@ def before_request() -> None:
             app_logger.error(f"Fehler beim Starten des SecretaryWorkerManager: {str(e)}")
         
         _first_request = False
+
+    # Variante 3: Tracker für synchrone API-POST-Requests anlegen.
+    try:
+        _maybe_start_request_tracker()
+    except Exception as e:
+        app_logger.error(f"Fehler beim Starten des Request-Trackers: {str(e)}")
+
+
+@app.after_request
+def discard_async_metric(response: Any) -> Any:
+    """
+    Verwirft den Request-Tracker bei asynchronen Submissions (HTTP 202).
+
+    Solche Endpunkte legen lediglich einen Job an; die eigentliche Verarbeitung
+    (und deren Metrik) passiert im Worker. Ohne dieses Verwerfen würde der
+    schnelle 202-Request als zusätzliche, irreführende Zeile erscheinen
+    (Doppelzählung mit dem Worker-Eintrag).
+    """
+    try:
+        if getattr(response, 'status_code', None) == 202:
+            from src.utils.performance_tracker import (
+                get_performance_tracker,
+                clear_performance_tracker,
+            )
+            if get_performance_tracker() is not None:
+                clear_performance_tracker()
+    except Exception:
+        pass
+    return response
+
+
+@app.teardown_request
+def finalize_performance_tracking(exception: Optional[BaseException] = None) -> None:
+    """
+    Schließt die Performance-Messung pro Request ab (Variante B).
+
+    Routen/Prozessoren legen den Tracker bei Bedarf lazy an
+    (get_performance_tracker(process_id)). Hier wird ein evtl. vorhandener
+    Thread-lokaler Tracker mit Endpoint-Infos angereichert, in MongoDB
+    persistiert und anschließend entfernt. Ohne dieses Aufräumen würde der
+    Tracker am Worker-Thread haften und vom nächsten Request wiederverwendet.
+
+    Fehler werden bewusst verschluckt: Metrik-Erfassung darf eine Response
+    niemals stören.
+    """
+    from flask import request
+    from src.utils.performance_tracker import (
+        get_performance_tracker,
+        clear_performance_tracker,
+    )
+
+    tracker = get_performance_tracker()
+    if tracker is None:
+        return
+    try:
+        # Endpoint-/Client-Infos nachtragen, falls die Route sie nicht gesetzt hat.
+        if not tracker.measurements.get('endpoint'):
+            tracker.set_endpoint_info(
+                endpoint=request.path,
+                ip=request.remote_addr or '',
+                user_agent=request.headers.get('User-Agent', ''),
+            )
+        if exception is not None and not tracker.measurements.get('error'):
+            tracker.set_error(str(exception), type(exception).__name__)
+        tracker.complete_tracking()
+    except Exception as e:
+        app_logger.error(f"Fehler beim Abschluss des Performance-Trackings: {str(e)}")
+    finally:
+        clear_performance_tracker()
+
 
 @app.teardown_appcontext
 def teardown_app(exception: Optional[Union[Exception, BaseException]] = None) -> None:

@@ -650,6 +650,9 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
         # Modell-ID für MongoDB Lookup: "{provider}/{model_name}"
         model_id = f"{provider.get_provider_name()}/{model_name}"
 
+        # Verwendetes Modell für die Dashboard-Anzeige am Tracker vermerken.
+        self._record_model(model_id)
+
         # Kontextfenster (Tokens) aus MongoDB-Metadaten lesen
         context_length_tokens: int | None = None
         try:

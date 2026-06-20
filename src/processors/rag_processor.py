@@ -127,6 +127,9 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                 "chunk_size": self.chunk_size,
                 "chunk_overlap": self.chunk_overlap
             })
+
+            # Verwendetes Embedding-Modell für die Dashboard-Anzeige vermerken.
+            self._record_model(self.embedding_model)
             
         except Exception as e:
             self.logger.error("Fehler bei der Initialisierung des RAGProcessors", error=e)

@@ -579,8 +579,11 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 pe0 = ps0
             pages_payload = list(range(ps0, pe0 + 1))
         
+        # OCR-Modell einmal auflösen und für die Dashboard-Anzeige vermerken.
+        ocr_model: str = self._resolve_mistral_ocr_api_model()
+        self._record_model(ocr_model)
         payload: Dict[str, Any] = {
-            "model": self._resolve_mistral_ocr_api_model(),
+            "model": ocr_model,
             "document": {"type": "file", "file_id": file_id},
             "include_image_base64": True  # Bilder werden immer angefordert, aber separat gespeichert
         }
