@@ -37,7 +37,6 @@ import os
 from flask import Flask
 from dotenv import load_dotenv
 from src.dashboard.routes.main_routes import main as dashboard_blueprint
-from src.dashboard.routes.config_routes import config as config_blueprint
 from typing import Optional
 import logging
 
@@ -97,9 +96,6 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     
     # Registriere die Dashboard-Routen
     app.register_blueprint(dashboard_blueprint)
-    
-    # Registriere die Konfigurations-Routen
-    app.register_blueprint(config_blueprint)
 
     # Event-Handler für Serverbeendigung
     import atexit

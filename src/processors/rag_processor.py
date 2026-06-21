@@ -87,11 +87,13 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
             rag_config = processor_config.get('rag', {})
             
             # Voyage API Konfiguration
-            voyage_api_key = os.getenv('VOYAGE_API_KEY') or rag_config.get('voyage_api_key')
+            # Der Key wird ausschließlich aus der Umgebungsvariable VOYAGE_API_KEY
+            # geladen (Docker Compose/.env). Kein Fallback auf config.yaml mehr.
+            voyage_api_key = os.getenv('VOYAGE_API_KEY')
             if not voyage_api_key:
                 raise ProcessingError(
                     "VOYAGE_API_KEY nicht gefunden. Bitte setzen Sie die Umgebungsvariable "
-                    "oder konfigurieren Sie 'processors.rag.voyage_api_key' in config.yaml"
+                    "VOYAGE_API_KEY (z. B. in Docker Compose oder .env)."
                 )
             
             # Voyage Client initialisieren

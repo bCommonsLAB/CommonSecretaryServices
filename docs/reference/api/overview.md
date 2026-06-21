@@ -166,25 +166,6 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 **See**: [Job Endpoints](endpoints/jobs.md) for detailed documentation.
 
-### Event Job Management (Legacy)
-
-**Namespace**: `/api/event-job`
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/event-job/jobs` | Create session job |
-| GET | `/api/event-job/jobs/<job_id>` | Get job details |
-| POST | `/api/event-job/batches` | Create batch |
-| GET | `/api/event-job/batches/<batch_id>` | Get batch details |
-| GET | `/api/event-job/files/<path>` | Download job file |
-| POST | `/api/event-job/<job_id>/restart` | Restart failed job |
-| GET | `/api/event-job/batches/<batch_id>/archive` | Download batch archive |
-| POST | `/api/event-job/batches/<batch_id>/toggle-active` | Toggle batch active status |
-| POST | `/api/event-job/batches/fail-all` | Fail all jobs in batch |
-| GET | `/api/event-job/jobs/<job_id>/download-archive` | Download job archive |
-
-**See**: [Event Job Endpoints](endpoints/event-job.md) for detailed documentation.
-
 ### LLM Configuration
 
 **Namespace**: `/api/llm-config`

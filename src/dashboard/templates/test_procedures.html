@@ -5,65 +5,9 @@
 {% block content %}
 <div class="container py-4">
     <h1 class="mb-4">Test-Prozeduren</h1>
-    
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5>Event-Monitor Funktionalitäten</h5>
-        </div>
-        <div class="card-body">
-            <h6>Batch-Buttons Funktionstest</h6>
-            <p>Diese Tests überprüfen die Funktionalität der Buttons, die für jeden Batch im Event-Monitor angezeigt werden.</p>
-
-            <div class="mb-3">
-                <h6>1. Test: Batch-Aktiv-Status umschalten</h6>
-                <div class="input-group mb-2">
-                    <input type="text" id="toggleBatchId" class="form-control" placeholder="Batch-ID eingeben">
-                    <button class="btn btn-primary" onclick="testToggleBatchActive()">Status umschalten</button>
-                </div>
-                <div id="toggleResult" class="alert alert-info d-none"></div>
-            </div>
-
-            <div class="mb-3">
-                <h6>2. Test: Jobs für Batch anzeigen</h6>
-                <div class="input-group mb-2">
-                    <input type="text" id="loadJobsBatchId" class="form-control" placeholder="Batch-ID eingeben">
-                    <button class="btn btn-primary" onclick="testLoadJobs()">Jobs laden</button>
-                </div>
-                <div id="loadJobsResult" class="mt-2"></div>
-            </div>
-
-            <div class="mb-3">
-                <h6>3. Test: Batch neu starten</h6>
-                <div class="input-group mb-2">
-                    <input type="text" id="restartBatchId" class="form-control" placeholder="Batch-ID eingeben">
-                    <button class="btn btn-primary" onclick="testRestartBatch()">Batch neu starten</button>
-                </div>
-                <div id="restartResult" class="alert alert-info d-none"></div>
-            </div>
-
-            <div class="mb-3">
-                <h6>4. Test: Batch archivieren</h6>
-                <div class="input-group mb-2">
-                    <input type="text" id="archiveBatchId" class="form-control" placeholder="Batch-ID eingeben">
-                    <button class="btn btn-primary" onclick="testArchiveBatch()">Batch archivieren</button>
-                </div>
-                <div id="archiveResult" class="alert alert-info d-none"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">
-            <h5>Aktive Batches anzeigen</h5>
-        </div>
-        <div class="card-body">
-            <button class="btn btn-primary" onclick="loadActiveBatches()">Aktive Batches laden</button>
-            <div id="batchesResult" class="mt-3"></div>
-        </div>
-    </div>
 
     <!-- Transformer Tests -->
-    <div class="card mt-4">
+    <div class="card">
         <div class="card-header">
             <h5>Transformer Tests</h5>
         </div>
@@ -75,7 +19,7 @@
                     <textarea class="form-control" id="input_text" name="input_text" rows="4" placeholder="Geben Sie Text ein oder eine URL..."></textarea>
                     <div class="form-text">Für URLs: Geben Sie eine vollständige URL ein (z.B. https://example.com)</div>
                 </div>
-                
+
                 <div class="row">
                     <div class="col-md-4">
                         <label for="target_language" class="form-label">Zielsprache:</label>
@@ -105,12 +49,12 @@
                         </select>
                     </div>
                 </div>
-                
+
                 <div class="mt-3">
                     <button type="submit" class="btn btn-primary">Transformation starten</button>
                 </div>
             </form>
-            
+
             {% if test_results %}
             <div class="mt-4">
                 <h6>Test-Ergebnisse:</h6>
@@ -132,223 +76,3 @@
     </div>
 </div>
 {% endblock %}
-
-{% block scripts %}
-<script>
-    function testToggleBatchActive() {
-        const batchId = document.getElementById('toggleBatchId').value.trim();
-        const resultDiv = document.getElementById('toggleResult');
-        
-        if (!batchId) {
-            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
-            return;
-        }
-        
-        showResult(resultDiv, 'Verarbeite Anfrage...', 'info');
-        
-        fetch(`/api/dashboard/event-monitor/batches/${batchId}/toggle-active`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        .then(response => response.json())
-        .then(data => {
-            showResult(resultDiv, `Ergebnis: ${JSON.stringify(data)}`, data.status === 'success' ? 'success' : 'danger');
-        })
-        .catch(error => {
-            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
-        });
-    }
-    
-    function testLoadJobs() {
-        const batchId = document.getElementById('loadJobsBatchId').value.trim();
-        const resultDiv = document.getElementById('loadJobsResult');
-        
-        if (!batchId) {
-            resultDiv.innerHTML = '<div class="alert alert-danger">Bitte eine Batch-ID eingeben</div>';
-            return;
-        }
-        
-        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div></div>';
-        
-        fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
-        .then(response => response.json())
-        .then(data => {
-            let jobs = [];
-            
-            if (data.data && data.data.jobs) {
-                jobs = data.data.jobs;
-            } else if (data.jobs) {
-                jobs = data.jobs;
-            }
-            
-            if (jobs.length > 0) {
-                let html = '<table class="table table-sm table-striped mt-3">';
-                html += '<thead><tr><th>Job-ID</th><th>Status</th><th>Name</th><th>Erstellt</th></tr></thead>';
-                html += '<tbody>';
-                
-                jobs.forEach(job => {
-                    html += `<tr>
-                        <td>${job.job_id}</td>
-                        <td><span class="badge ${getStatusClass(job.status)}">${job.status}</span></td>
-                        <td>${job.job_name || '-'}</td>
-                        <td>${formatDate(job.created_at)}</td>
-                    </tr>`;
-                });
-                
-                html += '</tbody></table>';
-                resultDiv.innerHTML = html;
-            } else {
-                resultDiv.innerHTML = '<div class="alert alert-info">Keine Jobs für diese Batch-ID gefunden.</div>';
-            }
-        })
-        .catch(error => {
-            resultDiv.innerHTML = `<div class="alert alert-danger">Fehler: ${error.message}</div>`;
-        });
-    }
-    
-    function testRestartBatch() {
-        const batchId = document.getElementById('restartBatchId').value.trim();
-        const resultDiv = document.getElementById('restartResult');
-        
-        if (!batchId) {
-            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
-            return;
-        }
-        
-        showResult(resultDiv, 'Starte Batch neu...', 'info');
-        
-        fetch(`/api/dashboard/event-monitor/jobs?batch_id=${batchId}`)
-        .then(response => response.json())
-        .then(data => {
-            let jobs = [];
-            if (data.data && data.data.jobs) jobs = data.data.jobs;
-            else if (data.jobs) jobs = data.jobs;
-            
-            if (!jobs.length) {
-                showResult(resultDiv, 'Keine Jobs zum Neustarten gefunden', 'warning');
-                return;
-            }
-            
-            // Restart all jobs in the batch
-            const promises = jobs.map(job => 
-                fetch(`/api/dashboard/event-monitor/job/${job.job_id}/restart`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ batch_id: batchId })
-                })
-                .then(resp => resp.json())
-            );
-            
-            return Promise.all(promises);
-        })
-        .then(results => {
-            if (results && results.length) {
-                showResult(resultDiv, `${results.length} Jobs neu gestartet: ${JSON.stringify(results)}`, 'success');
-            }
-        })
-        .catch(error => {
-            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
-        });
-    }
-    
-    function testArchiveBatch() {
-        const batchId = document.getElementById('archiveBatchId').value.trim();
-        const resultDiv = document.getElementById('archiveResult');
-        
-        if (!batchId) {
-            showResult(resultDiv, 'Bitte eine Batch-ID eingeben', 'danger');
-            return;
-        }
-        
-        showResult(resultDiv, 'Archiviere Batch...', 'info');
-        
-        // API call to archive the batch
-        fetch(`/api/dashboard/event-monitor/batches/${batchId}/archive`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        .then(response => response.json())
-        .then(data => {
-            showResult(resultDiv, `Ergebnis: ${JSON.stringify(data)}`, data.status === 'success' ? 'success' : 'danger');
-        })
-        .catch(error => {
-            showResult(resultDiv, `Fehler: ${error.message}`, 'danger');
-        });
-    }
-    
-    function loadActiveBatches() {
-        const resultDiv = document.getElementById('batchesResult');
-        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div></div>';
-        
-        fetch('/api/dashboard/event-monitor/batches?archived=false')
-        .then(response => response.json())
-        .then(data => {
-            let batches = [];
-            if (data.data && data.data.batches) batches = data.data.batches;
-            else if (data.batches) batches = data.batches;
-            
-            if (batches.length > 0) {
-                let html = '<div class="list-group mt-3">';
-                
-                batches.forEach(batch => {
-                    const statusClass = getStatusClass(batch.status);
-                    html += `
-                    <div class="list-group-item">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <span class="badge ${statusClass} me-2">${batch.status}</span>
-                                <strong>${batch.batch_name || batch.batch_id}</strong>
-                                <small class="text-muted ms-2">${formatDate(batch.created_at)}</small>
-                            </div>
-                            <div>
-                                <span class="badge bg-secondary">${batch.total_jobs} Jobs</span>
-                                <button class="btn btn-sm btn-outline-primary ms-2" 
-                                        onclick="document.getElementById('loadJobsBatchId').value='${batch.batch_id}'; testLoadJobs();">
-                                    Jobs anzeigen
-                                </button>
-                            </div>
-                        </div>
-                    </div>`;
-                });
-                
-                html += '</div>';
-                resultDiv.innerHTML = html;
-            } else {
-                resultDiv.innerHTML = '<div class="alert alert-info">Keine aktiven Batches gefunden.</div>';
-            }
-        })
-        .catch(error => {
-            resultDiv.innerHTML = `<div class="alert alert-danger">Fehler: ${error.message}</div>`;
-        });
-    }
-    
-    // Helper functions
-    function showResult(element, message, type) {
-        element.className = `alert alert-${type}`;
-        element.style.display = 'block';
-        element.textContent = message;
-    }
-    
-    function getStatusClass(status) {
-        switch(status) {
-            case 'completed': return 'bg-success';
-            case 'failed': return 'bg-danger';
-            case 'processing': return 'bg-primary';
-            case 'pending': return 'bg-warning';
-            default: return 'bg-secondary';
-        }
-    }
-    
-    function formatDate(dateString) {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleString('de-DE');
-    }
-    
-    // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
-        // Automatisch beim Laden aktive Batches anzeigen
-        loadActiveBatches();
-    });
-</script>
-{% endblock %} 

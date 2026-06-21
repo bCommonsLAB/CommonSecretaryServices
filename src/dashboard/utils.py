@@ -24,7 +24,6 @@ Features:
 
 @usedIn
 - src.dashboard.routes.main_routes: Uses get_system_info for dashboard display
-- src.dashboard.routes.config_routes: Uses get_system_info for config page
 
 @dependencies
 - External: psutil - System and process utilities
