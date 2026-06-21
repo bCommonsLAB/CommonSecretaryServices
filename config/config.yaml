@@ -39,7 +39,7 @@ llm_config:
       model: google/gemini-2.5-flash
 llm_providers:
   mistral:
-    api_key: ${MISTRAL_API_KEY}
+    # API-Key wird ausschließlich aus der Umgebungsvariable MISTRAL_API_KEY geladen.
     available_models:
       chat_completion:
       - mistral-large-latest
@@ -57,7 +57,7 @@ llm_providers:
       - pixtral-small-latest
     enabled: true
   ollama:
-    api_key: ollama
+    # Lokaler Provider: benötigt keinen echten Key (Dummy 'ollama' wird im Code gesetzt).
     available_models:
       chat_completion:
       - llama3
@@ -83,7 +83,7 @@ llm_providers:
     base_url: http://localhost:11434/v1
     enabled: true
   openai:
-    api_key: ${OPENAI_API_KEY}
+    # API-Key wird ausschließlich aus der Umgebungsvariable OPENAI_API_KEY geladen.
     available_models:
       chat_completion:
       - gpt-4
@@ -109,7 +109,7 @@ llm_providers:
       - whisper-1
     enabled: true
   openrouter:
-    api_key: ${OPENROUTER_API_KEY}
+    # API-Key wird ausschließlich aus der Umgebungsvariable OPENROUTER_API_KEY geladen.
     available_models:
       chat_completion:
       - openai/gpt-4
@@ -161,7 +161,7 @@ llm_providers:
       - black-forest-labs/flux-schnell
     enabled: true
   voyageai:
-    api_key: ${VOYAGE_API_KEY}
+    # API-Key wird ausschließlich aus der Umgebungsvariable VOYAGE_API_KEY geladen.
     available_models:
       embedding:
       - voyage-3-large
@@ -278,7 +278,7 @@ processors:
       enabled: true
       ttl_days: 30
   rag:
-    voyage_api_key: ${VOYAGE_API_KEY}
+    # Voyage-API-Key wird ausschließlich aus der Umgebungsvariable VOYAGE_API_KEY geladen.
     embedding_model: voyage-3-large
     embedding_dimensions: 2048
     chunk_size: 1000
@@ -290,7 +290,7 @@ processors:
     cache_dir: cache/obsidian
     max_concurrent_tasks: 5
   openai:
-    api_key: ${OPENAI_API_KEY}
+    # API-Key wird ausschließlich aus der Umgebungsvariable OPENAI_API_KEY geladen.
     image_quality: 85
     max_image_size: 2048
     vision_model: gpt-4o

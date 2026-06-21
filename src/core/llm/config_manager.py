@@ -12,7 +12,7 @@ per use case.
 - LLMConfigManager: Class - LLM configuration management
 """
 
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, cast
 from ..config import Config
 from ..exceptions import ProcessingError
 from ..models.llm_config import ProviderConfig, UseCaseConfig, LLMConfig
@@ -33,16 +33,23 @@ class LLMConfigManager:
     auf Provider- und Modell-Einstellungen pro Use-Case bereit.
     """
     
+    # Typannotationen auf Klassenebene (statt in __new__), damit der Type-Checker
+    # die Instanz-Attribute kennt und keine "Type annotation not supported"-Fehler
+    # in __new__ entstehen.
     _instance: Optional['LLMConfigManager'] = None
+    _config: Optional[LLMConfig]
+    _provider_manager: ProviderManager
+    _model_repo: Optional[Any]
+    _use_case_config_repo: Optional[Any]
     
     def __new__(cls) -> 'LLMConfigManager':
         """Singleton-Pattern für LLMConfigManager."""
         if cls._instance is None:
             cls._instance = super(LLMConfigManager, cls).__new__(cls)
-            cls._instance._config: Optional[LLMConfig] = None
+            cls._instance._config = None
             cls._instance._provider_manager = ProviderManager()
-            cls._instance._model_repo: Optional[Any] = None
-            cls._instance._use_case_config_repo: Optional[Any] = None
+            cls._instance._model_repo = None
+            cls._instance._use_case_config_repo = None
         return cls._instance
     
     def __init__(self) -> None:
@@ -93,37 +100,44 @@ class LLMConfigManager:
     def _load_config(self) -> None:
         """Lädt die Konfiguration aus config.yaml und MongoDB."""
         config = Config()
-        config_data = config.get_all()
+        # config.get_all() liefert eine TypedDict-Struktur; für den dynamischen
+        # Zugriff auf optionale Top-Level-Keys casten wir bewusst auf Dict[str, Any].
+        config_data = cast(Dict[str, Any], config.get_all())
         
         # Lade LLM-Provider-Konfigurationen (immer aus config.yaml)
         providers: Dict[str, ProviderConfig] = {}
-        llm_providers_config = config_data.get('llm_providers', {})
+        llm_providers_config = cast(Dict[str, Any], config_data.get('llm_providers', {}))
         
+        # ConfigKeys ist die zentrale, NUR-lesende Quelle für API-Keys.
+        # Keys kommen ausschließlich aus Umgebungsvariablen (Docker Compose/.env),
+        # NICHT mehr aus config.yaml.
+        from ..config_keys import ConfigKeys
+        config_keys = ConfigKeys()
+
         for provider_name, provider_data in llm_providers_config.items():
             if isinstance(provider_data, dict):
-                # API-Key aus Umgebungsvariablen laden
-                api_key_env = provider_data.get('api_key', '')
-                api_key = ''
-                if api_key_env.startswith('${') and api_key_env.endswith('}'):
-                    # Umgebungsvariable extrahieren
-                    env_var = api_key_env[2:-1]
-                    import os
-                    api_key = os.getenv(env_var, '')
-                else:
-                    api_key = api_key_env
+                # Explizite Typisierung des Provider-Eintrags (YAML -> beliebige Struktur).
+                provider_data_typed = cast(Dict[str, Any], provider_data)
+                # API-Key ausschließlich aus der Umgebungsvariable des Providers laden.
+                # Ein evtl. in config.yaml vorhandenes 'api_key'-Feld wird bewusst ignoriert.
+                api_key = config_keys.get_api_key_for_provider(provider_name) or ''
                 
                 # Erlaube leere API-Keys für nicht konfigurierte Provider
                 # Validierung erfolgt erst beim tatsächlichen Gebrauch
                 try:
                     # Lade verfügbare Modelle aus Config
-                    available_models = provider_data.get('available_models', {})
+                    available_models = cast(
+                        Dict[str, List[str]],
+                        provider_data_typed.get('available_models', {})
+                    )
+                    base_url = provider_data_typed.get('base_url')
                     
                     providers[provider_name] = ProviderConfig(
                         name=provider_name,
                         api_key=api_key or 'not-configured',  # Placeholder für nicht konfigurierte Provider
-                        enabled=provider_data.get('enabled', True),
-                        base_url=provider_data.get('base_url'),
-                        additional_config=provider_data.get('additional_config', {}),
+                        enabled=bool(provider_data_typed.get('enabled', True)),
+                        base_url=cast(Optional[str], base_url),
+                        additional_config=cast(Dict[str, Any], provider_data_typed.get('additional_config', {})),
                         available_models=available_models
                     )
                 except ValueError:
@@ -170,15 +184,16 @@ class LLMConfigManager:
         
         # Fallback auf config.yaml wenn MongoDB leer ist
         if not use_cases:
-            llm_config_data = config_data.get('llm_config', {})
-            use_cases_config = llm_config_data.get('use_cases', {})
+            llm_config_data = cast(Dict[str, Any], config_data.get('llm_config', {}))
+            use_cases_config = cast(Dict[str, Any], llm_config_data.get('use_cases', {}))
             
             for use_case_name, use_case_data in use_cases_config.items():
                 if isinstance(use_case_data, dict):
+                    use_case_data_typed = cast(Dict[str, Any], use_case_data)
                     use_cases[use_case_name] = UseCaseConfig(
                         use_case=use_case_name,
-                        provider=use_case_data.get('provider', ''),
-                        model=use_case_data.get('model', '')
+                        provider=str(use_case_data_typed.get('provider', '')),
+                        model=str(use_case_data_typed.get('model', ''))
                     )
             logger.debug("Use-Case-Konfigurationen aus config.yaml geladen (Fallback)")
         

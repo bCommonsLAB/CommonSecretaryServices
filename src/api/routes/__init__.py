@@ -230,7 +230,6 @@ from .video_routes import video_ns
 from .session_routes import session_ns
 from .common_routes import common_ns, SamplesEndpoint, SampleFileEndpoint
 from .transformer_routes import transformer_ns
-from .event_job_routes import event_job_ns
 from .track_routes import track_ns
 from .event_routes import event_ns
 from .pdf_routes import pdf_ns
@@ -250,7 +249,6 @@ api.add_namespace(video_ns, path='/video')  # type: ignore
 api.add_namespace(session_ns, path='/session')  # type: ignore
 api.add_namespace(common_ns, path='/common')  # type: ignore
 api.add_namespace(transformer_ns, path='/transformer')  # type: ignore
-api.add_namespace(event_job_ns, path='/event-job')  # type: ignore
 api.add_namespace(track_ns, path='/tracks')  # type: ignore
 api.add_namespace(event_ns, path='/events')  # type: ignore
 api.add_namespace(pdf_ns, path='/pdf')  # type: ignore

@@ -1820,8 +1820,9 @@ def export_config_api() -> Any:
             # Lade Provider-Konfiguration aus config.yaml
             provider_config = llm_providers_config.get(provider_name, {})
             
+            # API-Keys werden bewusst NICHT exportiert. Sie werden ausschließlich
+            # über Umgebungsvariablen (Docker Compose / .env) konfiguriert.
             export_data['llm_providers'][provider_name] = {
-                'api_key': provider_config.get('api_key', '${' + provider_name.upper() + '_API_KEY}'),
                 'enabled': provider_config.get('enabled', True),
                 'available_models': use_cases_dict
             }

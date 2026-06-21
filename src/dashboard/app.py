@@ -71,7 +71,6 @@ from src.core.mongodb import get_worker_manager, get_secretary_worker_manager, c
 from src.core.mongodb.cache_setup import setup_mongodb_caching
 from src.utils.logger import ProcessingLogger
 
-from .routes.config_routes import config
 from .routes.log_routes import logs
 from .routes.main_routes import main
 from .routes.docs_routes import docs
@@ -193,7 +192,6 @@ def handle_request_entity_too_large(error: RequestEntityTooLarge) -> Tuple[Respo
 
 # Register blueprints
 app.register_blueprint(main)
-app.register_blueprint(config)
 app.register_blueprint(logs)
 app.register_blueprint(api_blueprint, url_prefix='/api')
 app.register_blueprint(docs)
