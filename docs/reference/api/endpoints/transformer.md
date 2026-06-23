@@ -221,11 +221,16 @@ Both headers are accepted. The API key must match the `SECRETARY_SERVICE_API_KEY
 
 ### Request
 
-**Content-Type**: `application/x-www-form-urlencoded`
+**Content-Type**: `application/json`
 
-**Body Parameters**:
+> **Note**: This endpoint expects a JSON body. Form-encoded requests
+> (`application/x-www-form-urlencoded`) are no longer supported, because the
+> Werkzeug form parser caps in-memory form fields at 500 kB and rejected large
+> chats with HTTP 413. JSON bodies are only limited by `MAX_CONTENT_LENGTH`.
 
-- `messages` (required): JSON string with list of messages in format `[{"role": "system|user|assistant", "content": "..."}]`
+**Body Parameters** (JSON object):
+
+- `messages` (required): list of messages as a JSON array (or a JSON string) in format `[{"role": "system|user|assistant", "content": "..."}]`
 - `model` (optional): Model name (uses default from config if not provided)
 - `provider` (optional): Provider name (uses default from config if not provided)
 - `temperature` (optional): Temperature for response (0.0-2.0, default: 0.7)
@@ -272,11 +277,16 @@ The endpoint supports full chat history by passing multiple messages:
 ```bash
 curl -X POST "http://localhost:5001/api/transformer/chat" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "messages=[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"What is 2+2?\"}]" \
-  -d "model=openai/gpt-4" \
-  -d "provider=openrouter" \
-  -d "temperature=0.7"
+  -H "Content-Type: application/json" \
+  -d '{
+        "messages": [
+          {"role": "system", "content": "You are a helpful assistant."},
+          {"role": "user", "content": "What is 2+2?"}
+        ],
+        "model": "openai/gpt-4",
+        "provider": "openrouter",
+        "temperature": 0.7
+      }'
 ```
 
 **Alternative Authentication**:
@@ -284,8 +294,8 @@ curl -X POST "http://localhost:5001/api/transformer/chat" \
 ```bash
 curl -X POST "http://localhost:5001/api/transformer/chat" \
   -H "X-Secretary-Api-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "messages=[{\"role\":\"user\",\"content\":\"Hello\"}]"
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ### Request Example with Chat History
@@ -293,10 +303,17 @@ curl -X POST "http://localhost:5001/api/transformer/chat" \
 ```bash
 curl -X POST "http://localhost:5001/api/transformer/chat" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d 'messages=[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Hello!"},{"role":"assistant","content":"Hello! How can I help you?"},{"role":"user","content":"What is 2+2?"}]' \
-  -d "model=openai/gpt-4" \
-  -d "provider=openrouter"
+  -H "Content-Type: application/json" \
+  -d '{
+        "messages": [
+          {"role": "system", "content": "You are a helpful assistant."},
+          {"role": "user", "content": "Hello!"},
+          {"role": "assistant", "content": "Hello! How can I help you?"},
+          {"role": "user", "content": "What is 2+2?"}
+        ],
+        "model": "openai/gpt-4",
+        "provider": "openrouter"
+      }'
 ```
 
 ### Request Example with Structured Output
@@ -304,13 +321,18 @@ curl -X POST "http://localhost:5001/api/transformer/chat" \
 ```bash
 curl -X POST "http://localhost:5001/api/transformer/chat" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d 'messages=[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Extract metadata from this text: ..."}]' \
-  -d "model=openai/gpt-4" \
-  -d "provider=openrouter" \
-  -d "response_format=json_object" \
-  -d "schema_id=metadata" \
-  -d "strict=true"
+  -H "Content-Type: application/json" \
+  -d '{
+        "messages": [
+          {"role": "system", "content": "You are a helpful assistant."},
+          {"role": "user", "content": "Extract metadata from this text: ..."}
+        ],
+        "model": "openai/gpt-4",
+        "provider": "openrouter",
+        "response_format": "json_object",
+        "schema_id": "metadata",
+        "strict": true
+      }'
 ```
 
 ### Response (Success, Text)
