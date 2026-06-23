@@ -264,20 +264,31 @@ html_table_transform_parser.add_argument('table_index', type=int, location='form
 html_table_transform_parser.add_argument('start_row', type=int, location='form', required=False, help='Optional - Startzeile für das Paging (0-basiert)')
 html_table_transform_parser.add_argument('row_count', type=int, location='form', required=False, help='Optional - Anzahl der zurückzugebenden Zeilen')
 
+# Reqparse-Typ für 'messages': reicht den Wert unverändert durch.
+# Grund: Bei JSON-Body kann 'messages' eine native Liste sein. Ein erzwungenes
+# str() (Standard-Typ) würde die Liste zerstören. So bleibt sie erhalten und
+# wird zusätzlich als JSON-String akzeptiert (Abwärtskompatibilität).
+def _messages_passthrough(value: Any) -> Any:
+    return value
+
 # Parser für den Chat-Completion-Endpunkt
+# WICHTIG: location='json' statt 'form'. Dadurch wird der Werkzeug-Formular-Parser
+# NICHT mehr verwendet. Der hatte ein hartes 500-kB-Limit pro Feld
+# (max_form_memory_size, Default seit Werkzeug 3.1) und löste bei großen Chats
+# einen 413 aus. Über JSON-Body greift nur noch MAX_CONTENT_LENGTH.
 chat_parser = transformer_ns.parser()
-chat_parser.add_argument('messages', type=str, location='form', required=True, help='JSON-String mit Liste von Nachrichten (Chat-Historie). Format: [{"role": "system|user|assistant", "content": "..."}]. Unterstützt vollständige Chat-Historie mit mehreren Nachrichten.')
-chat_parser.add_argument('model', type=str, location='form', required=False, help='Zu verwendendes Modell (optional, verwendet Standard aus Config wenn nicht angegeben)')
-chat_parser.add_argument('provider', type=str, location='form', required=False, help='Provider-Name (optional, verwendet Standard aus Config wenn nicht angegeben)')
-chat_parser.add_argument('temperature', type=float, location='form', required=False, default=0.7, help='Temperature für die Antwort (0.0-2.0, default: 0.7)')
-chat_parser.add_argument('max_tokens', type=int, location='form', required=False, help='Maximale Anzahl Tokens (optional)')
-chat_parser.add_argument('stream', type=inputs.boolean, location='form', required=False, default=False, help='Ob Streaming aktiviert werden soll (default: false)')
-chat_parser.add_argument('response_format', type=str, location='form', required=False, default='text', help='Response-Format: "text" oder "json_object" (default: "text")')
-chat_parser.add_argument('schema_json', type=str, location='form', required=False, help='JSON Schema als String (optional, empfohlen wenn response_format=json_object)')
-chat_parser.add_argument('schema_id', type=str, location='form', required=False, help='Server-bekannte Schema-ID (optional, Alternative zu schema_json)')
-chat_parser.add_argument('strict', type=inputs.boolean, location='form', required=False, help='Ob Schema-Validierung strikt sein soll (default: true wenn response_format=json_object)')
-chat_parser.add_argument('use_cache', type=inputs.boolean, location='form', required=False, default=True, help='Ob der Cache verwendet werden soll (default: true)')
-chat_parser.add_argument('timeout_ms', type=int, location='form', required=False, help='Request-Timeout in Millisekunden (optional, Server kann clammen)')
+chat_parser.add_argument('messages', type=_messages_passthrough, location='json', required=True, help='Liste von Nachrichten (Chat-Historie) als JSON-Array ODER JSON-String. Format: [{"role": "system|user|assistant", "content": "..."}]. Unterstützt vollständige Chat-Historie mit mehreren Nachrichten.')
+chat_parser.add_argument('model', type=str, location='json', required=False, help='Zu verwendendes Modell (optional, verwendet Standard aus Config wenn nicht angegeben)')
+chat_parser.add_argument('provider', type=str, location='json', required=False, help='Provider-Name (optional, verwendet Standard aus Config wenn nicht angegeben)')
+chat_parser.add_argument('temperature', type=float, location='json', required=False, default=0.7, help='Temperature für die Antwort (0.0-2.0, default: 0.7)')
+chat_parser.add_argument('max_tokens', type=int, location='json', required=False, help='Maximale Anzahl Tokens (optional)')
+chat_parser.add_argument('stream', type=inputs.boolean, location='json', required=False, default=False, help='Ob Streaming aktiviert werden soll (default: false)')
+chat_parser.add_argument('response_format', type=str, location='json', required=False, default='text', help='Response-Format: "text" oder "json_object" (default: "text")')
+chat_parser.add_argument('schema_json', type=str, location='json', required=False, help='JSON Schema als String (optional, empfohlen wenn response_format=json_object)')
+chat_parser.add_argument('schema_id', type=str, location='json', required=False, help='Server-bekannte Schema-ID (optional, Alternative zu schema_json)')
+chat_parser.add_argument('strict', type=inputs.boolean, location='json', required=False, help='Ob Schema-Validierung strikt sein soll (default: true wenn response_format=json_object)')
+chat_parser.add_argument('use_cache', type=inputs.boolean, location='json', required=False, default=True, help='Ob der Cache verwendet werden soll (default: true)')
+chat_parser.add_argument('timeout_ms', type=int, location='json', required=False, help='Request-Timeout in Millisekunden (optional, Server kann clammen)')
 
 # Text-Transformation Endpoint
 @transformer_ns.route('/text')  # type: ignore
@@ -901,7 +912,8 @@ class ChatEndpoint(Resource):
         try:
             # Parse Request-Parameter
             args = chat_parser.parse_args()
-            messages_json: str = args.get('messages', '')
+            # 'messages' kann (JSON-Body) eine native Liste ODER ein JSON-String sein.
+            messages_raw: Any = args.get('messages')
             model: Optional[str] = args.get('model')
             provider: Optional[str] = args.get('provider')
             temperature: float = args.get('temperature', 0.7)
@@ -966,7 +978,13 @@ class ChatEndpoint(Resource):
             
             # Parse Messages
             try:
-                messages: List[Dict[str, str]] = json.loads(messages_json)
+                # Akzeptiere sowohl native JSON-Liste als auch JSON-String.
+                if isinstance(messages_raw, str):
+                    messages: List[Dict[str, str]] = json.loads(messages_raw)
+                elif isinstance(messages_raw, list):
+                    messages = messages_raw
+                else:
+                    raise ValueError("messages muss eine Liste oder ein JSON-String sein")
                 if not isinstance(messages, list):
                     raise ValueError("messages muss eine Liste sein")
                 if not messages:
