@@ -49,7 +49,12 @@ openai>=1.12.0
 tiktoken>=0.6.0
 
 # Mistral AI Integration
-mistralai>=1.9.0
+# WICHTIG: Exakt gepinnt. Mit ">=1.9.0" zog ein frischer CI-Build die neueste
+# mistralai-Version (2.x), in der "TextChunk"/"ImageURLChunk" aus
+# "mistralai.models" entfernt wurden -> Import schlug fehl -> Provider meldete
+# faelschlich "Paket nicht installiert". 1.9.11 ist die lokal verifizierte,
+# lauffaehige Version. Pinning schliesst zudem das kompromittierte 2.4.6 aus.
+mistralai==1.9.11
 
 # YouTube Download
 yt-dlp==2024.3.10

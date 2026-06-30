@@ -14,15 +14,37 @@ chat completion and OCR operations.
 from typing import List, Optional, Dict, Any, Union
 import time
 
+# Mistral-SDK-Importe bewusst aufgeteilt (siehe docs/mistral-deployment-analyse.md):
+# Ein gemeinsamer try/except hatte zur Folge, dass ein einziger fehlschlagender
+# Symbol-Import (z. B. weil "TextChunk"/"ImageURLChunk" in mistralai>=2.x aus
+# "mistralai.models" verschwunden sind) den GESAMTEN Provider als "nicht
+# installiert" markierte - obwohl der Client vorhanden war und OCR (reiner
+# HTTP-Call) gar keine Chunk-Typen benoetigt. Darum: Client-Import strikt von
+# den optionalen Message-/Chunk-Importen trennen.
+
+# Merkt sich den echten Import-Fehler des Clients, um statt einer irrefuehrenden
+# Pauschalmeldung eine aussagekraeftige Ursache ausgeben zu koennen.
+# Bewusst kleingeschrieben: ist eine veraenderliche Modulvariable, keine Konstante.
+_mistral_import_error: Optional[str] = None
+
 try:
     from mistralai import Mistral
-    from mistralai.models import UserMessage, SystemMessage, AssistantMessage
-    from mistralai.models import TextChunk, ImageURLChunk
-except ImportError:
+except ImportError as _exc:
     Mistral = None  # type: ignore
+    _mistral_import_error = str(_exc)
+
+# Message-Typen werden nur fuer chat_completion benoetigt (optional).
+try:
+    from mistralai.models import UserMessage, SystemMessage, AssistantMessage
+except ImportError:
     UserMessage = None  # type: ignore
     SystemMessage = None  # type: ignore
     AssistantMessage = None  # type: ignore
+
+# Chunk-Typen werden nur fuer vision() benoetigt (optional, in 2.x verschoben).
+try:
+    from mistralai.models import TextChunk, ImageURLChunk
+except ImportError:
     TextChunk = None  # type: ignore
     ImageURLChunk = None  # type: ignore
 
@@ -56,10 +78,19 @@ class MistralProvider:
             available_models: Optional, Dictionary mit Use-Case -> Liste von Modell-Namen aus Config
             **kwargs: Zusätzliche Parameter (werden ignoriert)
         """
+        # Nur der Client ist zwingend erforderlich. Schlaegt sein Import fehl,
+        # geben wir den ECHTEN Grund mit (z. B. inkompatible Version), statt
+        # pauschal "Paket nicht installiert" zu behaupten.
         if Mistral is None:
+            detail = (
+                f" Ursache: {_mistral_import_error}"
+                if _mistral_import_error
+                else ""
+            )
             raise ImportError(
-                "mistralai Paket nicht installiert. "
-                "Installieren Sie es mit: pip install mistralai"
+                "mistralai-Client konnte nicht importiert werden. "
+                "Bitte Paket installieren bzw. Version pruefen "
+                "(empfohlen/gepinnt: mistralai==1.9.11)." + detail
             )
         
         if not api_key:
@@ -163,7 +194,11 @@ class MistralProvider:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 if UserMessage is None or SystemMessage is None or AssistantMessage is None:
-                    raise ImportError("mistralai Paket nicht installiert")
+                    raise ImportError(
+                        "mistralai Message-Typen nicht verfuegbar "
+                        "(inkompatible mistralai-Version?). Erwartet: "
+                        "mistralai==1.9.11"
+                    )
                 if role == "system":
                     mistral_messages.append(SystemMessage(content=content))
                 elif role == "assistant":
@@ -276,7 +311,11 @@ class MistralProvider:
             # Mistral unterstützt Bilder über Chat-Completion mit ContentChunks
             # Erstelle Message mit Bild
             if UserMessage is None or TextChunk is None or ImageURLChunk is None:
-                raise ImportError("mistralai Paket nicht installiert")
+                raise ImportError(
+                    "mistralai Chunk-Typen (TextChunk/ImageURLChunk) nicht "
+                    "verfuegbar (inkompatible mistralai-Version?). Erwartet: "
+                    "mistralai==1.9.11"
+                )
             
             # Erstelle ContentChunks für Mistral
             from mistralai.models import ImageURL
