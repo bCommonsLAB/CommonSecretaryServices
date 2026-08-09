@@ -188,7 +188,11 @@ processors:
       ttl_days: 30
     cache_dir: cache/audio
     export_format: mp3
-    max_file_size: 200000000
+    # Maximale Audiodatei vor Verarbeitung (Bytes).
+    # Muss mindestens so hoch sein wie typische Uploads; Flask-Upload
+    # begrenzt separat über MAX_UPLOAD_SIZE_MB in .env (aktuell 500 MB).
+    # Angehoben von 200000000, weil Dateien knapp über 190 MB abgelehnt wurden.
+    max_file_size: 500000000
     max_segments: 100
     segment_duration: 300
     temp_file_suffix: .mp3

@@ -137,7 +137,8 @@ class Config:
                 }
             },
             'audio': {
-                'max_file_size': 200000000,  # 120 MB
+                # Fallback falls config.yaml den Key nicht setzt (~500 MB).
+                'max_file_size': 500000000,
                 'segment_duration': 300,      # 5 Minuten
                 'cache_dir': 'cache/audio',  # Vereinheitlichter Cache-Pfad
                 'export_format': 'mp3'
