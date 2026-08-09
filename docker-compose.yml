@@ -18,6 +18,8 @@ services:
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # Flask MAX_CONTENT_LENGTH; Default 500 MB, überschreibbar via .env
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
 
   mongodb:
     image: mongo:6
