@@ -57,7 +57,13 @@ tiktoken>=0.6.0
 mistralai==1.9.11
 
 # YouTube Download
-yt-dlp==2024.3.10
+# YouTube aendert Player-APIs regelmaessig. 2024.3.10 liefert
+# "Failed to extract any player response" / HTTP 400 auf den
+# alten iOS-/Android-Clients. 2026.7.4 ist die zum Zeitpunkt
+# der Umstellung aktuelle stabile PyPI-Version.
+# [default] zieht yt-dlp-ejs (JS-Challenge-Solver). Ohne EJS fehlen
+# Web-Formate; yt-dlp warnt dann und faellt auf ANDROID_VR zurueck.
+yt-dlp[default]==2026.7.4
 
 # Development
 mypy==1.8.0

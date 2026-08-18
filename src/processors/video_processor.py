@@ -46,7 +46,7 @@ Features:
 - Internal: src.core.config - Configuration
 """
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, Tuple, List
+from typing import Dict, Any, Optional, Union, Tuple, List, cast
 from datetime import datetime
 import uuid
 import hashlib
@@ -223,9 +223,10 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
 
             # Browser-Cookies nur setzen, wenn explizit gewünscht
             if cookies_from_browser:
-                # Einfacher Modus: nur den Browsernamen übergeben ("chrome"/"edge"/...)
-                # Für erweiterte Profile kann später auf Tuple erweitert werden
-                self.ydl_opts['cookiesfrombrowser'] = cookies_from_browser
+                # Python-API erwartet ein Tuple. String "edge" wird zu browser="e".
+                # ydl_opts ist ein lose typisiertes Dict; Tuple ist zur Laufzeit korrekt.
+                cookie_browser_spec: Any = (cookies_from_browser.strip().lower(),)
+                self.ydl_opts['cookiesfrombrowser'] = cookie_browser_spec
                 self.logger.info("yt-dlp: Cookies aus Browser aktiviert", browser=cookies_from_browser)
 
             # Cookie-Datei für Headless/Server-Betrieb
@@ -562,7 +563,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 self.logger.warning("Vimeo API Fallback fehlgeschlagen", error=str(api_error))
         
         # Standard-Pfad: Python-API
-        with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(cast(Any, self.ydl_opts)) as ydl:
             info: YDLDict = ydl.extract_info(normalized_url, download=False)  # type: ignore
             if not info:
                 raise ValueError("Keine Video-Informationen gefunden")
@@ -1004,7 +1005,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                     download_opts['outtmpl'] = output_path
                     
                     self.logger.info(f"Starte Download via yt-dlp Python-API: {normalized_url}")
-                    with yt_dlp.YoutubeDL(download_opts) as ydl:
+                    with yt_dlp.YoutubeDL(cast(Any, download_opts)) as ydl:
                         ydl.download([normalized_url])  # type: ignore
             else:
                 video_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
