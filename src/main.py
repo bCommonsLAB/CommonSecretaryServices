@@ -55,6 +55,8 @@ load_dotenv(env_path, override=True)
 print(f"[MAIN] .env geladen: {env_path}")
 print(f"[MAIN] PYTHONHTTPSVERIFY={os.getenv('PYTHONHTTPSVERIFY')}")
 print(f"[MAIN] YTDLP_COOKIES_FILE={os.getenv('YTDLP_COOKIES_FILE')}")
+print(f"[MAIN] YTDLP_COOKIES_FROM_BROWSER={os.getenv('YTDLP_COOKIES_FROM_BROWSER')}")
+print(f"[MAIN] YTDLP_YOUTUBE_COOKIES_FILE={os.getenv('YTDLP_YOUTUBE_COOKIES_FILE')}")
 
 # WICHTIG: Windows-TLS-Workaround für yt-dlp MUSS ganz am Anfang stehen
 # Deaktiviere SSL-Verifikation, wenn PYTHONHTTPSVERIFY=0 gesetzt ist

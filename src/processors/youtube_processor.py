@@ -52,6 +52,10 @@ from datetime import datetime
 import time
 
 import yt_dlp  # type: ignore
+from src.processors.ytdlp_youtube_opts import (
+    apply_youtube_ytdlp_opts,
+    classify_youtube_cookie_error,
+)
 
 from src.core.config import Config
 from src.core.models.base import ErrorInfo, ProcessInfo
@@ -95,7 +99,7 @@ class YoutubeDLOpts(TypedDict, total=True):
     extract_audio: bool
     format: str
     postprocessors: List[Dict[str, str]]
-    http_headers: Dict[str, str]
+    http_headers: NotRequired[Dict[str, str]]
     outtmpl: NotRequired[str]
     socket_timeout: int
     retries: int
@@ -107,6 +111,11 @@ class YoutubeDLOpts(TypedDict, total=True):
     playlist_items: NotRequired[str]
     youtube_include_dash_manifest: bool
     cachedir: NotRequired[str]
+    # YouTube-CDN prüft Client-Header. Ein alter Chrome-UA überschreibt
+    # ANDROID_VR/TV-Header und erzeugt HTTP 403. Deshalb kein festes UA.
+    js_runtimes: NotRequired[Dict[str, Dict[str, str]]]
+    cookiesfrombrowser: NotRequired[tuple[str, ...]]
+    cookiefile: NotRequired[str]
 
 class ExtractOpts(TypedDict, total=True):
     """Type helper für minimale Extraktions-Optionen."""
@@ -114,12 +123,15 @@ class ExtractOpts(TypedDict, total=True):
     no_warnings: bool
     extract_flat: bool
     no_playlist: bool
-    http_headers: Dict[str, str]
+    http_headers: NotRequired[Dict[str, str]]
     socket_timeout: int
     retries: int
     sleep_interval: int
     nocheckcertificate: bool
     youtube_include_dash_manifest: bool
+    js_runtimes: NotRequired[Dict[str, Dict[str, str]]]
+    cookiesfrombrowser: NotRequired[tuple[str, ...]]
+    cookiefile: NotRequired[str]
 
 class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
     """
@@ -169,8 +181,10 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 parent_process_info=self.process_info
             )
             
-            # Download-Optionen
-            self.ydl_opts: YoutubeDLOpts = {
+            # Download-Optionen. Kein festes User-Agent: yt-dlp setzt
+            # den Client-Header passend zur gewählten Player-API.
+            # Cookies/JS-Runtime kommen aus apply_youtube_ytdlp_opts().
+            ydl_opts: Dict[str, Any] = {
                 'quiet': True,
                 'no_warnings': True,
                 'extract_audio': True,
@@ -179,12 +193,6 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': self.export_format,
                 }],
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate'
-                },
                 'socket_timeout': 30,
                 'retries': 10,
                 'sleep_interval': 3,
@@ -193,6 +201,14 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 'no_playlist': True,
                 'youtube_include_dash_manifest': False
             }
+            apply_youtube_ytdlp_opts(ydl_opts)
+            self.ydl_opts = cast(YoutubeDLOpts, ydl_opts)
+            self.logger.info(
+                "yt-dlp YouTube-Auth konfiguriert",
+                cookiesfrombrowser=ydl_opts.get("cookiesfrombrowser"),
+                cookiefile=bool(ydl_opts.get("cookiefile")),
+                js_runtimes=list(cast(Dict[str, Any], ydl_opts.get("js_runtimes") or {}).keys()),
+            )
             
             # Performance-Logging
             init_end = time.time()
@@ -216,20 +232,21 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             ProcessingError: Wenn die Extraktion fehlschlägt
         """
         try:
-            extract_opts: ExtractOpts = {
+            extract_opts_raw: Dict[str, Any] = {
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
                 'no_playlist': True,
-                'http_headers': self.ydl_opts['http_headers'],
                 'socket_timeout': self.ydl_opts['socket_timeout'],
                 'retries': self.ydl_opts['retries'],
                 'sleep_interval': self.ydl_opts['sleep_interval'],
                 'nocheckcertificate': True,
                 'youtube_include_dash_manifest': False
             }
-            
-            with yt_dlp.YoutubeDL(extract_opts) as ydl:
+            apply_youtube_ytdlp_opts(extract_opts_raw)
+            # yt-dlp._Params ist ein vollstaendiges TypedDict; unsere
+            # Teilmenge ist zur Laufzeit gültig, aber nicht zuweisbar.
+            with yt_dlp.YoutubeDL(cast(Any, extract_opts_raw)) as ydl:
                 info: YoutubeDLInfo = cast(YoutubeDLInfo, ydl.extract_info(url, download=False))  # type: ignore
                 if not info:
                     raise ProcessingError("Keine Video-Informationen gefunden")
@@ -237,6 +254,12 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 
         except Exception as e:
             self.logger.error("Fehler beim Extrahieren der Video-Informationen", error=e)
+            cookie_fail = classify_youtube_cookie_error(e)
+            if cookie_fail is not None:
+                raise ProcessingError(
+                    cookie_fail.message,
+                    details={"error_code": cookie_fail.code},
+                )
             raise ProcessingError(
                 f"Fehler beim Extrahieren der Video-Informationen: {str(e)}",
                 details={"error_code": 'EXTRACTION_ERROR'}
@@ -466,7 +489,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             download_opts['outtmpl'] = output_path
             
             # 7. Video herunterladen
-            with yt_dlp.YoutubeDL(download_opts) as ydl:
+            with yt_dlp.YoutubeDL(cast(Any, download_opts)) as ydl:
                 ydl.download([url])  # type: ignore
             
             # 8. Audio-Datei finden
@@ -548,6 +571,16 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             self.logger.error("Fehler bei der Video-Verarbeitung",
                             error=e,
                             error_type=type(e).__name__)
+            cookie_fail = classify_youtube_cookie_error(e)
+            if cookie_fail is not None:
+                error_message = cookie_fail.message
+                error_code = cookie_fail.code
+            elif isinstance(e, ProcessingError) and e.details and e.details.get("error_code"):
+                error_message = str(e)
+                error_code = str(e.details["error_code"])
+            else:
+                error_message = str(e)
+                error_code = "VIDEO_PROCESSING_ERROR"
             
             # Fehler-Response
             return self.create_response(
@@ -574,8 +607,8 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 from_cache=False,
                 cache_key="",
                 error=ErrorInfo(
-                    code="VIDEO_PROCESSING_ERROR",
-                    message=str(e),
+                    code=error_code,
+                    message=error_message,
                     details={"error_type": type(e).__name__}
                 )
             )
