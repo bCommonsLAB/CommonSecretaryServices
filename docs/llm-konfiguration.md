@@ -5,7 +5,10 @@ Diese Anwendung unterstützt mehrere LLM-Provider und konfiguriert **Provider + 
 Das ist bewusst granular (Transkription ≠ Chat ≠ Vision ≠ OCR ≠ Embeddings), weil nicht jeder Provider jeden Use-Case anbietet.
 
 ## Architektur (Ist-Zustand)
-- **Use-Cases** sind in `src/core/llm/use_cases.py` definiert (z.B. `transcription`, `image2text`, `ocr_pdf`, `chat_completion`, `embedding`).
+- **Use-Cases** sind in `src/core/llm/use_cases.py` definiert (z.B. `transcription`, `live_transcription`, `image2text`, `ocr_pdf`, `chat_completion`, `embedding`).
+  - `live_transcription` ist die Live-Variante (Realtime-Session, siehe `src/core/llm/realtime_transcription.py`).
+    Sie ist bewusst vom Batch-Use-Case `transcription` getrennt, weil sie ein realtime-faehiges Modell braucht.
+    Modelle dafuer legt `python -m src.scripts.seed_realtime_models` in MongoDB an, damit die Maske sie anbietet.
 - **Provider-Definitionen** kommen aus `config/config.yaml` unter `llm_providers.*`:
   - `enabled`, `api_key` (oft `${ENV_VAR}`), optional `base_url`, optional `available_models` pro Use-Case.
 - **Use-Case Routing** kommt aus `config/config.yaml` unter `llm_config.use_cases.*`:

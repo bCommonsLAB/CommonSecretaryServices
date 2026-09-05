@@ -29,6 +29,11 @@ llm_config:
     transcription:
       provider: openai
       model: whisper-1
+    live_transcription:
+      # Live-Transkription (Realtime-Session). Wird ueber die Maske zugeordnet;
+      # dieser Eintrag greift nur, solange dort nichts gesetzt ist.
+      provider: openai
+      model: gpt-4o-transcribe
     text2image:
       provider: openrouter
       # Gemini-Modell laut OpenRouter-Doku für Bildgenerierung unterstützt
@@ -106,6 +111,14 @@ llm_providers:
       - gpt-4o
       - gpt-4-turbo
       transcription:
+      - whisper-1
+      # Realtime-faehige Modelle fuer die Live-Transkription. Diese Liste fuellt das
+      # Dropdown in der LLM-Konfigurationsmaske (Use-Case 'live_transcription').
+      live_transcription:
+      - gpt-4o-transcribe
+      - gpt-4o-mini-transcribe
+      - gpt-4o-transcribe-diarize
+      - gpt-realtime-whisper
       - whisper-1
     enabled: true
   openrouter:

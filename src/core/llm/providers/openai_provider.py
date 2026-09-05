@@ -512,6 +512,10 @@ class OpenAIProvider:
         """
         return use_case in [
             UseCase.TRANSCRIPTION,
+            # Live-Transkription laeuft nicht ueber diesen Provider-Client, sondern ueber eine
+            # Realtime-Session beim gleichen Anbieter (siehe core/llm/realtime_transcription.py).
+            # Der Use-Case gehoert trotzdem hierher, damit die Konfigurationsmaske ihn anbietet.
+            UseCase.LIVE_TRANSCRIPTION,
             UseCase.IMAGE2TEXT,
             UseCase.CHAT_COMPLETION,
             UseCase.OCR_PDF
