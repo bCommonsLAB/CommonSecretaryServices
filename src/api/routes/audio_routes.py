@@ -50,6 +50,7 @@ from werkzeug.datastructures import FileStorage
 from src.processors.audio_processor import AudioProcessor
 from src.core.models.audio import AudioResponse
 from src.core.exceptions import ProcessingError
+from src.core.llm.transcription_context import TranscriptionContext
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
 from src.utils.logger import ProcessingLogger
@@ -70,6 +71,11 @@ upload_parser.add_argument('file', location='files', type=FileStorage, required=
 upload_parser.add_argument('source_language', location='form', type=str, default='auto', help='Quellsprache (ISO 639-1 code, z.B. "en", "de"). "auto" fuer automatische Erkennung.')
 upload_parser.add_argument('target_language', location='form', type=str, default='de', help='Zielsprache (ISO 639-1 code, z.B. "en", "de")')
 upload_parser.add_argument('template', location='form', type=str, default='', help='Optional Template für die Verarbeitung')
+# Kontext zur Aufnahme. Verbessert vor allem Eigennamen, Orte und Fachbegriffe —
+# also genau die Stellen, an denen Transkription typischerweise scheitert.
+upload_parser.add_argument('prompt', location='form', type=str, required=False, help='Freitext zum Inhalt: Thema, Anlass, Ort. KEINE Anweisung an das Modell.')
+upload_parser.add_argument('keywords', location='form', type=str, required=False, help='Begriffe, die vorkommen koennen (Eigennamen, Fachwoerter) — kommagetrennt oder JSON-Liste')
+upload_parser.add_argument('languages', location='form', type=str, required=False, help='Moegliche Sprachen bei mehrsprachigem Material (ISO 639-1) — kommagetrennt oder JSON-Liste')
 upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')
 # Async/Webhook (analog zu PDF)
 upload_parser.add_argument('callback_url', location='form', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
@@ -103,6 +109,37 @@ audio_response: Model | OrderedModel = audio_ns.model('AudioResponse', {
     'from_cache': fields.Boolean(description='Gibt an, ob das Ergebnis aus dem Cache geladen wurde')
 })
 
+def parse_list_field(raw: Optional[str]) -> list[str]:
+    """Liest eine Liste aus einem Formularfeld.
+
+    Akzeptiert eine JSON-Liste oder eine kommagetrennte Aufzaehlung, weil beides in
+    Formularen vorkommt. Unlesbares JSON wird nicht stillschweigend zu einem einzigen
+    Begriff, sondern als kommagetrennt gelesen — das ist die haeufigere Eingabe.
+    """
+    if not raw or not raw.strip():
+        return []
+    text = raw.strip()
+    if text.startswith('['):
+        import json as _json
+        try:
+            parsed = _json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except ValueError:
+            logger.warning("Listenfeld sah nach JSON aus, war aber keins — lese kommagetrennt")
+    return [part.strip() for part in text.split(',') if part.strip()]
+
+
+def build_transcription_context(args: Dict[str, Any], source_language: str) -> TranscriptionContext:
+    """Baut den Kontext aus den Formularfeldern."""
+    return TranscriptionContext(
+        language=source_language,
+        languages=parse_list_field(args.get('languages')),
+        prompt=(args.get('prompt') or '').strip() or None,
+        keywords=parse_list_field(args.get('keywords')),
+    )
+
+
 # Helper-Funktion zum Abrufen des Audio-Processors
 def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     """Get or create audio processor instance with process ID"""
@@ -112,7 +149,7 @@ def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     )
 
 # Audio-Verarbeitungs-Funktion
-async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'auto', target_language: str = 'de', template: str = '', use_cache: bool = True) -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'auto', target_language: str = 'de', template: str = '', use_cache: bool = True, transcription_context: Optional[TranscriptionContext] = None) -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
@@ -123,6 +160,7 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
         target_language: Die Zielsprache für die Verarbeitung
         template: Optional Template für die Verarbeitung
         use_cache: Ob der Cache verwendet werden soll (default: True)
+        transcription_context: Optionaler Kontext zur Aufnahme (Thema, Begriffe, Sprachen)
         
     Returns:
         Dict mit den Verarbeitungsergebnissen
@@ -154,7 +192,8 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
             source_language=source_language,
             target_language=target_language,
             template=template,
-            use_cache=use_cache
+            use_cache=use_cache,
+            transcription_context=transcription_context
         )
         
         # Direkte Konvertierung in das flache Format wie in der alten routes.py
@@ -288,6 +327,7 @@ class AudioProcessEndpoint(Resource):
             target_language = str(args.get('target_language', 'de') or 'de')
             template = str(args.get('template', '') or '')
             use_cache = bool(args.get('useCache', True))
+            transcription_context = build_transcription_context(args, source_language)
             callback_url = str(args.get('callback_url', '') or '') or None
             callback_token = str(args.get('callback_token', '') or '') or None
 
@@ -344,6 +384,9 @@ class AudioProcessEndpoint(Resource):
                         "file_type": audio_file.content_type,
                         "file_ext": file_ext,
                     },
+                    # Kontext zur Aufnahme (Thema, Begriffe, Sprachen). Eigenes Feld,
+                    # weil "context" oben die Datei-Metadaten fuers Template meint.
+                    "transcription_context": transcription_context.to_dict(),
                     "webhook": {
                         "url": callback_url,
                         "token": callback_token,
@@ -385,7 +428,8 @@ class AudioProcessEndpoint(Resource):
                 source_language,
                 target_language,
                 template,
-                use_cache
+                use_cache,
+                transcription_context
             ))
             return result
 

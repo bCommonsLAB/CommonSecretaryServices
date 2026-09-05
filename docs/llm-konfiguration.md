@@ -6,6 +6,9 @@ Das ist bewusst granular (Transkription ≠ Chat ≠ Vision ≠ OCR ≠ Embeddin
 
 ## Architektur (Ist-Zustand)
 - **Use-Cases** sind in `src/core/llm/use_cases.py` definiert (z.B. `transcription`, `live_transcription`, `image2text`, `ocr_pdf`, `chat_completion`, `embedding`).
+  - Kontext je Aufnahme (Thema als `prompt`, Eigennamen als `keywords`, erwartete
+    Sprachen als `languages`) nimmt `src/core/llm/transcription_context.py` entgegen und
+    filtert ihn je Modell — nicht jedes Modell kennt jedes Feld.
   - `live_transcription` ist die Live-Variante (Realtime-Session, siehe `src/core/llm/realtime_transcription.py`).
     Sie ist bewusst vom Batch-Use-Case `transcription` getrennt, weil sie ein realtime-faehiges Modell braucht.
     Modelle dafuer legt `python -m src.scripts.seed_realtime_models` in MongoDB an, damit die Maske sie anbietet.

@@ -22,6 +22,7 @@ import traceback
 import requests  # type: ignore
 
 from src.core.models.enums import ProcessingStatus
+from src.core.llm.transcription_context import TranscriptionContext
 from src.core.models.job_models import Job, JobProgress, JobResults
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.audio_processor import AudioProcessor
@@ -45,6 +46,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     - filename: Pfad zur Audio-Datei (absolut, bevorzugt POSIX-Form)
     - source_language, target_language
     - template (optional)
+    - transcription_context (optional): { language, languages, prompt, keywords }
     - use_cache
     - webhook: { url, token, jobId } (optional)
     """
@@ -73,6 +75,20 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     # source_info/context: wir nehmen, was kommt; AudioProcessor nutzt es als Kontext für Template
     source_info_any: Any = getattr(params, "context", None)
     source_info: Dict[str, Any] = source_info_any if isinstance(source_info_any, dict) else {}
+
+    # Kontext zur Aufnahme (Thema, Begriffe, Sprachen). Eigenes Feld, weil "context"
+    # oben die Datei-Metadaten fuers Template meint.
+    context_any: Any = getattr(params, "transcription_context", None)
+    transcription_context: Optional[TranscriptionContext] = None
+    if isinstance(context_any, dict):
+        keywords_any = context_any.get("keywords")
+        languages_any = context_any.get("languages")
+        transcription_context = TranscriptionContext(
+            language=context_any.get("language"),
+            languages=[str(item) for item in languages_any] if isinstance(languages_any, list) else [],
+            prompt=context_any.get("prompt"),
+            keywords=[str(item) for item in keywords_any] if isinstance(keywords_any, list) else [],
+        )
 
     # Webhook-Config
     callback_url: Optional[str] = None
@@ -135,6 +151,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
             target_language=target_language,
             template=template,
             use_cache=use_cache,
+            transcription_context=transcription_context,
         )
 
         status_value = getattr(result, "status", None)
