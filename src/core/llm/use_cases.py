@@ -22,6 +22,12 @@ class UseCase(str, Enum):
     """
     # Audio/Video Transkription mit Whisper
     TRANSCRIPTION = "transcription"
+
+    # Live-Transkription ueber die OpenAI Realtime API (WebSocket, Sprechen -> Text waehrend
+    # der Aufnahme). Bewusst ein EIGENER Use-Case neben TRANSCRIPTION: Die Batch-Transkription
+    # laeuft weiter ueber /audio/process, die Live-Variante braucht ein realtime-faehiges
+    # Modell und wird in der LLM-Konfigurationsmaske getrennt zugeordnet.
+    LIVE_TRANSCRIPTION = "live_transcription"
     
     # Bild-zu-Text Konvertierung mit Vision API
     IMAGE2TEXT = "image2text"
