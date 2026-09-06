@@ -60,6 +60,7 @@ import math
 import time
 
 from src.core.models.transformer import TransformerResponse
+from src.core.llm.transcription_context import TranscriptionContext
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
@@ -618,7 +619,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             raise
 
     def _create_cache_key(self, audio_path: str, source_info: Optional[Dict[str, Any]] = None, 
-                         target_language: Optional[str] = None, template: Optional[str] = None) -> str:
+                         target_language: Optional[str] = None, template: Optional[str] = None,
+                         transcription_context: Optional[TranscriptionContext] = None) -> str:
         """Erstellt einen Cache-Schlüssel basierend auf der Audio-Quelle, Zielsprache und Template.
         
         Args:
@@ -626,6 +628,9 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             source_info: Optionale Informationen zur Quelle
             target_language: Die Zielsprache für die Verarbeitung
             template: Optionales Template für die Verarbeitung
+            transcription_context: Optionaler Kontext zur Aufnahme. Gehoert ZWINGEND in
+                den Schlüssel: anderer Kontext heisst anderes Transkript, sonst käme das
+                Ergebnis eines früheren Laufs zurück.
             
         Returns:
             str: Der generierte Cache-Schlüssel
@@ -677,7 +682,12 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         # Template hinzufügen, wenn vorhanden
         if template:
             base_key += f"|template={template}"
-            
+
+        # Kontext hinzufügen, wenn vorhanden (Thema, Begriffe, Sprachen aendern das Ergebnis)
+        if transcription_context is not None and not transcription_context.is_empty:
+            context_fingerprint = json.dumps(transcription_context.to_dict(), sort_keys=True)
+            base_key += f"|context={context_fingerprint}"
+
         self.logger.debug(f"Cache-Schlüssel erstellt: {base_key}")
         
         # Hash aus dem kombinierten Schlüssel erzeugen
@@ -764,9 +774,16 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         target_language: Optional[str] = None,
         template: Optional[str] = None,
         skip_segments: Optional[List[int]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        transcription_context: Optional[TranscriptionContext] = None
     ) -> AudioResponse:
-        """Verarbeitet eine Audio-Datei."""
+        """Verarbeitet eine Audio-Datei.
+
+        Args:
+            transcription_context: Optionaler Kontext zur Aufnahme (Thema, Eigennamen,
+                erwartete Sprachen). Verbessert genau die Stellen, an denen
+                Transkription sonst scheitert.
+        """
         
         try:
             # Parameter validieren und standardisieren
@@ -779,7 +796,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 audio_path=str(audio_source),
                 source_info=source_info,
                 target_language=target_language,
-                template=template
+                template=template,
+                transcription_context=transcription_context
             )
             
             # Cache prüfen
@@ -828,7 +846,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 source_language=source_language,
                 target_language=target_language,
                 logger=self.logger,
-                processor=self.__class__.__name__
+                processor=self.__class__.__name__,
+                transcription_context=transcription_context
             )
             
             # Template-Transformation wenn nötig

@@ -77,6 +77,7 @@ from src.core.models.audio import (
 from src.core.exceptions import ProcessingError
 from src.processors.base_processor import BaseProcessor
 from src.core.llm import LLMConfigManager, UseCase
+from src.core.llm.transcription_context import TranscriptionContext
 from src.core.llm.protocols import LLMProvider
 
 # Type-Definitionen
@@ -1562,7 +1563,8 @@ class WhisperTranscriber:
         segment_title: Optional[str] = None,
         source_language: str = "auto",
         target_language: str = "de",
-        processor: Optional[str] = None
+        processor: Optional[str] = None,
+        transcription_context: Optional[TranscriptionContext] = None
     ) -> TranscriptionResult:
         """Transkribiert ein einzelnes Audio-Segment.
         
@@ -1573,6 +1575,8 @@ class WhisperTranscriber:
             segment_title: Optional, Titel des Segments (z.B. Kapitel-Titel)
             source_language: Quellsprache der Audio-Datei (ISO 639-1)
             target_language: Zielsprache für die Transkription (ISO 639-1)
+            transcription_context: Optional, Kontext zur Aufnahme (Thema, Begriffe,
+                Sprachen). Verbessert vor allem Eigennamen und Fachbegriffe.
             
         Returns:
             TranscriptionResult: Das Transkriptionsergebnis
@@ -1620,6 +1624,7 @@ class WhisperTranscriber:
                                 audio_data=audio_bytes if isinstance(file_path, bytes) else file_path,
                                 model=self.model,
                                 language=source_language if source_language != "auto" else None,
+                                context=transcription_context,
                                 response_format="verbose_json"
                             )
                             
@@ -1949,7 +1954,8 @@ class WhisperTranscriber:
         source_language: str = "auto",
         target_language: str = "de",
         logger: Optional[ProcessingLogger] = None,
-        processor: Optional[str] = None
+        processor: Optional[str] = None,
+        transcription_context: Optional[TranscriptionContext] = None
     ) -> TranscriptionResult:
         """Transkribiert mehrere Audio-Segmente parallel (max. 5 gleichzeitig).
         
@@ -1958,6 +1964,8 @@ class WhisperTranscriber:
             source_language: Quellsprache (ISO 639-1)
             target_language: Zielsprache (ISO 639-1)
             logger: Optional, Logger für Debug-Ausgaben
+            transcription_context: Optional, Kontext zur Aufnahme. Gilt fuer JEDES
+                Segment gleich — die Segmente laufen parallel und kennen einander nicht.
             
         Returns:
             TranscriptionResult: Das Transkriptionsergebnis
@@ -2002,7 +2010,8 @@ class WhisperTranscriber:
                     source_language=source_language,
                     target_language=target_language,
                     logger=logger,
-                    processor=processor
+                    processor=processor,
+                    transcription_context=transcription_context
                 ))
             
             # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse

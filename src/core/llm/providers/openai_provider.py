@@ -24,6 +24,10 @@ from ...models.audio import TranscriptionResult, TranscriptionSegment
 from ...models.llm import LLMRequest
 from ..protocols import LLMProvider
 from ..use_cases import UseCase
+from ..transcription_context import TranscriptionContext, build_context_params
+from src.utils.logger import get_logger
+
+logger = get_logger(process_id="openai-provider")
 
 
 class OpenAIProvider:
@@ -105,6 +109,7 @@ class OpenAIProvider:
         audio_data: bytes | Path,
         model: str,
         language: Optional[str] = None,
+        context: Optional[TranscriptionContext] = None,
         **kwargs: Any
     ) -> tuple[TranscriptionResult, LLMRequest]:
         """
@@ -114,6 +119,9 @@ class OpenAIProvider:
             audio_data: Audio-Daten als Bytes oder Pfad zur Datei
             model: Zu verwendendes Modell (z.B. 'whisper-1')
             language: Optional, Sprache des Audios (ISO 639-1)
+            context: Optional, Kontext zur Aufnahme (Thema, Begriffe, Sprachen).
+                Welche Felder ankommen, entscheidet das Modell — siehe
+                core/llm/transcription_context.py
             **kwargs: Zusätzliche Parameter (response_format, etc.)
             
         Returns:
@@ -140,8 +148,21 @@ class OpenAIProvider:
                 "response_format": kwargs.get("response_format", "verbose_json")
             }
             
-            if language and language != "auto":
-                api_params["language"] = language
+            # Kontext anwenden: Sprache(n), Thema und Begriffe, soweit das Modell sie
+            # annimmt. Verworfene Felder werden gemeldet, damit eine Fehlkonfiguration
+            # (z.B. Begriffsliste an einem Modell ohne Unterstuetzung) auffaellt.
+            effective_context = context or TranscriptionContext(language=language)
+            if context is not None and language and not context.language:
+                effective_context = TranscriptionContext(
+                    language=language,
+                    languages=context.languages,
+                    prompt=context.prompt,
+                    keywords=context.keywords,
+                )
+            applied = build_context_params(model, effective_context)
+            api_params.update(applied.params)
+            for note in applied.dropped:
+                logger.warning(f"Transkriptions-Kontext teilweise verworfen — {note}")
             
             # API-Aufruf mit automatischem Retry bei bekannten Fehlern
             response: Any
@@ -152,8 +173,10 @@ class OpenAIProvider:
                 needs_retry = False
                 
                 # Retry-Grund 1: Sprache nicht unterstuetzt -> ohne language-Parameter
-                if "unsupported_language" in error_str and "language" in api_params:
-                    del api_params["language"]
+                if "unsupported_language" in error_str:
+                    # Je nach Modell heisst das Feld "language" oder "languages".
+                    api_params.pop("language", None)
+                    api_params.pop("languages", None)
                     needs_retry = True
                 
                 # Retry-Grund 2: response_format nicht kompatibel (gpt-4o-transcribe)
