@@ -38,6 +38,38 @@ from src.core.llm.model_selector import LLMModelSelector
 # Create the blueprint
 llm_config = Blueprint('llm_config_dashboard', __name__)
 
+# UI-Labels (Fallback: use_case string)
+USE_CASE_LABELS: Dict[str, str] = {
+    "transcription": "Transcription (Audio/Video)",
+    "live_transcription": "Live Transcription (Realtime/Diktat)",
+    "image2text": "Image2Text (Vision API)",
+    "ocr_pdf": "OCR PDF",
+    "chat_completion": "Chat Completion & Translation",
+    "embedding": "Embedding",
+    "transformer_xxl": "Transformer XXL (Large-File Summarization)",
+    "text2image": "Text2Image (Image Generation)",
+    "image_analysis": "Image Analysis (Bildklassifizierung)",
+}
+
+# Konservative Defaults (nur wenn noch nicht konfiguriert)
+USE_CASE_DEFAULTS: Dict[str, Dict[str, str]] = {
+    "transcription": {"provider": "openai", "model": "whisper-1"},
+    # Ohne Eintrag zeigt die Maske den ersten Provider der Liste (Mistral) und
+    # dazu eine leere Modellliste — das sieht nach einem Fehler aus, ist aber
+    # nur "noch nichts zugeordnet". Live-Transkription kann ohnehin nur OpenAI.
+    "live_transcription": {"provider": "openai", "model": "gpt-live-transcribe"},
+    "image2text": {"provider": "openai", "model": "gpt-4o"},
+    "ocr_pdf": {"provider": "mistral", "model": "pixtral-large-latest"},
+    "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},
+    # Fehlte bisher — dieselbe Falle wie bei live_transcription.
+    "embedding": {"provider": "voyageai", "model": "voyage-3-large"},
+    # XXL: Default wie spezifiziert
+    "transformer_xxl": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
+    "text2image": {"provider": "openrouter", "model": "openai/dall-e-3"},
+    "image_analysis": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
+}
+
+
 # Initialize logger
 logger = get_logger(process_id="llm-config-dashboard")
 
@@ -76,30 +108,6 @@ def llm_config_page() -> str:
             # automatisch in der UI erscheinen.
             all_use_cases: List[str] = [uc.value for uc in UseCase]
 
-            # UI-Labels (Fallback: use_case string)
-            use_case_labels: Dict[str, str] = {
-                "transcription": "Transcription (Audio/Video)",
-                "image2text": "Image2Text (Vision API)",
-                "ocr_pdf": "OCR PDF",
-                "chat_completion": "Chat Completion & Translation",
-                "embedding": "Embedding",
-                "transformer_xxl": "Transformer XXL (Large-File Summarization)",
-                "text2image": "Text2Image (Image Generation)",
-                "image_analysis": "Image Analysis (Bildklassifizierung)",
-            }
-
-            # Konservative Defaults (nur wenn noch nicht konfiguriert)
-            use_case_defaults: Dict[str, Dict[str, str]] = {
-                "transcription": {"provider": "openai", "model": "whisper-1"},
-                "image2text": {"provider": "openai", "model": "gpt-4o"},
-                "ocr_pdf": {"provider": "mistral", "model": "pixtral-large-latest"},
-                "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},
-                # XXL: Default wie spezifiziert
-                "transformer_xxl": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
-                "text2image": {"provider": "openrouter", "model": "openai/dall-e-3"},
-                "image_analysis": {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
-            }
-            
             # Lade aktuelle Konfiguration für Anzeige
             app_config = Config()
             config_data = app_config.get_all()
@@ -110,8 +118,8 @@ def llm_config_page() -> str:
                 'use_cases': use_cases_dict,
                 'llm_config': llm_config_data,
                 'all_use_cases': all_use_cases,
-                'use_case_labels': use_case_labels,
-                'use_case_defaults': use_case_defaults,
+                'use_case_labels': USE_CASE_LABELS,
+                'use_case_defaults': USE_CASE_DEFAULTS,
             }
             
             return render_template('llm_config.html', **context)
