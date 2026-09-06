@@ -36,6 +36,7 @@ from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
 
 from .config_manager import LLMConfigManager
+from .transcription_context import MODELS_WITH_KEYWORDS, MODELS_WITHOUT_PROMPT
 from .use_cases import UseCase
 
 logger = get_logger(process_id="realtime-transcription")
@@ -59,9 +60,10 @@ DEFAULT_TICKET_SECONDS = 120
 MIN_TICKET_SECONDS = 10
 MAX_TICKET_SECONDS = 7200
 
-# Modelle, die laut Provider-Vertrag keine serverseitige Sprechpausen-Erkennung
-# annehmen: dort MUSS turn_detection null sein.
-MODELS_WITHOUT_TURN_DETECTION = frozenset({"gpt-realtime-whisper"})
+# Modelle, die keine serverseitige Sprechpausen-Erkennung annehmen: dort MUSS
+# turn_detection null sein, sonst lehnt der Provider das Ticket mit HTTP 400 ab
+# ("Turn detection is not supported for this transcription model").
+MODELS_WITHOUT_TURN_DETECTION = frozenset({"gpt-live-transcribe", "gpt-realtime-whisper"})
 
 # Zeitlimit fuer den Ticket-Aufruf beim Provider.
 REQUEST_TIMEOUT_SECONDS = 20
@@ -127,10 +129,23 @@ class RealtimeTranscriptionService:
         transcription: Dict[str, Any] = {"model": model}
         if request.language:
             transcription["language"] = request.language
+        # Kontextfelder nur an Modelle, die sie annehmen. Ein Feld zuviel beendet die
+        # Session nicht schleichend, sondern kostet das ganze Ticket (HTTP 400).
         if request.prompt:
-            transcription["prompt"] = request.prompt
+            if model in MODELS_WITHOUT_PROMPT:
+                logger.warning(
+                    f"Live-Kontext teilweise verworfen — prompt: '{model}' nimmt keinen Freitext"
+                )
+            else:
+                transcription["prompt"] = request.prompt
         if request.keywords:
-            transcription["keywords"] = list(request.keywords)
+            if model in MODELS_WITH_KEYWORDS:
+                transcription["keywords"] = list(request.keywords)
+            else:
+                logger.warning(
+                    f"Live-Kontext teilweise verworfen — keywords: '{model}' kennt keine "
+                    f"Begriffsliste (nur {', '.join(sorted(MODELS_WITH_KEYWORDS))})"
+                )
 
         audio_input: Dict[str, Any] = {
             # Die Realtime-API nimmt ausschliesslich 24-kHz-PCM entgegen.

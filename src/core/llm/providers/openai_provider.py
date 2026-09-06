@@ -29,6 +29,13 @@ from src.utils.logger import get_logger
 
 logger = get_logger(process_id="openai-provider")
 
+# ``transcriptions.create()`` des OpenAI-SDK kennt nur einen festen Parametersatz.
+# Neuere Felder der API — ``languages`` und ``keywords`` bei 'gpt-transcribe' und
+# 'gpt-live-transcribe' — wuerden als "unexpected keyword argument" schon lokal
+# scheitern, bevor ueberhaupt ein Request rausgeht. ``extra_body`` reicht sie
+# unveraendert an die API durch.
+PARAMS_VIA_EXTRA_BODY = frozenset({"languages", "keywords"})
+
 
 class OpenAIProvider:
     """
@@ -163,6 +170,14 @@ class OpenAIProvider:
             api_params.update(applied.params)
             for note in applied.dropped:
                 logger.warning(f"Transkriptions-Kontext teilweise verworfen — {note}")
+
+            extra_body = {
+                name: api_params.pop(name)
+                for name in list(api_params)
+                if name in PARAMS_VIA_EXTRA_BODY
+            }
+            if extra_body:
+                api_params["extra_body"] = extra_body
             
             # API-Aufruf mit automatischem Retry bei bekannten Fehlern
             response: Any
@@ -176,7 +191,11 @@ class OpenAIProvider:
                 if "unsupported_language" in error_str:
                     # Je nach Modell heisst das Feld "language" oder "languages".
                     api_params.pop("language", None)
-                    api_params.pop("languages", None)
+                    retry_extra_body = api_params.get("extra_body")
+                    if isinstance(retry_extra_body, dict):
+                        retry_extra_body.pop("languages", None)
+                        if not retry_extra_body:
+                            api_params.pop("extra_body", None)
                     needs_retry = True
                 
                 # Retry-Grund 2: response_format nicht kompatibel (gpt-4o-transcribe)

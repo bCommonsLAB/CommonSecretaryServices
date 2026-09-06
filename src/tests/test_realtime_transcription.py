@@ -60,13 +60,26 @@ class TestSessionConfig(unittest.TestCase):
 
     def test_turn_detection_is_null_for_models_without_vad(self) -> None:
         service = _service(_OPENAI_USE_CASE)
+
+        for model in ("gpt-realtime-whisper", "gpt-live-transcribe"):
+            with self.subTest(model=model):
+                session = service.build_session_config(RealtimeTicketRequest(), model)
+                self.assertIsNone(session["audio"]["input"]["turn_detection"])
+
+    def test_keywords_and_prompt_reach_a_model_that_takes_them(self) -> None:
+        service = _service(_OPENAI_USE_CASE)
         session = service.build_session_config(
-            RealtimeTicketRequest(), "gpt-realtime-whisper"
+            RealtimeTicketRequest(prompt="Fachbegriffe erwarten", keywords=["Nextcloud"]),
+            "gpt-live-transcribe",
         )
 
-        self.assertIsNone(session["audio"]["input"]["turn_detection"])
+        transcription = session["audio"]["input"]["transcription"]
+        self.assertEqual(transcription["prompt"], "Fachbegriffe erwarten")
+        self.assertEqual(transcription["keywords"], ["Nextcloud"])
 
-    def test_keywords_and_prompt_are_passed_through(self) -> None:
+    def test_keywords_are_dropped_for_a_model_that_rejects_them(self) -> None:
+        # 'gpt-4o-transcribe' quittiert eine Begriffsliste mit HTTP 400 — dann gibt es
+        # gar kein Ticket. Die Liste wegzulassen ist besser als die Session zu verlieren.
         service = _service(_OPENAI_USE_CASE)
         session = service.build_session_config(
             RealtimeTicketRequest(prompt="Fachbegriffe erwarten", keywords=["Nextcloud"]),
@@ -75,7 +88,7 @@ class TestSessionConfig(unittest.TestCase):
 
         transcription = session["audio"]["input"]["transcription"]
         self.assertEqual(transcription["prompt"], "Fachbegriffe erwarten")
-        self.assertEqual(transcription["keywords"], ["Nextcloud"])
+        self.assertNotIn("keywords", transcription)
 
 
 class TestModelResolution(unittest.TestCase):
