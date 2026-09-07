@@ -46,7 +46,7 @@ import threading
 import time
 import traceback
 from datetime import datetime, UTC
-from typing import Dict, Optional, Any, cast, Callable
+from typing import Dict, Optional, Any, cast, Callable, List
 import requests  # type: ignore
 import json
 try:
@@ -154,6 +154,14 @@ class SecretaryWorkerManager:
             metric_tracker.set_processor_name(job.job_type or "unknown")
             metric_tracker.set_endpoint_info(f"/jobs/{job.job_type}", "worker", "secretary-worker")
         try:
+            from src.utils.metrics_trace import log_metrics_event, current_thread_name
+            log_metrics_event(
+                "worker_start",
+                job_id=job.job_id,
+                job_type=job.job_type,
+                running=f"{len(self.running_workers)}/{self.max_concurrent_workers}",
+                thread=current_thread_name(),
+            )
             logger.info(f"Starte Job {job.job_id} (type={job.job_type})")
             handler = registry.get_handler(job.job_type)
             if not handler:
@@ -224,7 +232,14 @@ class SecretaryWorkerManager:
                         }
                         if progress_val is not None:
                             payload["progress"] = progress_val
-                        requests.post(url=str(endpoint_url), json=payload, headers=headers, timeout=10)
+                        from src.utils.metrics_trace import traced_webhook_post
+                        traced_webhook_post(
+                            job.job_id,
+                            str(endpoint_url),
+                            json=payload,
+                            headers=headers,
+                            timeout=10,
+                        )
                     except Exception:
                         # Log-Weiterleitung darf Job nicht stören
                         pass
@@ -360,6 +375,23 @@ class SecretaryWorkerManager:
             # Thread-Local aufräumen (verhindert Vermischung zwischen Jobs).
             if metric_tracker is not None:
                 try:
+                    from src.utils.metrics_trace import (
+                        log_metrics_event,
+                        current_thread_name,
+                        tracker_resource_fields,
+                    )
+                    res = tracker_resource_fields(metric_tracker)
+                    log_metrics_event(
+                        "worker_end",
+                        job_id=job.job_id,
+                        job_type=job.job_type,
+                        status=metric_tracker.measurements.get("status"),
+                        tokens=res["tokens"],
+                        cost=res["cost"],
+                        models=res["models"],
+                        running=f"{len(self.running_workers)}/{self.max_concurrent_workers}",
+                        thread=current_thread_name(),
+                    )
                     metric_tracker.complete_tracking()
                     # Eindeutiger Beweis-Log: zeigt, dass der neue Metrik-Pfad
                     # durchlaufen wurde (hilft beim Verifizieren nach Neustart).
@@ -391,5 +423,12 @@ def get_secretary_worker_manager() -> Optional[SecretaryWorkerManager]:
             poll_interval_sec=wcfg.get("poll_interval_sec", 5),
         )
     return _secretary_manager
+
+
+def snapshot_running_job_ids() -> List[str]:
+    """Laufende Secretary-Job-IDs. Startet den Manager nicht."""
+    if _secretary_manager is None:
+        return []
+    return list(_secretary_manager.running_workers.keys())
 
 

@@ -498,7 +498,8 @@ class BaseProcessor(Generic[T]):
     
     def add_llm_requests(self, requests: Union[List[LLMRequest], LLMInfo]) -> None:
         """
-        Fügt LLM-Requests zur ProcessInfo hinzu.
+        Fügt LLM-Requests zur ProcessInfo hinzu und spiegelt Token/Kosten
+        in den Request-Tracker (Dashboard).
         
         Args:
             requests: Liste von LLMRequests oder LLMInfo Objekt
@@ -510,15 +511,25 @@ class BaseProcessor(Generic[T]):
                 self.process_info.llm_info = requests
             else:
                 self.process_info.llm_info = self.process_info.llm_info.merge(requests)
+            request_list: List[LLMRequest] = list(requests.requests)
         else:
             if self.process_info.llm_info is None:
                 self.process_info.llm_info = LLMInfo(requests=[requests] if isinstance(requests, LLMRequest) else requests)
             else:
                 self.process_info.llm_info = self.process_info.llm_info.add_request(requests)
+            if isinstance(requests, LLMRequest):
+                request_list = [requests]
+            else:
+                request_list = list(requests)
+        
+        # Dashboard-Tracker füttern. Kein Tracker (z. B. Tests) ist kein Fehler.
+        tracker = get_performance_tracker()
+        if tracker is not None:
+            tracker.add_llm_request_list(request_list)
         
         # Log für Debugging
         if hasattr(self, 'logger'):
-            num_requests = len(requests.requests) if isinstance(requests, LLMInfo) else len(requests)
+            num_requests = len(request_list)
             self.logger.debug(f"{num_requests} LLM-Requests hinzugefügt")
 
     def create_ttl_index(self, collection_name: str, field: str, expire_after_seconds: int) -> None:

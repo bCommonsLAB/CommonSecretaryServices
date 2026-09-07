@@ -27,6 +27,7 @@ from src.utils.logger import get_logger
 from ...exceptions import ProcessingError
 from ...models.llm import LLMRequest
 from ..use_cases import UseCase
+from ..usage_cost import extract_usage_cost, extract_usage_tokens
 
 logger = get_logger(process_id="openrouter-provider")
 
@@ -417,6 +418,8 @@ class OpenRouterProvider:
             prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
             completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
             total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            # OpenRouter liefert usage.cost in USD in jeder Antwort.
+            usage_cost = extract_usage_cost(usage)
 
             logger.info(
                 "OpenRouter chat_completion",
@@ -428,6 +431,7 @@ class OpenRouterProvider:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
+                cost=usage_cost,
                 content_chars=content_chars,
                 content_tail=tail,
             )
@@ -445,7 +449,8 @@ class OpenRouterProvider:
                 purpose="chat_completion",
                 tokens=tokens,
                 duration=duration,
-                processor="OpenRouterProvider"
+                processor="OpenRouterProvider",
+                cost=usage_cost,
             )
             
             return content, llm_request
@@ -562,6 +567,7 @@ class OpenRouterProvider:
             prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
             completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
             total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            usage_cost = extract_usage_cost(usage)
 
             logger.info(
                 "OpenRouter vision",
@@ -576,6 +582,7 @@ class OpenRouterProvider:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
+                cost=usage_cost,
                 duration_ms=round(duration, 2),
                 content_chars=content_chars,
                 content_tail=tail,
@@ -592,7 +599,8 @@ class OpenRouterProvider:
                 purpose="vision",
                 tokens=tokens,
                 duration=duration,
-                processor="OpenRouterProvider"
+                processor="OpenRouterProvider",
+                cost=usage_cost,
             )
             
             return content, llm_request
@@ -719,6 +727,7 @@ class OpenRouterProvider:
         try:
             endpoint_used = "chat"
             response: Any = None
+            result: Any = None
             
             # API-Parameter vorbereiten
             # OpenAI-Images-Endpoint nur fuer OpenAI-Modelle verwenden
@@ -794,11 +803,14 @@ class OpenRouterProvider:
             # Dauer berechnen
             duration = (time.time() - start_time) * 1000
             
-            # Tokens extrahieren
+            # Tokens/Kosten: SDK-Objekt oder HTTP-Dict-Response.
             usage = getattr(response, "usage", None)
-            tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            if usage is None and isinstance(result, dict):
+                usage = result.get("usage")
+            tokens = extract_usage_tokens(usage)
             if tokens <= 0:
                 tokens = 1
+            usage_cost = extract_usage_cost(usage)
             
             # LLMRequest erstellen
             llm_request = LLMRequest(
@@ -806,7 +818,8 @@ class OpenRouterProvider:
                 purpose="text2image",
                 tokens=tokens,
                 duration=duration,
-                processor="OpenRouterProvider"
+                processor="OpenRouterProvider",
+                cost=usage_cost,
             )
             
             logger.info(
@@ -817,6 +830,7 @@ class OpenRouterProvider:
                 prompt_length=len(prompt),
                 image_size_bytes=len(image_bytes),
                 tokens=tokens,
+                cost=usage_cost,
                 duration_ms=duration,
                 endpoint=endpoint_used
             )

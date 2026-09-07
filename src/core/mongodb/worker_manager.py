@@ -467,4 +467,11 @@ def get_worker_manager() -> Optional[SessionWorkerManager]:
             logger.error("Worker-Manager wird nicht gestartet")
             return None
     
-    return _worker_manager 
+    return _worker_manager
+
+
+def snapshot_running_job_ids() -> list[str]:
+    """Laufende Session-Job-IDs. Startet den Manager nicht."""
+    if _worker_manager is None:
+        return []
+    return list(_worker_manager.running_workers.keys()) 

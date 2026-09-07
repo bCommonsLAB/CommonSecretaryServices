@@ -381,7 +381,8 @@ class WhisperTranscriber:
         user_prompt: Optional[str] = None,
         response: Optional[ChatCompletion] = None,
         logger: Optional[ProcessingLogger] = None,
-        processor: Optional[str] = None
+        processor: Optional[str] = None,
+        cost: float = 0.0,
     ) -> LLMRequest:
         """
         Zentrale Methode für LLMRequest-Erstellung, Tracking und Debug-Logging.
@@ -396,16 +397,25 @@ class WhisperTranscriber:
             response: Optional, die vollständige ChatCompletion Response
             logger: Optional, Logger für Debug-Ausgaben
             processor: Optional, Name des aufrufenden Processors
+            cost: Optional, Kosten in USD (aus Provider-LLMRequest durchreichen)
             
         Returns:
             LLMRequest: Der erstellte Request
         """
+        # Falls der Aufrufer cost=0 lässt, aber eine OpenRouter-Response da ist:
+        # cost aus usage nachziehen, damit die Zahl nicht verloren geht.
+        effective_cost = float(cost or 0.0)
+        if effective_cost <= 0.0 and response is not None:
+            from src.core.llm.usage_cost import extract_usage_cost
+            effective_cost = extract_usage_cost(getattr(response, "usage", None))
+
         request = LLMRequest(
             model=model or self.model,
             purpose=purpose,
             tokens=tokens,
             duration=duration,
-            processor=processor or self.__class__.__name__
+            processor=processor or self.__class__.__name__,
+            cost=effective_cost,
         )
 
         # Tracking im BaseProcessor 
@@ -526,6 +536,7 @@ class WhisperTranscriber:
                     tokens=llm_request.tokens,
                     duration=llm_request.duration,
                     model=llm_request.model,
+                    cost=llm_request.cost,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     logger=logger,
@@ -680,6 +691,7 @@ class WhisperTranscriber:
                     tokens=llm_request.tokens,
                     duration=llm_request.duration,
                     model=llm_request.model,
+                    cost=llm_request.cost,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     logger=logger,
@@ -808,6 +820,7 @@ class WhisperTranscriber:
                     tokens=llm_request.tokens,
                     duration=llm_request.duration,
                     model=llm_request.model,
+                    cost=llm_request.cost,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     logger=logger,
@@ -1294,6 +1307,7 @@ class WhisperTranscriber:
                     tokens=llm_request.tokens,
                     duration=llm_request.duration,
                     model=llm_request.model,
+                    cost=llm_request.cost,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     logger=logger,

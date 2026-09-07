@@ -36,7 +36,7 @@ Features:
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, cast
 
 from ..validation import (
     is_non_empty_str, is_non_negative,
@@ -92,6 +92,7 @@ class LLMRequest:
         tokens: Anzahl der verwendeten Tokens
         duration: Verarbeitungsdauer in Millisekunden
         processor: Name des aufrufenden Processors
+        cost: Kosten in USD (0.0 wenn der Provider keine Zahl liefert)
         timestamp: Zeitstempel der Anfrage (ISO 8601)
     """
     model: str
@@ -99,6 +100,8 @@ class LLMRequest:
     tokens: int
     duration: float
     processor: str
+    # Default 0.0: ältere Aufrufer und Provider ohne Cost-Feld bleiben gültig.
+    cost: float = 0.0
     timestamp: str = field(
         default_factory=lambda: datetime.now().isoformat()
     )
@@ -113,6 +116,8 @@ class LLMRequest:
             raise ValueError("tokens muss positiv sein")
         if not is_non_negative(self.duration):
             raise ValueError("duration muss nicht-negativ sein")
+        if not is_non_negative(self.cost):
+            raise ValueError("cost muss nicht-negativ sein")
         if not is_valid_iso_date(self.timestamp):
             raise ValueError("timestamp muss ein gültiges ISO 8601 Datum sein")
 
@@ -124,8 +129,25 @@ class LLMRequest:
             "tokens": self.tokens,
             "duration": self.duration,
             "processor": self.processor,
+            "cost": self.cost,
             "timestamp": self.timestamp
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LLMRequest":
+        """Stellt einen Request aus einem Dict her. Fehlendes cost -> 0.0."""
+        kwargs: Dict[str, Any] = {
+            "model": str(data["model"]),
+            "purpose": str(data["purpose"]),
+            "tokens": int(data["tokens"]),
+            "duration": float(data["duration"]),
+            "processor": str(data["processor"]),
+            "cost": float(data.get("cost", 0.0) or 0.0),
+        }
+        timestamp = data.get("timestamp")
+        if timestamp:
+            kwargs["timestamp"] = str(timestamp)
+        return cls(**kwargs)
 
 @dataclass(frozen=True)
 class LLMInfo:
@@ -152,6 +174,11 @@ class LLMInfo:
     def total_duration(self) -> float:
         """Gesamtdauer in Millisekunden."""
         return sum(r.duration for r in self.requests)
+
+    @property
+    def total_cost(self) -> float:
+        """Summe der Kosten in USD über alle Requests."""
+        return sum(r.cost for r in self.requests)
 
     def merge(self, other: 'LLMInfo') -> 'LLMInfo':
         """
@@ -188,5 +215,18 @@ class LLMInfo:
             'requests': [req.to_dict() for req in self.requests],
             'requests_count': self.requests_count,
             'total_tokens': self.total_tokens,
-            'total_duration': self.total_duration
-        } 
+            'total_duration': self.total_duration,
+            'total_cost': self.total_cost,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LLMInfo":
+        """Stellt LLMInfo aus einem Dict her. Unbekannte Keys werden ignoriert."""
+        raw_requests_any: Any = data.get("requests") or []
+        requests: List[LLMRequest] = []
+        if isinstance(raw_requests_any, list):
+            typed_list = cast(List[object], raw_requests_any)
+            for entry in typed_list:
+                if isinstance(entry, dict):
+                    requests.append(LLMRequest.from_dict(cast(Dict[str, Any], entry)))
+        return cls(requests=requests) 

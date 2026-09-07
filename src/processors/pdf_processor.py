@@ -75,6 +75,8 @@ from src.processors.imageocr_processor import ImageOCRProcessor  # Neue Import
 from src.core.models.enums import ProcessingStatus
 from src.utils.image2text_utils import Image2TextService
 from src.core.llm import LLMConfigManager, UseCase
+from src.core.llm.ocr_cost import estimate_mistral_ocr_cost, extract_mistral_ocr_pages
+from src.core.models.llm import LLMRequest
 
 # Konstanten für Processor-Typen
 PROCESSOR_TYPE_PDF = "pdf"
@@ -490,6 +492,34 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             )
         return "mistral-ocr-latest"
 
+    def _track_mistral_ocr_usage(self, ocr_json: Dict[str, Any], model: str) -> None:
+        """
+        Schreibt Mistral-OCR-Kosten in llm_info und den Dashboard-Tracker.
+
+        Preis: 1 USD / 1000 Seiten. OCR hat keine Token; LLMRequest verlangt
+        tokens > 0, daher Platzhalter 1.
+        """
+        pages: int = extract_mistral_ocr_pages(ocr_json)
+        if pages <= 0:
+            return
+        cost: float = estimate_mistral_ocr_cost(pages)
+        self.add_llm_requests([
+            LLMRequest(
+                model=model,
+                purpose="mistral_ocr",
+                tokens=1,
+                duration=0.0,
+                processor="PDFProcessor",
+                cost=cost,
+            )
+        ])
+        self.logger.info(
+            "Mistral-OCR: Kosten erfasst",
+            pages=pages,
+            cost_usd=cost,
+            model=model,
+        )
+
     async def _process_mistral_ocr(
         self,
         file_path: Path,
@@ -674,6 +704,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             self.logger.info(f"Mistral-OCR: Ergebnis geparst ({len(text_contents)} Seiten)", progress=85)
         except Exception:
             self.logger.info("Mistral-OCR: Ergebnis geparst", progress=85)
+
+        # Seitenpreis in den Tracker. Voyage bleibt unberührt (cost=0).
+        self._track_mistral_ocr_usage(ocr_json, ocr_model)
         
         # Bilder werden immer separat extrahiert, nie in mistral_ocr_raw eingebettet
         # include_ocr_images wird nicht mehr verwendet, da Bilder immer separat gespeichert werden

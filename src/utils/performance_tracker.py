@@ -249,9 +249,25 @@ class PerformanceTracker:
             model: Name des verwendeten Modells
         """
         resources: ResourceInfo = self.measurements['resources']
-        resources['total_tokens'] += tokens
-        resources['total_cost'] += cost
-        resources['models_used'].append(model)
+        resources['total_tokens'] += max(int(tokens), 0)
+        resources['total_cost'] += float(cost) if cost else 0.0
+        # Modellname nur einmal merken (sonst wiederholt sich derselbe Name
+        # bei mehreren LLM-Calls desselben Requests in der Dashboard-Spalte).
+        if model and model not in resources['models_used']:
+            resources['models_used'].append(model)
+
+    def add_llm_request_list(self, requests: List[Any]) -> None:
+        """
+        Übernimmt Token, Kosten und Modell aus LLMRequest-Objekten.
+
+        Wird von BaseProcessor.add_llm_requests aufgerufen, damit die
+        Dashboard-Metrik dieselbe Quelle nutzt wie process.llm_info.
+        """
+        for req in requests:
+            tokens = int(getattr(req, "tokens", 0) or 0)
+            cost = float(getattr(req, "cost", 0.0) or 0.0)
+            model = str(getattr(req, "model", "") or "")
+            self.add_resource_usage(tokens=tokens, cost=cost, model=model)
 
     def eval_result(self, result: Any) -> None:
         """
@@ -261,6 +277,11 @@ class PerformanceTracker:
             result: Das Ergebnis des Prozessors (AudioProcessingResult, TranscriptionResult, etc.)
         """
         try:
+            # A1: Token/Kosten kommen über add_llm_requests. eval_result ist der
+            # alte Schätzpfad und darf nicht zusätzlich addieren.
+            existing: ResourceInfo = self.measurements['resources']
+            if existing['total_tokens'] > 0 or existing['total_cost'] > 0.0:
+                return
             # Für AudioProcessingResult
             if hasattr(result, 'audio_result') and hasattr(result.audio_result, 'transcription') and hasattr(result.audio_result.transcription, 'requests'):
                 requests = result.audio_result.transcription.requests

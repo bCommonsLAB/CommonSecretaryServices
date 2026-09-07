@@ -43,6 +43,7 @@ except ImportError:
 
 from src.core.models.rag import RAGChunk, RAGEmbeddingResult
 from src.core.models.base import ProcessInfo
+from src.core.models.llm import LLMRequest
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.base_processor import BaseProcessor
@@ -324,6 +325,36 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         # bis zu 12% höher sein als geschätzt. Daher verwenden wir 2.2 Zeichen pro Token
         # für eine sichere Überschätzung.
         return int(len(text) / 2.2)
+
+    def _track_voyage_embed(
+        self,
+        response: Any,
+        model: str,
+        texts: List[str],
+    ) -> None:
+        """
+        Schreibt Voyage-Embedding-Nutzung in llm_info und den Dashboard-Tracker.
+
+        Voyage liefert total_tokens, aber keine USD-Kosten. cost bleibt 0.0.
+        """
+        raw_tokens = getattr(response, "total_tokens", None)
+        if raw_tokens is None:
+            tokens = max(sum(self._estimate_tokens(t) for t in texts), 1)
+        else:
+            try:
+                tokens = max(int(raw_tokens), 1)
+            except (TypeError, ValueError):
+                tokens = max(sum(self._estimate_tokens(t) for t in texts), 1)
+        self.add_llm_requests([
+            LLMRequest(
+                model=model,
+                purpose="embedding",
+                tokens=tokens,
+                duration=0.0,
+                processor="RAGProcessor",
+                cost=0.0,
+            )
+        ])
     
     def _split_into_batches(
         self,
@@ -461,6 +492,8 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                         # Embeddings in der richtigen Reihenfolge hinzufügen
                         # (jeder Batch behält die Reihenfolge der Texte bei)
                         all_embeddings.extend(response.embeddings)  # type: ignore
+                        # Voyage liefert i. d. R. total_tokens, aber kein USD-cost.
+                        self._track_voyage_embed(response, effective_model, batch)
                     
                     self.logger.info(
                         f"Alle Batches verarbeitet: {len(all_embeddings)} Embeddings generiert"
@@ -475,6 +508,7 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                 input_type=input_type,
                 output_dimension=effective_dimensions
             )
+            self._track_voyage_embed(response, effective_model, texts)
             return response.embeddings  # type: ignore
                 
         except Exception as e:

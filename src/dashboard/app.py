@@ -280,6 +280,29 @@ def _maybe_start_request_tracker() -> None:
         tracker.set_processor_name(processor)
 
 
+def _trace_incoming_api_request() -> None:
+    """Schreibt [METRICS-TRACE] http_in für API-POSTs. Kein Verhaltenswechsel."""
+    from flask import request
+    from src.utils.metrics_trace import (
+        log_metrics_event,
+        current_thread_name,
+        running_job_ids,
+    )
+
+    if request.method != "POST":
+        return
+    if not request.path.startswith("/api/"):
+        return
+    log_metrics_event(
+        "http_in",
+        method=request.method,
+        path=request.path,
+        processor=_derive_processor_from_path(request.path) or "skipped",
+        thread=current_thread_name(),
+        running_jobs=running_job_ids(),
+    )
+
+
 @app.before_request
 def before_request() -> None:
     """Wird vor jedem Request ausgeführt"""
@@ -324,6 +347,7 @@ def before_request() -> None:
 
     # Variante 3: Tracker für synchrone API-POST-Requests anlegen.
     try:
+        _trace_incoming_api_request()
         _maybe_start_request_tracker()
     except Exception as e:
         app_logger.error(f"Fehler beim Starten des Request-Trackers: {str(e)}")
@@ -341,12 +365,21 @@ def discard_async_metric(response: Any) -> Any:
     """
     try:
         if getattr(response, 'status_code', None) == 202:
+            from flask import request as flask_request
             from src.utils.performance_tracker import (
                 get_performance_tracker,
                 clear_performance_tracker,
             )
-            if get_performance_tracker() is not None:
+            from src.utils.metrics_trace import log_metrics_event, current_thread_name
+            had_tracker = get_performance_tracker() is not None
+            if had_tracker:
                 clear_performance_tracker()
+            log_metrics_event(
+                "http_202_discard",
+                path=getattr(flask_request, "path", ""),
+                thread=current_thread_name(),
+                had_tracker=had_tracker,
+            )
     except Exception:
         pass
     return response
@@ -385,6 +418,22 @@ def finalize_performance_tracking(exception: Optional[BaseException] = None) -> 
             )
         if exception is not None and not tracker.measurements.get('error'):
             tracker.set_error(str(exception), type(exception).__name__)
+        from src.utils.metrics_trace import (
+            log_metrics_event,
+            current_thread_name,
+            tracker_resource_fields,
+        )
+        res = tracker_resource_fields(tracker)
+        log_metrics_event(
+            "http_out",
+            path=request.path,
+            processor=tracker.processor_name or "unknown",
+            status=tracker.measurements.get("status"),
+            tokens=res["tokens"],
+            cost=res["cost"],
+            models=res["models"],
+            thread=current_thread_name(),
+        )
         tracker.complete_tracking()
     except Exception as e:
         app_logger.error(f"Fehler beim Abschluss des Performance-Trackings: {str(e)}")

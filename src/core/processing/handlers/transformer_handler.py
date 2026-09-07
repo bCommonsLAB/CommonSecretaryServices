@@ -184,7 +184,14 @@ async def handle_transformer_template_job(job: Job, repo: Any, resource_calculat
         }
         try:
             repo.add_log_entry(job.job_id, "info", f"Sende Webhook-Callback an {callback_url}")
-            requests.post(url=str(callback_url), json=payload_final, headers=headers, timeout=30)
+            from src.utils.metrics_trace import traced_webhook_post
+            traced_webhook_post(
+                job.job_id,
+                str(callback_url),
+                json=payload_final,
+                headers=headers,
+                timeout=30,
+            )
         except Exception:
             repo.add_log_entry(job.job_id, "error", "Webhook-POST fehlgeschlagen")
 
