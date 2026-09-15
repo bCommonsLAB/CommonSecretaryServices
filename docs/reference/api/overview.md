@@ -166,6 +166,19 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 **See**: [Job Endpoints](endpoints/jobs.md) for detailed documentation.
 
+### Booklet (Projektheft)
+
+**Namespace**: `/api/booklet`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/booklet/jobs` | Validate a page list and enqueue a `booklet` job (image preparation, later PDF) |
+| GET | `/api/booklet/jobs/<job_id>/assets/<file>` | Download a produced file (`images/<page>.jpg`, `report.json`) |
+| GET | `/api/booklet/themes` | Theme colours and page geometry |
+| GET | `/api/booklet/schema` | JSON schema of the job parameters |
+
+**See**: [Booklet Endpoints](endpoints/booklet.md) for detailed documentation.
+
 ### LLM Configuration
 
 **Namespace**: `/api/llm-config`

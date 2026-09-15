@@ -78,3 +78,8 @@ voyageai>=0.2.0
 
 # JSON Schema Validation
 jsonschema>=4.20.0
+
+# Projektheft (job_type booklet): HTML/CSS -> PDF ohne Browser, QR-Codes
+# WeasyPrint braucht Pango und HarfBuzz als Systempakete (siehe Dockerfile)
+weasyprint==70.0
+segno==1.6.6

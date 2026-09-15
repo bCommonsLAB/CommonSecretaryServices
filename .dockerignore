@@ -9,4 +9,6 @@ __pycache__/
 logs/*
 temp-processing/*
 cache/*
-*.log 
+*.log
+venv312/
+site/

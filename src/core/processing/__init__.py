@@ -53,6 +53,13 @@ try:
 except Exception:
     pass
 
+try:
+    # Projektheft: Bildaufbereitung (und später PDF) als Job
+    from .handlers.booklet_handler import handle_booklet_job
+    register("booklet", handle_booklet_job)
+except Exception:
+    pass
+
 __all__ = ["register", "get_handler", "available_job_types"]
 
 

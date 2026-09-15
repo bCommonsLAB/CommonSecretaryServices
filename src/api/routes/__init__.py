@@ -243,6 +243,7 @@ from .text2image_routes import text2image_ns
 from .image_analyzer_routes import image_analyzer_ns
 from .health_routes import health_ns
 from .realtime_routes import realtime_ns
+from .booklet_routes import booklet_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -258,6 +259,7 @@ api.add_namespace(imageocr_ns, path='/imageocr')  # type: ignore
 api.add_namespace(story_ns, path='/story')  # type: ignore
 api.add_namespace(secretary_ns, path='/jobs')  # type: ignore
 api.add_namespace(rag_ns, path='/rag')  # type: ignore
+api.add_namespace(booklet_ns, path='/booklet')  # type: ignore
 api.add_namespace(text2image_ns, path='/text2image')  # type: ignore
 api.add_namespace(image_analyzer_ns, path='/image-analyzer')  # type: ignore
 api.add_namespace(health_ns, path='/health')  # type: ignore

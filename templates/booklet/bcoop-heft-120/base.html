@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>{{ title or "Projektheft" }}</title>
+<style>
+/* Themenfarben, erzeugt aus src/processors/booklet/tokens.py. Nicht von Hand pflegen. */
+{% for t in themes.values() %}
+.theme-{{ t.key }} .accent { background: linear-gradient(90deg, {{ t.dark|rgba(0.75) }} 0%, {{ t.dark|rgba(0.12) }} 100%); }
+.theme-{{ t.key }} .bar { background: linear-gradient(90deg, {{ t.bar|rgba(1.0) }} 0%, {{ t.bar|rgba(0.2) }} 100%); }
+.theme-{{ t.key }} .category,
+.theme-{{ t.key }} .brand,
+.theme-{{ t.key }} .heading-theme { color: {{ t.dark }}; border-color: {{ t.dark }}; }
+.theme-{{ t.key }} .plate { background: {{ t.bar }}; }
+.theme-{{ t.key }} .plate-dark { background: {{ t.dark }}; }
+{% endfor %}
+</style>
+</head>
+<body>
+{% for page in pages %}
+<section class="page page-{{ page.type }} theme-{{ page.theme.key }}{% if page.css_class %} {{ page.css_class }}{% endif %}" id="page-{{ page.id }}">
+{% include page.partial %}
+</section>
+{% endfor %}
+</body>
+</html>

@@ -1,0 +1,14 @@
+{# Projektseite: Foto, Akzentlinie, Balken mit Thema und Marke, Titel mit QR, Kurztext #}
+{% if page.image %}<img class="photo" src="{{ page.image }}" alt="">{% else %}<div class="photo plate"></div>{% endif %}
+<div class="accent"></div>
+<div class="bar">
+  <span class="category">{{ page.theme.label }}</span>
+  {% if page.organization %}<span class="brand">{{ page.organization }}</span>{% endif %}
+</div>
+<div class="content">
+  <div class="head">
+    <h1 class="title">{{ page.title }}</h1>
+    {% if page.qr_svg %}<div class="qr">{{ page.qr_svg }}</div>{% endif %}
+  </div>
+  {% if page.text %}<p class="text{% if page.text_too_long %} too-long{% endif %}">{{ page.text }}</p>{% endif %}
+</div>
