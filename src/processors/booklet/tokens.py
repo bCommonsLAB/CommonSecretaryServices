@@ -47,6 +47,21 @@ PHOTO_PX: Tuple[int, int] = (
 )
 PHOTO_ASPECT: float = PHOTO_MM[0] / PHOTO_MM[1]  # 2.172
 
+# Umschlag: Foto 78 mm hoch plus 3 mm Beschnitt oben, volle Breite mit Beschnitt
+COVER_PHOTO_TRIM_MM: Tuple[int, int] = (120, 78)
+COVER_PHOTO_MM: Tuple[int, int] = (COVER_PHOTO_TRIM_MM[0] + 2 * BLEED_MM, COVER_PHOTO_TRIM_MM[1] + BLEED_MM)  # 126 x 81
+COVER_PHOTO_PX: Tuple[int, int] = (
+    int(round(COVER_PHOTO_MM[0] / MM_PER_INCH * DPI_READY)),  # 1488
+    int(round(COVER_PHOTO_MM[1] / MM_PER_INCH * DPI_READY)),  # 957
+)
+
+
+def photo_frame_for(page_type: str) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+    """(Rahmen in mm, Rahmen in px bei 300 dpi) je Seitentyp. Umschlag ist höher als die Projektseite."""
+    if page_type == "cover":
+        return COVER_PHOTO_MM, COVER_PHOTO_PX
+    return PHOTO_MM, PHOTO_PX
+
 # ---------------------------------------------------------------- Bildlook
 CONTRAST = 1.10          # Kontrast +10 vor dem Duoton
 JPEG_QUALITY = 92        # Druckvariante

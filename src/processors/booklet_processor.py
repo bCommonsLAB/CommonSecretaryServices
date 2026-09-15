@@ -50,7 +50,7 @@ from src.core.resource_tracking import ResourceCalculator
 from src.processors.base_processor import BaseProcessor
 from src.processors.booklet.duotone import apply_theme_duotone
 from src.processors.booklet.images import crop_to_frame, load_image
-from src.processors.booklet.tokens import DPI_BORDERLINE, JPEG_QUALITY, PHOTO_PX, Theme, readiness, resolve_theme
+from src.processors.booklet.tokens import DPI_BORDERLINE, JPEG_QUALITY, Theme, photo_frame_for, readiness, resolve_theme
 from src.processors.booklet.watermark import add_too_small_band, placeholder_image
 from src.processors.booklet.render import PDF_FILENAME, BookletRenderer
 
@@ -205,11 +205,12 @@ class BookletProcessor(BaseProcessor[BookletResult]):
 
     def _prepare_page_image(self, page: BookletPage, images_dir: Path) -> BookletImageReport:
         theme: Theme = resolve_theme(page.theme)
+        frame_mm, frame_px = photo_frame_for(page.type)
         filename = f"{page.id}.jpg"
         report = BookletImageReport(page_id=page.id, page_type=page.type, status="missing", theme=theme.key)
 
         if not page.image_url:
-            plate = placeholder_image(theme)
+            plate = placeholder_image(theme, size=frame_px)
             plate.save(images_dir / filename, "JPEG", quality=JPEG_QUALITY)
             report.file = filename
             report.output_width, report.output_height = plate.size
@@ -220,7 +221,7 @@ class BookletProcessor(BaseProcessor[BookletResult]):
             source = load_image(page.image_url)
         except ProcessingError as e:
             self.logger.warning("Booklet-Bild konnte nicht geladen werden", page_id=page.id, error=str(e))
-            plate = placeholder_image(theme, label="BILD FEHLT")
+            plate = placeholder_image(theme, size=frame_px, label="BILD FEHLT")
             plate.save(images_dir / filename, "JPEG", quality=JPEG_QUALITY)
             report.status = "error"
             report.file = filename
@@ -228,7 +229,7 @@ class BookletProcessor(BaseProcessor[BookletResult]):
             report.warnings.append(f"Bild konnte nicht geladen werden: {e}")
             return report
 
-        cropped = crop_to_frame(source, page.focus.x, page.focus.y)
+        cropped = crop_to_frame(source, page.focus.x, page.focus.y, frame_px=frame_px, frame_mm=frame_mm)
         toned = apply_theme_duotone(cropped.image, theme)
 
         status = readiness(cropped.dpi)
@@ -236,7 +237,7 @@ class BookletProcessor(BaseProcessor[BookletResult]):
             toned = add_too_small_band(toned, cropped.dpi)
             report.warnings.append(
                 f"Bild zu klein: {int(round(cropped.dpi))} dpi im Fotofeld, mindestens {DPI_BORDERLINE} dpi nötig, "
-                f"{PHOTO_PX[0]}×{PHOTO_PX[1]} px für 300 dpi"
+                f"{frame_px[0]}×{frame_px[1]} px für 300 dpi"
             )
         elif status == "borderline":
             report.warnings.append(f"Für den Druck knapp: {int(round(cropped.dpi))} dpi im Fotofeld")

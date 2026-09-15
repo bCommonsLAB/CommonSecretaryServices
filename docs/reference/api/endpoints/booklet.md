@@ -140,7 +140,7 @@ pages) so that imprint and back cover stay at the end.
 
 | Status | Meaning | What the file shows |
 |--------|---------|---------------------|
-| `ready` | ≥ 300 dpi in the 126 × 58 mm photo field | toned photo, 1488 × 685 px |
+| `ready` | ≥ 300 dpi in the photo field (126 × 58 mm for project pages, 126 × 81 mm for the cover) | toned photo, 1488 × 685 px (cover 1488 × 957 px) |
 | `borderline` | 220 to 299 dpi | toned photo, smaller than 1488 px, no mark |
 | `not-ready` | < 220 dpi | toned photo with the diagonal band **BILD ZU KLEIN · n dpi** |
 | `missing` | no `image_url` | plate in the theme's bar colour, **KEIN BILD** |

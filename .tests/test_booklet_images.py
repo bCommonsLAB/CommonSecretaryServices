@@ -14,7 +14,7 @@ from src.core.models.booklet import BookletPage, BookletRequest
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.booklet.duotone import apply_duotone
 from src.processors.booklet.images import crop_to_frame, load_image
-from src.processors.booklet.tokens import PHOTO_PX, THEMES, hex_to_rgb, readiness, resolve_theme
+from src.processors.booklet.tokens import COVER_PHOTO_PX, PHOTO_PX, THEMES, hex_to_rgb, photo_frame_for, readiness, resolve_theme
 from src.processors.booklet.watermark import add_too_small_band, placeholder_image
 from src.processors.booklet_processor import BookletProcessor
 
@@ -29,6 +29,9 @@ def _gradient(width: int, height: int) -> Image.Image:
 class TestTokens(unittest.TestCase):
     def test_photo_px_matches_300dpi(self) -> None:
         self.assertEqual(PHOTO_PX, (1488, 685))
+        self.assertEqual(COVER_PHOTO_PX, (1488, 957))
+        self.assertEqual(photo_frame_for("cover")[1], COVER_PHOTO_PX)
+        self.assertEqual(photo_frame_for("project")[1], PHOTO_PX)
 
     def test_resolve_theme_accepts_bwiki_values_and_defaults_to_marke(self) -> None:
         self.assertEqual(resolve_theme("Natur").key, "natur")
@@ -199,6 +202,8 @@ class TestProcessor(unittest.TestCase):
         self.assertEqual(set(by_id), {"cover", "gut", "klein", "ohne", "kaputt"})
         self.assertEqual(by_id["gut"].status, "ready")
         self.assertEqual((by_id["gut"].output_width, by_id["gut"].output_height), PHOTO_PX)
+        # Der Umschlag bekommt das höhere Fotofeld 126 x 81 mm
+        self.assertEqual((by_id["cover"].output_width, by_id["cover"].output_height), COVER_PHOTO_PX)
         self.assertEqual(by_id["klein"].status, "not-ready")
         self.assertTrue(any("zu klein" in w for w in by_id["klein"].warnings))
         self.assertEqual(by_id["ohne"].status, "missing")
