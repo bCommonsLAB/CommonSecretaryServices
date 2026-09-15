@@ -8,17 +8,22 @@
  * WeasyPrint setzt aus `size` und `bleed` MediaBox, BleedBox und TrimBox selbst.
  *
  * Schrift: Jost (SIL Open Font License) als Platzhalter für Ageo. Zum Tausch die
- * TTF-Dateien in fonts/ ersetzen und die @font-face-Regeln anpassen.
+ * TTF-Dateien in fonts/ ersetzen und in den @font-face-Regeln und in html { font-family }
+ * den Familiennamen auf den echten Namen der neuen Schrift setzen (z. B. "Ageo").
  */
 
+/* Der Familienname ist bewusst der echte Name der Schrift: Fontconfig ersetzt unbekannte
+   Familien stumm durch irgendeine Systemschrift, deshalb greift ein Fallback in der
+   font-family-Liste nicht. Mit dem echten Namen findet Fontconfig die Datei auch dann,
+   wenn @font-face nicht lädt (Windows) und der Font-Ordner per FONTCONFIG_FILE bekannt ist. */
 @font-face {
-  font-family: "Heft";
+  font-family: "Jost";
   src: url("fonts/Jost-Regular.ttf");
   font-weight: 400;
   font-style: normal;
 }
 @font-face {
-  font-family: "Heft";
+  font-family: "Jost";
   src: url("fonts/Jost-Bold.ttf");
   font-weight: 700;
   font-style: normal;
@@ -31,7 +36,7 @@
 }
 
 html {
-  font-family: "Heft", "DejaVu Sans", sans-serif;
+  font-family: "Jost", "DejaVu Sans", sans-serif;
   color: #3a4a55;
   hyphens: auto;
   -webkit-hyphens: auto;
@@ -101,6 +106,7 @@ body { margin: 0; }
   left: 10mm; right: 10mm;
   top: 69mm;                        /* Balkenunterkante 63,5 mm + 5,5 mm */
   bottom: 10mm;
+  overflow: hidden;                 /* überlanger Text bleibt im Satzspiegel, siehe .note-too-long */
 }
 .head {
   display: flex;
@@ -128,13 +134,23 @@ body { margin: 0; }
   margin: 2.5mm 0 0 0;
   text-align: left;
 }
-.text.too-long { color: #b22222; }
+/* Hinweis für den Proof: Text über der empfohlenen Länge wird im Satzspiegel gekappt,
+   die Zeichenzahl steht klein im unteren Rand. Farbe des Textes bleibt unverändert. */
+.note-too-long {
+  position: absolute;
+  left: 10mm; bottom: 3.5mm;
+  font-size: 6pt;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b22222;
+}
 
 /* ---------------------------------------------------------------- Umschlag */
-.photo-cover { height: 81mm; }      /* 78 mm sichtbar + 3 mm Beschnitt */
+.photo-cover { height: 81mm; }      /* 78 mm sichtbar + 3 mm Beschnitt; Ausschnitt kommt fertig in 126 x 81 mm */
 .cover-block {
   position: absolute;
-  left: 10mm; right: 10mm; top: 86mm; bottom: 10mm;
+  left: 10mm; right: 10mm; top: 84mm; bottom: 10mm;
 }
 .cover-kicker {
   font-size: 7pt;

@@ -10,5 +10,6 @@
     <h1 class="title">{{ page.title }}</h1>
     {% if page.qr_svg %}<div class="qr">{{ page.qr_svg }}</div>{% endif %}
   </div>
-  {% if page.text %}<p class="text{% if page.text_too_long %} too-long{% endif %}">{{ page.text }}</p>{% endif %}
+  {% if page.text %}<p class="text">{{ page.text }}</p>{% endif %}
 </div>
+{% if page.text_too_long %}<div class="note-too-long">Text zu lang · {{ page.text_length }} Zeichen, empfohlen {{ page.text_max_chars }}</div>{% endif %}
