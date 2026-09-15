@@ -18,5 +18,24 @@ Gerendert von `src/processors/booklet/render.py` mit WeasyPrint.
 Ein neues Partial ist eine Datei. Der Seitentyp `text` wählt `text/<template>.html`,
 fehlt die Datei, gilt `text/default.html`.
 
-Schrift tauschen: TTF-Dateien nach `fonts/` legen und die beiden `@font-face`-Regeln
-in `print.css` anpassen. WeasyPrint bettet die Schrift als Subset ein.
+Schrift tauschen: TTF-Dateien nach `fonts/` legen, in den beiden `@font-face`-Regeln und in
+`html { font-family }` von `print.css` den echten Familiennamen der neuen Schrift eintragen.
+WeasyPrint bettet die Schrift als Subset ein.
+
+Windows-Entwicklung: WeasyPrint lädt dort mit fremden GTK-DLLs keine `@font-face`-Dateien
+und nimmt stumm Systemschriften. Abhilfe: eine Fontconfig-Datei, die diesen Ordner kennt,
+und in `print.css` als `font-family` der echte Familienname der Schrift (bereits „Jost“; Fontconfig
+ersetzt unbekannte Namen stumm durch Systemschriften, ein Fallback in der Liste hilft nicht):
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>C:/pfad/zum/repo/templates/booklet/bcoop-heft-120/fonts</dir>
+  <dir>C:/Windows/Fonts</dir>
+  <cachedir>C:/pfad/zu/einem/cache</cachedir>
+</fontconfig>
+```
+
+Vor dem Start `FONTCONFIG_FILE` auf diese Datei und `WEASYPRINT_DLL_DIRECTORIES` auf einen
+Ordner mit den Pango-DLLs setzen. Im Linux-Container ist das nicht nötig.
