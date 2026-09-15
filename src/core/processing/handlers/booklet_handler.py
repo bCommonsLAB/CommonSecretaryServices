@@ -14,8 +14,8 @@ Job parameters (see src.core.models.booklet.BOOKLET_PARAMETERS_SCHEMA):
 
 Results:
 - results.asset_dir: work directory of the job
-- results.assets: relative file names (images/<page-id>.jpg, report.json)
-- results.structured_data: BookletResult.to_dict() with summary and per-page report
+- results.assets: relative file names (images/<page-id>.jpg, report.json, heft.pdf)
+- results.structured_data: BookletResult.to_dict() with summary, per-page report and pdf check
 
 @module core.processing.handlers.booklet_handler
 
@@ -98,6 +98,20 @@ async def handle_booklet_job(job: Job, repo: Any, resource_calculator: ResourceC
         if report.warnings:
             repo.add_log_entry(job.job_id, "warning", f"{report.page_id}: {'; '.join(report.warnings)}")
 
+    # Stufe pdf: Template füllen und setzen. Ein fehlender Renderer ist ein Serverfehler,
+    # der Job schlägt mit klarer Meldung fehl (ProcessingError aus render()).
+    result = processor.render_pdf(request, result, progress=_progress)
+    pdf_report = result.pdf or {}
+    repo.add_log_entry(
+        job.job_id,
+        "info",
+        f"PDF gesetzt: {pdf_report.get('page_count')} Seiten, "
+        f"kleinste Bildauflösung {pdf_report.get('min_image_ppi')} ppi, "
+        f"Schriften eingebettet: {', '.join(pdf_report.get('fonts_embedded') or []) or 'keine'}",
+    )
+    if pdf_report.get("fonts_not_embedded"):
+        repo.add_log_entry(job.job_id, "warning", f"Schriften nicht eingebettet: {pdf_report['fonts_not_embedded']}")
+
     repo.update_job_status(
         job_id=job.job_id,
         status="processing",
@@ -114,13 +128,15 @@ async def handle_booklet_job(job: Job, repo: Any, resource_calculator: ResourceC
     if callback_url:
         payload: Dict[str, Any] = {
             "phase": "completed",
-            "message": "Booklet-Bildaufbereitung abgeschlossen",
+            "message": "Booklet-PDF abgeschlossen",
             "process": {"id": job.job_id},
             "jobId": webhook.get("jobId"),
             "data": {
                 "stage": result.stage,
                 "summary": result.summary,
                 "assets": list(result.assets),
+                "pdf_file": result.pdf_file,
+                "page_count": (result.pdf or {}).get("page_count"),
             },
         }
         try:

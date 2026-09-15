@@ -213,10 +213,11 @@ Processes text transformation with templates.
 
 **Job Type**: `booklet`
 
-Prepares the photos of the b*coop Projektheft (120 × 120 mm booklet). Stage 1
-crops every photo to the 126 × 58 mm photo field around a focus point, tones it
-in the theme's duotone and marks it when it is too small for print. Stage 2
-(planned) renders the PDF. Full endpoint documentation: [Booklet API](../../reference/api/endpoints/booklet.md).
+Produces the b*coop Projektheft (120 × 120 mm booklet). Stage 1 crops every
+photo to the 126 × 58 mm photo field around a focus point, tones it in the
+theme's duotone and marks it when it is too small for print. Stage 2 fills the
+Jinja2 template and renders `heft.pdf` with WeasyPrint, then checks the PDF with
+PyMuPDF. Full endpoint documentation: [Booklet API](../../reference/api/endpoints/booklet.md).
 
 ### Parameters
 
@@ -252,17 +253,22 @@ The parameters are validated against `BOOKLET_PARAMETERS_SCHEMA`
 
 1. `initializing` (5%) - Parameters validated
 2. `images` (10-90%) - One step per image page, message names the page and its status
-3. `postprocessing` (95%) - Results stored
-4. `completed` (100%) - Set by the worker
+3. `images` (92%) - "PDF wird gesetzt"
+4. `postprocessing` (95%) - Results stored
+5. `completed` (100%) - Set by the worker
 
 ### Results
 
 ```json
 {
   "asset_dir": "cache/booklet/temp/job-3f0c...",
-  "assets": ["images/cover.jpg", "images/abc123.jpg", "report.json"],
+  "assets": ["images/cover.jpg", "images/abc123.jpg", "report.json", "heft.pdf"],
   "structured_data": {
-    "stage": "images",
+    "stage": "pdf",
+    "pdf_file": "heft.pdf",
+    "pdf": { "page_count": 4, "page_count_ok": true, "media_mm": { "width": 126, "height": 126 },
+             "trim_mm": { "width": 120, "height": 120 }, "fonts_embedded": ["ABCDEF+Jost-Regular"],
+             "fonts_not_embedded": [], "min_image_ppi": 300 },
     "page_count": 2,
     "summary": { "ready": 2, "borderline": 0, "not-ready": 0, "missing": 0, "error": 0 },
     "images": [

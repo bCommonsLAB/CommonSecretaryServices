@@ -12,8 +12,10 @@ The processor never fails the whole job because of one image: a page with a
 missing or unreadable image is reported with status `missing` or `error` and
 gets a placeholder, so the booklet can still be rendered and proofed.
 
-Stage "pdf" (Jinja2 template + WeasyPrint) is added in a later step and reuses
-the prepared images.
+Stage "pdf": render_pdf() fills the Jinja2 template of the requested template
+set with the prepared images, renders it with WeasyPrint (see
+src.processors.booklet.render) and stores heft.pdf plus a check report.
+process() runs both stages.
 
 @module processors.booklet_processor
 
@@ -50,6 +52,7 @@ from src.processors.booklet.duotone import apply_theme_duotone
 from src.processors.booklet.images import crop_to_frame, load_image
 from src.processors.booklet.tokens import DPI_BORDERLINE, JPEG_QUALITY, PHOTO_PX, Theme, readiness, resolve_theme
 from src.processors.booklet.watermark import add_too_small_band, placeholder_image
+from src.processors.booklet.render import PDF_FILENAME, BookletRenderer
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -150,6 +153,55 @@ class BookletProcessor(BaseProcessor[BookletResult]):
             duration_ms=int((time.time() - started) * 1000),
         )
         return result
+
+    # ------------------------------------------------------------------ Stufe pdf
+    def render_pdf(
+        self,
+        request: BookletRequest,
+        images: BookletResult,
+        progress: Optional[ProgressCallback] = None,
+    ) -> BookletResult:
+        """
+        Rendert heft.pdf aus dem Template und den aufbereiteten Bildern.
+
+        Erwartet das Ergebnis von prepare_images (work_dir mit images/). Ergänzt
+        stage, pdf_file, pdf (Prüfbericht) und assets im übergebenen Ergebnis.
+        """
+        started = time.time()
+        work_dir = Path(images.work_dir)
+        if progress:
+            progress(92, "PDF wird gesetzt")
+
+        renderer = BookletRenderer(template=request.template)
+        report = renderer.render(request, images, work_dir)
+
+        images.stage = "pdf"
+        images.pdf_file = PDF_FILENAME
+        images.pdf = report
+        if PDF_FILENAME not in images.assets:
+            images.assets.append(PDF_FILENAME)
+
+        report_path = work_dir / REPORT_FILENAME
+        report_path.write_text(json.dumps(images.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+        self.logger.info(
+            "Booklet-PDF gesetzt",
+            page_count=report.get("page_count"),
+            min_image_ppi=report.get("min_image_ppi"),
+            fonts_embedded=report.get("fonts_embedded"),
+            duration_ms=int((time.time() - started) * 1000),
+        )
+        return images
+
+    def process(
+        self,
+        request: BookletRequest,
+        work_dir: Optional[Path] = None,
+        progress: Optional[ProgressCallback] = None,
+    ) -> BookletResult:
+        """Beide Stufen: Bilder aufbereiten, dann PDF setzen."""
+        images = self.prepare_images(request, work_dir=work_dir, progress=progress)
+        return self.render_pdf(request, images, progress=progress)
 
     def _prepare_page_image(self, page: BookletPage, images_dir: Path) -> BookletImageReport:
         theme: Theme = resolve_theme(page.theme)

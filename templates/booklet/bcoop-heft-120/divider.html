@@ -1,0 +1,6 @@
+{# Zwischenblatt in der Balkenfarbe des Themas, z. B. zwischen Projekten und Ideen #}
+<div class="bleed plate"></div>
+<div class="divider-block">
+  <h1 class="divider-heading heading-theme">{{ page.heading or page.theme.label }}</h1>
+  {% if page.body_html %}<div class="body">{{ page.body_html }}</div>{% endif %}
+</div>

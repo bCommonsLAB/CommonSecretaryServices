@@ -1,0 +1,7 @@
+{# Rückseite: dunkle Themenfarbe (bei Marke das b*coop-Blau), heller Text, QR unten rechts #}
+<div class="bleed plate-dark"></div>
+<div class="back-block">
+  {% if page.heading %}<h1 class="heading body-light">{{ page.heading }}</h1>{% endif %}
+  {% if page.body_html %}<div class="body body-light">{{ page.body_html }}</div>{% endif %}
+  {% if page.qr_svg %}<div class="qr qr-back">{{ page.qr_svg }}</div>{% endif %}
+</div>

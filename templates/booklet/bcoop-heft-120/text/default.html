@@ -1,0 +1,6 @@
+{# Textseite: Überschrift und Markdown-Fließtext im Satzspiegel, optional QR unten rechts #}
+<div class="content-text">
+  {% if page.heading %}<h1 class="heading">{{ page.heading }}</h1>{% endif %}
+  {% if page.body_html %}<div class="body">{{ page.body_html }}</div>{% endif %}
+</div>
+{% if page.qr_svg %}<div class="qr qr-corner">{{ page.qr_svg }}</div>{% endif %}

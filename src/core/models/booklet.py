@@ -274,6 +274,8 @@ class BookletResult:
     images: List[BookletImageReport] = field(default_factory=list)
     pdf_file: Optional[str] = None
     assets: List[str] = field(default_factory=list)
+    # Prüfbericht des PDF (Seitenzahl, Maße, Schriften, Bild-ppi), gesetzt in Stufe pdf
+    pdf: Optional[Dict[str, Any]] = None
 
     @property
     def summary(self) -> Dict[str, int]:
@@ -292,5 +294,6 @@ class BookletResult:
             "images": [r.to_dict() for r in self.images],
             "summary": self.summary,
             "pdf_file": self.pdf_file,
+            "pdf": self.pdf,
             "assets": list(self.assets),
         }

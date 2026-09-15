@@ -1,0 +1,214 @@
+/*
+ * b*coop Projektheft, 120 x 120 mm, randlos mit 3 mm Beschnitt.
+ * Maße nach der Figma-Schablone bcoop-buechlein und Irmis Layout v3:
+ * Foto 0 bis 55 mm, Akzentlinie 0,5 mm, Balken 8 mm, Kopfzone 10,75 mm,
+ * Satzspiegel 10 mm, Fließtext 3,3 mm bei 138 %, Titel 6 mm bei 100 %.
+ *
+ * Alles, was in den Beschnitt laufen soll, ist um -3 mm versetzt und 126 mm breit.
+ * WeasyPrint setzt aus `size` und `bleed` MediaBox, BleedBox und TrimBox selbst.
+ *
+ * Schrift: Jost (SIL Open Font License) als Platzhalter für Ageo. Zum Tausch die
+ * TTF-Dateien in fonts/ ersetzen und die @font-face-Regeln anpassen.
+ */
+
+@font-face {
+  font-family: "Heft";
+  src: url("fonts/Jost-Regular.ttf");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Heft";
+  src: url("fonts/Jost-Bold.ttf");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@page {
+  size: 120mm 120mm;
+  margin: 0;
+  bleed: 3mm;
+}
+
+html {
+  font-family: "Heft", "DejaVu Sans", sans-serif;
+  color: #3a4a55;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  font-size: 9.35pt;        /* 3,3 mm */
+  line-height: 1.38;
+}
+
+body { margin: 0; }
+
+.page {
+  position: relative;
+  width: 120mm;
+  height: 120mm;
+  overflow: visible;
+  page-break-after: always;
+  background: #ffffff;
+}
+.page:last-child { page-break-after: auto; }
+
+/* ---------------------------------------------------------------- Flächen im Beschnitt */
+.bleed {
+  position: absolute;
+  top: -3mm; left: -3mm;
+  width: 126mm; height: 126mm;
+}
+.photo {
+  position: absolute;
+  top: -3mm; left: -3mm;
+  width: 126mm; height: 58mm;
+  object-fit: cover;
+  display: block;
+}
+.accent {
+  position: absolute;
+  top: 55mm; left: -3mm;
+  width: 126mm; height: 0.5mm;
+}
+.bar {
+  position: absolute;
+  top: 55.5mm; left: -3mm;
+  width: 126mm; height: 8mm;
+}
+.bar .category {
+  position: absolute;
+  left: 13mm; top: 2.55mm;          /* 10 mm Satzspiegel + 3 mm Beschnitt */
+  font-size: 7pt;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.bar .brand {
+  position: absolute;
+  right: 13mm; top: 1mm;
+  height: 6mm;
+  line-height: 6mm;
+  padding: 0 2mm;
+  background: #ffffff;
+  border: 0.25mm solid;
+  font-size: 7.5pt;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- Projektseite */
+.content {
+  position: absolute;
+  left: 10mm; right: 10mm;
+  top: 69mm;                        /* Balkenunterkante 63,5 mm + 5,5 mm */
+  bottom: 10mm;
+}
+.head {
+  display: flex;
+  height: 10.75mm;                  /* gleich der QR-Kante; der Titel ist unten verankert */
+  align-items: flex-end;
+  justify-content: space-between;
+  overflow: visible;
+}
+.title {
+  margin: 0;
+  padding-right: 3mm;
+  font-size: 17pt;                  /* 6 mm */
+  line-height: 1;
+  font-weight: 700;
+  color: #1c2d3a;
+  hyphens: manual;
+}
+.qr {
+  flex: none;
+  align-self: flex-start;
+  width: 10.75mm; height: 10.75mm;
+}
+.qr svg { width: 100%; height: 100%; display: block; }
+.text {
+  margin: 2.5mm 0 0 0;
+  text-align: left;
+}
+.text.too-long { color: #b22222; }
+
+/* ---------------------------------------------------------------- Umschlag */
+.photo-cover { height: 81mm; }      /* 78 mm sichtbar + 3 mm Beschnitt */
+.cover-block {
+  position: absolute;
+  left: 10mm; right: 10mm; top: 86mm; bottom: 10mm;
+}
+.cover-kicker {
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 2mm;
+}
+.cover-title {
+  margin: 0;
+  font-size: 20pt;
+  line-height: 1.05;
+  font-weight: 700;
+  color: #1c2d3a;
+  hyphens: manual;
+}
+.cover-subtitle {
+  margin: 2mm 0 0 0;
+  font-size: 10pt;
+}
+
+/* ---------------------------------------------------------------- Zwischenblatt */
+.divider-block {
+  position: absolute;
+  left: 10mm; right: 10mm; top: 42mm; bottom: 10mm;
+}
+.divider-heading {
+  margin: 0;
+  font-size: 26pt;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  hyphens: manual;
+}
+.divider-block .body { margin-top: 4mm; }
+
+/* ---------------------------------------------------------------- Textseiten */
+.content-text {
+  position: absolute;
+  left: 10mm; right: 10mm; top: 14mm; bottom: 12mm;
+  overflow: hidden;
+}
+.heading {
+  margin: 0 0 3mm 0;
+  font-size: 14pt;
+  line-height: 1.1;
+  font-weight: 700;
+  color: #1c2d3a;
+  hyphens: manual;
+}
+.body p { margin: 0 0 2.2mm 0; }
+.body p:last-child { margin-bottom: 0; }
+.body ul, .body ol { margin: 0 0 2.2mm 4mm; padding: 0; }
+.body a { color: inherit; text-decoration: none; }
+.body strong { font-weight: 700; }
+.text-impressum .content-text { font-size: 7.5pt; line-height: 1.35; }
+.text-impressum .heading { font-size: 10pt; }
+.qr-corner {
+  position: absolute;
+  right: 10mm; bottom: 10mm;
+}
+
+/* ---------------------------------------------------------------- Rückseite */
+.back-block {
+  position: absolute;
+  left: 10mm; right: 10mm; top: 14mm; bottom: 10mm;
+}
+.body-light { color: #ffffff; }
+.qr-back {
+  position: absolute;
+  right: 0; bottom: 0;
+  padding: 1mm;
+  background: #ffffff;
+  width: 12.75mm; height: 12.75mm;
+  box-sizing: border-box;
+}

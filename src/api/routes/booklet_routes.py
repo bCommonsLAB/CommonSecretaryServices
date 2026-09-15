@@ -119,6 +119,7 @@ job_created_model = booklet_ns.model("BookletJobCreated", {
         "job_id": fields.String(description="ID des angelegten Jobs"),
         "status_url": fields.String(description="Statusabfrage: GET /api/jobs/<job_id>"),
         "assets_url": fields.String(description="Download-Basis: GET /api/booklet/jobs/<job_id>/assets/<datei>"),
+        "pdf_url": fields.String(description="Download des fertigen Hefts, sobald der Job abgeschlossen ist"),
         "page_count": fields.Integer(),
         "image_pages": fields.Integer(description="Seiten mit Bildplatz (cover, project)"),
     })),
@@ -140,9 +141,10 @@ class BookletJobsEndpoint(Resource):
     @booklet_ns.doc(description=(
         "Validiert die Seitenliste gegen das Booklet-Schema und legt einen Job vom Typ `booklet` an. "
         "Der Worker bereitet die Fotos auf (Ausschnitt nach Fokuspunkt, Duoton je Thema, Wasserzeichen "
-        "unter 220 dpi) und legt je Seite eine JPEG-Datei sowie report.json ab. "
+        "unter 220 dpi), füllt das Template und setzt heft.pdf (120 × 120 mm, 3 mm Beschnitt, sRGB, "
+        "Schriften eingebettet, Seitenzahl auf ein Vielfaches von 4 aufgefüllt). "
         "Status und Ergebnis: GET /api/jobs/{job_id}. Dateien: GET /api/booklet/jobs/{job_id}/assets/{datei}."
-    ))
+))
     def post(self) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
         """Booklet-Job anlegen"""
         data = request.get_json(silent=True)
@@ -166,6 +168,7 @@ class BookletJobsEndpoint(Resource):
                 "job_id": job_id,
                 "status_url": f"/api/jobs/{job_id}",
                 "assets_url": f"/api/booklet/jobs/{job_id}/assets/",
+                "pdf_url": f"/api/booklet/jobs/{job_id}/assets/heft.pdf",
                 "page_count": len(booklet.pages),
                 "image_pages": sum(1 for p in booklet.pages if p.has_image_slot),
             },

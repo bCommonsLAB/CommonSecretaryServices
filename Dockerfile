@@ -7,6 +7,11 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     poppler-utils \
     python3-pip \
+    # WeasyPrint (job_type booklet): Pango, HarfBuzz-Subsetting, Fallback-Schrift
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz-subset0 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Arbeitsverzeichnis setzen

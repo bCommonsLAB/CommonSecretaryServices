@@ -32,6 +32,16 @@ class _FakeRepo:
         return True
 
 
+def _weasyprint_available() -> bool:
+    try:
+        from weasyprint import HTML  # type: ignore
+        HTML(string="<p>x</p>").write_pdf()
+        return True
+    except Exception:
+        return False
+
+
+@unittest.skipUnless(_weasyprint_available(), "WeasyPrint/Pango nicht verfügbar")
 class TestBookletHandler(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -71,7 +81,11 @@ class TestBookletHandler(unittest.TestCase):
         self.assertIn("report.json", results["assets"])
         self.assertTrue(Path(results["asset_dir"]).is_dir())
         structured = results["structured_data"]
-        self.assertEqual(structured["stage"], "images")
+        self.assertEqual(structured["stage"], "pdf")
+        self.assertIn("heft.pdf", results["assets"])
+        self.assertTrue((Path(results["asset_dir"]) / "heft.pdf").is_file())
+        self.assertEqual(structured["pdf"]["page_count"], 4)
+        self.assertTrue(structured["pdf"]["page_count_ok"])
         self.assertEqual(structured["page_count"], 2)
         self.assertEqual(structured["images"][0]["status"], "ready")
         self.assertEqual(structured["images"][0]["theme"], "zusammenhalt")

@@ -1,9 +1,10 @@
 # Booklet API Endpoints
 
 Endpoints for the b*coop **Projektheft**: a 120 × 120 mm booklet generated from
-a list of pages. Stage 1 (available) prepares the photos: crop around a focus
-point, duotone in the theme colours, watermark when the photo is too small for
-print. Stage 2 (planned) renders the PDF with WeasyPrint from the same job.
+a list of pages. One job does both stages: it prepares the photos (crop around a
+focus point, duotone in the theme colours, watermark when the photo is too small
+for print) and renders `heft.pdf` with WeasyPrint from the Jinja2 template set
+in `templates/booklet/<template>/`.
 
 The work runs asynchronously in the Secretary Job Worker as job type `booklet`.
 Status and results are read through the generic [Jobs API](jobs.md).
@@ -86,6 +87,7 @@ curl -X POST "https://secretaryservices.bcommonslab.org/api/booklet/jobs" \
     "job_id": "job-3f0c...",
     "status_url": "/api/jobs/job-3f0c...",
     "assets_url": "/api/booklet/jobs/job-3f0c.../assets/",
+    "pdf_url": "/api/booklet/jobs/job-3f0c.../assets/heft.pdf",
     "page_count": 4,
     "image_pages": 2
   }
@@ -111,10 +113,28 @@ Poll `GET /api/jobs/{job_id}` until `status` is `completed` or `failed`.
 | Field | Description |
 |-------|-------------|
 | `asset_dir` | Work directory of the job on the server |
-| `assets` | File names relative to the work directory: `images/<page-id>.jpg` per image page, `report.json` |
-| `structured_data.stage` | `images` after stage 1, `pdf` after stage 2 |
+| `assets` | File names relative to the work directory: `images/<page-id>.jpg` per image page, `report.json`, `heft.pdf` |
+| `structured_data.stage` | `pdf` when the booklet was rendered (`images` only if rendering was skipped) |
 | `structured_data.summary` | Counts per status: `ready`, `borderline`, `not-ready`, `missing`, `error` |
 | `structured_data.images[]` | Per page: `page_id`, `status`, `dpi`, `source_width/height`, `crop`, `output_width/height`, `file`, `warnings` |
+| `structured_data.pdf` | Check report of the PDF, see below |
+
+### PDF check report
+
+`structured_data.pdf` is written after rendering and is what you would read
+from `pdfimages -list` and `pdffonts`:
+
+| Field | Description |
+|-------|-------------|
+| `page_count`, `page_count_ok` | Number of pages; `true` when it is a multiple of 4 (saddle stitch) |
+| `media_mm`, `trim_mm` | Page size with bleed (126 × 126) and trim size (120 × 120) |
+| `fonts_embedded` | Font names with subset prefix, e.g. `ABCDEF+Jost-Bold` |
+| `fonts_not_embedded` | Should be empty |
+| `min_image_ppi` | Smallest effective image resolution in the PDF |
+| `pages[]` | Per page: `media_mm`, `trim_mm`, `images[] {pixels, box_mm, ppi}` |
+
+Blank pages are inserted before the back matter (trailing `text` and `back`
+pages) so that imprint and back cover stay at the end.
 
 ### Image status
 
@@ -131,7 +151,14 @@ proof so that a larger original gets uploaded.
 
 ## GET /api/booklet/jobs/{job_id}/assets/{filename}
 
-Downloads one produced file, e.g. `images/abc123.jpg` or `report.json`.
+Downloads one produced file: `heft.pdf`, `images/abc123.jpg`, `report.json` or
+`heft.html` (the rendered HTML, useful for template work).
+
+```bash
+curl -o heft.pdf \
+  -H "Authorization: Bearer $SECRETARY_SERVICE_API_KEY" \
+  "https://secretaryservices.bcommonslab.org/api/booklet/jobs/job-3f0c.../assets/heft.pdf"
+```
 
 ```bash
 curl -o abc123.jpg \
@@ -183,6 +210,32 @@ The JSON schema (Draft 7) used to validate `POST /api/booklet/jobs`.
    `shadow` to its `light` colour (duotone).
 5. Below 220 dpi the red diagonal band is composited on top.
 6. Saved as JPEG, quality 92, sRGB.
+
+## The PDF
+
+- Page size 120 × 120 mm plus 3 mm bleed on every side; WeasyPrint writes
+  MediaBox and BleedBox (126 × 126 mm) and TrimBox (120 × 120 mm). No crop marks.
+- Colours are sRGB; the print shop converts to CMYK. Ask for a proof.
+- Fonts are embedded as subsets. The template ships Jost (SIL Open Font
+  License) as a stand-in for Ageo; swap the TTF files in
+  `templates/booklet/bcoop-heft-120/fonts/` and the `@font-face` rules in `print.css`.
+- German hyphenation via `hyphens: auto` and `lang="de"` (pyphen).
+- Images are embedded at their prepared resolution (1488 × 685 px for a
+  `ready` photo, which is 300 ppi in the 126 × 58 mm field).
+
+### Templates
+
+`templates/booklet/bcoop-heft-120/` holds `base.html`, `print.css` and one
+partial per page type (`cover.html`, `text/*.html`, `divider.html`,
+`project.html`, `blank.html`, `back.html`). A new page design is a new partial.
+The theme colours in the CSS are generated from `src/processors/booklet/tokens.py`.
+
+### Server requirements
+
+WeasyPrint needs Pango and HarfBuzz: the Dockerfile installs `libpango-1.0-0`,
+`libpangoft2-1.0-0`, `libharfbuzz-subset0` and `fonts-dejavu-core`. Without
+them the job fails with `PDF-Renderer nicht verfügbar`. On Windows set
+`WEASYPRINT_DLL_DIRECTORIES` to a folder with the GTK DLLs for local tests.
 
 ## Notes for the bwiki client
 
