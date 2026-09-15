@@ -30,6 +30,7 @@ Create a new job for asynchronous processing.
 - `pdf`: PDF processing (see [PDF Handler documentation](../../../explanations/async-events/handlers.md))
 - `session`: Session processing
 - `transformer`: Template transformation
+- `booklet`: Projektheft image preparation and PDF (see [Booklet API](booklet.md))
 
 ### Request Example
 

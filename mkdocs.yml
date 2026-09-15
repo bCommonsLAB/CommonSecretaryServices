@@ -59,6 +59,7 @@ nav:
         - Track: reference/api/endpoints/track.md
         - Story: reference/api/endpoints/story.md
         - Jobs: reference/api/endpoints/jobs.md
+        - Booklet: reference/api/endpoints/booklet.md
         - Common: reference/api/endpoints/common.md
       - OpenAPI / Swagger: reference/api/openapi.md
     - Data Models:

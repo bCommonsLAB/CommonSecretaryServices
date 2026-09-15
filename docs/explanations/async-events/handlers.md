@@ -209,6 +209,74 @@ Processes text transformation with templates.
 }
 ```
 
+## Booklet Handler
+
+**Job Type**: `booklet`
+
+Prepares the photos of the b*coop Projektheft (120 × 120 mm booklet). Stage 1
+crops every photo to the 126 × 58 mm photo field around a focus point, tones it
+in the theme's duotone and marks it when it is too small for print. Stage 2
+(planned) renders the PDF. Full endpoint documentation: [Booklet API](../../reference/api/endpoints/booklet.md).
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pages` | Array | Yes | Pages in reading order, each with `type` (`cover`, `text`, `divider`, `project`, `blank`, `back`) |
+| `template` | String | No | Template set (default: `bcoop-heft-120`) |
+| `title` | String | No | Booklet title |
+| `webhook` | Dict | No | `{url, token, jobId}`, called after completion |
+
+Pages of type `cover` and `project` carry `image_url`, `focus {x, y}` and `theme`.
+The parameters are validated against `BOOKLET_PARAMETERS_SCHEMA`
+(`src/core/models/booklet.py`); invalid input fails the job with a `ValidationError`.
+
+### Example
+
+```json
+{
+  "job_type": "booklet",
+  "parameters": {
+    "title": "b*coop Projektheft 2026",
+    "pages": [
+      { "type": "cover", "id": "cover", "title": "b*coop Projektheft", "image_url": "https://.../titel.jpg" },
+      { "type": "project", "id": "abc123", "title": "b*garden", "theme": "natur",
+        "text": "Ein Stück Garten für alle ...", "image_url": "https://.../abc123_print.jpg?sv=...",
+        "focus": { "x": 50, "y": 3 }, "qr_url": "https://wiki.bcommonslab.org/projekte?id=abc123" }
+    ]
+  }
+}
+```
+
+### Progress Steps
+
+1. `initializing` (5%) - Parameters validated
+2. `images` (10-90%) - One step per image page, message names the page and its status
+3. `postprocessing` (95%) - Results stored
+4. `completed` (100%) - Set by the worker
+
+### Results
+
+```json
+{
+  "asset_dir": "cache/booklet/temp/job-3f0c...",
+  "assets": ["images/cover.jpg", "images/abc123.jpg", "report.json"],
+  "structured_data": {
+    "stage": "images",
+    "page_count": 2,
+    "summary": { "ready": 2, "borderline": 0, "not-ready": 0, "missing": 0, "error": 0 },
+    "images": [
+      { "page_id": "abc123", "page_type": "project", "status": "ready", "theme": "natur",
+        "dpi": 806, "source_width": 4000, "source_height": 3000,
+        "crop": { "x": 0, "y": 0, "width": 4000, "height": 1841 },
+        "output_width": 1488, "output_height": 685, "file": "abc123.jpg", "warnings": [] }
+    ]
+  }
+}
+```
+
+Files are downloaded via `GET /api/booklet/jobs/<job_id>/assets/<file>`.
+
 ## Creating Custom Handlers
 
 ### 1. Implement Handler Function
