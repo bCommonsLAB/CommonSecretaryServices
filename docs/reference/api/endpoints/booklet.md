@@ -44,7 +44,7 @@ Validates the page list against the booklet schema and enqueues a job.
 | `subtitle` | String | cover | Subtitle |
 | `heading` | String | text, divider | Heading |
 | `theme` | String | divider, project, cover | `arbeiten`, `natur`, `lernen`, `leben`, `zusammenhalt`, `marke`. bwiki values such as `Natur` are accepted; unknown or empty falls back to `marke` |
-| `text` | String | project | Short text, 400 characters recommended |
+| `text` | String | project | Short text, 400 characters recommended. Longer text is clipped to the text box; a small red note with the character count appears in the bottom margin of the proof |
 | `markdown` | String | text, back | Body text, Markdown |
 | `image_url` | String | cover, project | Photo, http(s) URL (e.g. Azure SAS URL) or a path readable by the service. Send the print variant when available |
 | `focus` | Object | cover, project | `{x, y}` in percent, where the motif sits. Default 50/50 |

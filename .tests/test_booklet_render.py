@@ -101,6 +101,7 @@ class TestRenderer(unittest.TestCase):
         self.assertIn("<strong>Genossenschaft</strong>", html)
         self.assertIn("<svg", html)  # QR
         self.assertIn("text-impressum", html)
+        self.assertNotIn("note-too-long", html)  # kein Text über 400 Zeichen im Mustersatz
         self.assertEqual(html.count('<section class="page'), 8)  # 7 Seiten + 1 Leerseite
 
     def test_processor_render_pdf_marks_stage(self) -> None:

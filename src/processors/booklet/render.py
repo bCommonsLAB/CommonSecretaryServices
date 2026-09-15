@@ -147,6 +147,8 @@ class BookletRenderer:
                 "subtitle": page.subtitle,
                 "heading": page.heading,
                 "text": text,
+                "text_length": len(text) if text else 0,
+                "text_max_chars": TEXT_MAX_CHARS,
                 "text_too_long": bool(text and len(text) > TEXT_MAX_CHARS),
                 "body_html": _markdown(page.markdown),
                 "image": f"images/{image}" if image else None,
