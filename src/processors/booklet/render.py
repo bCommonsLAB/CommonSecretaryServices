@@ -52,6 +52,10 @@ MM_PER_PT = 25.4 / 72.0
 # Nachspann: alles nach der letzten Seite mit diesen Typen
 CONTENT_TYPES = ("cover", "divider", "project")
 
+# Schreibweisen, unter denen die Standardmarke ankommt; dafür liegt das Logo im Template
+BRAND_NAMES = ("b*coop", "bcoop", "b-coop", "b coop")
+BRAND_LOGO_FILE = "assets/bcoop-logo.svg"
+
 
 def _rgba(hex_color: str, alpha: float) -> str:
     r, g, b = hex_to_rgb(hex_color)
@@ -128,15 +132,27 @@ class BookletRenderer:
             return "text/default.html"
         return f"{page.type}.html"
 
+    def _brand_logo(self) -> Optional[Markup]:
+        """Logo der Standardmarke als Inline-SVG, falls das Template eines mitbringt."""
+        path = self.template_dir / BRAND_LOGO_FILE
+        if not path.is_file():
+            return None
+        return Markup(path.read_text(encoding="utf-8"))
+
     def build_pages(self, request: BookletRequest, images: BookletResult) -> List[Dict[str, Any]]:
         """Seitenkontexte für das Template, inklusive Auffüllen auf ein Vielfaches von 4."""
         files_by_page = {report.page_id: report.file for report in images.images if report.file}
+        brand_logo = self._brand_logo()
         contexts: List[Dict[str, Any]] = []
         for page in request.pages:
             theme = resolve_theme(page.theme)
             text = page.text or None
             css_class = f"text-{page.template or 'default'}" if page.type == "text" else ""
             image = files_by_page.get(page.id)
+            organization = page.organization.name if page.organization and page.organization.name else None
+            is_brand = bool(organization and organization.strip().lower() in BRAND_NAMES)
+            # Projektseiten der Standardmarke und der Umschlag tragen das Logo statt Text
+            show_logo = brand_logo is not None and (is_brand or page.type == "cover")
             contexts.append({
                 "type": page.type,
                 "id": page.id,
@@ -153,7 +169,8 @@ class BookletRenderer:
                 "body_html": _markdown(page.markdown),
                 "image": f"images/{image}" if image else None,
                 "qr_svg": _qr_svg(page.qr_url),
-                "organization": (page.organization.name if page.organization and page.organization.name else None),
+                "organization": organization,
+                "brand_logo_svg": brand_logo if show_logo else None,
             })
         return pad_to_multiple_of_four(contexts)
 

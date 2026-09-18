@@ -101,6 +101,11 @@ class TestRenderer(unittest.TestCase):
         self.assertIn("<strong>Genossenschaft</strong>", html)
         self.assertIn("<svg", html)  # QR
         self.assertIn("text-impressum", html)
+        # b*coop-Seiten und der Umschlag tragen das Logo, kein Text-Kästchen
+        self.assertIn('class="brand-logo"', html)
+        self.assertIn('class="cover-logo"', html)
+        self.assertNotIn('<span class="brand">', html)
+        self.assertIn('fill="#f3a2af"', html)
         self.assertNotIn("note-too-long", html)  # kein Text über 400 Zeichen im Mustersatz
         self.assertEqual(html.count('<section class="page'), 8)  # 7 Seiten + 1 Leerseite
 
