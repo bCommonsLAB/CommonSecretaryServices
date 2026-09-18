@@ -88,12 +88,13 @@ body { margin: 0; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
-/* b*coop-Logo direkt auf dem Balken, ohne Kästchen: so hoch wie der Balken, die Spitze der
-   Sprechblase endet an der Balkenunterkante, rechts bündig mit dem QR-Code (Irmis Layout v3). */
+/* b*coop-Logo direkt auf dem Balken, transparent und ohne Kästchen, rechts bündig mit dem
+   QR-Code. 6 mm hoch und mittig im 8-mm-Balken, dieselbe Proportion wie auf den Projektkarten
+   der Website (24 px im 32-px-Streifen). Irmis v3 zeigt es balkenhoch; Peter wollte es kleiner. */
 .bar .brand-logo {
   position: absolute;
-  right: 13mm; top: 0;
-  height: 8mm; width: 13.84mm;      /* Seitenverhältnis der Sprechblase 830,7 : 480,3 */
+  right: 13mm; top: 1mm;
+  height: 6mm; width: 10.38mm;      /* Seitenverhältnis der Sprechblase 830,7 : 480,3 */
 }
 .brand-logo svg, .cover-logo svg { width: 100%; height: 100%; display: block; }
 /* Andere Organisationen ohne Logo: Name im weißen Kästchen */
