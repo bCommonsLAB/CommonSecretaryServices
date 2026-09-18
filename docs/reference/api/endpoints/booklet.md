@@ -49,7 +49,7 @@ Validates the page list against the booklet schema and enqueues a job.
 | `image_url` | String | cover, project | Photo, http(s) URL (e.g. Azure SAS URL) or a path readable by the service. Send the print variant when available |
 | `focus` | Object | cover, project | `{x, y}` in percent, where the motif sits. Default 50/50 |
 | `qr_url` | String | project, text, back | Target of the QR code |
-| `organization` | Object | project | `{name, logo_url}`, brand on the bar |
+| `organization` | Object | project | `{name, logo_url}`, brand on the bar. For `b*coop` (also `bcoop`) the template's logo is placed on the bar; other names appear as text in a white box |
 | `template` | String | text | Sub-template: `intro`, `outro`, `impressum`, `default` |
 
 ### Example

@@ -1,7 +1,8 @@
 {# Umschlag: Foto im Marken-Duoton oben, Titel und Untertitel unten. Schlichte erste Fassung bis Irmi ein Layout liefert. #}
 {% if page.image %}<img class="photo photo-cover" src="{{ page.image }}" alt="">{% else %}<div class="photo photo-cover plate"></div>{% endif %}
 <div class="cover-block">
-  <div class="cover-kicker heading-theme">{{ page.theme.label }}</div>
+  {% if page.brand_logo_svg %}<div class="cover-logo">{{ page.brand_logo_svg }}</div>
+  {% else %}<div class="cover-kicker heading-theme">{{ page.theme.label }}</div>{% endif %}
   <h1 class="cover-title">{{ page.title }}</h1>
   {% if page.subtitle %}<p class="cover-subtitle">{{ page.subtitle }}</p>{% endif %}
 </div>

@@ -14,6 +14,7 @@ Gerendert von `src/processors/booklet/render.py` mit WeasyPrint.
 | `blank.html` | Leerseite |
 | `back.html` | Rückseite |
 | `fonts/` | Jost Regular und Bold, SIL Open Font License (`OFL.txt`), Platzhalter für Ageo |
+| `assets/bcoop-logo.svg` | b*coop-Logo (Sprechblase, Blau `#6eafc7`, Punkte Rosa `#f3a2af`), Füllfarben als Attribute statt CSS-Klassen, viewBox eng um die Sprechblase. Erscheint auf dem Balken der Projektseiten der Standardmarke und auf dem Umschlag |
 
 Ein neues Partial ist eine Datei. Der Seitentyp `text` wählt `text/<template>.html`,
 fehlt die Datei, gilt `text/default.html`.
