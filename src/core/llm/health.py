@@ -13,6 +13,13 @@ den LLMConfigManager) aufgelöst und geprüft:
                   (provider.health_check(), z. B. GET /models)
 4. credit:        nur OpenRouter — verbleibendes Guthaben (USD) über
                   /api/v1/key bzw. /api/v1/credits
+5. recent_errors: passives Signal aus *echten* Operationen. Die aktive Probe
+                  (z. B. GET /models) kann grün sein, während die eigentliche
+                  Operation (z. B. POST /v1/ocr) mit 401/402/429 scheitert –
+                  etwa wenn das Kontingent eines Modells auf 0 steht
+                  (x-ratelimit-limit-req-minute: 0). Processors melden solche
+                  Fehler über record_operation_result(); sie verschlechtern den
+                  Status, bis eine erfolgreiche Operation sie wieder löscht.
 
 Endpunkte sind teilweise kaskadierend (ein Processor ruft andere auf). Der
 Health-Check pro Endpoint bildet deshalb die *transitive Hülle* der benötigten
@@ -31,6 +38,7 @@ from __future__ import annotations
 
 import time
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -46,6 +54,10 @@ OPENROUTER_CREDIT_LOW_THRESHOLD_USD: float = 5.0
 # Time-to-live (Sekunden) für gecachte Health-Ergebnisse pro Use-Case.
 # Verhindert, dass häufiges Polling die Provider mit Probes überflutet.
 DEFAULT_CACHE_TTL_S: int = 30
+
+# Wie lange (Sekunden) ein echter Operationsfehler den Health-Status prägt,
+# sofern er nicht vorher durch eine erfolgreiche Operation gelöscht wird.
+OPERATION_ERROR_WINDOW_S: int = 15 * 60
 
 # Use-Cases, die ein Processor *direkt* aufruft.
 # (verifiziert über get_provider_for_use_case-Aufrufe im Code)
@@ -91,6 +103,75 @@ _STATUS_ORDER: Dict[str, int] = {
 def _now_iso() -> str:
     """Aktueller UTC-Zeitstempel als ISO-8601-String."""
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------------------------------------------------------------------- #
+# Passives Signal: letzte Fehler echter Operationen pro Use-Case          #
+# ---------------------------------------------------------------------- #
+# use_case_value -> {"at": epoch, "status": str, "http_status": int|None, ...}
+_operation_errors: Dict[str, Dict[str, Any]] = {}
+_operation_errors_lock = threading.Lock()
+
+
+def classify_operation_error(
+    http_status: Optional[int], headers: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Bewertet einen HTTP-Fehler einer echten Provider-Operation.
+
+    Returns:
+        "unavailable" für dauerhafte Fehler (Auth, Zahlung, Kontingent = 0),
+        sonst "degraded" (z. B. temporäres Rate-Limit, 5xx).
+    """
+    if http_status in (401, 402, 403):
+        return "unavailable"
+    if http_status == 429:
+        hdrs = {str(k).lower(): v for k, v in (headers or {}).items()}
+        for key in ("x-ratelimit-limit-req-minute", "x-ratelimit-limit-requests"):
+            if str(hdrs.get(key, "")).strip() == "0":
+                # Limit selbst ist 0 -> kein Burst, sondern kein Kontingent.
+                return "unavailable"
+        return "degraded"
+    return "degraded"
+
+
+def record_operation_result(
+    use_case: Union[UseCase, str],
+    ok: bool,
+    http_status: Optional[int] = None,
+    detail: str = "",
+    headers: Optional[Dict[str, Any]] = None,
+) -> None:
+    """
+    Meldet das Ergebnis einer echten Provider-Operation an den Health-Check.
+
+    Erfolg löscht einen gemerkten Fehler; ein Fehler bleibt für
+    OPERATION_ERROR_WINDOW_S Sekunden im Health-Status sichtbar.
+    """
+    key = use_case.value if isinstance(use_case, UseCase) else str(use_case)
+    with _operation_errors_lock:
+        if ok:
+            _operation_errors.pop(key, None)
+            return
+        _operation_errors[key] = {
+            "at": time.time(),
+            "occurred_at": _now_iso(),
+            "status": classify_operation_error(http_status, headers),
+            "http_status": http_status,
+            "detail": detail[:300],
+        }
+
+
+def _recent_operation_error(use_case_value: str) -> Optional[Dict[str, Any]]:
+    """Liefert den letzten, noch gültigen Operationsfehler eines Use-Cases."""
+    with _operation_errors_lock:
+        err = _operation_errors.get(use_case_value)
+        if err is None:
+            return None
+        if time.time() - err["at"] > OPERATION_ERROR_WINDOW_S:
+            _operation_errors.pop(use_case_value, None)
+            return None
+        return {k: v for k, v in err.items() if k != "at"}
 
 
 class LLMHealthService:
@@ -164,14 +245,38 @@ class LLMHealthService:
         key = uc.value
         now = time.time()
 
+        result: Optional[Dict[str, Any]] = None
         if use_cache and key in self._cache:
             expires_at, cached = self._cache[key]
             if now < expires_at:
-                return cached
+                result = cached
 
-        result = self._check_use_case_uncached(uc)
-        self._cache[key] = (now + self._cache_ttl_s, result)
-        return result
+        if result is None:
+            result = self._check_use_case_uncached(uc)
+            self._cache[key] = (now + self._cache_ttl_s, result)
+
+        # Passives Signal außerhalb des Caches anwenden, damit ein frischer
+        # Operationsfehler sofort sichtbar ist (und ein Erfolg ihn sofort löscht).
+        return self._apply_operation_error(result, key)
+
+    def _apply_operation_error(
+        self, result: Dict[str, Any], use_case_value: str
+    ) -> Dict[str, Any]:
+        """Verschlechtert den Status, falls echte Operationen zuletzt scheiterten."""
+        err = _recent_operation_error(use_case_value)
+        if err is None:
+            return result
+        merged = dict(result)
+        merged["checks"] = dict(result.get("checks") or {})
+        merged["checks"]["recent_errors"] = err
+        new_status = self._worse(result.get("status", "unknown"), err["status"])
+        if new_status != result.get("status"):
+            merged["status"] = new_status
+            merged["detail"] = (
+                f"Letzte echte Operation fehlgeschlagen "
+                f"(HTTP {err.get('http_status')}): {err.get('detail')}"
+            )
+        return merged
 
     def _check_use_case_uncached(self, uc: UseCase) -> Dict[str, Any]:
         cfg = LLMConfigManager()
