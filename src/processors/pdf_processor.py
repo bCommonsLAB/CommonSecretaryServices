@@ -76,6 +76,7 @@ from src.core.models.enums import ProcessingStatus
 from src.utils.image2text_utils import Image2TextService
 from src.core.llm import LLMConfigManager, UseCase
 from src.core.llm.ocr_cost import estimate_mistral_ocr_cost, extract_mistral_ocr_pages
+from src.core.llm.health import record_operation_result
 from src.core.models.llm import LLMRequest
 
 # Konstanten für Processor-Typen
@@ -584,6 +585,12 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
             response_size=len(up_resp.content) if up_resp.content else 0
         )
         
+        if up_resp.status_code >= 400:
+            record_operation_result(
+                UseCase.OCR_PDF, ok=False, http_status=up_resp.status_code,
+                detail=f"Mistral Files-Upload: {up_resp.text[:200]}",
+                headers=dict(up_resp.headers),
+            )
         up_resp.raise_for_status()
         up_json: Dict[str, Any] = up_resp.json() if up_resp.headers.get('content-type','').startswith('application/json') else {}
         file_id: str = str(up_json.get("id") or up_json.get("file_id") or "")
@@ -663,7 +670,14 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 f"Mistral-OCR: HTTP Fehler {ocr_resp.status_code}",
                 **ocr_error_details
             )
-        
+            record_operation_result(
+                UseCase.OCR_PDF, ok=False, http_status=ocr_resp.status_code,
+                detail=f"Mistral OCR: {ocr_resp.text[:200]}",
+                headers=dict(ocr_resp.headers),
+            )
+        else:
+            record_operation_result(UseCase.OCR_PDF, ok=True)
+
         ocr_resp.raise_for_status()
         self.logger.info(
             "Mistral-OCR: OCR-Antwort empfangen",
