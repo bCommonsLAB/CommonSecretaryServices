@@ -113,18 +113,42 @@ _operation_errors: Dict[str, Dict[str, Any]] = {}
 _operation_errors_lock = threading.Lock()
 
 
+# Textmuster, an denen ein abgeschaltetes/unbekanntes Modell erkannt wird
+# (Provider antworten dann meist mit 400/404/410).
+_MODEL_GONE_MARKERS: Tuple[str, ...] = (
+    "invalid model",
+    "model not found",
+    "unknown model",
+    "no such model",
+    "does not exist",
+    "deprecated",
+    "retired",
+    "decommissioned",
+    "not available",
+    "not supported",
+)
+
+
 def classify_operation_error(
-    http_status: Optional[int], headers: Optional[Dict[str, Any]] = None
+    http_status: Optional[int],
+    headers: Optional[Dict[str, Any]] = None,
+    body: str = "",
 ) -> str:
     """
     Bewertet einen HTTP-Fehler einer echten Provider-Operation.
 
     Returns:
-        "unavailable" für dauerhafte Fehler (Auth, Zahlung, Kontingent = 0),
-        sonst "degraded" (z. B. temporäres Rate-Limit, 5xx).
+        "unavailable" für dauerhafte Fehler (Auth, Zahlung, Kontingent = 0,
+        abgeschaltetes/unbekanntes Modell), sonst "degraded" (z. B.
+        temporäres Rate-Limit, 5xx).
     """
-    if http_status in (401, 402, 403):
+    if http_status in (401, 402, 403, 410):
         return "unavailable"
+    if http_status in (400, 404):
+        text = (body or "").lower()
+        if "model" in text and any(m in text for m in _MODEL_GONE_MARKERS):
+            return "unavailable"
+        return "degraded"
     if http_status == 429:
         hdrs = {str(k).lower(): v for k, v in (headers or {}).items()}
         for key in ("x-ratelimit-limit-req-minute", "x-ratelimit-limit-requests"):
@@ -156,7 +180,7 @@ def record_operation_result(
         _operation_errors[key] = {
             "at": time.time(),
             "occurred_at": _now_iso(),
-            "status": classify_operation_error(http_status, headers),
+            "status": classify_operation_error(http_status, headers, detail),
             "http_status": http_status,
             "detail": detail[:300],
         }
