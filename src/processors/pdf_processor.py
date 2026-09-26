@@ -460,6 +460,60 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 pass
         return ext
 
+    @staticmethod
+    def _mistral_ocr_http_error(resp: Any, model: str) -> ProcessingError:
+        """
+        Baut aus einer Mistral-Fehlerantwort eine ProcessingError mit
+        verständlicher Meldung und strukturierten Details (landen im
+        Error-Webhook an den Client und im Job-Dokument).
+        """
+        status = int(getattr(resp, "status_code", 0) or 0)
+        headers: Dict[str, Any] = dict(getattr(resp, "headers", {}) or {})
+        hdrs_lower = {str(k).lower(): str(v) for k, v in headers.items()}
+        api_message = ""
+        api_type = ""
+        try:
+            body_json: Any = resp.json()
+            if isinstance(body_json, dict):
+                body_dict = cast(Dict[str, Any], body_json)
+                api_message = str(body_dict.get("message") or "")
+                api_type = str(body_dict.get("type") or "")
+        except Exception:
+            api_message = str(getattr(resp, "text", "") or "")[:200]
+
+        limit_minute = hdrs_lower.get("x-ratelimit-limit-req-minute")
+        hint = ""
+        if status == 429 and limit_minute == "0":
+            hint = (
+                "Das Mistral-Kontingent für dieses Modell ist 0 (kein Burst-Limit) – "
+                "Account/Billing/Limits in der Mistral-Console prüfen."
+            )
+        elif status == 429:
+            hint = "Mistral-Rate-Limit erreicht – später erneut versuchen."
+        elif status in (401, 403):
+            hint = "MISTRAL_API_KEY ungültig oder ohne Berechtigung."
+        elif status == 402:
+            hint = "Mistral-Guthaben/Zahlungsmethode fehlt."
+        elif status == 400 and "model" in api_message.lower():
+            hint = f"Modell '{model}' wird von der OCR-API nicht akzeptiert."
+
+        message = f"Mistral OCR fehlgeschlagen (HTTP {status}): {api_message or api_type or 'unbekannter Fehler'}"
+        if hint:
+            message = f"{message} – {hint}"
+        return ProcessingError(
+            message,
+            details={
+                "provider": "mistral",
+                "model": model,
+                "http_status": status,
+                "api_error_type": api_type,
+                "api_message": api_message,
+                "ratelimit_limit_req_minute": limit_minute,
+                "ratelimit_remaining_req_minute": hdrs_lower.get("x-ratelimit-remaining-req-minute"),
+                "correlation_id": hdrs_lower.get("mistral-correlation-id"),
+            },
+        )
+
     def _resolve_mistral_ocr_api_model(self) -> str:
         """
         Modell-ID für die Mistral Document-OCR API (POST /v1/ocr).
@@ -683,10 +737,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 detail=f"Mistral OCR: {ocr_resp.text[:200]}",
                 headers=dict(ocr_resp.headers),
             )
-        else:
-            record_operation_result(UseCase.OCR_PDF, ok=True)
+            raise self._mistral_ocr_http_error(ocr_resp, ocr_model)
 
-        ocr_resp.raise_for_status()
+        record_operation_result(UseCase.OCR_PDF, ok=True)
         self.logger.info(
             "Mistral-OCR: OCR-Antwort empfangen",
             progress=75,
@@ -940,9 +993,20 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 include_high_res=include_high_res_pages
             )
         
-        # Warte auf beide Tasks
+        # Warte auf beide Tasks. Scheitert einer, wird der andere abgebrochen:
+        # asyncio.gather lässt den zweiten sonst weiterlaufen, und dessen
+        # Fortschritts-Logs gehen nach dem Fehler noch als "running" an den Client.
         if pages_task:
-            ocr_result, pages_result = await asyncio.gather(ocr_task, pages_task)
+            ocr_fut = asyncio.ensure_future(ocr_task)
+            pages_fut = asyncio.ensure_future(pages_task)
+            try:
+                ocr_result, pages_result = await asyncio.gather(ocr_fut, pages_fut)
+            except BaseException:
+                for fut in (ocr_fut, pages_fut):
+                    if not fut.done():
+                        fut.cancel()
+                await asyncio.gather(ocr_fut, pages_fut, return_exceptions=True)
+                raise
             preview_paths, zip_path_local = pages_result
         else:
             ocr_result = await ocr_task
