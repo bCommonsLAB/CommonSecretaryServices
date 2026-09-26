@@ -42,6 +42,15 @@ def test_classify_zero_quota_429_is_unavailable() -> None:
     assert classify_operation_error(503) == "degraded"
 
 
+def test_classify_retired_or_unknown_model_is_unavailable() -> None:
+    body = '{"object":"error","message":"Invalid model: mistral-ocr-2512","type":"invalid_model"}'
+    assert classify_operation_error(400, body=body) == "unavailable"
+    assert classify_operation_error(404, body="Model not found") == "unavailable"
+    assert classify_operation_error(410) == "unavailable"
+    # Sonstiger 400 (z. B. kaputtes PDF) ist kein Modellproblem.
+    assert classify_operation_error(400, body='{"message":"Invalid document"}') == "degraded"
+
+
 def test_recent_error_overrides_green_probe_and_cache() -> None:
     svc = _service_with_healthy_probe()
     assert svc.check_use_case(UseCase.OCR_PDF)["status"] == "healthy"  # füllt Cache
