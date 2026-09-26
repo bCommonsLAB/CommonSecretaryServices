@@ -470,19 +470,27 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
            (Dashboard / config.yaml / MongoDB wie übrige Use-Cases).
         3. Fallback ``mistral-ocr-latest``.
 
-        Die OCR-API erwartet OCR-Modell-IDs (z. B. ``mistral-ocr-2512``), nicht
+        Die OCR-API erwartet OCR-Modell-IDs (z. B. ``mistral-ocr-latest``), nicht
         zwingend Pixtral/Vision-Chat-Modelle; falsche IDs führen zu API-Fehlern.
+        Ein Provider-Präfix (``mistral/…``, z. B. aus der Katalog-ID) wird
+        entfernt – die API lehnt es mit ``Invalid model`` ab.
         """
         import os as _os
 
-        env_model = (_os.environ.get("MISTRAL_MODEL") or "").strip()
+        def _strip_provider(name: str) -> str:
+            name = name.strip()
+            while name.lower().startswith("mistral/"):
+                name = name[len("mistral/"):].strip()
+            return name
+
+        env_model = _strip_provider(_os.environ.get("MISTRAL_MODEL") or "")
         if env_model:
             return env_model
         try:
             mgr = LLMConfigManager()
             uc = mgr.get_use_case_config(UseCase.OCR_PDF)
             if uc and uc.provider and uc.provider.lower() == "mistral":
-                name = (uc.model or "").strip()
+                name = _strip_provider(uc.model or "")
                 if name:
                     return name
         except Exception as ex:
