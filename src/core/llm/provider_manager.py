@@ -114,15 +114,22 @@ class ProviderManager:
         # Erstelle Cache-Key basierend auf Provider-Name und Base-URL
         cache_key = f"{provider_name}:{base_url or 'default'}"
         
-        if cache_key not in self._providers:
-            self._providers[cache_key] = self.create_provider(
+        # Thread-Sicherheit: Frueher wurde erst mit ``in`` geprueft und dann per
+        # ``[]`` gelesen. Leert ein anderer Thread dazwischen den Cache
+        # (clear_cache() in LLMConfigManager.reload_config()), gab es einen
+        # KeyError. Jetzt wird genau einmal per .get() gelesen; ist der Eintrag
+        # weg, wird der Provider einfach neu erzeugt.
+        provider: Optional[LLMProvider] = self._providers.get(cache_key)
+        if provider is None:
+            provider = self.create_provider(
                 provider_name=provider_name,
                 api_key=api_key,
                 base_url=base_url,
                 **kwargs
             )
+            self._providers[cache_key] = provider
         
-        return self._providers[cache_key]
+        return provider
     
     def get_available_providers(self) -> list[str]:
         """
