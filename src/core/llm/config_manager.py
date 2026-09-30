@@ -21,6 +21,7 @@ from .provider_manager import ProviderManager
 from .protocols import LLMProvider
 from .use_cases import UseCase
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ class LLMConfigManager:
     _provider_manager: ProviderManager
     _model_repo: Optional[Any]
     _use_case_config_repo: Optional[Any]
+    # Lock fuer reload_config(): Der Manager ist ein Singleton, der von allen
+    # Flask-Threads geteilt wird. Ohne Lock loesen N gleichzeitige Requests
+    # N parallele MongoDB-Reloads aus.
+    _reload_lock: threading.Lock
     
     def __new__(cls) -> 'LLMConfigManager':
         """Singleton-Pattern für LLMConfigManager."""
@@ -50,6 +55,7 @@ class LLMConfigManager:
             cls._instance._provider_manager = ProviderManager()
             cls._instance._model_repo = None
             cls._instance._use_case_config_repo = None
+            cls._instance._reload_lock = threading.Lock()
         return cls._instance
     
     def __init__(self) -> None:
@@ -413,12 +419,28 @@ class LLMConfigManager:
         return self._config.use_cases.copy()
     
     def reload_config(self) -> None:
-        """Lädt die Konfiguration neu."""
-        # Setze _config auf None, damit _load_config() die Konfiguration neu lädt
-        self._config = None
-        self._load_config()
-        # Cache leeren, damit neue Provider-Instanzen erstellt werden
-        if hasattr(self._provider_manager, 'clear_cache'):
-            self._provider_manager.clear_cache()
+        """
+        Lädt die Konfiguration neu.
+
+        Thread-Sicherheit: Der Manager ist ein Singleton und wird von allen
+        Request-Threads geteilt. Frueher wurde hier zuerst ``self._config = None``
+        gesetzt und dann aus MongoDB nachgeladen. In diesem Zeitfenster sahen
+        parallele Requests keine Konfiguration, fanden keinen Chat-Provider und
+        fielen aufs Transkriptionsmodell zurueck (Fehler „Chat-Completion Provider
+        nicht verfuegbar", Modell „gpt-transcribe").
+
+        Jetzt baut ``_load_config()`` die neue ``LLMConfig`` vollstaendig auf und
+        weist sie in einem Schritt zu. Parallele Leser sehen bis dahin die alte,
+        gueltige Konfiguration. Siehe docs/analysis/llm_config_reload_race.md.
+        """
+        # Lock: Nur ein Reload zur Zeit. Gleichzeitige Aufrufer warten kurz und
+        # bekommen danach die frisch geladene Konfiguration.
+        with self._reload_lock:
+            # _load_config() ueberschreibt self._config erst am Ende atomar.
+            # Deshalb KEIN self._config = None mehr davor.
+            self._load_config()
+            # Cache leeren, damit neue Provider-Instanzen erstellt werden
+            if hasattr(self._provider_manager, 'clear_cache'):
+                self._provider_manager.clear_cache()
 
 
