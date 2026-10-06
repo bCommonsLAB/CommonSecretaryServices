@@ -45,6 +45,7 @@ Unter `/llm-config`:
 |---|---|
 | Transcription (Audio/Video) | `gpt-transcribe` |
 | Live-Transcription (Realtime/Diktat) | `gpt-live-transcribe` |
+| Diarized Transcription (Datei mit Sprechern) | `gpt-4o-transcribe-diarize` |
 
 ## Was angelegt wird
 
@@ -54,7 +55,7 @@ Unter `/llm-config`:
 | `gpt-live-transcribe` | Live | empfohlen für Sessions; nimmt `keywords`; **ohne** serverseitige Sprechpausen-Erkennung |
 | `gpt-4o-transcribe` | Datei + Live | Vorgänger-Generation; nimmt **keine** `keywords` |
 | `gpt-4o-mini-transcribe` | Datei + Live | günstiger, etwas ungenauer; nimmt **keine** `keywords` |
-| `gpt-4o-transcribe-diarize` | **nur Datei** | Sprecher-Labels; nimmt keinen `prompt` |
+| `gpt-4o-transcribe-diarize` | **nur Datei**, dazu Use-Case `diarized_transcription` | Sprecher-Labels über `/audio/process-diarized`; nimmt keinen `prompt` |
 | `gpt-realtime-whisper` | nur Live | ohne serverseitige Sprechpausen-Erkennung |
 | `whisper-1` | nur Datei | einziges Modell mit Wort-Zeitstempeln und SRT/VTT |
 
@@ -62,6 +63,10 @@ Eine Begriffsliste kennen nur `gpt-transcribe` und `gpt-live-transcribe`. An den
 übrigen Modellen quittiert der Anbieter sie mit `HTTP 400` — im Live-Pfad heisst das:
 gar kein Ticket. Der Dienst lässt das Feld deshalb weg und schreibt eine Warnung ins
 Log, statt die Session zu verlieren.
+
+Für Sprecher-Labels gibt es den eigenen Endpunkt `POST /api/audio/process-diarized`;
+er nimmt das Modell aus dem Use-Case `diarized_transcription` (dritter Eintrag in der
+Maske). Ohne Zuordnung antwortet er mit `503 NO_MODEL_CONFIGURED`.
 
 Sprecher-Labels sind bewusst **nicht** bei den Live-Modellen eingetragen: Der Anbieter
 beschränkt `gpt-4o-transcribe-diarize` auf die Datei-Transkription. Wer Sprecher-Labels

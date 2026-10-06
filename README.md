@@ -85,6 +85,8 @@ Input → Validation → Processing → LLM Structuring → Template Rendering �
 **Available Processors:**
 
 - **Audio Processor** (`/api/audio/process`) - MP3, WAV, M4A transcription
+- **Audio Processor, diarized** (`/api/audio/process-diarized`) - transcription with speaker labels
+- **Transcript** (`/api/transcript/korrekturvorschlag`) - correction suggestions from accompanying texts (suggestions only)
 - **Video Processor** (`/api/video/process`) - MP4, MOV, WebM processing
 - **PDF Processor** (`/api/pdf/process`) - PDF parsing and text extraction
 - **ImageOCR Processor** (`/api/imageocr/process`) - OCR on images (JPG, PNG, WebP)
