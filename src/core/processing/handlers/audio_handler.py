@@ -25,7 +25,9 @@ from src.core.models.enums import ProcessingStatus
 from src.core.llm.transcription_context import TranscriptionContext
 from src.core.models.job_models import Job, JobProgress, JobResults
 from src.core.resource_tracking import ResourceCalculator
+from src.processors.audio_cache_key import MODE_DIARIZED, MODE_PLAIN, VALID_MODES
 from src.processors.audio_processor import AudioProcessor
+from src.processors.diarized_audio_processor import DiarizedAudioProcessor
 
 
 def _is_transcription_error_text(text: Optional[str]) -> bool:
@@ -47,6 +49,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     - source_language, target_language
     - template (optional)
     - transcription_context (optional): { language, languages, prompt, keywords }
+    - mode (optional): 'plain' (Default) oder 'diarized' (Sprecher-Erkennung)
     - use_cache
     - webhook: { url, token, jobId } (optional)
     """
@@ -76,9 +79,19 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     source_info_any: Any = getattr(params, "context", None)
     source_info: Dict[str, Any] = source_info_any if isinstance(source_info_any, dict) else {}
 
+    # Felder, die JobParameters nicht kennt, landen in "extra" (from_dict). Dort liegen
+    # transcription_context und mode — ein getattr auf params allein faende sie nicht.
+    extra_any: Any = getattr(params, "extra", None)
+    extra: Dict[str, Any] = extra_any if isinstance(extra_any, dict) else {}
+
+    mode_any: Any = getattr(params, "mode", None) or extra.get("mode") or MODE_PLAIN
+    mode = str(mode_any)
+    if mode not in VALID_MODES:
+        raise ValueError(f"Unbekannter Audio-Modus im Job: '{mode}' (erlaubt: {', '.join(sorted(VALID_MODES))})")
+
     # Kontext zur Aufnahme (Thema, Begriffe, Sprachen). Eigenes Feld, weil "context"
     # oben die Datei-Metadaten fuers Template meint.
-    context_any: Any = getattr(params, "transcription_context", None)
+    context_any: Any = getattr(params, "transcription_context", None) or extra.get("transcription_context")
     transcription_context: Optional[TranscriptionContext] = None
     if isinstance(context_any, dict):
         keywords_any = context_any.get("keywords")
@@ -134,7 +147,11 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     )
     _post_progress("initializing", 5, "Job initialisiert")
 
-    processor = AudioProcessor(resource_calculator=resource_calculator, process_id=job.job_id)
+    processor = (
+        DiarizedAudioProcessor(resource_calculator=resource_calculator, process_id=job.job_id)
+        if mode == MODE_DIARIZED
+        else AudioProcessor(resource_calculator=resource_calculator, process_id=job.job_id)
+    )
 
     try:
         repo.update_job_status(
@@ -144,15 +161,24 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
         )
         _post_progress("running", 20, "Audio-Verarbeitung gestartet")
 
-        result = await processor.process(
-            audio_source=normalized_path,
-            source_info=source_info,
-            source_language=source_language,
-            target_language=target_language,
-            template=template,
-            use_cache=use_cache,
-            transcription_context=transcription_context,
-        )
+        if mode == MODE_DIARIZED:
+            result = await cast(DiarizedAudioProcessor, processor).process_diarized(
+                audio_source=normalized_path,
+                source_info=source_info,
+                source_language=source_language,
+                use_cache=use_cache,
+                transcription_context=transcription_context,
+            )
+        else:
+            result = await processor.process(
+                audio_source=normalized_path,
+                source_info=source_info,
+                source_language=source_language,
+                target_language=target_language,
+                template=template,
+                use_cache=use_cache,
+                transcription_context=transcription_context,
+            )
 
         status_value = getattr(result, "status", None)
         if status_value == ProcessingStatus.ERROR:
@@ -176,6 +202,9 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
             transcription_any: Any = data_any.get("transcription")
             if isinstance(transcription_any, dict):
                 transcript_text = cast(Optional[str], transcription_any.get("text"))
+            # Sprecher-Weg: output_text traegt die Absaetze mit Praefix (identisch zu transcription.text)
+            if transcript_text is None and isinstance(data_any.get("output_text"), str):
+                transcript_text = cast(str, data_any.get("output_text"))
 
         repo.update_job_status(
             job_id=job.job_id,

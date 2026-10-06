@@ -42,6 +42,7 @@ llm_config = Blueprint('llm_config_dashboard', __name__)
 USE_CASE_LABELS: Dict[str, str] = {
     "transcription": "Transcription (Audio/Video)",
     "live_transcription": "Live Transcription (Realtime/Diktat)",
+    "diarized_transcription": "Diarized Transcription (Datei mit Sprechern)",
     "image2text": "Image2Text (Vision API)",
     "ocr_pdf": "OCR PDF",
     "chat_completion": "Chat Completion & Translation",
@@ -58,6 +59,9 @@ USE_CASE_DEFAULTS: Dict[str, Dict[str, str]] = {
     # dazu eine leere Modellliste — das sieht nach einem Fehler aus, ist aber
     # nur "noch nichts zugeordnet". Live-Transkription kann ohnehin nur OpenAI.
     "live_transcription": {"provider": "openai", "model": "gpt-live-transcribe"},
+    # Sprecher-Erkennung gibt es laut Anbieter nur bei der Datei-Transkription und
+    # nur mit diesem Modell; der Seed traegt es fuer den Use-Case ein.
+    "diarized_transcription": {"provider": "openai", "model": "gpt-4o-transcribe-diarize"},
     "image2text": {"provider": "openai", "model": "gpt-4o"},
     "ocr_pdf": {"provider": "mistral", "model": "pixtral-large-latest"},
     "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},

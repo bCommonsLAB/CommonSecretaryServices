@@ -226,6 +226,8 @@ def _check_service_token() -> ResponseReturnValue | None:
 
 # Importiere Namespaces aus den Modulen
 from .audio_routes import audio_ns
+# Haengt POST /audio/process-diarized an denselben Namespace (Import genuegt)
+from . import audio_diarized_routes  # noqa: F401
 from .video_routes import video_ns
 from .session_routes import session_ns
 from .common_routes import common_ns, SamplesEndpoint, SampleFileEndpoint
@@ -244,6 +246,7 @@ from .image_analyzer_routes import image_analyzer_ns
 from .health_routes import health_ns
 from .realtime_routes import realtime_ns
 from .booklet_routes import booklet_ns
+from .transcript_routes import transcript_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -264,6 +267,7 @@ api.add_namespace(text2image_ns, path='/text2image')  # type: ignore
 api.add_namespace(image_analyzer_ns, path='/image-analyzer')  # type: ignore
 api.add_namespace(health_ns, path='/health')  # type: ignore
 api.add_namespace(realtime_ns, path='/realtime')  # type: ignore
+api.add_namespace(transcript_ns, path='/transcript')  # type: ignore
 
 # Root-Namespace für die API-Root-Seite
 root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ignore

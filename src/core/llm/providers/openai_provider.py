@@ -275,6 +275,85 @@ class OpenAIProvider:
                 details={'error_type': 'TRANSCRIPTION_ERROR', 'duration_ms': duration}
             ) from e
     
+    def transcribe_diarized(
+        self,
+        audio_data: bytes | Path,
+        model: str,
+        context: Optional[TranscriptionContext] = None,
+        chunking_strategy: Any = "auto",
+    ) -> tuple[Any, LLMRequest, List[str]]:
+        """
+        Transkribiert EIN Stueck mit Sprecher-Erkennung (``response_format=diarized_json``).
+
+        Anders als ``transcribe`` gibt es hier keinen Retry auf ``json``: ohne
+        ``diarized_json`` gaebe es keine Sprecher, und genau die sind der Zweck.
+        Der Aufrufer schneidet die Stuecke (hoechstens 25 MB und 1500 s je Anfrage)
+        und liest die Antwort mit ``core.llm.diarization.read_diarized_segments``.
+
+        Args:
+            audio_data: Audio-Daten als Bytes oder Pfad
+            model: Modell aus der Maske (Use-Case ``diarized_transcription``)
+            context: Kontext zur Aufnahme; Sprache geht durch, ``prompt`` und
+                ``keywords`` nimmt das Modell nicht — sie werden gemeldet, nicht
+                verschluckt
+            chunking_strategy: ``"auto"`` (Anbieter schneidet serverseitig an
+                Sprechpausen) oder ein ``server_vad``-Dict; ab 30 s Pflicht
+
+        Returns:
+            (rohe Antwort, LLMRequest, verworfene Kontextfelder)
+        """
+        start_time = time.time()
+        audio_file: Any = None
+        try:
+            if isinstance(audio_data, Path):
+                audio_file = open(audio_data, "rb")
+            else:
+                audio_file = io.BytesIO(audio_data)
+
+            api_params: Dict[str, Any] = {
+                "model": model,
+                "file": ("audio.mp3", audio_file, "audio/mpeg"),
+                "response_format": "diarized_json",
+                "chunking_strategy": chunking_strategy,
+            }
+            applied = build_context_params(model, context or TranscriptionContext())
+            # Nur die Sprache ist hier zulaessig; alles andere hat build_context_params
+            # fuer dieses Modell bereits als verworfen gemeldet.
+            if "language" in applied.params:
+                api_params["language"] = applied.params["language"]
+            for note in applied.dropped:
+                logger.warning(f"Sprecher-Transkription: Kontext verworfen — {note}")
+
+            response: Any = self.client.audio.transcriptions.create(**api_params)
+
+            duration = (time.time() - start_time) * 1000
+            tokens = 0
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                tokens = int(getattr(usage, "total_tokens", 0) or 0)
+            if tokens <= 0:
+                text = getattr(response, "text", "") or ""
+                tokens = max(1, int(len(str(text).split()) * 1.5))
+
+            llm_request = LLMRequest(
+                model=model,
+                purpose="diarized_transcription",
+                tokens=tokens,
+                duration=duration,
+                processor="OpenAIProvider",
+            )
+            return response, llm_request, list(applied.dropped)
+
+        except Exception as e:
+            duration = (time.time() - start_time) * 1000
+            raise ProcessingError(
+                f"Fehler bei der OpenAI-Sprecher-Transkription: {str(e)}",
+                details={"error_type": "TRANSCRIPTION_ERROR", "duration_ms": duration},
+            ) from e
+        finally:
+            if isinstance(audio_data, Path) and audio_file is not None:
+                audio_file.close()
+
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -558,6 +637,8 @@ class OpenAIProvider:
             # Realtime-Session beim gleichen Anbieter (siehe core/llm/realtime_transcription.py).
             # Der Use-Case gehoert trotzdem hierher, damit die Konfigurationsmaske ihn anbietet.
             UseCase.LIVE_TRANSCRIPTION,
+            # Datei-Transkription mit Sprechern (transcribe_diarized).
+            UseCase.DIARIZED_TRANSCRIPTION,
             UseCase.IMAGE2TEXT,
             UseCase.CHAT_COMPLETION,
             UseCase.OCR_PDF

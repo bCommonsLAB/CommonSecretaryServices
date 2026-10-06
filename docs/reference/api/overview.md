@@ -38,8 +38,19 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/audio/process` | Process audio file with transcription and optional template-based transformation (supports async via webhook) |
+| POST | `/api/audio/process-diarized` | Transcription with speaker labels (`diarized_json`, chunks up to 20 min cut at pauses; prompt/keywords reported as dropped) |
 
 **See**: [Audio Endpoints](endpoints/audio.md) for detailed documentation.
+
+### Transcript (text steps on a transcript)
+
+**Namespace**: `/api/transcript`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/transcript/korrekturvorschlag` | Suggest replacements (names, numbers, terms) and speaker-label assignments from accompanying texts; suggestions only, nothing is written |
+
+**See**: [Transcript Endpoints](endpoints/transcript.md) for detailed documentation.
 
 ### Video Processing
 

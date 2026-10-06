@@ -61,6 +61,7 @@ import time
 
 from src.core.models.transformer import TransformerResponse
 from src.core.llm.transcription_context import TranscriptionContext
+from src.processors.audio_cache_key import MODE_PLAIN, build_audio_cache_key_base
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
@@ -620,8 +621,9 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
 
     def _create_cache_key(self, audio_path: str, source_info: Optional[Dict[str, Any]] = None, 
                          target_language: Optional[str] = None, template: Optional[str] = None,
-                         transcription_context: Optional[TranscriptionContext] = None) -> str:
-        """Erstellt einen Cache-Schlüssel basierend auf der Audio-Quelle, Zielsprache und Template.
+                         transcription_context: Optional[TranscriptionContext] = None,
+                         mode: str = MODE_PLAIN) -> str:
+        """Erstellt einen Cache-Schlüssel basierend auf Audio-Quelle, Zielsprache, Template, Kontext und Modus.
         
         Args:
             audio_path: Pfad zur Audio-Datei
@@ -631,66 +633,22 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             transcription_context: Optionaler Kontext zur Aufnahme. Gehoert ZWINGEND in
                 den Schlüssel: anderer Kontext heisst anderes Transkript, sonst käme das
                 Ergebnis eines früheren Laufs zurück.
+            mode: 'plain' (Volltext) oder 'diarized' (mit Sprechern). Der Modus gehoert
+                ebenso zwingend hinein — sonst liefert der Sprecher-Weg das gecachte
+                Ergebnis des normalen Wegs fuer dieselbe Datei.
             
         Returns:
             str: Der generierte Cache-Schlüssel
         """
-        # Bestimme die Basis für den Cache-Key
-        base_key = ""
-        
-        if source_info:
-            video_id = source_info.get('video_id')
-            original_filename = source_info.get('original_filename')
-            
-            if video_id:
-                # Bei Video-ID diese als Basis verwenden
-                base_key = video_id
-            elif original_filename:
-                # Bei Original-Dateinamen diesen als Basis verwenden
-                base_key = original_filename
-            else:
-                # Sonst den Pfad als Basis verwenden
-                file_size = None
-                try:
-                    file_size = Path(audio_path).stat().st_size
-                except:
-                    pass
-                    
-                # Wenn Dateigröße verfügbar, diese mit in den Schlüssel einbeziehen
-                if file_size:
-                    base_key = f"{audio_path}_{file_size}"
-                else:
-                    base_key = audio_path
-        else:
-            # Sonst den Pfad als Basis verwenden
-            file_size = None
-            try:
-                file_size = Path(audio_path).stat().st_size
-            except:
-                pass
-                
-            # Wenn Dateigröße verfügbar, diese mit in den Schlüssel einbeziehen
-            if file_size:
-                base_key = f"{audio_path}_{file_size}"
-            else:
-                base_key = audio_path
-        
-        # Zielsprache hinzufügen, wenn vorhanden
-        if target_language:
-            base_key += f"|lang={target_language}"
-        
-        # Template hinzufügen, wenn vorhanden
-        if template:
-            base_key += f"|template={template}"
-
-        # Kontext hinzufügen, wenn vorhanden (Thema, Begriffe, Sprachen aendern das Ergebnis)
-        if transcription_context is not None and not transcription_context.is_empty:
-            context_fingerprint = json.dumps(transcription_context.to_dict(), sort_keys=True)
-            base_key += f"|context={context_fingerprint}"
-
+        base_key = build_audio_cache_key_base(
+            audio_path=audio_path,
+            source_info=source_info,
+            target_language=target_language,
+            template=template,
+            transcription_context=transcription_context,
+            mode=mode,
+        )
         self.logger.debug(f"Cache-Schlüssel erstellt: {base_key}")
-        
-        # Hash aus dem kombinierten Schlüssel erzeugen
         return self.generate_cache_key(base_key)
 
     def serialize_for_cache(self, result: AudioProcessingResult) -> Dict[str, Any]:
