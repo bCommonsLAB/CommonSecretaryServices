@@ -50,6 +50,12 @@ class TestCatalogue(unittest.TestCase):
         self.assertIn(seed_module.USE_CASE_FILE, diarize.use_cases)
         self.assertNotIn(seed_module.USE_CASE_LIVE, diarize.use_cases)
 
+    def test_diarize_model_is_the_only_one_for_the_diarized_use_case(self) -> None:
+        # Der Sprecher-Weg (/audio/process-diarized) hat einen eigenen Use-Case.
+        with_diarized = [m.name for m in seed_module.MODELS if seed_module.USE_CASE_DIARIZED in m.use_cases]
+
+        self.assertEqual(with_diarized, ["gpt-4o-transcribe-diarize"])
+
     def test_recommended_models_are_present(self) -> None:
         by_name = {m.name: m for m in seed_module.MODELS}
 

@@ -28,6 +28,12 @@ class UseCase(str, Enum):
     # laeuft weiter ueber /audio/process, die Live-Variante braucht ein realtime-faehiges
     # Modell und wird in der LLM-Konfigurationsmaske getrennt zugeordnet.
     LIVE_TRANSCRIPTION = "live_transcription"
+
+    # Datei-Transkription MIT Sprecher-Erkennung (POST /audio/process-diarized). Eigener
+    # Use-Case, weil es ein anderer Vertrag ist: response_format diarized_json, Segmente
+    # mit Sprecher statt einem Volltext, kein Freitext-Kontext. Der Code kennt keinen
+    # Modellnamen — die Maske ordnet zu (Seed: gpt-4o-transcribe-diarize).
+    DIARIZED_TRANSCRIPTION = "diarized_transcription"
     
     # Bild-zu-Text Konvertierung mit Vision API
     IMAGE2TEXT = "image2text"

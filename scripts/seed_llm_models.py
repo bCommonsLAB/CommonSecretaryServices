@@ -36,6 +36,7 @@ PROVIDER = "openai"
 # Use-Case-Namen wie in src/core/llm/use_cases.py
 USE_CASE_FILE = "transcription"
 USE_CASE_LIVE = "live_transcription"
+USE_CASE_DIARIZED = "diarized_transcription"
 
 
 class ModelDefinition(NamedTuple):
@@ -82,7 +83,9 @@ MODELS: List[ModelDefinition] = [
     ),
     ModelDefinition(
         name="gpt-4o-transcribe-diarize",
-        use_cases=[USE_CASE_FILE],
+        # Einziges Modell fuer den Sprecher-Weg (/audio/process-diarized). Bleibt
+        # zusaetzlich beim Datei-Use-Case, falls jemand es dort bewusst waehlt.
+        use_cases=[USE_CASE_FILE, USE_CASE_DIARIZED],
         description="Sprecher-Labels (nur Datei-Transkription, kein Freitext-Kontext)",
         metadata={"diarisierung": True, "prompt": False},
     ),
@@ -202,7 +205,8 @@ def main() -> int:
         print(
             "\nNaechster Schritt: In der LLM-Konfigurationsmaske je Use-Case ein Modell waehlen —\n"
             "  Transcription (Audio/Video)        -> gpt-transcribe\n"
-            "  Live-Transcription (Realtime)      -> gpt-live-transcribe"
+            "  Live-Transcription (Realtime)      -> gpt-live-transcribe\n"
+            "  Diarized Transcription (Sprecher)  -> gpt-4o-transcribe-diarize"
         )
     return 0
 
