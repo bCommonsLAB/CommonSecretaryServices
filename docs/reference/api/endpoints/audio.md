@@ -158,6 +158,25 @@ Beim Sprecher-Weg (`mode=diarized`) schickt der Worker zusätzlich nach jedem
 fertigen Stück ein `phase=progress`. `message` nennt Index, Dauer und Sprecherzahl,
 zum Beispiel `Stück 2/3 transkribiert (1200 s, 4 Sprecher)`.
 
+Solange ein Stück beim Anbieter liegt, kommt alle **120 s** ein Lebenszeichen
+(Heartbeat), ebenfalls als `phase=progress`. `data.progress` bleibt dabei auf dem
+zuletzt gemeldeten Wert; die Meldung nennt die verstrichene Zeit in ganzen Minuten:
+
+```json
+{
+  "phase": "progress",
+  "message": "Stück 1/2 läuft seit 4 min",
+  "job": { "id": "client-job-123" },
+  "data": { "progress": 20 }
+}
+```
+
+Hintergrund: Ein 20-Minuten-Stück darf beim Anbieter bis 900 s dauern
+(`CHUNK_TIMEOUT_SECONDS`). Der Client-Watchdog in KnowledgeScout setzt einen Job
+nach 600 s ohne Callback auf `failed`. Der Heartbeat (`CHUNK_HEARTBEAT_SECONDS`)
+hält den Job in dieser Lücke am Leben. Im Sync-Weg ohne `callback_url` gibt es
+keinen Heartbeat.
+
 ### Webhook Payload (Progress)
 
 ```json
