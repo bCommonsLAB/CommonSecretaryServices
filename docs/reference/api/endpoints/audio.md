@@ -137,10 +137,26 @@ The webhook receives one final message when finished.
   "phase": "completed",
   "message": "Audio-Verarbeitung abgeschlossen",
   "data": {
-    "transcription": { "text": "..." }
+    "transcription": { "text": "..." },
+    "output_text": "..."
   }
 }
 ```
+
+`transcription.text` bleibt. Liegt am Job ein `data`-Block (`structured_data`), kommen
+`output_text` und — nur wenn der Processor sie gesetzt hat — `speakers`, `segments`
+(`speaker`, `start`, `end`, `text`), `dropped_context`, `detected_language`,
+`duration`, `llm_model`, `chunk_count` und `from_cache` flach dazu. Das ist dieselbe
+Form wie die Sync-Antwort von `/audio/process-diarized`.
+
+Fehlt `structured_data` oder `data` darin, bleibt der Payload bei
+`transcription.text`. Es werden keine leeren `speakers`- oder `segments`-Listen
+ergänzt. Am Job steht dann der Log-Eintrag
+`Webhook ohne Sprecherdaten: structured_data fehlt`.
+
+Beim Sprecher-Weg (`mode=diarized`) schickt der Worker zusätzlich nach jedem
+fertigen Stück ein `phase=progress`. `message` nennt Index, Dauer und Sprecherzahl,
+zum Beispiel `Stück 2/3 transkribiert (1200 s, 4 Sprecher)`.
 
 ### Webhook Payload (Progress)
 
@@ -296,7 +312,10 @@ curl -X POST "$SECRETARY_SERVICE_URL/api/audio/process-diarized" \
 
 `output_text` ist Markdown: ein Absatz je Sprecherwechsel, aufeinanderfolgende Segmente
 desselben Sprechers zusammengefasst, Zeitmarken nur in `segments`. Der Webhook
-(`phase=completed`) trägt denselben Text unter `data.transcription.text`.
+(`phase=completed`) trägt denselben Text unter `data.transcription.text` und
+`data.output_text`. Dazu flach, wenn der Lauf sie geliefert hat: `data.speakers`,
+`data.segments` und `data.dropped_context` (dieselben Felder wie in der Sync-Antwort,
+nicht nur unter `transcription`).
 
 ### Fehler
 

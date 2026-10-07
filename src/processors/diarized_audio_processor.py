@@ -13,6 +13,8 @@ Verarbeitet eine Audiodatei fuer ``POST /audio/process-diarized``:
    Stueck eindeutig („Stueck 1 Sprecher A"), Zeiten absolut.
 5. Absaetze mit Praefix je Sprecherwechsel als ``output_text``; ``segments`` und
    ``speakers`` dazu.
+6. Nach jedem fertigen Stueck ein Fortschritt: Log mit Index, Dauer und
+   Sprecherzahl, plus optionaler Callback fuer den Job-Webhook.
 
 Kontext: ``prompt`` und ``keywords`` nimmt das Sprecher-Modell nicht. Sie werden als
 ``dropped_context`` gemeldet, nicht verschluckt. Keine Stimmproben, keine
@@ -26,7 +28,7 @@ Uebersetzung — die Zuordnung ueber Stueckgrenzen macht der Korrektur-Schritt.
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.core.exceptions import ProcessingError
 from src.core.llm.diarization import (
@@ -55,10 +57,25 @@ MAX_REQUEST_BYTES = 25 * 1024 * 1024
 PARALLEL_CHUNKS = 3
 # Ein 20-Minuten-Stueck braucht beim Anbieter mehrere Minuten.
 CHUNK_TIMEOUT_SECONDS = 900.0
+# index (ab 1), Anzahl, Dauer in Sekunden, Zahl verschiedener Labels im Stueck.
+ChunkProgress = Callable[[int, int, float, int], None]
+
 # Sprechpause: mindestens so lang und so viel leiser als der Durchschnitt des Fensters.
 MIN_SILENCE_MS = 600
 SILENCE_BELOW_AVERAGE_DB = 16
 SILENCE_SEEK_STEP_MS = 50
+
+
+def _detected_language(provider: Any, response: Any) -> Optional[str]:
+    """Sprache der Anbieter-Antwort als ISO-Code, oder None wenn sie fehlt."""
+    language: Any = response.get("language") if isinstance(response, dict) else getattr(response, "language", None)
+    if not isinstance(language, str) or not language.strip():
+        return None
+    convert = getattr(provider, "_convert_to_iso_code", None)
+    if not callable(convert):
+        return language
+    converted: Any = convert(language)
+    return converted if isinstance(converted, str) and converted.strip() else language
 
 
 class DiarizedAudioProcessor(AudioProcessor):
@@ -117,6 +134,32 @@ class DiarizedAudioProcessor(AudioProcessor):
             )
         return paths
 
+    def _report_chunk_done(
+        self,
+        plan: ChunkPlan,
+        total: int,
+        chunk_segments: Sequence[SpeakerSegment],
+        on_chunk_done: Optional[ChunkProgress],
+    ) -> None:
+        """Schreibt einen Fortschritt, sobald ein Stueck Text und Labels hat.
+
+        Die Sprecherzahl ist die Zahl verschiedener Labels in diesem Stueck, nicht
+        die Zahl der Segmente. Ein Fehler im Callback bricht die Transkription nicht ab.
+        """
+        duration_s = plan.duration_ms / 1000.0
+        speaker_count = len(collect_speakers(list(chunk_segments)))
+        self.logger.info(
+            f"Stück {plan.index}/{total} transkribiert",
+            duration_s=round(duration_s, 1),
+            speaker_count=speaker_count,
+        )
+        if on_chunk_done is None:
+            return
+        try:
+            on_chunk_done(plan.index, total, duration_s, speaker_count)
+        except Exception as exc:
+            self.logger.warning(f"Fortschritt für Stück {plan.index} nicht gemeldet: {exc}")
+
     async def _transcribe_chunks(
         self,
         provider: Any,
@@ -124,16 +167,32 @@ class DiarizedAudioProcessor(AudioProcessor):
         plans: Sequence[ChunkPlan],
         paths: Sequence[Path],
         context: TranscriptionContext,
+        on_chunk_done: Optional[ChunkProgress] = None,
     ) -> Tuple[List[SpeakerSegment], Optional[str]]:
         """Transkribiert alle Stuecke (bis zu PARALLEL_CHUNKS gleichzeitig), in Reihenfolge."""
         gate = asyncio.Semaphore(PARALLEL_CHUNKS)
+        # Eine Zeile vor der Wartezeit, damit das Log nicht erst nach dem ersten Stueck lebt.
+        self.logger.info(
+            "Sprecher-Transkription gestartet",
+            chunk_count=len(plans),
+            parallel=min(PARALLEL_CHUNKS, len(plans)),
+        )
 
-        async def one(plan: ChunkPlan, path: Path) -> Tuple[Any, Any]:
+        async def one(plan: ChunkPlan, path: Path) -> Tuple[List[SpeakerSegment], Any, Optional[str]]:
             async with gate:
-                return await asyncio.wait_for(
+                response, llm_request, _dropped = await asyncio.wait_for(
                     asyncio.to_thread(provider.transcribe_diarized, path, model, context),
                     timeout=CHUNK_TIMEOUT_SECONDS,
                 )
+            # Lesen vor dem Fortschritt: ohne Segmente gibt es keine Sprecherzahl.
+            chunk_segments = read_diarized_segments(
+                response,
+                chunk_index=plan.index,
+                chunk_count=len(plans),
+                offset_seconds=plan.start_ms / 1000.0,
+            )
+            self._report_chunk_done(plan, len(plans), chunk_segments, on_chunk_done)
+            return chunk_segments, llm_request, _detected_language(provider, response)
 
         try:
             results = await asyncio.gather(*(one(p, f) for p, f in zip(plans, paths)))
@@ -145,19 +204,12 @@ class DiarizedAudioProcessor(AudioProcessor):
 
         segments: List[SpeakerSegment] = []
         detected: Optional[str] = None
-        for plan, (response, llm_request, _dropped) in zip(plans, results):
+        for _plan, (chunk_segments, llm_request, language) in zip(plans, results):
+            # LLM-Requests erst hier, auf dem Job-Thread, nicht aus den parallelen Stuecken.
             self.add_llm_requests([llm_request])
-            segments.extend(
-                read_diarized_segments(
-                    response,
-                    chunk_index=plan.index,
-                    chunk_count=len(plans),
-                    offset_seconds=plan.start_ms / 1000.0,
-                )
-            )
-            language = getattr(response, "language", None) if not isinstance(response, dict) else response.get("language")
+            segments.extend(chunk_segments)
             if isinstance(language, str) and language.strip() and detected is None:
-                detected = provider._convert_to_iso_code(language) if hasattr(provider, "_convert_to_iso_code") else language
+                detected = language
         return segments, detected
 
     def _to_result(
@@ -221,6 +273,7 @@ class DiarizedAudioProcessor(AudioProcessor):
         source_language: Optional[str] = None,
         use_cache: bool = True,
         transcription_context: Optional[TranscriptionContext] = None,
+        on_chunk_done: Optional[ChunkProgress] = None,
     ) -> BaseResponse:
         """
         Transkribiert eine Datei mit Sprecher-Erkennung.
@@ -268,7 +321,9 @@ class DiarizedAudioProcessor(AudioProcessor):
         plans = plan_chunks(len(audio), self._silence_finder(audio))
         paths = self._export_chunks(audio, plans, process_dir)
         try:
-            segments, detected = await self._transcribe_chunks(provider, model, plans, paths, context)
+            segments, detected = await self._transcribe_chunks(
+                provider, model, plans, paths, context, on_chunk_done=on_chunk_done
+            )
         finally:
             for path in paths:
                 self._safe_delete(path)

@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from datetime import datetime, UTC
 
+from src.api.audio_completed_data import MISSING_SPEAKER_DATA_LOG, build_audio_completed_data
 from src.api.sse import format_sse, build_event_from_job, event_type_for_status
 from src.core.models.job_models import (
     Job, JobStatus, JobProgress, JobResults, JobError, JobParameters
@@ -115,7 +116,7 @@ class TestBuildEventFromJob(unittest.TestCase):
         self.assertIn(job.job_id, event["data"]["mistral_ocr_raw_url"])
 
     def test_completed_audio_job_webhook_format(self) -> None:
-        """COMPLETED Audio-Job erzeugt Event mit transcription.text."""
+        """COMPLETED Audio-Job ohne structured_data liefert nur den Text."""
         job = Job()
         job.job_id = "test-job-456"
         job.job_type = "audio"
@@ -123,7 +124,78 @@ class TestBuildEventFromJob(unittest.TestCase):
         job.results = JobResults(markdown_content="Transkribierter Text hier")
         event = build_event_from_job(job)
         self.assertEqual(event["phase"], "completed")
-        self.assertEqual(event["data"]["transcription"]["text"], "Transkribierter Text hier")
+        self.assertEqual(event["data"], {"transcription": {"text": "Transkribierter Text hier"}})
+        self.assertNotIn("speakers", event["data"])
+        self.assertNotIn("segments", event["data"])
+        self.assertNotIn("dropped_context", event["data"])
+
+    def test_completed_diarized_audio_job_includes_speaker_fields(self) -> None:
+        """Sprecherfelder aus structured_data liegen flach im data-Block."""
+        job = Job()
+        job.job_id = "test-job-diar"
+        job.job_type = "audio"
+        job.status = JobStatus.COMPLETED
+        job.results = JobResults(
+            markdown_content="**Stück 1 Sprecher A:** Hallo",
+            structured_data={
+                "status": "success",
+                "data": {
+                    "output_text": "**Stück 1 Sprecher A:** Hallo",
+                    "speakers": ["Stück 1 Sprecher A", "Stück 1 Sprecher B"],
+                    "segments": [
+                        {"speaker": "Stück 1 Sprecher A", "start": 0.0, "end": 1.2, "text": "Hallo"},
+                    ],
+                    "dropped_context": ["prompt: kein Freitext"],
+                    "detected_language": "de",
+                    "duration": 12.0,
+                    "llm_model": "gpt-4o-transcribe-diarize",
+                    "chunk_count": 1,
+                    "from_cache": False,
+                    "transcription": {
+                        "text": "**Stück 1 Sprecher A:** Hallo",
+                        "source_language": "de",
+                        "segments": [{"segment_id": 0, "text": "Hallo"}],
+                    },
+                },
+            },
+        )
+        event = build_event_from_job(job)
+        data = event["data"]
+        self.assertEqual(data["transcription"]["text"], "**Stück 1 Sprecher A:** Hallo")
+        self.assertEqual(data["output_text"], "**Stück 1 Sprecher A:** Hallo")
+        self.assertEqual(data["speakers"], ["Stück 1 Sprecher A", "Stück 1 Sprecher B"])
+        self.assertEqual(data["segments"][0]["speaker"], "Stück 1 Sprecher A")
+        self.assertEqual(data["dropped_context"], ["prompt: kein Freitext"])
+        # Verschachtelte Segmente des Transkripts werden nicht zum Vertrag.
+        self.assertNotIn("segments", data["transcription"])
+
+    def test_builder_does_not_invent_speaker_lists_for_plain_audio(self) -> None:
+        """Normaler Weg: Text und output_text, keine leeren Sprecherlisten."""
+        data = build_audio_completed_data({
+            "data": {
+                "transcription": {
+                    "text": "Hallo",
+                    "segments": [{"text": "Hallo", "start": 0.0, "end": 1.0}],
+                },
+                "metadata": {"duration": 1.0},
+            }
+        })
+        self.assertEqual(data["transcription"]["text"], "Hallo")
+        self.assertEqual(data["output_text"], "Hallo")
+        self.assertNotIn("speakers", data)
+        self.assertNotIn("segments", data)
+        self.assertNotIn("dropped_context", data)
+
+    def test_builder_logs_when_structured_data_is_missing(self) -> None:
+        """Fehlender Block: nur Text, und der Hinweis wird gemeldet."""
+        notes: list[str] = []
+        data = build_audio_completed_data(
+            {"status": "success"},
+            fallback_text="Nur Text",
+            on_missing=notes.append,
+        )
+        self.assertEqual(data, {"transcription": {"text": "Nur Text"}})
+        self.assertEqual(notes, [MISSING_SPEAKER_DATA_LOG])
 
     def test_completed_video_job_webhook_format(self) -> None:
         """COMPLETED Video-Job erzeugt Event mit transcription.text und result."""

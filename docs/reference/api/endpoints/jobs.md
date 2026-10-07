@@ -352,6 +352,18 @@ event: progress
 data: {"phase":"running","message":"Transkription laeuft (45%)","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"progress":45}}
 ```
 
+Beim Audio-Job mit Sprecher-Erkennung (`mode=diarized`) gibt es nach jedem fertigen
+Stück ein eigenes Event. `message` nennt Index, Dauer und Zahl der erkannten Sprecher,
+der Prozentwert zählt fertige Stücke zwischen 20 und 90:
+
+```
+event: progress
+data: {"phase":"running","message":"Stück 2/3 transkribiert (1200 s, 4 Sprecher)","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"progress":66}}
+```
+
+Dieselbe Meldung geht als `phase=progress` an den Webhook und steht in den
+`log_entries` des Jobs (`GET /api/jobs/{job_id}`).
+
 #### `completed` - Job abgeschlossen
 
 Das `data`-Feld hat die gleiche Struktur wie der Webhook-Payload (je nach job_type):
@@ -365,8 +377,23 @@ data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"j
 **Audio** (`main_processor: "audio"`):
 ```
 event: completed
-data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"transcription":{"text":"Transkribierter Text..."}}}
+data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"transcription":{"text":"Transkribierter Text..."},"output_text":"Transkribierter Text..."}}
 ```
+
+**Audio mit Sprecher-Erkennung** (`mode=diarized`, siehe [audio.md](audio.md#post-apiaudioprocess-diarized)):
+```
+event: completed
+data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"transcription":{"text":"**Stück 1 Sprecher A:** ..."},"output_text":"**Stück 1 Sprecher A:** ...","speakers":["Stück 1 Sprecher A","Stück 1 Sprecher B"],"segments":[{"speaker":"Stück 1 Sprecher A","start":0.0,"end":3.2,"text":"..."}],"dropped_context":["prompt: ..."],"detected_language":"de","duration":2880.5,"llm_model":"gpt-4o-transcribe-diarize","chunk_count":3,"from_cache":false}}
+```
+
+SSE, Webhook und `GET /api/jobs/{job_id}` bauen den Audio-`data`-Block über dieselbe
+Funktion (`src/api/audio_completed_data.py`). `transcription.text` ist immer da.
+`output_text` kommt dazu, sobald ein Ergebnis am Job liegt. `speakers`, `segments`,
+`dropped_context`, `detected_language`, `duration`, `llm_model`, `chunk_count` und
+`from_cache` erscheinen nur, wenn der Processor sie geliefert hat. Leere Listen werden
+nicht ergänzt: ein Job ohne Sprecherdaten hat den Schlüssel `speakers` gar nicht.
+Fehlt das gespeicherte Ergebnis ganz, bleibt `transcription.text` allein, und im Job-Log
+steht `Webhook ohne Sprecherdaten: structured_data fehlt`.
 
 **Video** (`main_processor: "video"` oder `"youtube"`):
 ```

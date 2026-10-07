@@ -29,6 +29,7 @@ import logging
 from typing import Any, Dict, Generator, Optional
 from datetime import datetime
 
+from src.api.audio_completed_data import build_audio_completed_data
 from src.core.mongodb import SecretaryJobRepository
 from src.core.models.job_models import Job, JobStatus
 
@@ -128,11 +129,17 @@ def _build_completed_data_pdf(job: Job) -> Dict[str, Any]:
 
 
 def _build_completed_data_audio(job: Job) -> Dict[str, Any]:
-    """Baut den data-Block fuer Audio-Jobs im Webhook-kompatiblen Format."""
-    transcript = ""
-    if job.results and job.results.markdown_content:
-        transcript = job.results.markdown_content
-    return {"transcription": {"text": transcript}}
+    """Baut den data-Block fuer Audio-Jobs im selben Format wie der Abschluss-Webhook.
+
+    Sprecherfelder kommen aus structured_data, wenn der Processor sie geliefert hat.
+    Fehlt der Block, bleibt der Text. Die Warnung geht ins Anwendungslog: ein
+    SSE-Lesen soll den Job-Log nicht bei jedem Poll wiederholen. Den Job-Eintrag
+    schreibt der Handler, wenn er den Webhook baut.
+    """
+    return build_audio_completed_data(
+        job,
+        on_missing=lambda message: logger.warning("%s job_id=%s", message, job.job_id),
+    )
 
 
 def _build_completed_data_video(job: Job) -> Dict[str, Any]:

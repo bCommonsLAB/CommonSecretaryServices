@@ -21,6 +21,7 @@ import traceback
 
 import requests  # type: ignore
 
+from src.api.audio_completed_data import build_audio_completed_data
 from src.core.models.enums import ProcessingStatus
 from src.core.llm.transcription_context import TranscriptionContext
 from src.core.models.job_models import Job, JobProgress, JobResults
@@ -162,12 +163,37 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
         _post_progress("running", 20, "Audio-Verarbeitung gestartet")
 
         if mode == MODE_DIARIZED:
+            # Zaehlt fertige Stuecke, nicht die Nummer: die Stuecke laufen parallel
+            # und koennen ausser der Reihe fertig werden.
+            finished_chunks: Dict[str, int] = {"n": 0}
+
+            def _on_chunk_done(index: int, total: int, duration_s: float, speaker_count: int) -> None:
+                finished_chunks["n"] += 1
+                percent = 20 + int(70 * finished_chunks["n"] / max(total, 1))
+                if percent > 90:
+                    percent = 90
+                message = (
+                    f"Stück {index}/{total} transkribiert ({duration_s:.0f} s, {speaker_count} Sprecher)"
+                )
+                repo.add_log_entry(job.job_id, "info", message)
+                try:
+                    repo.update_job_status(
+                        job_id=job.job_id,
+                        status="processing",
+                        progress=JobProgress(step="transcribing", percent=percent, message=message),
+                    )
+                except Exception:
+                    # Fortschritt darf die Transkription nicht abbrechen.
+                    pass
+                _post_progress("transcribing", percent, message)
+
             result = await cast(DiarizedAudioProcessor, processor).process_diarized(
                 audio_source=normalized_path,
                 source_info=source_info,
                 source_language=source_language,
                 use_cache=use_cache,
                 transcription_context=transcription_context,
+                on_chunk_done=_on_chunk_done,
             )
         else:
             result = await processor.process(
@@ -242,13 +268,19 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
             if callback_token:
                 headers_final["Authorization"] = f"Bearer {callback_token}"
                 headers_final["X-Callback-Token"] = str(callback_token)
+            def _note_missing_speaker_data(message: str) -> None:
+                # Einmal am Job, nicht als leere speakers/segments im Payload.
+                repo.add_log_entry(job.job_id, "warning", message)
+
             payload_final: Dict[str, Any] = {
                 "phase": "completed",
                 "message": "Audio-Verarbeitung abgeschlossen",
                 "job": {"id": _client_job_id or job.job_id},
-                "data": {
-                    "transcription": {"text": transcript_text},
-                },
+                "data": build_audio_completed_data(
+                    result_dict,
+                    fallback_text=transcript_text,
+                    on_missing=_note_missing_speaker_data,
+                ),
             }
             try:
                 repo.add_log_entry(job.job_id, "info", f"Sende Webhook-Callback an {callback_url}")
