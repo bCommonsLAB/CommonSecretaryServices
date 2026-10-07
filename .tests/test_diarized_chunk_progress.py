@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, List, Tuple
+
+import pytest
 
 from src.core.llm.transcription_context import TranscriptionContext
 from src.processors.diarized_audio_processor import DiarizedAudioProcessor
@@ -29,9 +32,21 @@ class _Provider:
 
 
 def _bind(stub: _Stub) -> _Stub:
-    """Die Fortschrittsmethode gehoert der Processor-Klasse, der Test liefert nur den Logger."""
+    """Fortschritt und Heartbeat gehoeren der Processor-Klasse, der Test liefert nur den Logger."""
     stub._report_chunk_done = DiarizedAudioProcessor._report_chunk_done.__get__(stub, _Stub)  # type: ignore[attr-defined]
+    stub._heartbeat = DiarizedAudioProcessor._heartbeat.__get__(stub, _Stub)  # type: ignore[attr-defined]
     return stub
+
+
+class _SlowProvider(_Provider):
+    """Haelt die Antwort zurueck, damit der Heartbeat mehrmals feuern kann."""
+
+    def __init__(self, delay_s: float) -> None:
+        self.delay_s = delay_s
+
+    def transcribe_diarized(self, path: Path, model: str, context: TranscriptionContext) -> Tuple[dict[str, Any], object, List[str]]:
+        time.sleep(self.delay_s)
+        return super().transcribe_diarized(path, model, context)
 
 
 class _Stub:
@@ -102,3 +117,80 @@ def test_callback_error_does_not_abort_transcription() -> None:
 
     assert language == "de"
     assert len(segments) == 1
+
+
+def test_heartbeat_fires_while_chunk_is_pending_and_stops_afterwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.processors.diarized_audio_processor.CHUNK_HEARTBEAT_SECONDS", 0.1)
+    plans = [ChunkPlan(index=1, start_ms=0, end_ms=5000, cut_at_pause=True)]
+    alive: List[Tuple[int, int, float]] = []
+    done: List[int] = []
+    stub = _bind(_Stub())
+
+    async def run() -> Tuple[int, int]:
+        await DiarizedAudioProcessor._transcribe_chunks(
+            stub,  # type: ignore[arg-type]
+            _SlowProvider(delay_s=0.5),
+            "gpt-4o-transcribe-diarize",
+            plans,
+            [Path("chunk_1.mp3")],
+            TranscriptionContext(),
+            on_chunk_done=lambda index, _total, _duration_s, _speakers: done.append(index),
+            on_chunk_alive=lambda index, total, elapsed_s: alive.append((index, total, elapsed_s)),
+        )
+        count_at_end = len(alive)
+        # Nach der Antwort darf kein Lebenszeichen mehr kommen: die Task ist abgebrochen.
+        await asyncio.sleep(0.35)
+        return count_at_end, len(alive)
+
+    count_at_end, count_later = asyncio.run(run())
+
+    assert count_at_end >= 2
+    assert count_later == count_at_end
+    assert all(index == 1 and total == 1 for index, total, _ in alive)
+    elapsed = [item[2] for item in alive]
+    assert elapsed == sorted(elapsed) and elapsed[0] > 0
+    assert done == [1]
+    assert any("läuft noch" in message for message in stub.messages)
+
+
+def test_heartbeat_error_does_not_abort_transcription(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("src.processors.diarized_audio_processor.CHUNK_HEARTBEAT_SECONDS", 0.1)
+    plans = [ChunkPlan(index=1, start_ms=0, end_ms=1000, cut_at_pause=True)]
+    stub = _bind(_Stub())
+
+    def _boom(_index: int, _total: int, _elapsed_s: float) -> None:
+        raise RuntimeError("webhook weg")
+
+    segments, _language = asyncio.run(
+        DiarizedAudioProcessor._transcribe_chunks(
+            stub,  # type: ignore[arg-type]
+            _SlowProvider(delay_s=0.3),
+            "gpt-4o-transcribe-diarize",
+            plans,
+            [Path("chunk_1.mp3")],
+            TranscriptionContext(),
+            on_chunk_alive=_boom,
+        )
+    )
+
+    assert len(segments) == 1
+    assert any("nicht gemeldet" in message for message in stub.messages)
+
+
+def test_no_heartbeat_without_callback() -> None:
+    """Sync-Weg: ohne on_chunk_alive keine Task und keine Lebenszeichen im Log."""
+    plans = [ChunkPlan(index=1, start_ms=0, end_ms=1000, cut_at_pause=True)]
+    stub = _bind(_Stub())
+
+    asyncio.run(
+        DiarizedAudioProcessor._transcribe_chunks(
+            stub,  # type: ignore[arg-type]
+            _Provider(),
+            "gpt-4o-transcribe-diarize",
+            plans,
+            [Path("chunk_1.mp3")],
+            TranscriptionContext(),
+        )
+    )
+
+    assert not any("läuft noch" in message for message in stub.messages)

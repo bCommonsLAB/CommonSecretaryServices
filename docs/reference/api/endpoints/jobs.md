@@ -364,6 +364,14 @@ data: {"phase":"running","message":"Stück 2/3 transkribiert (1200 s, 4 Sprecher
 Dieselbe Meldung geht als `phase=progress` an den Webhook und steht in den
 `log_entries` des Jobs (`GET /api/jobs/{job_id}`).
 
+Solange ein Stück beim Anbieter liegt, kommt alle 120 s ein Lebenszeichen mit
+unverändertem Prozentwert, damit Client-Watchdogs den Job nicht für tot halten:
+
+```
+event: progress
+data: {"phase":"running","message":"Stück 1/2 läuft seit 4 min","job":{"id":"job-id-123"},"process":{"id":"job-id-123","main_processor":"audio"},"data":{"progress":20}}
+```
+
 #### `completed` - Job abgeschlossen
 
 Das `data`-Feld hat die gleiche Struktur wie der Webhook-Payload (je nach job_type):

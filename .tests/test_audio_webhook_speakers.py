@@ -111,3 +111,39 @@ async def test_finished_chunk_posts_progress_and_job_log(monkeypatch: pytest.Mon
     messages = [str(item.get("message")) for item in progress]
     assert "Stück 2/3 transkribiert (1200 s, 4 Sprecher)" in messages
     assert "Stück 2/3 transkribiert (1200 s, 4 Sprecher)" in repo.logs
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_posts_progress_with_unchanged_percent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lebenszeichen: phase=progress, Meldung 'läuft seit', Prozent wie zuletzt gemeldet."""
+    from src.core.processing.handlers.audio_handler import handle_audio_job
+
+    class _Processor:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        async def process_diarized(self, **kwargs: Any) -> Any:
+            # Erst ein Lebenszeichen ohne fertiges Stueck, dann ein fertiges, dann wieder eines.
+            kwargs["on_chunk_alive"](1, 2, 125.0)
+            kwargs["on_chunk_done"](2, 2, 23.0, 1)
+            kwargs["on_chunk_alive"](1, 2, 250.0)
+
+            class _Res:
+                status = "success"
+
+                def to_dict(self) -> Dict[str, Any]:
+                    return {"status": "success", "data": {"output_text": "Text", "transcription": {"text": "Text"}}}
+
+            return _Res()
+
+    monkeypatch.setattr("src.core.processing.handlers.audio_handler.DiarizedAudioProcessor", _Processor)
+    posted = _patch_post(monkeypatch)
+    repo = _Repo()
+
+    await handle_audio_job(_Job(), repo, object())  # type: ignore[arg-type]
+
+    beats = [item for item in posted if item.get("phase") == "progress" and "läuft seit" in str(item.get("message"))]
+    assert [item["message"] for item in beats] == ["Stück 1/2 läuft seit 2 min", "Stück 1/2 läuft seit 4 min"]
+    # Vor dem ersten fertigen Stueck gilt der Startwert 20, danach der Wert des fertigen Stuecks (55).
+    assert [item["data"]["progress"] for item in beats] == [20, 55]
+    assert "Stück 1/2 läuft seit 4 min" in repo.logs
