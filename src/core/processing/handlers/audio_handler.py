@@ -164,17 +164,12 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
 
         if mode == MODE_DIARIZED:
             # Zaehlt fertige Stuecke, nicht die Nummer: die Stuecke laufen parallel
-            # und koennen ausser der Reihe fertig werden.
-            finished_chunks: Dict[str, int] = {"n": 0}
+            # und koennen ausser der Reihe fertig werden. "percent" ist der zuletzt
+            # gemeldete Wert; der Heartbeat wiederholt ihn, statt einen zu erfinden.
+            chunk_state: Dict[str, int] = {"finished": 0, "percent": 20}
 
-            def _on_chunk_done(index: int, total: int, duration_s: float, speaker_count: int) -> None:
-                finished_chunks["n"] += 1
-                percent = 20 + int(70 * finished_chunks["n"] / max(total, 1))
-                if percent > 90:
-                    percent = 90
-                message = (
-                    f"Stück {index}/{total} transkribiert ({duration_s:.0f} s, {speaker_count} Sprecher)"
-                )
+            def _report_transcribing(percent: int, message: str) -> None:
+                """Ein Weg fuer fertiges Stueck und Lebenszeichen: Job-Log, Job-Status, Webhook."""
                 repo.add_log_entry(job.job_id, "info", message)
                 try:
                     repo.update_job_status(
@@ -187,6 +182,21 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
                     pass
                 _post_progress("transcribing", percent, message)
 
+            def _on_chunk_done(index: int, total: int, duration_s: float, speaker_count: int) -> None:
+                chunk_state["finished"] += 1
+                percent = 20 + int(70 * chunk_state["finished"] / max(total, 1))
+                chunk_state["percent"] = min(percent, 90)
+                _report_transcribing(
+                    chunk_state["percent"],
+                    f"Stück {index}/{total} transkribiert ({duration_s:.0f} s, {speaker_count} Sprecher)",
+                )
+
+            def _on_chunk_alive(index: int, total: int, elapsed_s: float) -> None:
+                # Lebenszeichen fuer den Client-Watchdog (KnowledgeScout: 600 s ohne Callback = failed).
+                # Ganze Minuten, kein neuer Prozentwert.
+                minutes = int(elapsed_s // 60)
+                _report_transcribing(chunk_state["percent"], f"Stück {index}/{total} läuft seit {minutes} min")
+
             result = await cast(DiarizedAudioProcessor, processor).process_diarized(
                 audio_source=normalized_path,
                 source_info=source_info,
@@ -194,6 +204,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
                 use_cache=use_cache,
                 transcription_context=transcription_context,
                 on_chunk_done=_on_chunk_done,
+                on_chunk_alive=_on_chunk_alive,
             )
         else:
             result = await processor.process(

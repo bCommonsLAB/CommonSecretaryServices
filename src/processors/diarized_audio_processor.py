@@ -15,6 +15,9 @@ Verarbeitet eine Audiodatei fuer ``POST /audio/process-diarized``:
    ``speakers`` dazu.
 6. Nach jedem fertigen Stueck ein Fortschritt: Log mit Index, Dauer und
    Sprecherzahl, plus optionaler Callback fuer den Job-Webhook.
+7. Solange ein Stueck beim Anbieter liegt, alle ``CHUNK_HEARTBEAT_SECONDS`` ein
+   Lebenszeichen (``on_chunk_alive``), damit der Client-Watchdog den Job nicht
+   fuer tot haelt. Nur im Job-Weg; der Sync-Weg uebergibt keinen Callback.
 
 Kontext: ``prompt`` und ``keywords`` nimmt das Sprecher-Modell nicht. Sie werden als
 ``dropped_context`` gemeldet, nicht verschluckt. Keine Stimmproben, keine
@@ -27,6 +30,8 @@ Uebersetzung — die Zuordnung ueber Stueckgrenzen macht der Korrektur-Schritt.
 """
 
 import asyncio
+import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -55,10 +60,19 @@ from src.utils.pause_chunking import ChunkPlan, HARD_LIMIT_MS, plan_chunks
 MAX_REQUEST_BYTES = 25 * 1024 * 1024
 # Hoechstens so viele Stuecke gleichzeitig beim Anbieter.
 PARALLEL_CHUNKS = 3
-# Ein 20-Minuten-Stueck braucht beim Anbieter mehrere Minuten.
+# Ein 20-Minuten-Stueck braucht beim Anbieter mehrere Minuten; bei hoher Last
+# bis ueber 10 Minuten (Prueffall 07.10.2026: 8,5 min, einmal ueber 10 min).
+# Der Client-Watchdog in KnowledgeScout setzt den Job nach 600 s ohne Callback
+# auf failed. Dieses Timeout liegt planmaessig DARUEBER. Deshalb muss waehrend
+# der Wartezeit ein Heartbeat laufen, und zwar deutlich unter 600 s.
 CHUNK_TIMEOUT_SECONDS = 900.0
+# Abstand der Lebenszeichen je laufendem Stueck. Ein Fuenftel des Watchdogs,
+# damit auch ein verlorener Callback den Job nicht kippt.
+CHUNK_HEARTBEAT_SECONDS = 120.0
 # index (ab 1), Anzahl, Dauer in Sekunden, Zahl verschiedener Labels im Stueck.
 ChunkProgress = Callable[[int, int, float, int], None]
+# index (ab 1), Anzahl, bisher verstrichene Sekunden fuer dieses Stueck.
+ChunkAlive = Callable[[int, int, float], None]
 
 # Sprechpause: mindestens so lang und so viel leiser als der Durchschnitt des Fensters.
 MIN_SILENCE_MS = 600
@@ -160,6 +174,23 @@ class DiarizedAudioProcessor(AudioProcessor):
         except Exception as exc:
             self.logger.warning(f"Fortschritt für Stück {plan.index} nicht gemeldet: {exc}")
 
+    async def _heartbeat(self, index: int, total: int, started: float, on_chunk_alive: ChunkAlive) -> None:
+        """Meldet alle CHUNK_HEARTBEAT_SECONDS, dass das Stueck noch beim Anbieter liegt.
+
+        Laeuft als eigene asyncio-Task neben dem to_thread-Aufruf und wird vom
+        Aufrufer abgebrochen, sobald die Antwort da ist. Ein Fehler im Callback
+        ist eine Warnung, kein Abbruch. Die Konstante wird bei jedem Durchlauf
+        gelesen, damit Tests sie per Monkeypatch verkuerzen koennen.
+        """
+        while True:
+            await asyncio.sleep(CHUNK_HEARTBEAT_SECONDS)
+            elapsed_s = time.monotonic() - started
+            self.logger.info(f"Stück {index}/{total} läuft noch", elapsed_s=round(elapsed_s))
+            try:
+                on_chunk_alive(index, total, elapsed_s)
+            except Exception as exc:
+                self.logger.warning(f"Lebenszeichen für Stück {index} nicht gemeldet: {exc}")
+
     async def _transcribe_chunks(
         self,
         provider: Any,
@@ -168,6 +199,7 @@ class DiarizedAudioProcessor(AudioProcessor):
         paths: Sequence[Path],
         context: TranscriptionContext,
         on_chunk_done: Optional[ChunkProgress] = None,
+        on_chunk_alive: Optional[ChunkAlive] = None,
     ) -> Tuple[List[SpeakerSegment], Optional[str]]:
         """Transkribiert alle Stuecke (bis zu PARALLEL_CHUNKS gleichzeitig), in Reihenfolge."""
         gate = asyncio.Semaphore(PARALLEL_CHUNKS)
@@ -180,10 +212,23 @@ class DiarizedAudioProcessor(AudioProcessor):
 
         async def one(plan: ChunkPlan, path: Path) -> Tuple[List[SpeakerSegment], Any, Optional[str]]:
             async with gate:
-                response, llm_request, _dropped = await asyncio.wait_for(
-                    asyncio.to_thread(provider.transcribe_diarized, path, model, context),
-                    timeout=CHUNK_TIMEOUT_SECONDS,
-                )
+                # Heartbeat erst hinter dem Gate: ein wartendes Stueck liegt noch nicht beim Anbieter.
+                beat: Optional[asyncio.Task[None]] = None
+                if on_chunk_alive is not None:
+                    beat = asyncio.create_task(
+                        self._heartbeat(plan.index, len(plans), time.monotonic(), on_chunk_alive)
+                    )
+                try:
+                    response, llm_request, _dropped = await asyncio.wait_for(
+                        asyncio.to_thread(provider.transcribe_diarized, path, model, context),
+                        timeout=CHUNK_TIMEOUT_SECONDS,
+                    )
+                finally:
+                    # Auch bei Timeout oder Fehler: kein Lebenszeichen fuer ein totes Stueck.
+                    if beat is not None:
+                        beat.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await beat
             # Lesen vor dem Fortschritt: ohne Segmente gibt es keine Sprecherzahl.
             chunk_segments = read_diarized_segments(
                 response,
@@ -274,6 +319,7 @@ class DiarizedAudioProcessor(AudioProcessor):
         use_cache: bool = True,
         transcription_context: Optional[TranscriptionContext] = None,
         on_chunk_done: Optional[ChunkProgress] = None,
+        on_chunk_alive: Optional[ChunkAlive] = None,
     ) -> BaseResponse:
         """
         Transkribiert eine Datei mit Sprecher-Erkennung.
@@ -322,7 +368,8 @@ class DiarizedAudioProcessor(AudioProcessor):
         paths = self._export_chunks(audio, plans, process_dir)
         try:
             segments, detected = await self._transcribe_chunks(
-                provider, model, plans, paths, context, on_chunk_done=on_chunk_done
+                provider, model, plans, paths, context,
+                on_chunk_done=on_chunk_done, on_chunk_alive=on_chunk_alive,
             )
         finally:
             for path in paths:
