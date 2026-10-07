@@ -10,12 +10,14 @@ import pytest
 class _FakeRepo:
     def __init__(self) -> None:
         self.status_updates: List[Dict[str, Any]] = []
+        self.logs: List[str] = []
 
     def update_job_status(self, *, job_id: str, status: str, progress: Any = None, results: Any = None, error: Any = None) -> bool:
-        self.status_updates.append({"status": status, "results": results})
+        self.status_updates.append({"status": status, "results": results, "progress": progress})
         return True
 
     def add_log_entry(self, job_id: str, level: str, message: str) -> bool:
+        self.logs.append(message)
         return True
 
 
@@ -32,7 +34,17 @@ class _FakeDiarizedProcessor:
             status = "success"
 
             def to_dict(self) -> Dict[str, Any]:
-                return {"status": "success", "data": {"output_text": "**Sprecher A:** Hallo", "speakers": ["Sprecher A"]}}
+                return {
+                    "status": "success",
+                    "data": {
+                        "output_text": "**Sprecher A:** Hallo",
+                        "speakers": ["Sprecher A"],
+                        "segments": [{"speaker": "Sprecher A", "start": 0.0, "end": 1.2, "text": "Hallo"}],
+                        "dropped_context": ["prompt: kein Freitext"],
+                        "detected_language": "de",
+                        "from_cache": False,
+                    },
+                }
 
         return _Res()
 
@@ -83,7 +95,15 @@ async def test_diarized_mode_uses_diarized_processor_and_output_text(monkeypatch
     context = _FakeDiarizedProcessor.calls[0]["transcription_context"]
     assert context is not None and context.prompt == "Thema" and context.keywords == ["Name"]
     completed = [p for p in posted if p.get("phase") == "completed"]
-    assert completed and completed[0]["data"]["transcription"]["text"] == "**Sprecher A:** Hallo"
+    assert completed
+    payload = completed[0]["data"]
+    assert payload["transcription"]["text"] == "**Sprecher A:** Hallo"
+    assert payload["output_text"] == "**Sprecher A:** Hallo"
+    assert payload["speakers"] == ["Sprecher A"]
+    assert payload["segments"][0]["speaker"] == "Sprecher A"
+    assert payload["dropped_context"] == ["prompt: kein Freitext"]
+    assert payload["detected_language"] == "de"
+    assert payload["from_cache"] is False
 
 
 @pytest.mark.asyncio
