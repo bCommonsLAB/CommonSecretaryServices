@@ -25,7 +25,9 @@ from unittest.mock import patch
 from src.api.audio_completed_data import build_audio_completed_data
 from src.core.llm.providers.openai_provider import OpenAIProvider
 from src.core.llm.transcription_quality import (
+    MIN_TEXT_LANGUAGE_CHARS,
     compression_ratio,
+    detect_text_language,
     mean_logprob,
     plan_transcription_request,
     reported_language,
@@ -37,6 +39,7 @@ from src.core.models.audio import (
     AudioSegmentInfo,
     TranscriptionResult,
     TranscriptionSegment,
+    TranscriptionWord,
 )
 from src.core.models.llm import LLMRequest
 from src.processors.diarized_audio_processor import DiarizedAudioProcessor
@@ -171,10 +174,116 @@ class TestProviderSegmente(unittest.TestCase):
         self.assertEqual(result.segments[0].quality_source, "none")
 
 
+class TestSpracheUndWoerter(unittest.TestCase):
+    """Teil 2: Sprache je Segment (Modell und Text) und Wort-Zeitmarken."""
+
+    def _verbose_mit_woertern(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            text="…",
+            language="german",
+            duration=12.0,
+            segments=[
+                SimpleNamespace(start=0.0, end=5.0, text=" Jährlich werden Schafe und Ziegen erhoben.",
+                                avg_logprob=-0.2, compression_ratio=1.1, no_speech_prob=0.01),
+                SimpleNamespace(start=5.0, end=12.0, text=" Ogni anno le uova e le zuccherie vengono intervistate.",
+                                avg_logprob=-0.7, compression_ratio=1.4, no_speech_prob=0.79),
+            ],
+            words=[
+                SimpleNamespace(word="Jährlich", start=0.1, end=0.6),
+                SimpleNamespace(word="werden", start=0.6, end=0.9),
+                SimpleNamespace(word="Ogni", start=5.2, end=5.5),
+                SimpleNamespace(word="anno", start=5.5, end=5.8),
+                SimpleNamespace(word="Nachzügler", start=12.5, end=12.9),
+            ],
+            usage=None,
+        )
+
+    def test_segments_carry_model_language_text_language_and_words(self) -> None:
+        client = _Client([self._verbose_mit_woertern()])
+        result, _ = _provider(client).transcribe(
+            b"audio", model="whisper-1", response_format="verbose_json", word_timestamps=True
+        )
+
+        first, second = result.segments
+        # Modell-Sprache gilt fuer die ganze Anfrage, die Text-Sprache je Segment.
+        self.assertEqual((first.language, second.language), ("de", "de"))
+        self.assertEqual(first.text_language, "de")
+        self.assertEqual(second.text_language, "it")
+        self.assertIsNotNone(second.text_language_prob)
+        assert first.words is not None and second.words is not None
+        self.assertEqual([w.word for w in first.words], ["Jährlich", "werden"])
+        # Woerter nach dem letzten Segment haengen am letzten Segment.
+        self.assertEqual([w.word for w in second.words], ["Ogni", "anno", "Nachzügler"])
+        self.assertEqual(client.aufrufe[0]["timestamp_granularities"], ["segment", "word"])
+
+    def test_word_timestamps_are_off_by_default(self) -> None:
+        # Messung 09.10.: mit Wort-Zeitmarken laesst whisper-1 bis zu 23 % Text weg.
+        client = _Client([VERBOSE_JSON])
+        result, _ = _provider(client).transcribe(b"audio", model="whisper-1", response_format="verbose_json")
+        self.assertNotIn("timestamp_granularities", client.aufrufe[0])
+        self.assertNotIn("words", result.segments[0].to_dict())
+        self.assertEqual(result.segments[0].language, "de")
+
+    def test_word_in_gap_goes_to_nearer_segment(self) -> None:
+        response = {
+            "segments": [
+                {"start": 0.0, "end": 5.0, "text": "per favore", "avg_logprob": -0.1, "compression_ratio": 1.0, "no_speech_prob": 0.0},
+                {"start": 20.0, "end": 25.0, "text": "Siamo stati", "avg_logprob": -0.1, "compression_ratio": 1.0, "no_speech_prob": 0.0},
+            ],
+            "words": [
+                {"word": "per", "start": 4.0, "end": 4.5},
+                {"word": "favore", "start": 5.0, "end": 5.4},
+                {"word": "Siamo", "start": 19.0, "end": 19.5},
+                {"word": "stati", "start": 20.1, "end": 20.5},
+            ],
+        }
+        segments, _ = segments_from_response(response, text="", end_seconds=25.0)
+        assert segments[0].words is not None and segments[1].words is not None
+        self.assertEqual([w.word for w in segments[0].words], ["per", "favore"])
+        self.assertEqual([w.word for w in segments[1].words], ["Siamo", "stati"])
+
+    def test_short_text_has_no_text_language(self) -> None:
+        segments, _ = segments_from_response(
+            {"text": "Grazie.", "logprobs": [{"logprob": -0.1}]}, text="Grazie.", end_seconds=3.0, language="it"
+        )
+        self.assertIsNone(segments[0].text_language)
+        self.assertIsNone(segments[0].text_language_prob)
+        self.assertEqual(segments[0].language, "it")
+
+    def test_detect_text_language_threshold(self) -> None:
+        self.assertEqual(detect_text_language("x" * (MIN_TEXT_LANGUAGE_CHARS - 1)), (None, None))
+        code, prob = detect_text_language("Also ich fasse jetzt kurz auf Italienisch zusammen.")
+        self.assertEqual(code, "de")
+        assert prob is not None
+        self.assertGreater(prob, 0.5)
+
+    def test_models_without_words_have_no_words_key(self) -> None:
+        client = _Client([JSON_MIT_LOGPROBS])
+        result, _ = _provider(client).transcribe(b"audio", model="gpt-transcribe")
+        self.assertNotIn("words", result.segments[0].to_dict())
+        self.assertNotIn("timestamp_granularities", client.aufrufe[0])
+
+    def test_words_survive_dict_roundtrip(self) -> None:
+        segment = TranscriptionSegment(
+            "Hallo Welt", 0, 1.0, 2.0, language="de", words=[TranscriptionWord("Hallo", 1.0, 1.4)]
+        )
+        again = TranscriptionSegment.from_dict(segment.to_dict())
+        self.assertEqual(again.words, [TranscriptionWord("Hallo", 1.0, 1.4)])
+        self.assertEqual(again.language, "de")
+
+
 class TestAnfrageplan(unittest.TestCase):
     def test_whisper_gets_verbose_json_without_include(self) -> None:
         plan = plan_transcription_request("whisper-1", "verbose_json")
         self.assertEqual((plan.response_format, plan.include), ("verbose_json", None))
+        self.assertIsNone(plan.timestamp_granularities)
+
+    def test_word_timestamps_only_on_request_and_only_for_whisper(self) -> None:
+        self.assertEqual(
+            plan_transcription_request("whisper-1", None, word_timestamps=True).timestamp_granularities,
+            ["segment", "word"],
+        )
+        self.assertIsNone(plan_transcription_request("gpt-transcribe", None, word_timestamps=True).timestamp_granularities)
 
     def test_gpt_models_get_json_with_logprobs(self) -> None:
         for model in ("gpt-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"):
@@ -266,9 +375,18 @@ class _StueckProvider:
     def transcribe(self, audio_data: Any, model: str, language: Optional[str], context: Any, **kwargs: Any) -> Any:
         self.aufrufe.append(kwargs)
         n = len(self.aufrufe)
+        # Wie der Provider: Sprache je Anfrage (Stueck 1 deutsch, Stueck 2 italienisch),
+        # Zeiten und Woerter relativ zum Stueck.
+        chunk_language = "de" if n == 1 else "it"
         segments = [
-            TranscriptionSegment(f"Satz {n}a", 0, 0.0, 20.0, avg_logprob=-0.3, quality_source="whisper"),
-            TranscriptionSegment(f"Satz {n}b", 1, 20.0, 60.0, avg_logprob=-1.2, quality_source="whisper"),
+            TranscriptionSegment(
+                f"Satz {n}a", 0, 0.0, 20.0, avg_logprob=-0.3, quality_source="whisper",
+                language=chunk_language, words=[TranscriptionWord("Satz", 0.5, 0.9)],
+            ),
+            TranscriptionSegment(
+                f"Satz {n}b", 1, 20.0, 60.0, avg_logprob=-1.2, quality_source="whisper",
+                language=chunk_language, words=[TranscriptionWord("Satz", 21.0, 21.4)],
+            ),
         ]
         result = TranscriptionResult(
             text=f"Satz {n}a Satz {n}b", source_language="de", segments=segments,
@@ -285,6 +403,25 @@ def _transcriber(provider: Any) -> WhisperTranscriber:
     # LLM-Tracking braucht hier keinen Processor; setattr statt Zuweisung, damit mypy die Signatur nicht vergleicht.
     setattr(transcriber, "create_llm_request", lambda **kwargs: None)
     return transcriber
+
+
+class TestStueckWegSpracheUndWoerter(unittest.TestCase):
+    """Auftrag Teil 2: Sprache je Stueck und Woerter ueberleben den Stueck-Weg."""
+
+    def test_language_per_chunk_and_word_offsets(self) -> None:
+        chunks = [
+            AudioSegmentInfo(file_path=io.BytesIO(b"a"), start=0.0, end=60.0, duration=60.0),
+            AudioSegmentInfo(file_path=io.BytesIO(b"b"), start=60.0, end=120.0, duration=60.0),
+        ]
+        result = asyncio.run(
+            _transcriber(_StueckProvider()).transcribe_segments(segments=chunks, source_language="auto", target_language="de")
+        )
+
+        self.assertEqual([s.language for s in result.segments], ["de", "de", "it", "it"])
+        second_chunk_word = result.segments[2].words
+        assert second_chunk_word is not None
+        self.assertEqual((second_chunk_word[0].start, second_chunk_word[0].end), (60.5, 60.9))
+        self.assertEqual(result.segments[3].to_dict()["words"], [{"word": "Satz", "start": 81.0, "end": 81.4}])
 
 
 class TestStueckWeg(unittest.TestCase):

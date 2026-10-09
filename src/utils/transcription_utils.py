@@ -1857,7 +1857,8 @@ class WhisperTranscriber:
             else:
                 fallback_end = segment_duration if segment_duration and segment_duration > 0 else duration / 1000.0
                 chunk_segments, _quality = segments_from_response(
-                    response, text=transcription_text, end_seconds=fallback_end
+                    response, text=transcription_text, end_seconds=fallback_end,
+                    language=detected_language,
                 )
 
             # Zeitmarken auf die ganze Datei verschieben; der Kapiteltitel haengt am

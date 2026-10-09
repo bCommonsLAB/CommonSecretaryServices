@@ -44,6 +44,7 @@ from src.core.llm.diarization import (
 )
 from src.core.llm.diarized_transcription import DiarizedTranscriptionService
 from src.core.llm.transcription_context import TranscriptionContext, build_context_params
+from src.core.llm.transcription_quality import with_text_language
 from src.core.models.audio import (
     AudioMetadata,
     AudioProcessingResult,
@@ -278,14 +279,19 @@ class DiarizedAudioProcessor(AudioProcessor):
                 "Sprecher-Transkription ohne Text — der Anbieter hat keine Segmente geliefert",
                 details={"error_code": "EMPTY_TRANSCRIPTION"},
             )
+        # Ohne Werte bleibt die Text-Sprache die einzige maschinelle Pruefung im
+        # Sprecher-Weg: sie zeigt Abschnitte, die das Modell uebersetzt hat.
         transcription_segments = [
-            TranscriptionSegment(
-                text=s.text,
-                segment_id=i,
-                start=s.start,
-                end=s.end if s.end > s.start else s.start + 0.01,
-                speaker=s.speaker,
-                quality_source="none",
+            with_text_language(
+                TranscriptionSegment(
+                    text=s.text,
+                    segment_id=i,
+                    start=s.start,
+                    end=s.end if s.end > s.start else s.start + 0.01,
+                    speaker=s.speaker,
+                    quality_source="none",
+                    language=detected_language,
+                )
             )
             for i, s in enumerate(segments)
         ]

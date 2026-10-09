@@ -48,6 +48,13 @@ psutil>=5.9.0
 openai>=1.12.0
 tiktoken>=0.6.0
 
+# Text-Spracherkennung je Transkript-Segment (zweite Meinung zu der Sprache, die
+# Whisper je Stueck meldet; erkennt Abschnitte, die Whisper uebersetzt statt
+# transkribiert). Reine Textstatistik, kein Modellaufruf. Gegen langdetect gewaehlt:
+# am Pruef-Transkript (49 Min., de/it) 1 statt 16 Fehlbestimmungen auf 539 Segmenten.
+# Kosten: rund 290 MB im Image.
+lingua-language-detector==2.2.0
+
 # Mistral AI Integration
 # WICHTIG: Exakt gepinnt. Mit ">=1.9.0" zog ein frischer CI-Build die neueste
 # mistralai-Version (2.x), in der "TextChunk"/"ImageURLChunk" aus

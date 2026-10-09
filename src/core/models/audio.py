@@ -42,7 +42,7 @@ Features:
 - Internal: src.core.models.enums - ProcessingStatus
 - Internal: src.core.exceptions - ProcessingError
 """
-from dataclasses import dataclass, field, fields as dataclass_fields
+from dataclasses import dataclass, field, fields as dataclass_fields, replace as dataclass_replace
 from typing import List, Optional, Dict, Any, Union, Protocol
 from pathlib import Path
 import io
@@ -85,6 +85,46 @@ class AudioProcessingError(ProcessingError):
 #   none     - das Modell liefert nichts (z.B. gpt-4o-transcribe-diarize)
 QUALITY_SOURCES = ("whisper", "logprobs", "none")
 
+# Zeitmarken auf Millisekunden runden: nach dem Verschieben um den Stueck-Offset
+# entstehen sonst Werte wie 1843.2000000000003, und bei einigen tausend Woertern
+# kostet jede Stelle Platz im Webhook.
+_TIME_DIGITS = 3
+
+
+@dataclass(frozen=True)
+class TranscriptionWord:
+    """Ein Wort mit Zeitmarken in Sekunden (absolut zur ganzen Datei, wie die Segmente).
+
+    Nur ``whisper-1`` liefert Woerter (``timestamp_granularities=["word"]``).
+    """
+    word: str
+    start: float
+    end: float
+
+    def __post_init__(self) -> None:
+        """Validiert die Zeitmarken; ein Wort darf null Dauer haben (Whisper liefert das)."""
+        if self.start < 0:
+            raise ValueError("Wort-Start muss positiv sein")
+        if self.end < self.start:
+            raise ValueError("Wort-Ende darf nicht vor dem Start liegen")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Wort in ein Dictionary."""
+        return {
+            "word": self.word,
+            "start": round(self.start, _TIME_DIGITS),
+            "end": round(self.end, _TIME_DIGITS),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionWord':
+        """Erstellt ein Wort aus einem Dictionary."""
+        return cls(word=str(data["word"]), start=float(data["start"]), end=float(data["end"]))
+
+    def shifted(self, offset_seconds: float) -> 'TranscriptionWord':
+        """Kopie mit verschobenen Zeitmarken."""
+        return TranscriptionWord(self.word, self.start + offset_seconds, self.end + offset_seconds)
+
 
 @dataclass
 class TranscriptionSegment:
@@ -94,6 +134,16 @@ class TranscriptionSegment:
     sind die Rohwerte des Whisper-Decoders (oder ihr Ersatz, siehe
     ``quality_source``). ``None`` heisst „nicht geliefert" — das ist etwas anderes
     als 0.0 und wird nicht stillschweigend durch einen Default ersetzt.
+
+    Sprache, zwei Meinungen:
+    - ``language``: die Sprache, die das Modell fuer das ganze Stueck gemeldet hat
+      (Whisper entscheidet je Anfrage, nicht je Satz)
+    - ``text_language`` / ``text_language_prob``: aus dem Segmenttext bestimmt
+      (lingua, reine Textstatistik). Weichen beide ab, hat Whisper den Abschnitt
+      vermutlich uebersetzt statt transkribiert. Die Bewertung macht der Client.
+
+    ``words`` gibt es nur bei ``whisper-1``; sonst None (und im Dict fehlt der
+    Schluessel), nicht eine erfundene leere Liste.
     """
     text: str
     segment_id: int
@@ -108,6 +158,10 @@ class TranscriptionSegment:
     compression_ratio: Optional[float] = None
     no_speech_prob: Optional[float] = None
     quality_source: str = "none"
+    language: Optional[str] = None
+    text_language: Optional[str] = None
+    text_language_prob: Optional[float] = None
+    words: Optional[List[TranscriptionWord]] = None
 
     def __post_init__(self) -> None:
         """Validiert die Segment-Daten und leitet confidence aus avg_logprob ab."""
@@ -129,14 +183,20 @@ class TranscriptionSegment:
             raise ValueError("Confidence muss zwischen 0 und 1 liegen")
         if self.title is not None and not self.title.strip():
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
+        if self.text_language_prob is not None and not 0.0 <= self.text_language_prob <= 1.0:
+            raise ValueError("text_language_prob muss zwischen 0 und 1 liegen")
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert das Segment in ein Dictionary (alle Felder, auch die None sind)."""
-        return {
+        """Konvertiert das Segment in ein Dictionary.
+
+        Alle Wertefelder stehen immer drin, auch wenn sie None sind. Nur ``words``
+        fehlt, wenn das Modell keine Woerter liefert.
+        """
+        data: Dict[str, Any] = {
             "text": self.text,
             "segment_id": self.segment_id,
-            "start": self.start,
-            "end": self.end,
+            "start": round(self.start, _TIME_DIGITS),
+            "end": round(self.end, _TIME_DIGITS),
             "speaker": self.speaker,
             "confidence": self.confidence,
             "title": self.title,
@@ -144,7 +204,13 @@ class TranscriptionSegment:
             "compression_ratio": self.compression_ratio,
             "no_speech_prob": self.no_speech_prob,
             "quality_source": self.quality_source,
+            "language": self.language,
+            "text_language": self.text_language,
+            "text_language_prob": self.text_language_prob,
         }
+        if self.words is not None:
+            data["words"] = [w.to_dict() for w in self.words]
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionSegment':
@@ -154,22 +220,26 @@ class TranscriptionSegment:
         Felder tragen, die diese Version nicht kennt — beides darf nicht scheitern.
         """
         known = {f.name for f in dataclass_fields(cls)}
-        return cls(**{key: value for key, value in data.items() if key in known})
+        values: Dict[str, Any] = {key: value for key, value in data.items() if key in known}
+        raw_words: Any = values.get("words")
+        if isinstance(raw_words, list):
+            values["words"] = [
+                w if isinstance(w, TranscriptionWord) else TranscriptionWord.from_dict(w)
+                for w in raw_words
+            ]
+        return cls(**values)
 
     def shifted(self, offset_seconds: float, segment_id: Optional[int] = None) -> 'TranscriptionSegment':
-        """Kopie mit um ``offset_seconds`` verschobenen Zeitmarken (Stueck -> ganze Datei)."""
-        return TranscriptionSegment(
-            text=self.text,
+        """Kopie mit um ``offset_seconds`` verschobenen Zeitmarken (Stueck -> ganze Datei).
+
+        Verschiebt auch die Woerter; alle anderen Felder wandern unveraendert mit.
+        """
+        return dataclass_replace(
+            self,
             segment_id=self.segment_id if segment_id is None else segment_id,
             start=self.start + offset_seconds,
             end=self.end + offset_seconds,
-            speaker=self.speaker,
-            confidence=self.confidence,
-            title=self.title,
-            avg_logprob=self.avg_logprob,
-            compression_ratio=self.compression_ratio,
-            no_speech_prob=self.no_speech_prob,
-            quality_source=self.quality_source,
+            words=[w.shifted(offset_seconds) for w in self.words] if self.words is not None else None,
         )
 
 @dataclass

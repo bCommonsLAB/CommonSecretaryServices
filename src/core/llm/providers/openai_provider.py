@@ -163,7 +163,11 @@ class OpenAIProvider:
             # Format und include vorab je Modell: whisper-1 bekommt verbose_json (Segmente
             # mit Werten), die GPT-Modelle json plus logprobs. Kein blinder Versuch mit
             # verbose_json mehr, der die Datei bei GPT-Modellen zweimal hochlud.
-            plan = plan_transcription_request(model, kwargs.get("response_format"))
+            # Wort-Zeitmarken nur auf ausdruecklichen Wunsch: sie kosten bei whisper-1 Text
+            # (siehe plan_transcription_request).
+            plan = plan_transcription_request(
+                model, kwargs.get("response_format"), word_timestamps=bool(kwargs.get("word_timestamps", False))
+            )
             api_params: Dict[str, Any] = {
                 "model": model,
                 "file": file_tuple,
@@ -171,6 +175,9 @@ class OpenAIProvider:
             }
             if plan.include:
                 api_params["include"] = list(plan.include)
+            if plan.timestamp_granularities:
+                # whisper-1: Wort-Zeitmarken fuer „Absatz anklicken, Stelle hoeren" in KS.
+                api_params["timestamp_granularities"] = list(plan.timestamp_granularities)
 
             # Kontext anwenden: Sprache(n), Thema und Begriffe, soweit das Modell sie
             # annimmt. Verworfene Felder werden gemeldet, damit eine Fehlkonfiguration
@@ -287,7 +294,7 @@ class OpenAIProvider:
                 known_duration = float(caller_duration)
             end_seconds = known_duration if known_duration is not None else duration / 1000.0
             segments, quality_source = segments_from_response(
-                response, text=transcription_text, end_seconds=end_seconds
+                response, text=transcription_text, end_seconds=end_seconds, language=model_language
             )
             logger.info(
                 f"Transkription mit '{model}': {len(segments)} Segment(e), Verlässlichkeitswerte aus '{quality_source}'"

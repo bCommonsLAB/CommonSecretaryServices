@@ -102,7 +102,10 @@ curl -X POST "http://localhost:5001/api/audio/process" \
         "compression_ratio": 1.14,
         "no_speech_prob": 0.0026,
         "confidence": 0.75,
-        "quality_source": "whisper"
+        "quality_source": "whisper",
+        "language": "de",
+        "text_language": "de",
+        "text_language_prob": 0.991
       }
     ],
     "language": "de",
@@ -146,6 +149,42 @@ dasselbe wie `transcription.source_language`, das die Arbeitssprache (Vorgabe de
 Aufrufers oder bei `auto` die erkannte) nennt. Bei Stückelung gewinnt die am
 häufigsten gemeldete Sprache. Die Segmenttexte bleiben die des Modells, auch wenn
 `transcription.text` übersetzt oder per Template umgeformt wurde.
+
+#### Sprache je Segment (`language`, `text_language`, `text_language_prob`)
+
+Whisper entscheidet die Sprache je Anfrage, nicht je Satz. Wechselt die Sprache
+innerhalb eines Stücks, **übersetzt** Whisper oft, statt zu transkribieren — und
+`avg_logprob` bleibt dabei unauffällig. Jedes Segment trägt deshalb zwei Meinungen:
+
+| Feld | Herkunft | `null`, wenn … |
+|---|---|---|
+| `language` | vom Modell für das ganze Stück (300 s) gemeldet, ISO 639-1 | das Modell keine Sprache meldet |
+| `text_language` | aus dem Segmenttext bestimmt (lingua, reine Textstatistik, kein Modellaufruf) | der Text kürzer als 20 Zeichen ist |
+| `text_language_prob` | Wahrscheinlichkeit von `text_language`, 0–1 | wie `text_language` |
+
+Was der Vergleich zeigt (Prüf-Transkript 09.10.2026, 49 Min., de/it gemischt):
+
+- **Übersetzt in eine fremde Sprache:** Stück meldet `de`, Segment ist `it` —
+  Whisper hat deutsche Rede ins Italienische übersetzt. Das trifft die Fenster
+  118–168 s und 223–251 s; dort lag `no_speech_prob` zugleich über 0.8.
+- **Übersetzt in die Stücksprache:** Italienische Rede, die Whisper ins Deutsche
+  übersetzt hat (354–382 s), hat `language: "de"` und `text_language: "de"`. Der
+  Vergleich zeigt das **nicht**. Hinweise bleiben `no_speech_prob` (0.97) und der
+  Text davor („ich fasse jetzt kurz auf Italienisch zusammen").
+
+Der Dienst bewertet nicht; der Client vergleicht die Felder untereinander, mit den
+Nachbarsegmenten und mit `no_speech_prob`.
+
+#### Wort-Zeitmarken (`words`) — standardmäßig aus
+
+`whisper-1` kann Wörter mit Zeitmarken liefern (`timestamp_granularities=["word"]`).
+Der Dienst fordert sie **nicht** an: Am Prüf-Transkript lieferte `whisper-1` mit
+Wort-Zeitmarken bei drei von vier 5-Minuten-Stücken 15–23 % weniger Text, in einem
+Stück fehlten 16 von 36 Sätzen (je zwei Läufe, reproduzierbar). Der Provider kann sie
+intern einschalten (`word_timestamps=True`); dann trägt jedes Segment
+`words: [{"word", "start", "end"}]` mit Zeitmarken bezogen auf die ganze Datei. Ohne
+Wort-Zeitmarken fehlt der Schlüssel `words`; es gibt keine leere Liste. Zum Anspringen
+einer Stelle im Audio reichen die Segment-Zeitmarken (typisch 2–15 s).
 
 ### Response (Accepted, Async)
 
