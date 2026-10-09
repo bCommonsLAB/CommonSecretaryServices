@@ -114,7 +114,7 @@ Segments sind dagegen immer alle da, ggf. als `null`.
   als Pflichtfeld oder als `1.0 == gut` behandelt.
 - Cache: Ergebnisse aus dem Secretary-Cache tragen die neuen Felder nur, wenn sie
   nach dieser Änderung erzeugt wurden. Alte Cache-Treffer haben `segments` mit
-  einem Eintrag und `quality_source: "none"`. Für den Prüffall `use_cache=false`
+  einem Eintrag und `quality_source: "none"`. Für den Prüffall `useCache=false`
   setzen oder die Datei neu laufen lassen.
 - Nebeneffekt der Umstellung: der Secretary lädt die Datei bei GPT-Modellen nicht
   mehr zweimal zum Anbieter hoch (vorher erst `verbose_json`, nach dem Fehler
@@ -166,7 +166,7 @@ brauchen den Header `X-Secretary-Api-Key` mit `SECRETARY_SERVICE_API_KEY` aus de
 Datei: `cache/probe/probe.mp3` im Secretary-Worktree (TTS-Probe, nicht im Git).
 
 ```bash
-curl -s -X POST "http://127.0.0.1:5001/api/audio/process" -H "X-Secretary-Api-Key: DEIN_KEY" -F "file=@cache/probe/probe.mp3" -F "source_language=auto" -F "target_language=de" -F "use_cache=false" | python -c "import json,sys; d=json.load(sys.stdin)['data']; print('language:', d['language']); [print({k:s[k] for k in ('start','end','avg_logprob','compression_ratio','no_speech_prob','quality_source')}, s['text'][:40]) for s in d['segments']]"
+curl -s -X POST "http://127.0.0.1:5001/api/audio/process" -H "X-Secretary-Api-Key: DEIN_KEY" -F "file=@cache/probe/probe.mp3" -F "source_language=auto" -F "target_language=de" -F "useCache=false" | python -c "import json,sys; d=json.load(sys.stdin)['data']; print('language:', d['language']); [print({k:s[k] for k in ('start','end','avg_logprob','compression_ratio','no_speech_prob','quality_source')}, s['text'][:40]) for s in d['segments']]"
 ```
 
 Erwartung mit `gpt-transcribe` (aktuelle Zuordnung): `language: de`, **ein** Segment
