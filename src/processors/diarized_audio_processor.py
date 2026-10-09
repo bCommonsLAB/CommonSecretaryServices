@@ -44,6 +44,7 @@ from src.core.llm.diarization import (
 )
 from src.core.llm.diarized_transcription import DiarizedTranscriptionService
 from src.core.llm.transcription_context import TranscriptionContext, build_context_params
+from src.core.llm.transcription_quality import with_text_language
 from src.core.models.audio import (
     AudioMetadata,
     AudioProcessingResult,
@@ -54,7 +55,7 @@ from src.core.models.base import BaseResponse
 from src.core.models.enums import ProcessorType
 from src.processors.audio_cache_key import MODE_DIARIZED
 from src.processors.audio_processor import AudioProcessor, AudioSegmentProtocol
-from src.utils.pause_chunking import ChunkPlan, HARD_LIMIT_MS, plan_chunks
+from src.utils.pause_chunking import ChunkPlan, HARD_LIMIT_MS, SilenceFinder, plan_chunks, pydub_silence_finder
 
 # Anbieter-Grenze je Anfrage (OpenAI, 06.10.2026).
 MAX_REQUEST_BYTES = 25 * 1024 * 1024
@@ -74,10 +75,7 @@ ChunkProgress = Callable[[int, int, float, int], None]
 # index (ab 1), Anzahl, bisher verstrichene Sekunden fuer dieses Stueck.
 ChunkAlive = Callable[[int, int, float], None]
 
-# Sprechpause: mindestens so lang und so viel leiser als der Durchschnitt des Fensters.
-MIN_SILENCE_MS = 600
-SILENCE_BELOW_AVERAGE_DB = 16
-SILENCE_SEEK_STEP_MS = 50
+# Sprechpausen-Erkennung: src/utils/pause_chunking.py (gemeinsam mit dem normalen Weg).
 
 
 def _detected_language(provider: Any, response: Any) -> Optional[str]:
@@ -95,24 +93,9 @@ def _detected_language(provider: Any, response: Any) -> Optional[str]:
 class DiarizedAudioProcessor(AudioProcessor):
     """Datei-Transkription mit Sprecher-Erkennung. Teilt Cache und Konfiguration mit AudioProcessor."""
 
-    def _silence_finder(self, audio: AudioSegmentProtocol):
+    def _silence_finder(self, audio: AudioSegmentProtocol) -> SilenceFinder:
         """Liefert die Stille-Suche fuer die Stueckplanung (pydub, nur im Fenster)."""
-        from pydub.silence import detect_silence  # type: ignore
-
-        def find(window_start: int, window_end: int) -> List[Tuple[int, int]]:
-            window: Any = audio[window_start:window_end]
-            loudness = getattr(window, "dBFS", None)
-            if loudness is None or loudness == float("-inf"):
-                return []
-            found = detect_silence(
-                window,
-                min_silence_len=MIN_SILENCE_MS,
-                silence_thresh=loudness - SILENCE_BELOW_AVERAGE_DB,
-                seek_step=SILENCE_SEEK_STEP_MS,
-            )
-            return [(window_start + int(s), window_start + int(e)) for s, e in found]
-
-        return find
+        return pydub_silence_finder(audio)
 
     def _export_chunks(
         self, audio: AudioSegmentProtocol, plans: Sequence[ChunkPlan], process_dir: Path
@@ -258,27 +241,54 @@ class DiarizedAudioProcessor(AudioProcessor):
         return segments, detected
 
     def _to_result(
-        self, segments: Sequence[SpeakerSegment], language: str, duration_s: float, process_dir: Path, audio: Any
+        self,
+        segments: Sequence[SpeakerSegment],
+        language: str,
+        duration_s: float,
+        process_dir: Path,
+        audio: Any,
+        detected_language: Optional[str] = None,
     ) -> AudioProcessingResult:
-        """Baut das cachebare Ergebnis; der Text ist das Markdown mit Praefixen."""
+        """Baut das cachebare Ergebnis; der Text ist das Markdown mit Praefixen.
+
+        Das Sprecher-Modell liefert keine Verlaesslichkeitswerte (``include=logprobs``
+        wird abgewiesen, Probe 09.10.2026). Die Segmente tragen deshalb
+        ``quality_source: "none"``; der Client prueft hier nur den Text.
+        """
         markdown = render_markdown(segments)
         if not markdown.strip():
             raise ProcessingError(
                 "Sprecher-Transkription ohne Text — der Anbieter hat keine Segmente geliefert",
                 details={"error_code": "EMPTY_TRANSCRIPTION"},
             )
+        # Ohne Werte bleibt die Text-Sprache die einzige maschinelle Pruefung im
+        # Sprecher-Weg: sie zeigt Abschnitte, die das Modell uebersetzt hat.
         transcription_segments = [
-            TranscriptionSegment(
-                text=s.text,
-                segment_id=i,
-                start=s.start,
-                end=s.end if s.end > s.start else s.start + 0.01,
-                speaker=s.speaker,
+            with_text_language(
+                TranscriptionSegment(
+                    text=s.text,
+                    segment_id=i,
+                    start=s.start,
+                    end=s.end if s.end > s.start else s.start + 0.01,
+                    speaker=s.speaker,
+                    quality_source="none",
+                    language=detected_language,
+                )
             )
             for i, s in enumerate(segments)
         ]
+        self.logger.info(
+            "Sprecher-Transkription ohne Verlässlichkeitswerte: das Sprecher-Modell liefert keine logprobs "
+            "(quality_source none); Schleifen und Sprachdrift prüft der Client am Text",
+            segment_count=len(transcription_segments),
+        )
         return AudioProcessingResult(
-            transcription=TranscriptionResult(text=markdown, source_language=language, segments=transcription_segments),
+            transcription=TranscriptionResult(
+                text=markdown,
+                source_language=language,
+                segments=transcription_segments,
+                detected_language=detected_language,
+            ),
             metadata=AudioMetadata(
                 duration=duration_s,
                 process_dir=str(process_dir),
@@ -290,17 +300,24 @@ class DiarizedAudioProcessor(AudioProcessor):
 
     @staticmethod
     def _to_data(result: AudioProcessingResult, model: str, dropped: List[str], chunk_count: int, from_cache: bool) -> Dict[str, Any]:
-        """Flache Antwort fuer Clients (output_text, speakers, segments) plus das verschachtelte Transkript."""
-        segments = [
-            {"speaker": s.speaker, "start": s.start, "end": s.end, "text": s.text}
-            for s in result.transcription.segments
-        ]
-        speakers = collect_speakers([SpeakerSegment(s["speaker"] or "", s["start"], s["end"], s["text"]) for s in segments])
+        """Flache Antwort fuer Clients (output_text, speakers, segments) plus das verschachtelte Transkript.
+
+        ``segments`` haben dieselbe Form wie im normalen Weg (``TranscriptionSegment.to_dict``):
+        ``speaker``, ``start``, ``end``, ``text`` plus die Verlaesslichkeitsfelder, die hier
+        None sind, und ``quality_source: "none"``. ``language`` ist die vom Modell
+        gemeldete Sprache (None, wenn keine kam); ``detected_language`` bleibt als
+        Arbeitssprache bestehen.
+        """
+        segments = [s.to_dict() for s in result.transcription.segments]
+        speakers = collect_speakers(
+            [SpeakerSegment(s.speaker or "", s.start, s.end, s.text) for s in result.transcription.segments]
+        )
         return {
             "output_text": result.transcription.text,
             "original_text": result.transcription.text,
             "speakers": speakers,
             "segments": segments,
+            "language": result.transcription.detected_language,
             "detected_language": result.transcription.source_language,
             "duration": result.metadata.duration,
             "llm_model": model,
@@ -376,7 +393,9 @@ class DiarizedAudioProcessor(AudioProcessor):
                 self._safe_delete(path)
 
         language = detected or (context.language if context.language and context.language != "auto" else "auto")
-        result = self._to_result(segments, language, len(audio) / 1000.0, process_dir, audio)
+        result = self._to_result(
+            segments, language, len(audio) / 1000.0, process_dir, audio, detected_language=detected
+        )
         if use_cache:
             self.save_to_cache(cache_key, result)
         return self.create_response(

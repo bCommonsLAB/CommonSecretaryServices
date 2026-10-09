@@ -42,10 +42,11 @@ Features:
 - Internal: src.core.models.enums - ProcessingStatus
 - Internal: src.core.exceptions - ProcessingError
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields, replace as dataclass_replace
 from typing import List, Optional, Dict, Any, Union, Protocol
 from pathlib import Path
 import io
+import math
 
 from .base import BaseResponse, ProcessInfo, ErrorInfo
 from .llm import LLMInfo
@@ -75,19 +76,110 @@ class AudioProcessingError(ProcessingError):
         self.error_code = error_code
         self.details = details or {}
 
+# Woher die Verlaesslichkeitswerte eines Segments stammen. Der Client darf nicht
+# raten, ob eine fehlende Zahl „nicht geliefert" oder „nicht gemessen" heisst.
+#   whisper  - verbose_json von whisper-1: alle drei Werte je Abschnitt vom Modell
+#   logprobs - gpt-*-transcribe mit include=["logprobs"]: avg_logprob aus den
+#              Token-Logprobs gemittelt, compression_ratio im Dienst berechnet,
+#              no_speech_prob bleibt None
+#   none     - das Modell liefert nichts (z.B. gpt-4o-transcribe-diarize)
+QUALITY_SOURCES = ("whisper", "logprobs", "none")
+
+# Woher start/end eines Segments stammen.
+#   model     - vom Modell je Abschnitt geliefert (whisper-1)
+#   chunk     - das Segment ist ein ganzes Stueck; die Grenzen sind die Schnittstellen
+#   estimated - Satz innerhalb eines Stuecks; Zeit nach Textposition geschaetzt
+#               (gpt-transcribe liefert keine Zeiten innerhalb einer Anfrage)
+TIME_SOURCES = ("model", "chunk", "estimated")
+
+# Zeitmarken auf Millisekunden runden: nach dem Verschieben um den Stueck-Offset
+# entstehen sonst Werte wie 1843.2000000000003, und bei einigen tausend Woertern
+# kostet jede Stelle Platz im Webhook.
+_TIME_DIGITS = 3
+
+
+@dataclass(frozen=True)
+class TranscriptionWord:
+    """Ein Wort mit Zeitmarken in Sekunden (absolut zur ganzen Datei, wie die Segmente).
+
+    Nur ``whisper-1`` liefert Woerter (``timestamp_granularities=["word"]``).
+    """
+    word: str
+    start: float
+    end: float
+
+    def __post_init__(self) -> None:
+        """Validiert die Zeitmarken; ein Wort darf null Dauer haben (Whisper liefert das)."""
+        if self.start < 0:
+            raise ValueError("Wort-Start muss positiv sein")
+        if self.end < self.start:
+            raise ValueError("Wort-Ende darf nicht vor dem Start liegen")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert das Wort in ein Dictionary."""
+        return {
+            "word": self.word,
+            "start": round(self.start, _TIME_DIGITS),
+            "end": round(self.end, _TIME_DIGITS),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionWord':
+        """Erstellt ein Wort aus einem Dictionary."""
+        return cls(word=str(data["word"]), start=float(data["start"]), end=float(data["end"]))
+
+    def shifted(self, offset_seconds: float) -> 'TranscriptionWord':
+        """Kopie mit verschobenen Zeitmarken."""
+        return TranscriptionWord(self.word, self.start + offset_seconds, self.end + offset_seconds)
+
+
 @dataclass
 class TranscriptionSegment:
-    """Ein Segment einer Transkription"""
+    """Ein Segment einer Transkription.
+
+    Die drei Werte ``avg_logprob``, ``compression_ratio`` und ``no_speech_prob``
+    sind die Rohwerte des Whisper-Decoders (oder ihr Ersatz, siehe
+    ``quality_source``). ``None`` heisst „nicht geliefert" — das ist etwas anderes
+    als 0.0 und wird nicht stillschweigend durch einen Default ersetzt.
+
+    Sprache, zwei Meinungen:
+    - ``language``: die Sprache, die das Modell fuer das ganze Stueck gemeldet hat
+      (Whisper entscheidet je Anfrage, nicht je Satz)
+    - ``text_language`` / ``text_language_prob``: aus dem Segmenttext bestimmt
+      (lingua, reine Textstatistik). Weichen beide ab, hat Whisper den Abschnitt
+      vermutlich uebersetzt statt transkribiert. Die Bewertung macht der Client.
+
+    ``words`` gibt es nur bei ``whisper-1``; sonst None (und im Dict fehlt der
+    Schluessel), nicht eine erfundene leere Liste.
+    """
     text: str
     segment_id: int
     start: float
     end: float
     speaker: Optional[str] = None
-    confidence: float = 1.0
+    # Wahrscheinlichkeit 0–1, abgeleitet aus avg_logprob (exp, begrenzt). Ohne
+    # avg_logprob bleibt sie None statt eines stummen 1.0.
+    confidence: Optional[float] = None
     title: Optional[str] = None
+    avg_logprob: Optional[float] = None
+    compression_ratio: Optional[float] = None
+    no_speech_prob: Optional[float] = None
+    quality_source: str = "none"
+    language: Optional[str] = None
+    text_language: Optional[str] = None
+    text_language_prob: Optional[float] = None
+    words: Optional[List[TranscriptionWord]] = None
+    # Alle Sprachen, die das Modell fuer das Stueck gemeldet hat (gpt-transcribe meldet
+    # bei gemischter Rede mehrere, ohne Rangfolge). ``language`` ist nur gesetzt, wenn
+    # es genau eine war.
+    languages: Optional[List[str]] = None
+    # Schlechtester Token-Logprob im Segment (nur quality_source "logprobs"): zeigt
+    # einzelne unsichere Woerter, die im Mittelwert untergehen.
+    min_logprob: Optional[float] = None
+    time_source: str = "model"
 
     def __post_init__(self) -> None:
-        """Validiert die Segment-Daten."""
+        """Validiert die Segment-Daten und leitet confidence aus avg_logprob ab."""
         if not self.text.strip():
             raise ValueError("Text darf nicht leer sein")
         if self.segment_id < 0:
@@ -96,29 +188,94 @@ class TranscriptionSegment:
             raise ValueError("Start muss positiv sein")
         if self.end <= self.start:
             raise ValueError("End muss größer als Start sein")
-        if self.confidence < 0 or self.confidence > 1:
+        if self.quality_source not in QUALITY_SOURCES:
+            raise ValueError(
+                f"quality_source muss eines von {', '.join(QUALITY_SOURCES)} sein, nicht '{self.quality_source}'"
+            )
+        if self.confidence is None and self.avg_logprob is not None:
+            self.confidence = min(1.0, max(0.0, math.exp(self.avg_logprob)))
+        if self.confidence is not None and (self.confidence < 0 or self.confidence > 1):
             raise ValueError("Confidence muss zwischen 0 und 1 liegen")
         if self.title is not None and not self.title.strip():
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
+        if self.text_language_prob is not None and not 0.0 <= self.text_language_prob <= 1.0:
+            raise ValueError("text_language_prob muss zwischen 0 und 1 liegen")
+        if self.time_source not in TIME_SOURCES:
+            raise ValueError(
+                f"time_source muss eines von {', '.join(TIME_SOURCES)} sein, nicht '{self.time_source}'"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert das Segment in ein Dictionary."""
-        return {
+        """Konvertiert das Segment in ein Dictionary.
+
+        Alle Wertefelder stehen immer drin, auch wenn sie None sind. Nur ``words``
+        fehlt, wenn das Modell keine Woerter liefert.
+        """
+        data: Dict[str, Any] = {
             "text": self.text,
             "segment_id": self.segment_id,
-            "start": self.start,
-            "end": self.end,
+            "start": round(self.start, _TIME_DIGITS),
+            "end": round(self.end, _TIME_DIGITS),
             "speaker": self.speaker,
             "confidence": self.confidence,
-            "title": self.title
+            "title": self.title,
+            "avg_logprob": self.avg_logprob,
+            "compression_ratio": self.compression_ratio,
+            "no_speech_prob": self.no_speech_prob,
+            "quality_source": self.quality_source,
+            "language": self.language,
+            "languages": list(self.languages) if self.languages is not None else None,
+            "text_language": self.text_language,
+            "text_language_prob": self.text_language_prob,
+            "min_logprob": self.min_logprob,
+            "time_source": self.time_source,
         }
+        if self.words is not None:
+            data["words"] = [w.to_dict() for w in self.words]
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionSegment':
+        """Erstellt ein Segment aus einem Dictionary; unbekannte Schluessel werden ignoriert.
+
+        Alte Cache-Eintraege kennen die Verlaesslichkeitsfelder nicht, neuere koennten
+        Felder tragen, die diese Version nicht kennt — beides darf nicht scheitern.
+        """
+        known = {f.name for f in dataclass_fields(cls)}
+        values: Dict[str, Any] = {key: value for key, value in data.items() if key in known}
+        raw_words: Any = values.get("words")
+        if isinstance(raw_words, list):
+            values["words"] = [
+                w if isinstance(w, TranscriptionWord) else TranscriptionWord.from_dict(w)
+                for w in raw_words
+            ]
+        return cls(**values)
+
+    def shifted(self, offset_seconds: float, segment_id: Optional[int] = None) -> 'TranscriptionSegment':
+        """Kopie mit um ``offset_seconds`` verschobenen Zeitmarken (Stueck -> ganze Datei).
+
+        Verschiebt auch die Woerter; alle anderen Felder wandern unveraendert mit.
+        """
+        return dataclass_replace(
+            self,
+            segment_id=self.segment_id if segment_id is None else segment_id,
+            start=self.start + offset_seconds,
+            end=self.end + offset_seconds,
+            words=[w.shifted(offset_seconds) for w in self.words] if self.words is not None else None,
+        )
 
 @dataclass
 class TranscriptionResult:
-    """Ein Transkriptionsergebnis mit Text, Sprache und Segmenten."""
+    """Ein Transkriptionsergebnis mit Text, Sprache und Segmenten.
+
+    ``source_language`` ist die Sprache, mit der weitergearbeitet wird (Vorgabe des
+    Aufrufers oder, bei "auto", die erkannte). ``detected_language`` ist nur das,
+    was das Modell selbst gemeldet hat — None, wenn es nichts gemeldet hat.
+    """
     text: str
     source_language: str
     segments: List[TranscriptionSegment] = field(default_factory=list)
+    detected_language: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validiert das Transkriptionsergebnis."""
@@ -132,6 +289,7 @@ class TranscriptionResult:
         return {
             "text": self.text,
             "source_language": self.source_language,
+            "detected_language": self.detected_language,
             "segments": [s.to_dict() for s in self.segments] if self.segments else []
         }
 
@@ -139,13 +297,15 @@ class TranscriptionResult:
     def from_dict(cls, data: Dict[str, Any]) -> 'TranscriptionResult':
         """Erstellt ein TranscriptionResult aus einem Dictionary."""
         segments: List[TranscriptionSegment] = [
-            TranscriptionSegment(**s) for s in data.get('segments', [])
+            TranscriptionSegment.from_dict(s) for s in data.get('segments', [])
         ]
-        
+        detected: Any = data.get('detected_language')
+
         return cls(
             text=data['text'],
             source_language=data['source_language'],
-            segments=segments
+            segments=segments,
+            detected_language=detected if isinstance(detected, str) and detected.strip() else None,
         )
 
 @dataclass
@@ -348,9 +508,19 @@ class AudioProcessingResult:
             raise ValueError("Metadata darf nicht None sein")
 
     def to_dict(self) -> Dict[str, Any]:
-        """Konvertiert das Ergebnis in ein Dictionary."""
+        """Konvertiert das Ergebnis in ein Dictionary.
+
+        ``segments`` und ``language`` liegen zusaetzlich flach im Block: das ist der
+        Vertrag fuer Clients (Sync-Antwort, Webhook und SSE lesen ``data.segments``
+        mit den Verlaesslichkeitswerten je Abschnitt und ``data.language`` fuer die
+        Sprachdrift-Pruefung). ``language`` ist None, wenn das Modell keine Sprache
+        gemeldet hat.
+        """
+        transcription = self.transcription.to_dict() if self.transcription else None
         return {
-            'transcription': self.transcription.to_dict() if self.transcription else None,
+            'transcription': transcription,
+            'segments': list(transcription['segments']) if transcription else [],
+            'language': self.transcription.detected_language if self.transcription else None,
             'metadata': self.metadata.to_dict() if self.metadata else None,
             'process_id': self.process_id,
             'transformation_result': self.transformation_result,

@@ -84,28 +84,141 @@ curl -X POST "http://localhost:5001/api/audio/process" \
     }
   },
   "data": {
-    "duration": 120.5,
-    "detected_language": "en",
-    "output_text": "Transcribed and transformed text...",
-    "original_text": "Original transcribed text...",
-    "translated_text": "Translated text...",
-    "llm_model": "whisper-1",
-    "translation_model": "gpt-4",
-    "token_count": 1500,
+    "transcription": {
+      "text": "Transcribed (and translated or transformed) text...",
+      "source_language": "de",
+      "detected_language": "de",
+      "segments": [ "…same entries as data.segments…" ]
+    },
     "segments": [
       {
-        "id": 0,
+        "segment_id": 0,
         "start": 0.0,
-        "end": 10.5,
-        "text": "First segment..."
+        "end": 7.0,
+        "text": "Guten Tag. Heute sprechen wir über den Sozialstaat.",
+        "speaker": null,
+        "title": null,
+        "avg_logprob": -0.29,
+        "compression_ratio": 1.14,
+        "no_speech_prob": 0.0026,
+        "confidence": 0.75,
+        "quality_source": "whisper",
+        "language": "de",
+        "text_language": "de",
+        "text_language_prob": 0.991
       }
     ],
+    "language": "de",
+    "metadata": { "duration": 120.5, "format": "mp3", "channels": 2, "process_dir": "/path/to/process/dir" },
     "process_id": "process-id-123",
-    "process_dir": "/path/to/process/dir",
-    "from_cache": false
+    "status": "success"
   }
 }
 ```
+
+#### Verlässlichkeit je Abschnitt (`data.segments[]`, `data.language`)
+
+Ein Transkript ist nur etwas wert, wenn der Client sehen kann, wo das Modell
+geraten hat. Deshalb liegen die Segmente des Modells flach in `data.segments[]`
+(Zeitmarken `start`/`end` in Sekunden, bezogen auf die ganze Datei, auch bei
+Stückelung langer Aufnahmen) und tragen je Abschnitt die Rohwerte des
+Whisper-Decoders:
+
+| Feld | Bedeutung | Erfahrungswert für „verdächtig" |
+|---|---|---|
+| `avg_logprob` | mittlere Log-Wahrscheinlichkeit der Tokens; je näher an 0, desto sicherer | unter −1.0 |
+| `compression_ratio` | gzip-Verhältnis des Texts; hoch = Wiederholungen (Schleife) | über 2.4 |
+| `no_speech_prob` | Wahrscheinlichkeit, dass gar nicht gesprochen wurde; hoch zusammen mit schlechtem `avg_logprob` = erfundener Text bei Stille | über 0.6 |
+| `confidence` | `exp(avg_logprob)`, auf 0–1 begrenzt; `null` ohne `avg_logprob` | – |
+| `quality_source` | woher die Werte stammen: `whisper`, `logprobs` oder `none` | – |
+
+`null` heißt „nicht geliefert" — nie 0.0 als stiller Ersatz. Der Dienst wendet
+keine Schwellen an; das macht der Client aus den Rohwerten. Was ankommt, hängt
+vom Modell im Use-Case `transcription` ab (Probe 09.10.2026):
+
+| Modell | `quality_source` | Segmente | Werte |
+|---|---|---|---|
+| `whisper-1` | `whisper` | die Abschnitte des Modells (`verbose_json`) | alle drei; Whisper berechnet sie je 30-s-Decoder-Fenster, Segmente innerhalb eines Fensters teilen sich die Werte |
+| `gpt-transcribe` (empfohlen), `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | `logprobs` | ein Segment je **Satz**; Zeiten nach Textposition im Stück geschätzt (`time_source: "estimated"`) | `avg_logprob` und `min_logprob` aus den Token-Logprobs des Satzes (`include=["logprobs"]`), `compression_ratio` aus dem Satztext, `no_speech_prob` `null` |
+| `gpt-4o-transcribe-diarize` | `none` | ein Segment je Anfrage | keine — das Modell weist `include=["logprobs"]` ab |
+
+`data.language` ist die vom Modell selbst erkannte Sprache (ISO 639-1) für die
+Sprachdrift-Prüfung im Client — `null`, wenn das Modell keine gemeldet hat
+(`gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, Sprecher-Modell). Sie ist nicht
+dasselbe wie `transcription.source_language`, das die Arbeitssprache (Vorgabe des
+Aufrufers oder bei `auto` die erkannte) nennt. Bei Stückelung gewinnt die am
+häufigsten gemeldete Sprache. Die Segmenttexte bleiben die des Modells, auch wenn
+`transcription.text` übersetzt oder per Template umgeformt wurde.
+
+#### Sprache je Segment (`language`, `text_language`, `text_language_prob`)
+
+Whisper entscheidet die Sprache je Anfrage, nicht je Satz. Wechselt die Sprache
+innerhalb eines Stücks, **übersetzt** Whisper oft, statt zu transkribieren — und
+`avg_logprob` bleibt dabei unauffällig. Jedes Segment trägt deshalb zwei Meinungen:
+
+| Feld | Herkunft | `null`, wenn … |
+|---|---|---|
+| `language` | vom Modell für das ganze Stück gemeldet, ISO 639-1 | das Modell keine oder **mehrere** Sprachen meldet |
+| `languages` | alle Sprachen, die das Modell für das Stück gemeldet hat (`gpt-transcribe` meldet bei gemischter Rede mehrere, ohne Rangfolge) | das Modell nichts meldet |
+| `text_language` | aus dem Segmenttext bestimmt (lingua, reine Textstatistik, kein Modellaufruf) | der Text kürzer als 20 Zeichen ist |
+| `text_language_prob` | Wahrscheinlichkeit von `text_language`, 0–1 | wie `text_language` |
+
+Was der Vergleich zeigt (Prüf-Transkript 09.10.2026, 49 Min., de/it gemischt):
+
+- **Übersetzt in eine fremde Sprache:** Stück meldet `de`, Segment ist `it` —
+  Whisper hat deutsche Rede ins Italienische übersetzt. Das trifft die Fenster
+  118–168 s und 223–251 s; dort lag `no_speech_prob` zugleich über 0.8.
+- **Übersetzt in die Stücksprache:** Italienische Rede, die Whisper ins Deutsche
+  übersetzt hat (354–382 s), hat `language: "de"` und `text_language: "de"`. Der
+  Vergleich zeigt das **nicht**. Hinweise bleiben `no_speech_prob` (0.97) und der
+  Text davor („ich fasse jetzt kurz auf Italienisch zusammen").
+
+Der Dienst bewertet nicht; der Client vergleicht die Felder untereinander, mit den
+Nachbarsegmenten und mit `no_speech_prob`.
+
+#### Stücke, Sätze und Zeiten (`time_source`, `min_logprob`)
+
+Lange Dateien schneidet der Dienst in Stücke von höchstens 5 Minuten, und zwar an der
+längsten Sprechpause in der letzten Minute davor, also zwischen 4 und 5 Minuten
+(`segment_duration: 300`, `segment_search_window: 60` in `config.yaml`). Die
+Pausensuche probiert erst eine strenge, dann lockerere Schwelle; am Prüf-Transkript
+lagen damit alle Schnitte an einer Pause. Ohne Pause wird bei 5 Minuten hart
+geschnitten. Die Stücklänge ändert die Kosten nicht (Abrechnung nach Sekunden Audio);
+höchstens 5 Stücke laufen gleichzeitig.
+
+`gpt-transcribe` liefert je Stück einen Textblock ohne Zeiten. Der Dienst teilt ihn in
+Sätze und gibt jedem Satz die Werte seiner Tokens:
+
+| Feld | Bedeutung |
+|---|---|
+| `avg_logprob` | Mittel der Token-Logprobs des Satzes; bei `gpt-transcribe` fast immer nahe 0 |
+| `min_logprob` | schlechtestes Token des Satzes. Zeigt einzelne unsichere Wörter: am Prüf-Transkript Namen, erfundene Wörter („Sinn-Dombekämpfung", −1.79) und Stellen, die das Modell selbst mit „…" als unverständlich markiert |
+| `time_source` | `model` (Zeiten vom Modell, `whisper-1`), `chunk` (Segment ist ein ganzes Stück), `estimated` (Satzzeit nach Position im Text geschätzt) |
+
+Geschätzte Zeiten nehmen gleichmäßiges Sprechtempo an. Gegen die Zeiten von
+`whisper-1` lagen sie am Prüf-Transkript 15–30 s daneben. Sie reichen, um die Gegend
+im Audio zu finden, nicht den genauen Satzanfang.
+
+#### Nachträgliche Übersetzung und `languages`
+
+Ist `target_language` gesetzt und meldet das Modell für ein Stück genau **eine**
+andere Sprache, lässt der Dienst den Text dieses Stücks übersetzen; die Segmente
+behalten den Originaltext, `transcription.text` ist dann übersetzt. Meldet das Modell
+mehrere Sprachen, wird nicht übersetzt. Am Prüf-Transkript (de/it gemischt) wurden ohne
+Sprachangabe drei Stücke übersetzt, eines davon, weil das Modell „Schwedisch" meldete.
+Mit `languages=de,it` meldete es bei gemischten Stücken beide Sprachen, und nichts
+wurde übersetzt. Für gemischtsprachige Aufnahmen deshalb `languages` mitschicken.
+
+#### Wort-Zeitmarken (`words`) — standardmäßig aus
+
+`whisper-1` kann Wörter mit Zeitmarken liefern (`timestamp_granularities=["word"]`).
+Der Dienst fordert sie **nicht** an: Am Prüf-Transkript lieferte `whisper-1` mit
+Wort-Zeitmarken bei drei von vier 5-Minuten-Stücken 15–23 % weniger Text, in einem
+Stück fehlten 16 von 36 Sätzen (je zwei Läufe, reproduzierbar). Der Provider kann sie
+intern einschalten (`word_timestamps=True`); dann trägt jedes Segment
+`words: [{"word", "start", "end"}]` mit Zeitmarken bezogen auf die ganze Datei. Ohne
+Wort-Zeitmarken fehlt der Schlüssel `words`; es gibt keine leere Liste. Zum Anspringen
+einer Stelle im Audio reichen die Segment-Zeitmarken (typisch 2–15 s).
 
 ### Response (Accepted, Async)
 
@@ -144,10 +257,31 @@ The webhook receives one final message when finished.
 ```
 
 `transcription.text` bleibt. Liegt am Job ein `data`-Block (`structured_data`), kommen
-`output_text` und — nur wenn der Processor sie gesetzt hat — `speakers`, `segments`
-(`speaker`, `start`, `end`, `text`), `dropped_context`, `detected_language`,
-`duration`, `llm_model`, `chunk_count` und `from_cache` flach dazu. Das ist dieselbe
-Form wie die Sync-Antwort von `/audio/process-diarized`.
+`output_text` und — nur wenn der Processor sie gesetzt hat — `segments`, `language`,
+`speakers`, `dropped_context`, `detected_language`, `duration`, `llm_model`,
+`chunk_count` und `from_cache` flach dazu. `segments` haben dieselbe Form wie in der
+Sync-Antwort: `start`, `end`, `text`, `speaker` (nur Sprecher-Weg) und die
+Verlässlichkeitswerte `avg_logprob`, `compression_ratio`, `no_speech_prob`,
+`confidence`, `quality_source` (siehe oben) — unverändert durchgereicht, auch die
+`null`-Werte. `language` ist die vom Modell erkannte Sprache oder `null`.
+
+```json
+{
+  "phase": "completed",
+  "message": "Audio-Verarbeitung abgeschlossen",
+  "job": { "id": "client-job-123" },
+  "data": {
+    "transcription": { "text": "..." },
+    "output_text": "...",
+    "language": "de",
+    "segments": [
+      { "segment_id": 0, "start": 0.0, "end": 7.0, "text": "…", "speaker": null, "title": null,
+        "avg_logprob": -0.29, "compression_ratio": 1.14, "no_speech_prob": 0.0026,
+        "confidence": 0.75, "quality_source": "whisper" }
+    ]
+  }
+}
+```
 
 Fehlt `structured_data` oder `data` darin, bleibt der Payload bei
 `transcription.text`. Es werden keine leeren `speakers`- oder `segments`-Listen
@@ -315,9 +449,14 @@ curl -X POST "$SECRETARY_SERVICE_URL/api/audio/process-diarized" \
     "original_text": "…identisch mit output_text…",
     "speakers": ["Stück 1 Sprecher A", "Stück 1 Sprecher B", "Stück 2 Sprecher A"],
     "segments": [
-      { "speaker": "Stück 1 Sprecher A", "start": 0.0, "end": 3.2, "text": "Guten Morgen …" },
-      { "speaker": "Stück 1 Sprecher B", "start": 3.4, "end": 7.9, "text": "Danke für die Einladung …" }
+      { "segment_id": 0, "speaker": "Stück 1 Sprecher A", "start": 0.0, "end": 3.2, "text": "Guten Morgen …",
+        "title": null, "avg_logprob": null, "compression_ratio": null, "no_speech_prob": null,
+        "confidence": null, "quality_source": "none" },
+      { "segment_id": 1, "speaker": "Stück 1 Sprecher B", "start": 3.4, "end": 7.9, "text": "Danke für die Einladung …",
+        "title": null, "avg_logprob": null, "compression_ratio": null, "no_speech_prob": null,
+        "confidence": null, "quality_source": "none" }
     ],
+    "language": "de",
     "detected_language": "de",
     "duration": 2880.5,
     "llm_model": "gpt-4o-transcribe-diarize",
@@ -333,8 +472,17 @@ curl -X POST "$SECRETARY_SERVICE_URL/api/audio/process-diarized" \
 desselben Sprechers zusammengefasst, Zeitmarken nur in `segments`. Der Webhook
 (`phase=completed`) trägt denselben Text unter `data.transcription.text` und
 `data.output_text`. Dazu flach, wenn der Lauf sie geliefert hat: `data.speakers`,
-`data.segments` und `data.dropped_context` (dieselben Felder wie in der Sync-Antwort,
-nicht nur unter `transcription`).
+`data.segments`, `data.language` und `data.dropped_context` (dieselben Felder wie in
+der Sync-Antwort, nicht nur unter `transcription`).
+
+**Keine Verlässlichkeitswerte im Sprecher-Weg.** `gpt-4o-transcribe-diarize` weist
+`include=["logprobs"]` ab (Probe 09.10.2026: „Logprobs are not supported for
+diarization models", auch mit `response_format=json`). Die Segmente tragen deshalb
+`quality_source: "none"` und `null` in `avg_logprob`, `compression_ratio`,
+`no_speech_prob`, `confidence`; im Dienst-Log steht je Lauf
+`Sprecher-Transkription ohne Verlässlichkeitswerte`. Schleifen, Sprachdrift und
+kaputte Labels prüft der Client hier am Text — `data.language` hilft dabei, wenn das
+Modell eine Sprache gemeldet hat.
 
 ### Fehler
 

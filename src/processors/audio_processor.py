@@ -56,7 +56,6 @@ import uuid
 import requests
 import re
 from datetime import datetime
-import math
 import time
 
 from src.core.models.transformer import TransformerResponse
@@ -65,6 +64,7 @@ from src.processors.audio_cache_key import MODE_PLAIN, build_audio_cache_key_bas
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
 from src.utils.transcription_utils import WhisperTranscriber
+from src.utils.pause_chunking import plan_chunks, pydub_silence_finder
 from src.processors.transformer_processor import TransformerProcessor
 from src.core.models.audio import (
     AudioProcessingResult, 
@@ -217,6 +217,9 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             # Audio-spezifische Konfiguration
             self.max_file_size = audio_config.get('max_file_size', 125829120)
             self.segment_duration = audio_config.get('segment_duration', 300)
+            # Suchfenster vor der Hoechstdauer fuer den Schnitt an einer Sprechpause:
+            # bei 300 s / 60 s faellt der Schnitt zwischen 4 und 5 Minuten.
+            self.segment_search_window = audio_config.get('segment_search_window', 60)
             self.max_segments = audio_config.get('max_segments', 100)
             self.export_format = audio_config.get('export_format', 'mp3')
             self.temp_file_suffix = f".{self.export_format}"
@@ -530,46 +533,58 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 
                 # Teile Kapitel wenn es länger als max_duration_minutes ist
                 if chapter_duration_minutes > max_duration_minutes:
-                    self.logger.info(f"Kapitel {i+1} zu lang, teile es auf",
+                    # Schnitt an der laengsten Sprechpause kurz vor der Hoechstdauer
+                    # (Default: zwischen 4 und 5 Minuten), nicht mehr in gleich lange
+                    # Teile mitten im Satz. OpenAI empfiehlt das ausdruecklich; ein
+                    # zerschnittener Satz kostet Zusammenhang und Genauigkeit.
+                    plans = plan_chunks(
+                        len(chapter_audio),
+                        pydub_silence_finder(chapter_audio),
+                        max_chunk_ms=int(self.segment_duration * 1000),
+                        search_window_ms=int(self.segment_search_window * 1000),
+                        min_chunk_ms=min(60_000, int(self.segment_duration * 1000) // 2),
+                    )
+                    self.logger.info(f"Kapitel {i+1} zu lang, teile es an Sprechpausen auf",
                                    duration_minutes=chapter_duration_minutes,
-                                   max_duration_minutes=max_duration_minutes)
-                    
-                    # Berechne die Anzahl der benötigten Segmente
-                    num_segments = math.ceil(chapter_duration_minutes / max_duration_minutes)
-                    segment_duration_ms = len(chapter_audio) // num_segments
-                    
+                                   max_duration_minutes=max_duration_minutes,
+                                   pieces=len(plans),
+                                   cut_at_pause=sum(1 for p in plans if p.cut_at_pause))
+
                     # Erstelle die Segmente
                     segments: List[AudioSegmentInfo] = []
-                    for j in range(num_segments):
+                    for j, plan in enumerate(plans):
                         # Prüfe, ob wir das maximale Limit erreicht haben
                         if self.max_segments is not None and total_segments_count >= self.max_segments:
                             self.logger.info(f"Maximum von {self.max_segments} Segmenten erreicht, breche Segmentierung ab")
                             break
-                            
-                        start = j * segment_duration_ms
-                        end = min((j + 1) * segment_duration_ms, len(chapter_audio))
-                        
+
+                        start = plan.start_ms
+                        end = plan.end_ms
+
                         segment: AudioSegmentProtocol = chapter_audio[start:end]
                         segment_path: Path = chapter_dir / f"segment_{j}.{self.export_format}"
-                        
+
                         # Exportiere mit optimalen Whisper-Parametern
                         segment.export(
                             str(segment_path),
                             format=self.export_format,
                             parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
                         )
-                        
+
+                        # Zeiten bezogen auf die ganze Datei (Kapitelbeginn + Stueck), damit
+                        # die Segmentzeiten des Transkripts auch bei Kapiteln stimmen.
                         segments.append(AudioSegmentInfo(
                             file_path=segment_path,
-                            start=start/1000.0,  # Konvertiere zu Sekunden
-                            end=end/1000.0,      # Konvertiere zu Sekunden
-                            duration=(end-start)/1000.0  # Konvertiere zu Sekunden
+                            start=(start_ms + start)/1000.0,
+                            end=(start_ms + end)/1000.0,
+                            duration=(end-start)/1000.0
                         ))
-                        
+
                         total_segments_count += 1  # Inkrementiere den Segmentzähler
-                        
-                        self.logger.debug(f"Kapitel {i+1} Teil {j+1}/{num_segments} erstellt",
+
+                        self.logger.debug(f"Kapitel {i+1} Teil {j+1}/{len(plans)} erstellt",
                                         duration_sec=len(segment)/1000.0,
+                                        cut_at_pause=plan.cut_at_pause,
                                         segment_path=str(segment_path))
                 else:
                     # Wenn Kapitel kurz genug ist, behalte es als ein Segment
@@ -586,10 +601,11 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
                     )
                     
+                    # Zeiten bezogen auf die ganze Datei (Kapitelbeginn), nicht auf das Kapitel.
                     segments = [AudioSegmentInfo(
                         file_path=segment_path,
-                        start=0,
-                        end=len(chapter_audio)/1000.0,  # Konvertiere zu Sekunden
+                        start=start_ms/1000.0,
+                        end=(start_ms + len(chapter_audio))/1000.0,
                         duration=len(chapter_audio)/1000.0  # Konvertiere zu Sekunden
                     )]
                     
@@ -822,7 +838,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                     transcription_result = TranscriptionResult(
                         text=transformer_response.data.text,
                         source_language=transcription_result.source_language,
-                        segments=transcription_result.segments
+                        segments=transcription_result.segments,
+                        detected_language=transcription_result.detected_language,
                     )
             
             # Ergebnis erstellen

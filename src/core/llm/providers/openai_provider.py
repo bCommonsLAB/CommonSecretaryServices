@@ -25,6 +25,12 @@ from ...models.llm import LLMRequest
 from ..protocols import LLMProvider
 from ..use_cases import UseCase
 from ..transcription_context import TranscriptionContext, build_context_params
+from ..transcription_quality import (
+    audio_duration,
+    plan_transcription_request,
+    reported_languages,
+    segments_from_response,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger(process_id="openai-provider")
@@ -129,16 +135,22 @@ class OpenAIProvider:
             context: Optional, Kontext zur Aufnahme (Thema, Begriffe, Sprachen).
                 Welche Felder ankommen, entscheidet das Modell — siehe
                 core/llm/transcription_context.py
-            **kwargs: Zusätzliche Parameter (response_format, etc.)
-            
+            **kwargs: Zusätzliche Parameter: ``response_format`` (Wunsch; was das
+                Modell nicht kann, wird vorab angepasst, siehe
+                core/llm/transcription_quality.py) und ``audio_duration`` (Dauer der
+                Aufnahme in Sekunden, falls der Aufrufer sie kennt — fuer das Ende des
+                einzelnen Segments, wenn die Antwort keine Zeiten traegt)
+
         Returns:
-            tuple[TranscriptionResult, LLMRequest]: Transkriptionsergebnis und LLM-Request-Info
-            
+            tuple[TranscriptionResult, LLMRequest]: Transkriptionsergebnis und LLM-Request-Info.
+            Die Segmente tragen ``avg_logprob``, ``compression_ratio``, ``no_speech_prob``
+            und ``quality_source`` („whisper", „logprobs" oder „none").
+
         Raises:
             ProcessingError: Bei Fehlern während der Transkription
         """
         start_time = time.time()
-        
+
         try:
             # Bereite Datei vor
             if isinstance(audio_data, Path):
@@ -147,14 +159,26 @@ class OpenAIProvider:
             else:
                 audio_file = io.BytesIO(audio_data)
                 file_tuple = ("audio.mp3", audio_file, "audio/mpeg")
-            
-            # API-Parameter vorbereiten
+
+            # Format und include vorab je Modell: whisper-1 bekommt verbose_json (Segmente
+            # mit Werten), die GPT-Modelle json plus logprobs. Kein blinder Versuch mit
+            # verbose_json mehr, der die Datei bei GPT-Modellen zweimal hochlud.
+            # Wort-Zeitmarken nur auf ausdruecklichen Wunsch: sie kosten bei whisper-1 Text
+            # (siehe plan_transcription_request).
+            plan = plan_transcription_request(
+                model, kwargs.get("response_format"), word_timestamps=bool(kwargs.get("word_timestamps", False))
+            )
             api_params: Dict[str, Any] = {
                 "model": model,
                 "file": file_tuple,
-                "response_format": kwargs.get("response_format", "verbose_json")
+                "response_format": plan.response_format,
             }
-            
+            if plan.include:
+                api_params["include"] = list(plan.include)
+            if plan.timestamp_granularities:
+                # whisper-1: Wort-Zeitmarken fuer „Absatz anklicken, Stelle hoeren" in KS.
+                api_params["timestamp_granularities"] = list(plan.timestamp_granularities)
+
             # Kontext anwenden: Sprache(n), Thema und Begriffe, soweit das Modell sie
             # annimmt. Verworfene Felder werden gemeldet, damit eine Fehlkonfiguration
             # (z.B. Begriffsliste an einem Modell ohne Unterstuetzung) auffaellt.
@@ -198,11 +222,22 @@ class OpenAIProvider:
                             api_params.pop("extra_body", None)
                     needs_retry = True
                 
-                # Retry-Grund 2: response_format nicht kompatibel (gpt-4o-transcribe)
+                # Retry-Grund 2: response_format nicht kompatibel (unbekanntes Modell,
+                # das kein verbose_json kann)
                 if "response_format" in error_str and "not compatible" in error_str:
                     api_params["response_format"] = "json"
                     needs_retry = True
-                
+
+                # Retry-Grund 3: include=["logprobs"] abgewiesen (z.B. Sprecher-Modelle:
+                # "Logprobs are not supported for diarization models"). Dann ohne Werte,
+                # und das Ergebnis sagt es: quality_source "none".
+                if "include" in api_params and ("logprobs" in error_str or "include" in error_str):
+                    api_params.pop("include", None)
+                    logger.warning(
+                        f"Modell '{model}' nimmt include=logprobs nicht an — Transkription ohne Verlässlichkeitswerte"
+                    )
+                    needs_retry = True
+
                 if needs_retry:
                     # File-Handle resetten (wurde bereits gelesen)
                     if isinstance(audio_data, Path):
@@ -237,24 +272,45 @@ class OpenAIProvider:
             
             # TranscriptionResult erstellen
             transcription_text = response.text if hasattr(response, 'text') and response.text else "[Keine Sprache erkannt]"
-            
-            # Sprache konvertieren falls nötig
-            detected_language = language or "auto"
-            if detected_language == "auto" and hasattr(response, 'language'):
-                detected_language = self._convert_to_iso_code(response.language)
-            
-            segment = TranscriptionSegment(
-                text=transcription_text,
-                segment_id=0,
-                start=0.0,
-                end=duration / 1000.0,
-                title=None
+
+            # Vom Modell gemeldete Sprachen (whisper: "german", gpt-transcribe: languages[].code,
+            # bei gemischter Rede mehrere ohne Rangfolge). ``model_language`` nur, wenn es
+            # genau eine war: sonst wuerde ein gemischtes Stueck als eine Sprache gefuehrt
+            # und spaeter komplett in die Zielsprache uebersetzt (Pruef-Transkript 09.10.2026).
+            model_languages: List[str] = []
+            for raw_code in reported_languages(response):
+                iso = self._convert_to_iso_code(raw_code)
+                if iso != "auto" and iso not in model_languages:
+                    model_languages.append(iso)
+            model_language: Optional[str] = model_languages[0] if len(model_languages) == 1 else None
+
+            # Arbeitssprache: Vorgabe des Aufrufers, bei "auto" die erkannte.
+            source_language = language or "auto"
+            if source_language == "auto" and model_language:
+                source_language = model_language
+
+            # Segmente mit Werten: whisper-1 liefert sie je Abschnitt, GPT-Modelle als
+            # Token-Logprobs ueber den ganzen Text (ein Segment), Sprecher-Modelle gar nicht.
+            # Ende des einzelnen Segments: Dauer laut Antwort, sonst laut Aufrufer, sonst
+            # (letzter Ausweg, wie bisher) die Antwortzeit.
+            known_duration = audio_duration(response)
+            caller_duration = kwargs.get("audio_duration")
+            if known_duration is None and isinstance(caller_duration, (int, float)) and caller_duration > 0:
+                known_duration = float(caller_duration)
+            end_seconds = known_duration if known_duration is not None else duration / 1000.0
+            segments, quality_source = segments_from_response(
+                response, text=transcription_text, end_seconds=end_seconds,
+                language=model_language, languages=model_languages or None,
             )
-            
+            logger.info(
+                f"Transkription mit '{model}': {len(segments)} Segment(e), Verlässlichkeitswerte aus '{quality_source}'"
+            )
+
             transcription_result = TranscriptionResult(
                 text=transcription_text,
-                source_language=detected_language,
-                segments=[segment]
+                source_language=source_language,
+                segments=segments,
+                detected_language=model_language,
             )
             
             # LLMRequest erstellen

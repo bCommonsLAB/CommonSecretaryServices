@@ -23,9 +23,13 @@ from src.core.models.job_models import Job
 MISSING_SPEAKER_DATA_LOG = "Webhook ohne Sprecherdaten: structured_data fehlt"
 
 # Schluessel, die nur mitwandern, wenn der Processor sie gesetzt hat.
+# ``segments`` tragen je Abschnitt die Verlaesslichkeitswerte (avg_logprob,
+# compression_ratio, no_speech_prob, quality_source) unveraendert; ``language`` ist
+# die vom Modell erkannte Sprache (None, wenn das Modell keine meldete).
 _OPTIONAL_KEYS = (
     "speakers",
     "segments",
+    "language",
     "dropped_context",
     "detected_language",
     "duration",
