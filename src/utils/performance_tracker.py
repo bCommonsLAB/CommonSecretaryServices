@@ -60,10 +60,18 @@ class ClientInfo(TypedDict):
     user_agent: Optional[str]
 
 class ResourceInfo(TypedDict):
-    """Ressourcen-Informationen"""
+    """Ressourcen-Informationen.
+
+    ``priced_requests`` und ``unpriced_requests`` zaehlen die LLM-Aufrufe mit und
+    ohne Preisangabe. Nur so kann das Dashboard ``total_cost == 0.0`` als
+    „kostenlos" von „Preis unbekannt" unterscheiden: OpenAI-Aufrufe und Voyage
+    tragen keinen Betrag, OpenRouter und Mistral-OCR schon.
+    """
     total_tokens: int
     total_cost: float
     models_used: List[str]
+    priced_requests: int
+    unpriced_requests: int
 
 class ErrorInfo(TypedDict):
     """Fehler-Informationen"""
@@ -142,7 +150,10 @@ class PerformanceTracker:
         # Standardwerte für Prozessor-Name und async_processing
         self.processor_name: Optional[str] = None
         self.async_processing: bool = False
-        
+        # True, wenn das Ergebnis aus dem Cache kam (kein Modell lief). None heisst
+        # „nicht gemeldet" — der Processor hat create_response nicht durchlaufen.
+        self.from_cache: Optional[bool] = None
+
         self.measurements: Measurements = {
             'process_id': process_id,
             'timestamp': datetime.now().isoformat(),
@@ -158,7 +169,9 @@ class PerformanceTracker:
             'resources': {
                 'total_tokens': 0,
                 'total_cost': 0.0,
-                'models_used': []
+                'models_used': [],
+                'priced_requests': 0,
+                'unpriced_requests': 0,
             },
             'error': None,
             'event': None,
@@ -263,11 +276,23 @@ class PerformanceTracker:
         Wird von BaseProcessor.add_llm_requests aufgerufen, damit die
         Dashboard-Metrik dieselbe Quelle nutzt wie process.llm_info.
         """
+        resources: ResourceInfo = self.measurements['resources']
         for req in requests:
             tokens = int(getattr(req, "tokens", 0) or 0)
             cost = float(getattr(req, "cost", 0.0) or 0.0)
             model = str(getattr(req, "model", "") or "")
             self.add_resource_usage(tokens=tokens, cost=cost, model=model)
+            # LLMRequest.cost ist 0.0, wenn der Provider keinen Betrag liefert
+            # (siehe core/models/llm.py). Ein Aufruf mit 0.0 gilt deshalb als
+            # „Preis unbekannt", nicht als kostenlos.
+            if cost > 0.0:
+                resources['priced_requests'] = resources.get('priced_requests', 0) + 1
+            else:
+                resources['unpriced_requests'] = resources.get('unpriced_requests', 0) + 1
+
+    def set_from_cache(self, from_cache: bool) -> None:
+        """Vermerkt, ob das Ergebnis aus dem Cache kam (wird im Dashboard gezeigt)."""
+        self.from_cache = bool(from_cache)
 
     def eval_result(self, result: Any) -> None:
         """
@@ -423,6 +448,7 @@ class PerformanceTracker:
                 'processor': self.processor_name,  # Wichtig: Flache Struktur für den Prozessor-Namen
                 'status': self.measurements['status'],
                 'async_processing': self.async_processing,  # Wichtig: Flache Struktur für async_processing
+                'from_cache': self.from_cache,
                 
                 # Event-Metadaten, falls vorhanden
                 'event': self.measurements.get('event', ''),

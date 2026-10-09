@@ -1,0 +1,33 @@
+{# Kennzahl-Kacheln. Wird beim ersten Laden und vom Auto-Refresh
+   (/api/dashboard-stats) aus derselben Vorlage gerendert. #}
+{% if stats.error %}
+<div class="col-12">
+    <div class="alert alert-warning">
+        Fehler beim Laden der Statistiken: {{ stats.error }}
+    </div>
+</div>
+{% endif %}
+<div class="col-md-3">
+    <div class="metric-card bg-light p-3 rounded shadow-sm">
+        <h5 class="text-muted">Gesamtanfragen (24h)</h5>
+        <h2 class="mb-0">{{ stats.get('total_requests', 0) }}</h2>
+    </div>
+</div>
+<div class="col-md-3">
+    <div class="metric-card bg-light p-3 rounded shadow-sm">
+        <h5 class="text-muted">Durchschn. Dauer</h5>
+        <h2 class="mb-0">{{ "%.2f"|format(stats.get('avg_duration', 0)) }}s</h2>
+    </div>
+</div>
+<div class="col-md-3">
+    <div class="metric-card bg-light p-3 rounded shadow-sm">
+        <h5 class="text-muted">Erfolgsrate</h5>
+        <h2 class="mb-0">{{ "%.1f"|format(stats.get('success_rate', 0)) }}%</h2>
+    </div>
+</div>
+<div class="col-md-3">
+    <div class="metric-card bg-light p-3 rounded shadow-sm">
+        <h5 class="text-muted">Token/Stunde</h5>
+        <h2 class="mb-0">{{ stats.get('hourly_tokens', 0) }}</h2>
+    </div>
+</div>

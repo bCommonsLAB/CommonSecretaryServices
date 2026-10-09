@@ -33,6 +33,7 @@ Features:
 - Internal: src.utils.logger - Logging system
 """
 from flask import Blueprint, render_template, jsonify, redirect, url_for
+from datetime import datetime
 from typing import Any
 from src.core.config import ApplicationConfig
 from src.utils.logger import ProcessingLogger
@@ -52,13 +53,18 @@ def render_markdown(text: str) -> str:
     """Konvertiert Markdown-Text in HTML"""
     return markdown.markdown(text)
 
-@main.route('/')
-def home():
+# Takt der automatischen Aktualisierung der ganzen Dashboard-Ansicht.
+DASHBOARD_REFRESH_SECONDS = 10
+
+
+def _load_dashboard_stats() -> dict[str, Any]:
     """
-    Dashboard main page route.
-    Displays statistics about recent requests.
+    Laedt die Kennzahlen fuer Seite und Auto-Refresh aus derselben Quelle.
+
+    Kennzahlen kommen aus MongoDB (RequestMetricsRepository, Variante B). Bei einem
+    Fehler bleiben die Nullwerte stehen und ``error`` traegt die Meldung.
+    ``generated_at`` ist die Uhrzeit des Abrufs („Stand").
     """
-    # Initialize statistics
     stats: dict[str, Any] = {
         'total_requests': 0,
         'avg_duration': 0.0,
@@ -70,20 +76,57 @@ def home():
         'hourly_stats': {},
         'recent_requests': []
     }
-    
     try:
-        # Kennzahlen kommen aus MongoDB (RequestMetricsRepository, Variante B).
-        # Die frühere Implementierung las/parste logs/performance.json, das im
-        # Normalbetrieb nie befüllt wurde (complete_tracking() ohne Aufrufer).
         from src.core.mongodb import get_metrics_repository
         stats = get_metrics_repository().get_stats(hours=24, recent_limit=10)
     except Exception as e:
         logger.error(f"Fehler beim Laden der Dashboard-Statistiken: {str(e)}", exc_info=True)
         stats['error'] = str(e)
-    
-    return render_template('dashboard.html', 
-                         stats=stats,
+    stats['generated_at'] = datetime.now().strftime('%H:%M:%S')
+    return stats
+
+
+@main.route('/')
+def home():
+    """
+    Dashboard main page route.
+    Displays statistics about recent requests.
+    """
+    return render_template('dashboard.html',
+                         stats=_load_dashboard_stats(),
+                         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
                          system_info=get_system_info())
+
+
+@main.route('/api/dashboard-stats')
+def get_dashboard_stats():
+    """
+    Liefert die ganze Dashboard-Ansicht fuer den Auto-Refresh.
+
+    Kacheln, Performance-Tabelle und letzte Anfragen kommen als HTML aus denselben
+    Teilvorlagen wie beim ersten Laden; die Diagramme als Daten. Vorher wurde nur
+    die Tabelle der letzten Anfragen nachgeladen, Kacheln und Uebersicht blieben
+    auf dem Stand des Seitenaufrufs stehen.
+    """
+    stats = _load_dashboard_stats()
+    return jsonify({
+        'generated_at': stats['generated_at'],
+        'error': stats.get('error'),
+        'tiles_html': render_template('_dashboard_tiles.html', stats=stats),
+        'processors_html': render_template('_processor_stats.html', stats=stats),
+        'recent_html': render_template('_recent_requests.html',
+                                       recent_requests=stats.get('recent_requests', [])),
+        'charts': {
+            'operations': {
+                'labels': list(stats.get('operations', {}).keys()),
+                'data': list(stats.get('operations', {}).values()),
+            },
+            'hourly': {
+                'labels': list(stats.get('hourly_stats', {}).keys()),
+                'data': list(stats.get('hourly_stats', {}).values()),
+            },
+        },
+    })
 
 # Hinweis: Das frühere YAML-Konfigurations-Modul (Web-Editor für config.yaml)
 # wurde entfernt. Die config.yaml wird in der Entwicklungsumgebung gepflegt und
