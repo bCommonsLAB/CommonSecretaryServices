@@ -396,10 +396,15 @@ data: {"phase":"completed","message":"Verarbeitung abgeschlossen","job":{"id":"j
 
 SSE, Webhook und `GET /api/jobs/{job_id}` bauen den Audio-`data`-Block über dieselbe
 Funktion (`src/api/audio_completed_data.py`). `transcription.text` ist immer da.
-`output_text` kommt dazu, sobald ein Ergebnis am Job liegt. `speakers`, `segments`,
-`dropped_context`, `detected_language`, `duration`, `llm_model`, `chunk_count` und
-`from_cache` erscheinen nur, wenn der Processor sie geliefert hat. Leere Listen werden
-nicht ergänzt: ein Job ohne Sprecherdaten hat den Schlüssel `speakers` gar nicht.
+`output_text` kommt dazu, sobald ein Ergebnis am Job liegt. `segments`, `language`,
+`speakers`, `dropped_context`, `detected_language`, `duration`, `llm_model`,
+`chunk_count` und `from_cache` erscheinen nur, wenn der Processor sie geliefert hat.
+Leere Listen werden nicht ergänzt: ein Job ohne Sprecherdaten hat den Schlüssel
+`speakers` gar nicht. `segments` tragen je Abschnitt die Verlässlichkeitswerte
+`avg_logprob`, `compression_ratio`, `no_speech_prob`, `confidence` und
+`quality_source` (`whisper`, `logprobs`, `none`), siehe
+[audio.md](audio.md#verlässlichkeit-je-abschnitt-datasegments-datalanguage); `language`
+ist die vom Modell erkannte Sprache oder `null`.
 Fehlt das gespeicherte Ergebnis ganz, bleibt `transcription.text` allein, und im Job-Log
 steht `Webhook ohne Sprecherdaten: structured_data fehlt`.
 

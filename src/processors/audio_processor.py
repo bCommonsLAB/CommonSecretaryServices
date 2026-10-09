@@ -822,7 +822,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                     transcription_result = TranscriptionResult(
                         text=transformer_response.data.text,
                         source_language=transcription_result.source_language,
-                        segments=transcription_result.segments
+                        segments=transcription_result.segments,
+                        detected_language=transcription_result.detected_language,
                     )
             
             # Ergebnis erstellen

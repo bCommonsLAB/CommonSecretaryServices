@@ -258,9 +258,20 @@ class DiarizedAudioProcessor(AudioProcessor):
         return segments, detected
 
     def _to_result(
-        self, segments: Sequence[SpeakerSegment], language: str, duration_s: float, process_dir: Path, audio: Any
+        self,
+        segments: Sequence[SpeakerSegment],
+        language: str,
+        duration_s: float,
+        process_dir: Path,
+        audio: Any,
+        detected_language: Optional[str] = None,
     ) -> AudioProcessingResult:
-        """Baut das cachebare Ergebnis; der Text ist das Markdown mit Praefixen."""
+        """Baut das cachebare Ergebnis; der Text ist das Markdown mit Praefixen.
+
+        Das Sprecher-Modell liefert keine Verlaesslichkeitswerte (``include=logprobs``
+        wird abgewiesen, Probe 09.10.2026). Die Segmente tragen deshalb
+        ``quality_source: "none"``; der Client prueft hier nur den Text.
+        """
         markdown = render_markdown(segments)
         if not markdown.strip():
             raise ProcessingError(
@@ -274,11 +285,22 @@ class DiarizedAudioProcessor(AudioProcessor):
                 start=s.start,
                 end=s.end if s.end > s.start else s.start + 0.01,
                 speaker=s.speaker,
+                quality_source="none",
             )
             for i, s in enumerate(segments)
         ]
+        self.logger.info(
+            "Sprecher-Transkription ohne Verlässlichkeitswerte: das Sprecher-Modell liefert keine logprobs "
+            "(quality_source none); Schleifen und Sprachdrift prüft der Client am Text",
+            segment_count=len(transcription_segments),
+        )
         return AudioProcessingResult(
-            transcription=TranscriptionResult(text=markdown, source_language=language, segments=transcription_segments),
+            transcription=TranscriptionResult(
+                text=markdown,
+                source_language=language,
+                segments=transcription_segments,
+                detected_language=detected_language,
+            ),
             metadata=AudioMetadata(
                 duration=duration_s,
                 process_dir=str(process_dir),
@@ -290,17 +312,24 @@ class DiarizedAudioProcessor(AudioProcessor):
 
     @staticmethod
     def _to_data(result: AudioProcessingResult, model: str, dropped: List[str], chunk_count: int, from_cache: bool) -> Dict[str, Any]:
-        """Flache Antwort fuer Clients (output_text, speakers, segments) plus das verschachtelte Transkript."""
-        segments = [
-            {"speaker": s.speaker, "start": s.start, "end": s.end, "text": s.text}
-            for s in result.transcription.segments
-        ]
-        speakers = collect_speakers([SpeakerSegment(s["speaker"] or "", s["start"], s["end"], s["text"]) for s in segments])
+        """Flache Antwort fuer Clients (output_text, speakers, segments) plus das verschachtelte Transkript.
+
+        ``segments`` haben dieselbe Form wie im normalen Weg (``TranscriptionSegment.to_dict``):
+        ``speaker``, ``start``, ``end``, ``text`` plus die Verlaesslichkeitsfelder, die hier
+        None sind, und ``quality_source: "none"``. ``language`` ist die vom Modell
+        gemeldete Sprache (None, wenn keine kam); ``detected_language`` bleibt als
+        Arbeitssprache bestehen.
+        """
+        segments = [s.to_dict() for s in result.transcription.segments]
+        speakers = collect_speakers(
+            [SpeakerSegment(s.speaker or "", s.start, s.end, s.text) for s in result.transcription.segments]
+        )
         return {
             "output_text": result.transcription.text,
             "original_text": result.transcription.text,
             "speakers": speakers,
             "segments": segments,
+            "language": result.transcription.detected_language,
             "detected_language": result.transcription.source_language,
             "duration": result.metadata.duration,
             "llm_model": model,
@@ -376,7 +405,9 @@ class DiarizedAudioProcessor(AudioProcessor):
                 self._safe_delete(path)
 
         language = detected or (context.language if context.language and context.language != "auto" else "auto")
-        result = self._to_result(segments, language, len(audio) / 1000.0, process_dir, audio)
+        result = self._to_result(
+            segments, language, len(audio) / 1000.0, process_dir, audio, detected_language=detected
+        )
         if use_cache:
             self.save_to_cache(cache_key, result)
         return self.create_response(

@@ -58,6 +58,7 @@ import traceback
 from datetime import datetime
 import re
 from dataclasses import dataclass
+import dataclasses
 
 from openai import OpenAI
 from openai.types.audio.transcription_verbose import TranscriptionVerbose
@@ -78,6 +79,7 @@ from src.core.exceptions import ProcessingError
 from src.processors.base_processor import BaseProcessor
 from src.core.llm import LLMConfigManager, UseCase
 from src.core.llm.transcription_context import TranscriptionContext
+from src.core.llm.transcription_quality import reported_language, segments_from_response
 from src.core.llm.protocols import LLMProvider
 
 # Type-Definitionen
@@ -1578,10 +1580,12 @@ class WhisperTranscriber:
         source_language: str = "auto",
         target_language: str = "de",
         processor: Optional[str] = None,
-        transcription_context: Optional[TranscriptionContext] = None
+        transcription_context: Optional[TranscriptionContext] = None,
+        segment_offset: float = 0.0,
+        segment_duration: Optional[float] = None,
     ) -> TranscriptionResult:
-        """Transkribiert ein einzelnes Audio-Segment.
-        
+        """Transkribiert ein einzelnes Audio-Segment (ein Stueck einer langen Datei).
+
         Args:
             file_path: Pfad zur Audio-Datei oder Bytes-Objekt
             logger: Optional, Logger für Debug-Ausgaben
@@ -1591,9 +1595,15 @@ class WhisperTranscriber:
             target_language: Zielsprache für die Transkription (ISO 639-1)
             transcription_context: Optional, Kontext zur Aufnahme (Thema, Begriffe,
                 Sprachen). Verbessert vor allem Eigennamen und Fachbegriffe.
-            
+            segment_offset: Beginn dieses Stuecks in der ganzen Datei (Sekunden). Die
+                Zeitmarken der zurueckgegebenen Segmente werden darum verschoben,
+                damit start/end auf die ganze Datei zeigen.
+            segment_duration: Dauer dieses Stuecks (Sekunden), falls bekannt — Ende
+                des Segments, wenn die Antwort keine Zeiten traegt.
+
         Returns:
-            TranscriptionResult: Das Transkriptionsergebnis
+            TranscriptionResult: Das Transkriptionsergebnis mit den Segmenten des
+            Modells samt Verlaesslichkeitswerten (siehe core/llm/transcription_quality.py)
         """
         # Initialisiere Zeitmessung sofort
         start_time: float = time.time()
@@ -1639,21 +1649,25 @@ class WhisperTranscriber:
                                 model=self.model,
                                 language=source_language if source_language != "auto" else None,
                                 context=transcription_context,
-                                response_format="verbose_json"
+                                response_format="verbose_json",
+                                audio_duration=segment_duration,
                             )
-                            
-                            # Konvertiere TranscriptionResult zu TranscriptionVerbose-ähnlichem Objekt
-                            # Erstelle ein einfaches Objekt das die benötigten Attribute hat
+
+                            # Konvertiere TranscriptionResult zu TranscriptionVerbose-ähnlichem Objekt.
+                            # Die Segmente des Providers (mit Verlaesslichkeitswerten) und die
+                            # vom Modell gemeldete Sprache wandern mit — sonst gingen sie hier verloren.
                             class TranscriptionResponse:
                                 def __init__(self, result: TranscriptionResult, usage_tokens: int):
                                     self.text = result.text
                                     self.language = result.source_language
+                                    self.detected_language = result.detected_language
+                                    self.segments: List[TranscriptionSegment] = list(result.segments)
                                     # Erstelle Usage-Objekt ähnlich TranscriptionVerbose
                                     class Usage:
                                         def __init__(self, tokens: int):
                                             self.total_tokens = tokens
                                     self.usage = Usage(usage_tokens)
-                            
+
                             response = TranscriptionResponse(transcription_result, llm_request.tokens)
                         else:
                             # Fallback auf direkten Client-Aufruf
@@ -1820,31 +1834,57 @@ class WhisperTranscriber:
                 # Konvertiere Whisper Sprachcode in ISO 639-1
                 source_language = self._convert_to_iso_code(response.language)
 
+            # Vom Modell gemeldete Sprache: der Provider hat sie schon konvertiert; eine
+            # rohe SDK-Antwort (Fallback ohne Provider) traegt sie als Wort ("german").
+            detected_language: Optional[str] = getattr(response, "detected_language", None)
+            if detected_language is None:
+                raw_language = reported_language(response)
+                if raw_language:
+                    converted = self._convert_to_iso_code(raw_language)
+                    detected_language = converted if converted != "auto" else None
+
             # Prüfe ob Text leer ist und setze Fallback
             transcription_text = response.text if hasattr(response, 'text') and response.text.strip() else "[Keine Sprache erkannt]"
 
-            # Erstelle ein einzelnes Segment für das gesamte Audio-Segment
-            segment = TranscriptionSegment(
-                text=transcription_text,
-                segment_id=segment_id or 0,
-                start=0.0,
-                end=duration / 1000.0,
-                title=segment_title
-            )
-            
+            # Segmente des Modells behalten (mit Werten), statt eines einzigen ueber alles.
+            # Der Provider liefert sie fertig; eine rohe SDK-Antwort wird hier gelesen.
+            provider_segments: Any = getattr(response, "segments", None)
+            chunk_segments: List[TranscriptionSegment]
+            if isinstance(provider_segments, list) and provider_segments and all(
+                isinstance(s, TranscriptionSegment) for s in provider_segments
+            ):
+                chunk_segments = list(provider_segments)
+            else:
+                fallback_end = segment_duration if segment_duration and segment_duration > 0 else duration / 1000.0
+                chunk_segments, _quality = segments_from_response(
+                    response, text=transcription_text, end_seconds=fallback_end
+                )
+
+            # Zeitmarken auf die ganze Datei verschieben; der Kapiteltitel haengt am
+            # ersten Segment des Stuecks. Die IDs vergibt transcribe_segments neu.
+            shifted_segments: List[TranscriptionSegment] = []
+            for index, segment in enumerate(chunk_segments):
+                shifted = segment.shifted(segment_offset, segment_id=index)
+                if index == 0 and segment_title and segment_title.strip():
+                    shifted = dataclasses.replace(shifted, title=segment_title)
+                shifted_segments.append(shifted)
+
             if logger:
                 logger.info(
                     "Transkription erfolgreich",
                     segment_id=segment_id,
                     duration_ms=duration,
                     tokens=tokens,
-                    text_length=len(transcription_text)
+                    text_length=len(transcription_text),
+                    segment_count=len(shifted_segments),
+                    quality_source=shifted_segments[0].quality_source if shifted_segments else "none",
                 )
-            
+
             return TranscriptionResult(
                 text=transcription_text,
                 source_language=source_language,
-                segments=[segment]  # Nur ein Segment pro Audio-Datei
+                segments=shifted_segments,
+                detected_language=detected_language,
             )
             
         except Exception as e:
@@ -1991,6 +2031,10 @@ class WhisperTranscriber:
         combined_text_parts: List[str] = []
         combined_requests: List[LLMRequest] = []
         detected_language: str = source_language
+        # Segmente aller Stuecke (Zeiten schon auf die ganze Datei bezogen) und die
+        # je Stueck vom Modell gemeldete Sprache.
+        combined_segments: List[TranscriptionSegment] = []
+        reported_languages: List[str] = []
 
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
@@ -2025,7 +2069,9 @@ class WhisperTranscriber:
                     target_language=target_language,
                     logger=logger,
                     processor=processor,
-                    transcription_context=transcription_context
+                    transcription_context=transcription_context,
+                    segment_offset=float(segment.start),
+                    segment_duration=float(segment.duration) if segment.duration > 0 else None,
                 ))
             
             # Führe alle Tasks im Batch parallel aus und warte auf Ergebnisse
@@ -2043,7 +2089,16 @@ class WhisperTranscriber:
                     if is_error:
                         combined_text_parts.append(result.text)
                         continue
-                    
+
+                    # Segmente in Dateireihenfolge sammeln; die Texte bleiben die des
+                    # Modells (Originalsprache), auch wenn der Gesamttext uebersetzt wird.
+                    for segment_result in result.segments:
+                        combined_segments.append(
+                            segment_result.shifted(0.0, segment_id=len(combined_segments))
+                        )
+                    if result.detected_language:
+                        reported_languages.append(result.detected_language)
+
                     # Quellsprache bestimmen:
                     # Wenn die Spracherkennung fehlschlug ("auto"), nehmen wir an,
                     # dass die Sprache bereits der Zielsprache entspricht. Begründung:
@@ -2094,9 +2149,19 @@ class WhisperTranscriber:
         
         # Erstelle das finale Ergebnis
         result_text = "\n".join(combined_text_parts).strip()
-        
+
+        # Vom Modell gemeldete Sprache der ganzen Datei: die haeufigste je Stueck
+        # (bei Gleichstand die zuerst gemeldete). None, wenn kein Stueck eine meldete.
+        model_language: Optional[str] = None
+        if reported_languages:
+            model_language = max(
+                dict.fromkeys(reported_languages),
+                key=lambda code: reported_languages.count(code),
+            )
+
         return TranscriptionResult(
             text=result_text,
             source_language=detected_language,
-            segments=[]  # Keine Segmente im Output
+            segments=combined_segments,
+            detected_language=model_language,
         )
