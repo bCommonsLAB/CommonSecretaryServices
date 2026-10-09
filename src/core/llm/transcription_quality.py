@@ -47,6 +47,7 @@ und ``text_language`` (aus dem Segmenttext, lingua).
 
 from dataclasses import dataclass, replace as dataclass_replace
 from typing import Any, List, Optional, Sequence, Tuple
+import re
 import threading
 import zlib
 
@@ -165,24 +166,39 @@ def mean_logprob(logprobs: Any) -> Optional[float]:
     return sum(values) / len(values)
 
 
-def reported_language(response: Any) -> Optional[str]:
+def reported_languages(response: Any) -> List[str]:
     """
-    Sprache, die das Modell selbst gemeldet hat — roh, so wie sie ankam.
+    Alle Sprachen, die das Modell selbst gemeldet hat — roh, ohne Wiederholung.
 
     ``whisper-1`` meldet ``language`` als Wort („german"), ``gpt-transcribe`` eine
-    Liste ``languages: [{"code": "de"}]``. Beides wird gelesen; die Umwandlung in
-    ISO 639-1 macht der Aufrufer. None, wenn das Modell nichts gesagt hat.
+    Liste ``languages: [{"code": "it"}, {"code": "de"}]``. Die Liste hat KEINE
+    Rangfolge: am Pruef-Transkript meldete ein ueberwiegend deutsches Stueck
+    „it, de". Die Umwandlung in ISO 639-1 macht der Aufrufer. Leer, wenn das
+    Modell nichts gesagt hat.
     """
     language = _get(response, "language")
     if isinstance(language, str) and language.strip():
-        return language.strip()
+        return [language.strip()]
+    found: List[str] = []
     languages = _get(response, "languages")
     if isinstance(languages, (list, tuple)):
         for entry in languages:
             code = _get(entry, "code") if not isinstance(entry, str) else entry
-            if isinstance(code, str) and code.strip():
-                return code.strip()
-    return None
+            if isinstance(code, str) and code.strip() and code.strip() not in found:
+                found.append(code.strip())
+    return found
+
+
+def reported_language(response: Any) -> Optional[str]:
+    """
+    Die Sprache des Modells, wenn es genau eine gemeldet hat; sonst None.
+
+    Bei mehreren gemeldeten Sprachen gibt es keine „Hauptsprache" — die erste zu
+    nehmen hiess am Pruef-Transkript, ein deutsches Stueck als italienisch zu
+    fuehren und es danach komplett ins Deutsche uebersetzen zu lassen.
+    """
+    found = reported_languages(response)
+    return found[0] if len(found) == 1 else None
 
 
 def audio_duration(response: Any) -> Optional[float]:
@@ -368,27 +384,34 @@ def segments_from_response(
     end_seconds: float,
     title: Optional[str] = None,
     language: Optional[str] = None,
+    languages: Optional[List[str]] = None,
 ) -> Tuple[List[TranscriptionSegment], str]:
     """
     Baut die Segmente einer Anbieter-Antwort und sagt, woher die Werte stammen.
 
     Reihenfolge: Whisper-Segmente mit Werten (und Woertern, falls geliefert), sonst
-    ein Segment aus den Token-Logprobs, sonst ein Segment ohne Werte. Jedes Segment
-    traegt die vom Modell fuer diese Anfrage gemeldete Sprache (``language``) und
-    die aus seinem Text bestimmte (``text_language``).
+    Saetze mit Werten aus den Token-Logprobs, sonst Saetze ohne Werte. Jedes Segment
+    traegt die vom Modell fuer diese Anfrage gemeldeten Sprachen (``language`` nur bei
+    genau einer, ``languages`` alle) und die aus seinem Text bestimmte
+    (``text_language``).
 
     Args:
         response: Antwort des Anbieters (SDK-Objekt oder Dict)
         text: der Gesamttext, falls keine Segmente kommen
-        end_seconds: Ende des einzelnen Segments, wenn die Antwort keine Zeiten traegt
-        title: Titel (z.B. Kapitel) fuer das einzelne Segment
-        language: vom Modell gemeldete Sprache dieser Anfrage (ISO 639-1) oder None
+        end_seconds: Dauer der Anfrage (des Stuecks) in Sekunden
+        title: Titel (z.B. Kapitel) fuer das erste Segment
+        language: vom Modell gemeldete Sprache, wenn es genau eine war, sonst None
+        languages: alle vom Modell gemeldeten Sprachen (ISO 639-1)
 
     Returns:
         (Segmente, quality_source)
     """
     segments, source = _build_segments(response, text=text, end_seconds=end_seconds, title=title)
-    return [with_text_language(dataclass_replace(s, language=language)) for s in segments], source
+    reported = list(languages) if languages else ([language] if language else None)
+    return [
+        with_text_language(dataclass_replace(s, language=language, languages=reported))
+        for s in segments
+    ], source
 
 
 def _build_segments(
@@ -407,8 +430,12 @@ def _build_segments(
                 return segments, "whisper"
 
     end = end_seconds if end_seconds > 0 else 0.01
-    average = mean_logprob(_get(response, "logprobs"))
-    if average is not None:
+    raw_logprobs = _get(response, "logprobs")
+    has_logprobs = mean_logprob(raw_logprobs) is not None
+    token_values = _align_tokens(text, raw_logprobs) if has_logprobs else None
+    if has_logprobs and token_values is None:
+        # Ohne Zuordnung keine Werte je Satz: lieber ein ehrlicher Mittelwert je Stueck.
+        logger.warning("Token-Logprobs passen nicht auf den Text — ein Segment je Stueck statt je Satz")
         return [
             TranscriptionSegment(
                 text=text,
@@ -416,13 +443,122 @@ def _build_segments(
                 start=0.0,
                 end=end,
                 title=title,
-                avg_logprob=average,
+                avg_logprob=mean_logprob(raw_logprobs),
+                min_logprob=_min_logprob(raw_logprobs),
                 compression_ratio=compression_ratio(text),
-                no_speech_prob=None,
                 quality_source="logprobs",
+                time_source="chunk",
             )
         ], "logprobs"
 
-    return [
-        TranscriptionSegment(text=text, segment_id=0, start=0.0, end=end, title=title, quality_source="none")
-    ], "none"
+    source = "logprobs" if has_logprobs else "none"
+    return _sentence_segments(text, end, title, token_values, source), source
+
+
+# --- Saetze --------------------------------------------------------------------
+#
+# gpt-transcribe liefert je Anfrage nur einen Textblock (bei uns 4–5 Minuten) und
+# Logprobs je Token, aber keine Zeiten. Damit KnowledgeScout einzelne Saetze
+# markieren kann, teilt der Dienst den Text in Saetze und haengt an jeden die Werte
+# seiner Tokens. Die Zeit jedes Satzes ist nach seiner Position im Text geschaetzt
+# (time_source "estimated"): Sprechtempo als gleichmaessig angenommen.
+
+# Satzende: . ! ? gefolgt von Leerraum. „…" nicht — gpt-transcribe setzt es fuer
+# unverstaendliche Stellen mitten im Satz.
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+# Kuerzere Bruchstuecke („z.", „Ja.") haengen am vorigen Satz.
+MIN_SENTENCE_CHARS = 12
+
+
+def split_sentences(text: str) -> List[Tuple[int, int]]:
+    """Satzgrenzen als (start, end) Zeichenpositionen, ohne Leerraum an den Raendern."""
+    spans: List[Tuple[int, int]] = []
+    position = 0
+    for match in _SENTENCE_BREAK.finditer(text):
+        spans.append((position, match.start()))
+        position = match.end()
+    spans.append((position, len(text)))
+    spans = [(s, e) for s, e in spans if text[s:e].strip()]
+    merged: List[Tuple[int, int]] = []
+    for start, end in spans:
+        if merged and (end - start < MIN_SENTENCE_CHARS or merged[-1][1] - merged[-1][0] < MIN_SENTENCE_CHARS):
+            merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _align_tokens(text: str, logprobs: Any) -> Optional[List[Tuple[int, float]]]:
+    """
+    Ordnet jedem Token seine Zeichenposition im Text zu: [(position, logprob), ...].
+
+    Die Tokens ergeben den Text fast genau; am Pruef-Transkript fehlten nur
+    vereinzelt Leerzeichen (Token „provincia.Ad", Text „provincia. Ad"). Deshalb
+    darf die Suche ein paar Zeichen Leerraum ueberspringen. Passt ein Token gar
+    nicht, gibt es None statt einer falschen Zuordnung.
+    """
+    if not isinstance(logprobs, (list, tuple)):
+        return None
+    aligned: List[Tuple[int, float]] = []
+    position = 0
+    for entry in logprobs:
+        token = str(_get(entry, "token", "") or "")
+        value = _as_float(_get(entry, "logprob"))
+        if not token:
+            continue
+        index = text.find(token, position, position + len(token) + 3)
+        if index < 0:
+            stripped = token.strip()
+            if not stripped:
+                continue
+            index = text.find(stripped, position, position + len(token) + 3)
+            if index < 0:
+                return None
+            token = stripped
+        if value is not None:
+            aligned.append((index, value))
+        position = index + len(token)
+    return aligned
+
+
+def _min_logprob(logprobs: Any) -> Optional[float]:
+    """Schlechtester Token-Logprob, oder None."""
+    if not isinstance(logprobs, (list, tuple)):
+        return None
+    values = [v for v in (_as_float(_get(e, "logprob")) for e in logprobs) if v is not None]
+    return min(values) if values else None
+
+
+def _sentence_segments(
+    text: str,
+    end_seconds: float,
+    title: Optional[str],
+    token_values: Optional[List[Tuple[int, float]]],
+    source: str,
+) -> List[TranscriptionSegment]:
+    """Ein Segment je Satz; Werte aus den Tokens des Satzes, Zeit nach Textposition."""
+    spans = split_sentences(text) or [(0, len(text))]
+    length = max(len(text), 1)
+    single = len(spans) == 1
+    segments: List[TranscriptionSegment] = []
+    for start_char, end_char in spans:
+        sentence = text[start_char:end_char].strip()
+        values = [v for pos, v in (token_values or []) if start_char <= pos < end_char]
+        start = 0.0 if single else end_seconds * start_char / length
+        end = end_seconds if single else end_seconds * end_char / length
+        segments.append(
+            TranscriptionSegment(
+                text=sentence,
+                segment_id=len(segments),
+                start=start,
+                end=max(end, start + 0.01),
+                title=title if not segments else None,
+                avg_logprob=(sum(values) / len(values)) if values else None,
+                min_logprob=min(values) if values else None,
+                compression_ratio=compression_ratio(sentence) if source == "logprobs" else None,
+                no_speech_prob=None,
+                quality_source=source if values or source == "none" else "none",
+                time_source="chunk" if single else "estimated",
+            )
+        )
+    return segments

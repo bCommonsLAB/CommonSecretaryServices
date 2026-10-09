@@ -29,6 +29,7 @@ from src.core.llm.transcription_quality import (
     compression_ratio,
     detect_text_language,
     mean_logprob,
+    split_sentences,
     plan_transcription_request,
     reported_language,
     segments_from_response,
@@ -270,6 +271,89 @@ class TestSpracheUndWoerter(unittest.TestCase):
         again = TranscriptionSegment.from_dict(segment.to_dict())
         self.assertEqual(again.words, [TranscriptionWord("Hallo", 1.0, 1.4)])
         self.assertEqual(again.language, "de")
+
+
+def _gpt_transcribe_antwort(text: str, languages: List[str]) -> Dict[str, Any]:
+    """Antwort wie von gpt-transcribe: Text, Sprachliste, Logprobs je Wort (Leerzeichen
+    teils fehlend wie in der echten Antwort), Abrechnung nach Sekunden."""
+    tokens: List[Dict[str, Any]] = []
+    for i, word in enumerate(text.split(" ")):
+        # Nach einem Punkt fehlt im echten Token oft das Leerzeichen („provincia.Ad").
+        prefix = "" if i == 0 or text.split(" ")[i - 1].endswith(".") else " "
+        value = -1.6 if word.startswith("Rig") else -0.05
+        tokens.append({"token": prefix + word, "logprob": value})
+    return {
+        "text": text,
+        "languages": [{"code": code} for code in languages],
+        "logprobs": tokens,
+        "usage": {"type": "duration", "seconds": 120},
+    }
+
+
+class TestSaetzeAusGptTranscribe(unittest.TestCase):
+    """Teil 3: gpt-transcribe liefert einen Block je Stueck; der Dienst teilt in Saetze."""
+
+    TEXT = (
+        "Ich muss mich auch vorstellen, Wolfgang Rigott, Vorstand der Plattform. "
+        "Aber jährlich werden Schafe und Ziegen erhoben. "
+        "Ci sono stati vari punti, insomma, uno è l'informazione contro l'intrattenimento."
+    )
+
+    def test_sentences_carry_their_own_values_language_and_estimated_time(self) -> None:
+        client = _Client([SimpleNamespace(**_gpt_transcribe_antwort(self.TEXT, ["it", "de"]))])
+        result, _ = _provider(client).transcribe(b"audio", model="gpt-transcribe", language=None)
+
+        self.assertEqual(len(result.segments), 3)
+        first, second, third = result.segments
+        # Das unsichere Wort (Name) zeigt sich im Minimum des ersten Satzes.
+        self.assertEqual(first.min_logprob, -1.6)
+        self.assertEqual(second.min_logprob, -0.05)
+        self.assertEqual([s.text_language for s in result.segments], ["de", "de", "it"])
+        # Zeiten nach Textposition geschaetzt, lueckenlos ueber 120 s.
+        self.assertEqual(first.start, 0.0)
+        self.assertAlmostEqual(third.end, 120.0 * (len(self.TEXT)) / len(self.TEXT), places=3)
+        self.assertTrue(all(s.time_source == "estimated" for s in result.segments))
+        self.assertTrue(all(s.quality_source == "logprobs" for s in result.segments))
+
+    def test_mixed_languages_are_kept_and_not_reduced_to_the_first(self) -> None:
+        client = _Client([SimpleNamespace(**_gpt_transcribe_antwort(self.TEXT, ["it", "de"]))])
+        result, _ = _provider(client).transcribe(b"audio", model="gpt-transcribe", language=None)
+
+        segment = result.segments[0]
+        self.assertIsNone(segment.language)
+        self.assertEqual(segment.languages, ["it", "de"])
+        # Keine Hauptsprache -> keine nachtraegliche Uebersetzung des ganzen Stuecks.
+        self.assertIsNone(result.detected_language)
+        self.assertEqual(result.source_language, "auto")
+
+    def test_single_reported_language_is_used(self) -> None:
+        client = _Client([SimpleNamespace(**_gpt_transcribe_antwort(self.TEXT, ["de"]))])
+        result, _ = _provider(client).transcribe(b"audio", model="gpt-transcribe", language=None)
+        self.assertEqual(result.detected_language, "de")
+        self.assertEqual(result.segments[0].language, "de")
+        self.assertEqual(result.segments[0].languages, ["de"])
+
+    def test_tokens_that_do_not_fit_fall_back_to_one_segment(self) -> None:
+        antwort = _gpt_transcribe_antwort(self.TEXT, ["de"])
+        antwort["logprobs"] = [{"token": "völlig", "logprob": -0.1}, {"token": " anders", "logprob": -0.2}]
+        segments, source = segments_from_response(antwort, text=self.TEXT, end_seconds=120.0)
+        self.assertEqual(source, "logprobs")
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].time_source, "chunk")
+        self.assertAlmostEqual(segments[0].avg_logprob or 0.0, -0.15)
+
+    def test_split_sentences_keeps_ellipsis_and_merges_fragments(self) -> None:
+        text = "Und Sie, Frau … aus der Ukraine, haben gesagt. Ja. Danke für die Einladung heute."
+        spans = [text[s:e] for s, e in split_sentences(text)]
+        self.assertEqual(spans, ["Und Sie, Frau … aus der Ukraine, haben gesagt. Ja.", "Danke für die Einladung heute."])
+
+    def test_whisper_segments_keep_model_times(self) -> None:
+        segments, _ = segments_from_response(
+            {"segments": [{"start": 1.0, "end": 2.0, "text": "Hallo zusammen", "avg_logprob": -0.1,
+                           "compression_ratio": 1.0, "no_speech_prob": 0.0}]},
+            text="", end_seconds=10.0,
+        )
+        self.assertEqual(segments[0].time_source, "model")
 
 
 class TestAnfrageplan(unittest.TestCase):

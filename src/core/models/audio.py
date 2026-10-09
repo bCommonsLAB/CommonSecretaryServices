@@ -85,6 +85,13 @@ class AudioProcessingError(ProcessingError):
 #   none     - das Modell liefert nichts (z.B. gpt-4o-transcribe-diarize)
 QUALITY_SOURCES = ("whisper", "logprobs", "none")
 
+# Woher start/end eines Segments stammen.
+#   model     - vom Modell je Abschnitt geliefert (whisper-1)
+#   chunk     - das Segment ist ein ganzes Stueck; die Grenzen sind die Schnittstellen
+#   estimated - Satz innerhalb eines Stuecks; Zeit nach Textposition geschaetzt
+#               (gpt-transcribe liefert keine Zeiten innerhalb einer Anfrage)
+TIME_SOURCES = ("model", "chunk", "estimated")
+
 # Zeitmarken auf Millisekunden runden: nach dem Verschieben um den Stueck-Offset
 # entstehen sonst Werte wie 1843.2000000000003, und bei einigen tausend Woertern
 # kostet jede Stelle Platz im Webhook.
@@ -162,6 +169,14 @@ class TranscriptionSegment:
     text_language: Optional[str] = None
     text_language_prob: Optional[float] = None
     words: Optional[List[TranscriptionWord]] = None
+    # Alle Sprachen, die das Modell fuer das Stueck gemeldet hat (gpt-transcribe meldet
+    # bei gemischter Rede mehrere, ohne Rangfolge). ``language`` ist nur gesetzt, wenn
+    # es genau eine war.
+    languages: Optional[List[str]] = None
+    # Schlechtester Token-Logprob im Segment (nur quality_source "logprobs"): zeigt
+    # einzelne unsichere Woerter, die im Mittelwert untergehen.
+    min_logprob: Optional[float] = None
+    time_source: str = "model"
 
     def __post_init__(self) -> None:
         """Validiert die Segment-Daten und leitet confidence aus avg_logprob ab."""
@@ -185,6 +200,10 @@ class TranscriptionSegment:
             raise ValueError("Title darf nicht leer sein wenn gesetzt")
         if self.text_language_prob is not None and not 0.0 <= self.text_language_prob <= 1.0:
             raise ValueError("text_language_prob muss zwischen 0 und 1 liegen")
+        if self.time_source not in TIME_SOURCES:
+            raise ValueError(
+                f"time_source muss eines von {', '.join(TIME_SOURCES)} sein, nicht '{self.time_source}'"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Segment in ein Dictionary.
@@ -205,8 +224,11 @@ class TranscriptionSegment:
             "no_speech_prob": self.no_speech_prob,
             "quality_source": self.quality_source,
             "language": self.language,
+            "languages": list(self.languages) if self.languages is not None else None,
             "text_language": self.text_language,
             "text_language_prob": self.text_language_prob,
+            "min_logprob": self.min_logprob,
+            "time_source": self.time_source,
         }
         if self.words is not None:
             data["words"] = [w.to_dict() for w in self.words]

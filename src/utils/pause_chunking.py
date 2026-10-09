@@ -21,7 +21,7 @@ testbar ist.
 """
 
 from dataclasses import dataclass
-from typing import Callable, List, Sequence, Tuple
+from typing import Any, Callable, List, Sequence, Tuple
 
 # 20 Minuten je Stueck: deutlich unter der Anbieter-Grenze, aber lang genug, damit
 # die Sprecher-Labels moeglichst selten neu vergeben werden.
@@ -35,6 +35,52 @@ MIN_CHUNK_MS = 60 * 1000
 
 # Liefert Stillen als (start_ms, end_ms) innerhalb des angefragten Fensters.
 SilenceFinder = Callable[[int, int], Sequence[Tuple[int, int]]]
+
+# Sprechpause: mindestens so lang und so viel leiser als der Durchschnitt des Fensters.
+MIN_SILENCE_MS = 600
+SILENCE_BELOW_AVERAGE_DB = 16
+SILENCE_SEEK_STEP_MS = 50
+
+# Stufen von streng nach locker. Die strenge Stufe findet echte Pausen in ruhigen
+# Aufnahmen; in Diskussionen mit Raumgeraeusch fand sie am Pruef-Transkript
+# (49 Min., 9 Suchfenster zu 60 s) nur in einem Fenster etwas. Erst wenn eine Stufe
+# im Fenster nichts findet, kommt die naechste — mit der lockersten fanden sich
+# Pausen in allen neun Fenstern (Messung 09.10.2026).
+SILENCE_LEVELS: Tuple[Tuple[int, int], ...] = (
+    (MIN_SILENCE_MS, SILENCE_BELOW_AVERAGE_DB),
+    (500, 12),
+    (300, 10),
+)
+
+
+def pydub_silence_finder(audio: Any) -> SilenceFinder:
+    """
+    Stille-Suche mit pydub, nur im angefragten Fenster (nicht ueber die ganze Datei).
+
+    Gemeinsam fuer den normalen Weg (Stuecke um 4–5 Minuten) und den Sprecher-Weg
+    (Stuecke bis 20 Minuten). Die Schwelle richtet sich nach der Lautstaerke des
+    Fensters, damit leise und laute Aufnahmen gleich behandelt werden; die Stufen
+    in SILENCE_LEVELS werden der Reihe nach probiert.
+    """
+    from pydub.silence import detect_silence
+
+    def find(window_start: int, window_end: int) -> List[Tuple[int, int]]:
+        window: Any = audio[window_start:window_end]
+        loudness = getattr(window, "dBFS", None)
+        if loudness is None or loudness == float("-inf"):
+            return []
+        for min_silence_ms, below_db in SILENCE_LEVELS:
+            found = detect_silence(
+                window,
+                min_silence_len=min_silence_ms,
+                silence_thresh=loudness - below_db,
+                seek_step=SILENCE_SEEK_STEP_MS,
+            )
+            if found:
+                return [(window_start + int(s), window_start + int(e)) for s, e in found]
+        return []
+
+    return find
 
 
 @dataclass(frozen=True)

@@ -55,7 +55,7 @@ from src.core.models.base import BaseResponse
 from src.core.models.enums import ProcessorType
 from src.processors.audio_cache_key import MODE_DIARIZED
 from src.processors.audio_processor import AudioProcessor, AudioSegmentProtocol
-from src.utils.pause_chunking import ChunkPlan, HARD_LIMIT_MS, plan_chunks
+from src.utils.pause_chunking import ChunkPlan, HARD_LIMIT_MS, SilenceFinder, plan_chunks, pydub_silence_finder
 
 # Anbieter-Grenze je Anfrage (OpenAI, 06.10.2026).
 MAX_REQUEST_BYTES = 25 * 1024 * 1024
@@ -75,10 +75,7 @@ ChunkProgress = Callable[[int, int, float, int], None]
 # index (ab 1), Anzahl, bisher verstrichene Sekunden fuer dieses Stueck.
 ChunkAlive = Callable[[int, int, float], None]
 
-# Sprechpause: mindestens so lang und so viel leiser als der Durchschnitt des Fensters.
-MIN_SILENCE_MS = 600
-SILENCE_BELOW_AVERAGE_DB = 16
-SILENCE_SEEK_STEP_MS = 50
+# Sprechpausen-Erkennung: src/utils/pause_chunking.py (gemeinsam mit dem normalen Weg).
 
 
 def _detected_language(provider: Any, response: Any) -> Optional[str]:
@@ -96,24 +93,9 @@ def _detected_language(provider: Any, response: Any) -> Optional[str]:
 class DiarizedAudioProcessor(AudioProcessor):
     """Datei-Transkription mit Sprecher-Erkennung. Teilt Cache und Konfiguration mit AudioProcessor."""
 
-    def _silence_finder(self, audio: AudioSegmentProtocol):
+    def _silence_finder(self, audio: AudioSegmentProtocol) -> SilenceFinder:
         """Liefert die Stille-Suche fuer die Stueckplanung (pydub, nur im Fenster)."""
-        from pydub.silence import detect_silence  # type: ignore
-
-        def find(window_start: int, window_end: int) -> List[Tuple[int, int]]:
-            window: Any = audio[window_start:window_end]
-            loudness = getattr(window, "dBFS", None)
-            if loudness is None or loudness == float("-inf"):
-                return []
-            found = detect_silence(
-                window,
-                min_silence_len=MIN_SILENCE_MS,
-                silence_thresh=loudness - SILENCE_BELOW_AVERAGE_DB,
-                seek_step=SILENCE_SEEK_STEP_MS,
-            )
-            return [(window_start + int(s), window_start + int(e)) for s, e in found]
-
-        return find
+        return pydub_silence_finder(audio)
 
     def _export_chunks(
         self, audio: AudioSegmentProtocol, plans: Sequence[ChunkPlan], process_dir: Path

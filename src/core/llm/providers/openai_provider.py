@@ -28,7 +28,7 @@ from ..transcription_context import TranscriptionContext, build_context_params
 from ..transcription_quality import (
     audio_duration,
     plan_transcription_request,
-    reported_language,
+    reported_languages,
     segments_from_response,
 )
 from src.utils.logger import get_logger
@@ -273,11 +273,16 @@ class OpenAIProvider:
             # TranscriptionResult erstellen
             transcription_text = response.text if hasattr(response, 'text') and response.text else "[Keine Sprache erkannt]"
 
-            # Vom Modell gemeldete Sprache (whisper: "german", gpt-transcribe: languages[].code).
-            # None, wenn das Modell nichts gemeldet hat — der Client braucht sie fuer die
-            # Sprachdrift-Pruefung und darf sie nicht mit der Vorgabe verwechseln.
-            raw_language = reported_language(response)
-            model_language: Optional[str] = self._convert_to_iso_code(raw_language) if raw_language else None
+            # Vom Modell gemeldete Sprachen (whisper: "german", gpt-transcribe: languages[].code,
+            # bei gemischter Rede mehrere ohne Rangfolge). ``model_language`` nur, wenn es
+            # genau eine war: sonst wuerde ein gemischtes Stueck als eine Sprache gefuehrt
+            # und spaeter komplett in die Zielsprache uebersetzt (Pruef-Transkript 09.10.2026).
+            model_languages: List[str] = []
+            for raw_code in reported_languages(response):
+                iso = self._convert_to_iso_code(raw_code)
+                if iso != "auto" and iso not in model_languages:
+                    model_languages.append(iso)
+            model_language: Optional[str] = model_languages[0] if len(model_languages) == 1 else None
 
             # Arbeitssprache: Vorgabe des Aufrufers, bei "auto" die erkannte.
             source_language = language or "auto"
@@ -294,7 +299,8 @@ class OpenAIProvider:
                 known_duration = float(caller_duration)
             end_seconds = known_duration if known_duration is not None else duration / 1000.0
             segments, quality_source = segments_from_response(
-                response, text=transcription_text, end_seconds=end_seconds, language=model_language
+                response, text=transcription_text, end_seconds=end_seconds,
+                language=model_language, languages=model_languages or None,
             )
             logger.info(
                 f"Transkription mit '{model}': {len(segments)} Segment(e), Verlässlichkeitswerte aus '{quality_source}'"

@@ -262,3 +262,58 @@ Diese Maschine: NVIDIA RTX 2000 Ada Laptop GPU mit 8 GB, i9-13950HX, 64 GB RAM.
 braucht rund 3 GB Modell plus CUDA-Bibliotheken, und `pyannote` braucht einen
 Hugging-Face-Token mit akzeptierten Modellbedingungen; in der `.env` ist keiner.
 Der Dienst im Docker hat weiterhin keine GPU.
+
+---
+
+## Nachtrag 09.10.2026: gpt-transcribe statt whisper-1
+
+Derselbe Prüffall mit `gpt-transcribe`, dem in der Maske eingestellten und von OpenAI
+empfohlenen Modell. Ergebnis: Die drei Fehlstellen sind dort keine.
+
+| Fenster | whisper-1 | gpt-transcribe |
+|---|---|---|
+| 118–168 s | ins Italienische übersetzt | Deutsch, wie gesprochen |
+| 223–251 s | ins Italienische übersetzt | „jährlich werden Schafe und Ziegen erhoben" |
+| 354–382 s | ins Deutsche übersetzt | italienische Zusammenfassung, wie gesprochen |
+
+`whisper-1` entscheidet sich je Stück für eine Sprache und übersetzt den Rest hinein
+(Stück 0–5 Min.: 38 italienische, 1 deutscher Satz; gpt-transcribe: 22 deutsche, 3
+italienische). `gpt-transcribe` lässt die Sprachen gemischt, hat 17 % mehr Text und
+liefert bei Wiederholung fast denselben Text. Auftrag C (Schleifen) ist damit
+hinfällig: in keinem Lauf eine Schleife.
+
+### Gebaut (Commit nach `313a757`)
+
+- **Schnitt an Sprechpausen:** Stücke bis 5 Minuten, Schnitt an der längsten Pause
+  zwischen 4 und 5 Minuten. Gestufte Pausensuche (streng, dann lockerer); am Prüffall
+  lagen alle 10 Schnitte an einer Pause (vorher fest alle 300 s, mitten im Satz).
+  Zeiten der Stücke jetzt auch bei Kapiteln bezogen auf die ganze Datei.
+- **Sätze statt Fünf-Minuten-Blöcke:** `gpt-transcribe` liefert je Stück einen Block.
+  Der Dienst teilt ihn in Sätze (Prüffall: 314 Sätze). Je Satz: `text_language`,
+  `avg_logprob`, neu `min_logprob` (schlechtestes Wort), `compression_ratio`.
+- **Zeiten je Satz geschätzt:** `time_source: "estimated"`, nach Textposition im Stück.
+  Gegen whisper-1-Zeiten 15–30 s daneben: reicht, um die Gegend zu finden.
+- **Alle gemeldeten Sprachen:** neu `languages` je Segment (gpt-transcribe meldet bei
+  gemischter Rede mehrere, ohne Rangfolge). `language` nur noch, wenn es genau eine war.
+
+### Was KS jetzt tun sollte
+
+1. **`languages=de,it` mitschicken**, wenn die Sprachen der Aufnahme bekannt sind. Ohne
+   Angabe hat der Dienst drei Stücke nachträglich von Gemini ins Deutsche übersetzen
+   lassen, weil das Modell je nur eine fremde Sprache meldete (einmal „Schwedisch").
+   `transcription.text` und `output_text` waren dort Übersetzung; die Segmente nicht.
+   Mit `languages=de,it`: keine Übersetzung.
+2. **`target_language` prüfen:** Für ein Transkript als Abbild der Wirklichkeit ist eine
+   nachträgliche Übersetzung falsch. Solange KS `target_language=de` schickt, übersetzt
+   der Dienst jedes Stück, für das das Modell eindeutig eine andere Sprache meldet.
+3. **`min_logprob` statt `avg_logprob` für Markierungen nutzen.** Der Mittelwert liegt
+   bei gpt-transcribe fast überall nahe 0. Das schlechteste Wort trifft echte Stellen:
+   Namen („Rigott", „Rizko"), erfundene Wörter („Sinn-Dombekämpfung", −1.79) und von
+   gpt-transcribe selbst mit „…" markierte unverständliche Stellen.
+4. **`whisper-1` nicht für gemischte Sprache verwenden.**
+
+### Grenzen
+
+- Ein Sprachwechsel mitten im Satz ohne Punkt ergibt einen gemischten Satz
+  („… auf Italienisch zusammen, ci sono state vari punti …" → `text_language: it`).
+- Wort-Zeitmarken gibt es mit gpt-transcribe nicht; die Satzzeiten sind Schätzungen.

@@ -207,7 +207,13 @@ processors:
     # Angehoben von 200000000, weil Dateien knapp über 190 MB abgelehnt wurden.
     max_file_size: 500000000
     max_segments: 100
+    # Hoechstdauer je Stueck (Sekunden). Geschnitten wird an der laengsten
+    # Sprechpause in den letzten segment_search_window Sekunden davor, also
+    # bei 300/60 zwischen 4 und 5 Minuten; ohne Pause hart bei 5 Minuten.
+    # Laenger = mehr Zusammenhang fuer das Modell, weniger Anfragen; die
+    # Kosten haengen nur an der Audiodauer.
     segment_duration: 300
+    segment_search_window: 60
     temp_file_suffix: .mp3
   event:
     base_dir: sessions

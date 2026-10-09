@@ -139,7 +139,7 @@ vom Modell im Use-Case `transcription` ab (Probe 09.10.2026):
 | Modell | `quality_source` | Segmente | Werte |
 |---|---|---|---|
 | `whisper-1` | `whisper` | die Abschnitte des Modells (`verbose_json`) | alle drei; Whisper berechnet sie je 30-s-Decoder-Fenster, Segmente innerhalb eines Fensters teilen sich die Werte |
-| `gpt-transcribe`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | `logprobs` | ein Segment je Anfrage (je Stück bei langen Dateien) | `avg_logprob` als Mittel der Token-Logprobs (`include=["logprobs"]`), `compression_ratio` aus dem Text berechnet, `no_speech_prob` `null` |
+| `gpt-transcribe` (empfohlen), `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | `logprobs` | ein Segment je **Satz**; Zeiten nach Textposition im Stück geschätzt (`time_source: "estimated"`) | `avg_logprob` und `min_logprob` aus den Token-Logprobs des Satzes (`include=["logprobs"]`), `compression_ratio` aus dem Satztext, `no_speech_prob` `null` |
 | `gpt-4o-transcribe-diarize` | `none` | ein Segment je Anfrage | keine — das Modell weist `include=["logprobs"]` ab |
 
 `data.language` ist die vom Modell selbst erkannte Sprache (ISO 639-1) für die
@@ -158,7 +158,8 @@ innerhalb eines Stücks, **übersetzt** Whisper oft, statt zu transkribieren —
 
 | Feld | Herkunft | `null`, wenn … |
 |---|---|---|
-| `language` | vom Modell für das ganze Stück (300 s) gemeldet, ISO 639-1 | das Modell keine Sprache meldet |
+| `language` | vom Modell für das ganze Stück gemeldet, ISO 639-1 | das Modell keine oder **mehrere** Sprachen meldet |
+| `languages` | alle Sprachen, die das Modell für das Stück gemeldet hat (`gpt-transcribe` meldet bei gemischter Rede mehrere, ohne Rangfolge) | das Modell nichts meldet |
 | `text_language` | aus dem Segmenttext bestimmt (lingua, reine Textstatistik, kein Modellaufruf) | der Text kürzer als 20 Zeichen ist |
 | `text_language_prob` | Wahrscheinlichkeit von `text_language`, 0–1 | wie `text_language` |
 
@@ -174,6 +175,39 @@ Was der Vergleich zeigt (Prüf-Transkript 09.10.2026, 49 Min., de/it gemischt):
 
 Der Dienst bewertet nicht; der Client vergleicht die Felder untereinander, mit den
 Nachbarsegmenten und mit `no_speech_prob`.
+
+#### Stücke, Sätze und Zeiten (`time_source`, `min_logprob`)
+
+Lange Dateien schneidet der Dienst in Stücke von höchstens 5 Minuten, und zwar an der
+längsten Sprechpause in der letzten Minute davor, also zwischen 4 und 5 Minuten
+(`segment_duration: 300`, `segment_search_window: 60` in `config.yaml`). Die
+Pausensuche probiert erst eine strenge, dann lockerere Schwelle; am Prüf-Transkript
+lagen damit alle Schnitte an einer Pause. Ohne Pause wird bei 5 Minuten hart
+geschnitten. Die Stücklänge ändert die Kosten nicht (Abrechnung nach Sekunden Audio);
+höchstens 5 Stücke laufen gleichzeitig.
+
+`gpt-transcribe` liefert je Stück einen Textblock ohne Zeiten. Der Dienst teilt ihn in
+Sätze und gibt jedem Satz die Werte seiner Tokens:
+
+| Feld | Bedeutung |
+|---|---|
+| `avg_logprob` | Mittel der Token-Logprobs des Satzes; bei `gpt-transcribe` fast immer nahe 0 |
+| `min_logprob` | schlechtestes Token des Satzes. Zeigt einzelne unsichere Wörter: am Prüf-Transkript Namen, erfundene Wörter („Sinn-Dombekämpfung", −1.79) und Stellen, die das Modell selbst mit „…" als unverständlich markiert |
+| `time_source` | `model` (Zeiten vom Modell, `whisper-1`), `chunk` (Segment ist ein ganzes Stück), `estimated` (Satzzeit nach Position im Text geschätzt) |
+
+Geschätzte Zeiten nehmen gleichmäßiges Sprechtempo an. Gegen die Zeiten von
+`whisper-1` lagen sie am Prüf-Transkript 15–30 s daneben. Sie reichen, um die Gegend
+im Audio zu finden, nicht den genauen Satzanfang.
+
+#### Nachträgliche Übersetzung und `languages`
+
+Ist `target_language` gesetzt und meldet das Modell für ein Stück genau **eine**
+andere Sprache, lässt der Dienst den Text dieses Stücks übersetzen; die Segmente
+behalten den Originaltext, `transcription.text` ist dann übersetzt. Meldet das Modell
+mehrere Sprachen, wird nicht übersetzt. Am Prüf-Transkript (de/it gemischt) wurden ohne
+Sprachangabe drei Stücke übersetzt, eines davon, weil das Modell „Schwedisch" meldete.
+Mit `languages=de,it` meldete es bei gemischten Stücken beide Sprachen, und nichts
+wurde übersetzt. Für gemischtsprachige Aufnahmen deshalb `languages` mitschicken.
 
 #### Wort-Zeitmarken (`words`) — standardmäßig aus
 
