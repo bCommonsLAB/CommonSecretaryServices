@@ -39,13 +39,22 @@
                 <td>
                     {% if entry.get('model') %}
                         <small><code>{{ entry.get('model') }}</code></small>
-                    {% else %}
-                        <small class="text-muted">—</small>
+                    {% endif %}
+                    {% if entry.get('from_cache') %}
+                        <span class="badge bg-secondary" title="Ergebnis aus dem Cache, kein Modellaufruf">Cache</span>
+                    {% elif not entry.get('model') %}
+                        <small class="text-muted" title="Kein Modell erfasst">—</small>
                     {% endif %}
                 </td>
                 <td>{{ entry.get('resources', {}).get('total_tokens', 0) }}</td>
-                <td>${{ "%.3f"|format(entry.get('resources', {}).get('total_cost', 0)) }}</td>
-                <td><small class="text-muted">{{ entry.get('timestamp', '').split('.')[0] }}</small></td>
+                <td>
+                    {% if entry.get('cost_status') == 'unknown' %}
+                        <span class="text-muted" title="{{ entry.get('cost_hint', '') }}">{{ entry.get('cost_text', '?') }}</span>
+                    {% else %}
+                        <span title="{{ entry.get('cost_hint', '') }}">{{ entry.get('cost_text', '?') }}</span>
+                    {% endif %}
+                </td>
+                <td><small class="text-muted" title="{{ entry.get('timestamp', '').split('.')[0] }}">{{ entry.get('time_text', entry.get('timestamp', '')) }}</small></td>
             </tr>
             {% endfor %}
         </tbody>

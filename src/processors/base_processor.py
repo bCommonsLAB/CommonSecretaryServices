@@ -480,7 +480,13 @@ class BaseProcessor(Generic[T]):
         
         self.process_info.is_from_cache = from_cache
         self.process_info.cache_key = cache_key
-            
+
+        # Dashboard: Cache-Treffer sichtbar machen. Ohne diesen Vermerk sieht ein
+        # Treffer aus wie eine Anfrage, deren Modell nicht erfasst wurde.
+        tracker = get_performance_tracker()
+        if tracker is not None:
+            tracker.set_from_cache(from_cache)
+
         # Erstelle die Response
         response = response_class(
             request=RequestInfo(

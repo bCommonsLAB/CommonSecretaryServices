@@ -20,7 +20,7 @@ DB-Zugriff und damit isoliert testbar (siehe .tests/test_metrics_stats.py).
 from pymongo import ASCENDING, DESCENDING
 from pymongo.collection import Collection
 from pymongo.database import Database
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 from datetime import datetime, timedelta, timezone
 import logging
 
@@ -31,6 +31,19 @@ logger = logging.getLogger(__name__)
 # Aufbewahrungsdauer der Metriken (TTL-Index). 30 Tage analog zu den Caches.
 METRICS_TTL_SECONDS: int = 30 * 24 * 60 * 60
 
+# Kostenstatus einer Anfrage. Ein Betrag von 0.0 heisst in den Metriken oft nur
+# „der Provider hat keinen Preis geliefert" (OpenAI, Voyage) — das Dashboard
+# zeigt dann „?" statt „$0.000".
+#   known   - alle LLM-Aufrufe trugen einen Preis
+#   partial - einige ja, einige nicht: Betrag ist eine Untergrenze
+#   unknown - kein Preis bekannt (oder ein altes Dokument ohne Zaehlung)
+#   cache   - Ergebnis aus dem Cache, kein Modell lief: wirklich $0
+COST_KNOWN = "known"
+COST_PARTIAL = "partial"
+COST_UNKNOWN = "unknown"
+COST_CACHE = "cache"
+UNKNOWN_COST_TEXT = "?"
+
 
 def _parse_timestamp(value: str) -> datetime:
     """Parst einen ISO-Zeitstempel defensiv; bei Fehler -> Unix-Epoch."""
@@ -40,34 +53,124 @@ def _parse_timestamp(value: str) -> datetime:
         return datetime.fromtimestamp(0)
 
 
-def map_recent_entry(doc: Dict[str, Any]) -> Dict[str, Any]:
+def format_compact_time(value: str, now: Optional[datetime] = None) -> str:
+    """
+    Kompakte Zeit fuer die Tabelle: heute nur die Uhrzeit, sonst Tag und Monat.
+
+    ``2026-10-09T12:45:07.614`` wird am selben Tag zu ``12:45:07``, an einem
+    anderen Tag desselben Jahres zu ``09.10. 12:45``, sonst ``09.10.25 12:45``.
+    Unlesbare Werte kommen unveraendert zurueck.
+    """
+    raw = str(value or "")
+    try:
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return raw
+    reference = now or datetime.now(moment.tzinfo)
+    if moment.date() == reference.date():
+        return moment.strftime("%H:%M:%S")
+    if moment.year == reference.year:
+        return moment.strftime("%d.%m. %H:%M")
+    return moment.strftime("%d.%m.%y %H:%M")
+
+
+def format_cost(amount: float) -> str:
+    """Betrag in USD; kleine Betraege mit vier Stellen, damit sie nicht als $0.000 erscheinen."""
+    if amount == 0:
+        return "$0"
+    if amount < 0.01:
+        return f"${amount:.4f}"
+    return f"${amount:.3f}"
+
+
+def _models_of(resources: Dict[str, Any]) -> List[str]:
+    """Verwendete Modelle (dedupliziert) als Liste von Strings."""
+    raw_models: List[Any] = cast(List[Any], resources.get("models_used") or [])
+    return [str(m) for m in raw_models if m]
+
+
+def cost_status(doc: Dict[str, Any]) -> str:
+    """
+    Bestimmt, ob die Kosten einer Anfrage bekannt sind (siehe COST_*).
+
+    Neue Dokumente zaehlen Aufrufe mit und ohne Preis (``priced_requests`` /
+    ``unpriced_requests``). Alte Dokumente kennen nur ``total_cost``: ein Betrag
+    groesser 0 gilt als bekannt, 0.0 als unbekannt.
+    """
+    measurements: Dict[str, Any] = doc.get("measurements") or {}
+    resources: Dict[str, Any] = measurements.get("resources") or {}
+    total_cost = float(resources.get("total_cost", 0.0) or 0.0)
+
+    if doc.get("from_cache") is True and not _models_of(resources) and total_cost == 0.0:
+        return COST_CACHE
+
+    if "priced_requests" in resources or "unpriced_requests" in resources:
+        priced = int(resources.get("priced_requests", 0) or 0)
+        unpriced = int(resources.get("unpriced_requests", 0) or 0)
+        if priced > 0 and unpriced == 0:
+            return COST_KNOWN
+        if priced > 0:
+            return COST_PARTIAL
+        return COST_UNKNOWN
+
+    return COST_KNOWN if total_cost > 0.0 else COST_UNKNOWN
+
+
+def cost_text(status: str, amount: float) -> str:
+    """Anzeige fuer eine Anfrage: Betrag, „Betrag + ?" oder „?"."""
+    if status == COST_CACHE:
+        return format_cost(0.0)
+    if status == COST_KNOWN:
+        return format_cost(amount)
+    if status == COST_PARTIAL:
+        return f"{format_cost(amount)} + {UNKNOWN_COST_TEXT}"
+    return UNKNOWN_COST_TEXT
+
+
+_COST_HINTS: Dict[str, str] = {
+    COST_KNOWN: "Preis vom Provider gemeldet",
+    COST_PARTIAL: "Untergrenze: für einen Teil der Modellaufrufe liefert der Provider keinen Preis",
+    COST_UNKNOWN: "Preis unbekannt: der Provider liefert keinen Betrag (z. B. OpenAI, Voyage)",
+    COST_CACHE: "Ergebnis aus dem Cache, kein Modellaufruf",
+}
+
+
+def map_recent_entry(doc: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
     """
     Bringt ein gespeichertes Metrik-Dokument in die flache Form, die die
     Templates (dashboard.html / _recent_requests.html) erwarten.
 
     Args:
         doc: Das gespeicherte Metrik-Dokument.
+        now: Bezugszeit fuer die kompakte Zeitangabe (Tests); sonst jetzt.
 
     Returns:
-        Dict mit status, operation, total_duration, resources, timestamp.
+        Dict mit status, operation, total_duration, model, from_cache, resources,
+        cost_status, cost_text, cost_hint, timestamp und time_text.
     """
     measurements: Dict[str, Any] = doc.get("measurements") or {}
     resources: Dict[str, Any] = measurements.get("resources") or {}
-    # Verwendete Modelle (dedupliziert) für die Anzeige zusammenfassen.
-    raw_models: List[Any] = cast(List[Any], resources.get("models_used") or [])
-    models_used: List[str] = [str(m) for m in raw_models if m]
+    total_cost = float(resources.get("total_cost", 0.0) or 0.0)
+    status = cost_status(doc)
+    timestamp = str(doc.get("timestamp", ""))
     return {
         "status": doc.get("status", "unknown"),
         # 'operation' = Hauptprozessor; reicht für Anzeige und Pie-Chart.
         "operation": doc.get("processor") or "unknown",
         "total_duration": float(doc.get("total_duration", 0) or 0),
         # 'model' = real verwendetes Modell (leer, wenn nicht erfasst).
-        "model": ", ".join(models_used),
+        "model": ", ".join(_models_of(resources)),
+        # True nur, wenn der Processor einen Cache-Treffer gemeldet hat.
+        "from_cache": doc.get("from_cache") is True,
         "resources": {
             "total_tokens": int(resources.get("total_tokens", 0) or 0),
-            "total_cost": float(resources.get("total_cost", 0.0) or 0.0),
+            "total_cost": total_cost,
         },
-        "timestamp": str(doc.get("timestamp", "")),
+        "cost_status": status,
+        "cost_text": cost_text(status, total_cost),
+        "cost_hint": _COST_HINTS[status],
+        "timestamp": timestamp,
+        "time_text": format_compact_time(timestamp, now),
     }
 
 
@@ -113,8 +216,8 @@ def compute_stats(docs: List[Dict[str, Any]]) -> Dict[str, Any]:
         if is_success:
             success_count += 1
 
-        measurements: Dict[str, Any] = doc.get("measurements") or {}
-        resources: Dict[str, Any] = measurements.get("resources") or {}
+        measurements = cast(Dict[str, Any], doc.get("measurements") or {})
+        resources = cast(Dict[str, Any], measurements.get("resources") or {})
         tokens = int(resources.get("total_tokens", 0) or 0)
         cost = float(resources.get("total_cost", 0.0) or 0.0)
         total_tokens += tokens
@@ -125,28 +228,45 @@ def compute_stats(docs: List[Dict[str, Any]]) -> Dict[str, Any]:
         ps = processors.setdefault(
             proc,
             {"request_count": 0, "total_duration": 0.0, "success_count": 0,
-             "total_tokens": 0, "total_cost": 0.0},
+             "total_tokens": 0, "known_cost": 0.0, "known_cost_count": 0,
+             "unknown_cost_count": 0},
         )
         ps["request_count"] += 1
         ps["total_duration"] += duration
         ps["success_count"] += 1 if is_success else 0
         ps["total_tokens"] += tokens
-        ps["total_cost"] += cost
+        # Kosten nur mitteln, wo sie bekannt sind; der Rest wird gezaehlt, nicht als $0 gewertet.
+        if cost_status(doc) in (COST_KNOWN, COST_CACHE):
+            ps["known_cost"] += cost
+            ps["known_cost_count"] += 1
+        else:
+            ps["unknown_cost_count"] += 1
 
         # Stündliche Verteilung.
         hour = _parse_timestamp(str(doc.get("timestamp", ""))).strftime("%H:00")
         hour_counts[hour] = hour_counts.get(hour, 0) + 1
 
     # Abgeleitete Kennzahlen je Prozessor berechnen.
-    processor_stats: Dict[str, Dict[str, float]] = {}
+    processor_stats: Dict[str, Dict[str, Any]] = {}
     for proc, ps in processors.items():
         rc = ps["request_count"] or 1
+        known_count = int(ps["known_cost_count"])
+        unknown_count = int(ps["unknown_cost_count"])
+        # Mittel nur ueber Anfragen mit bekanntem Preis; ohne solche gibt es keinen Wert.
+        avg_cost: Optional[float] = ps["known_cost"] / known_count if known_count else None
         processor_stats[proc] = {
             "request_count": ps["request_count"],
             "avg_duration": ps["total_duration"] / rc,
             "success_rate": (ps["success_count"] / rc) * 100,
             "avg_tokens": ps["total_tokens"] // rc,
-            "avg_cost": ps["total_cost"] / rc,
+            "avg_cost": avg_cost,
+            "unknown_cost_count": unknown_count,
+            "avg_cost_text": format_cost(avg_cost) if avg_cost is not None else UNKNOWN_COST_TEXT,
+            # Hinweis nur, wenn ein Teil der Anfragen keinen Preis hat und trotzdem ein Mittel steht.
+            "cost_note": (
+                f"{unknown_count} von {ps['request_count']} ohne Preis"
+                if unknown_count and avg_cost is not None else ""
+            ),
         }
 
     stats["total_requests"] = count

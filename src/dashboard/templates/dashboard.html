@@ -3,44 +3,24 @@
 {% block title %}Processing Service Dashboard{% endblock %}
 
 {% block content %}
-    <h1>Processing Service Dashboard</h1>
-
-    <!-- Performance Metriken -->
-    <div class="row mt-4">
-        {% if stats.error %}
-        <div class="alert alert-warning">
-            Fehler beim Laden der Statistiken: {{ stats.error }}
-        </div>
-        {% endif %}
-        
-        <div class="col-md-3">
-            <div class="metric-card bg-light p-3 rounded shadow-sm">
-                <h5 class="text-muted">Gesamtanfragen (24h)</h5>
-                <h2 class="mb-0">{{ stats.get('total_requests', 0) }}</h2>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="metric-card bg-light p-3 rounded shadow-sm">
-                <h5 class="text-muted">Durchschn. Dauer</h5>
-                <h2 class="mb-0">{{ "%.2f"|format(stats.get('avg_duration', 0)) }}s</h2>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="metric-card bg-light p-3 rounded shadow-sm">
-                <h5 class="text-muted">Erfolgsrate</h5>
-                <h2 class="mb-0">{{ "%.1f"|format(stats.get('success_rate', 0)) }}%</h2>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="metric-card bg-light p-3 rounded shadow-sm">
-                <h5 class="text-muted">Token/Stunde</h5>
-                <h2 class="mb-0">{{ stats.get('hourly_tokens', 0) }}</h2>
-            </div>
-        </div>
+    <div class="d-flex justify-content-between align-items-baseline flex-wrap">
+        <h1>Processing Service Dashboard</h1>
+        {# Ein Stand für die ganze Ansicht: Kacheln, Diagramme und Tabellen
+           kommen aus demselben Abruf (/api/dashboard-stats). #}
+        <small class="text-muted">
+            Stand <span id="dashboard-generated-at">{{ stats.get('generated_at', '') }}</span>
+            · Aktualisierung alle {{ refresh_seconds }} Sekunden
+            <span id="dashboard-refresh-error" class="text-danger ms-2"></span>
+        </small>
     </div>
 
-    <!-- Charts nebeneinander -->
-    {% if stats.get('operations') or stats.get('hourly_stats') %}
+    <!-- Performance Metriken -->
+    <div class="row mt-4" id="dashboard-tiles">
+        {% include '_dashboard_tiles.html' %}
+    </div>
+
+    <!-- Charts nebeneinander. Immer vorhanden, damit der Auto-Refresh sie
+         auch füllen kann, wenn die Seite ohne Anfragen geladen wurde. -->
     <div class="row mt-4">
         <div class="col-md-6">
             <div class="chart-container bg-light p-3 rounded shadow-sm">
@@ -61,38 +41,14 @@
             </div>
         </div>
     </div>
-    {% endif %}
 
     <!-- Performance Übersichtstabelle -->
     <div class="row mt-4">
         <div class="col-12">
             <div class="bg-light p-3 rounded shadow-sm">
                 <h4>Performance Übersicht</h4>
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Processor</th>
-                                <th>Anfragen (24h)</th>
-                                <th>Durchschn. Dauer</th>
-                                <th>Erfolgsrate</th>
-                                <th>Token/Anfrage</th>
-                                <th>Kosten/Anfrage</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for processor, data in stats.get('processor_stats', {}).items() %}
-                            <tr>
-                                <td>{{ processor }}</td>
-                                <td>{{ data.get('request_count', 0) }}</td>
-                                <td>{{ "%.2f"|format(data.get('avg_duration', 0)) }}s</td>
-                                <td>{{ "%.1f"|format(data.get('success_rate', 0)) }}%</td>
-                                <td>{{ data.get('avg_tokens', 0) }}</td>
-                                <td>${{ "%.3f"|format(data.get('avg_cost', 0)) }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="table-responsive" id="dashboard-processors">
+                    {% include '_processor_stats.html' %}
                 </div>
             </div>
         </div>
@@ -102,13 +58,8 @@
     <div class="row mt-4">
         <div class="col-12">
             <div class="bg-light p-3 rounded shadow-sm">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h4 class="mb-0">Letzte Anfragen</h4>
-                    <small class="text-muted">Automatische Aktualisierung alle 3 Sekunden</small>
-                </div>
+                <h4 class="mb-3">Letzte Anfragen</h4>
                 <div id="recent-requests-list">
-                    {# Einzige Quelle für die Tabelle: identisch zum Auto-Refresh
-                       (/api/recent-requests rendert dasselbe Partial). #}
                     {% with recent_requests=stats.get('recent_requests', []) %}
                         {% include '_recent_requests.html' %}
                     {% endwith %}
@@ -120,19 +71,20 @@
 
 {% block extra_scripts %}
 <script>
-    // Charts mit verbesserten Optionen
-    {% if stats.get('operations') %}
-    new Chart(document.getElementById('operationsChart'), {
+    const REFRESH_MS = {{ (refresh_seconds * 1000)|tojson }};
+
+    const operationsChart = new Chart(document.getElementById('operationsChart'), {
         type: 'pie',
         data: {
-            labels: {{ stats.operations.keys()|list|tojson }},
+            labels: {{ stats.get('operations', {}).keys()|list|tojson }},
             datasets: [{
-                data: {{ stats.operations.values()|list|tojson }},
-                backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
+                data: {{ stats.get('operations', {}).values()|list|tojson }},
+                backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#5a5c69', '#fd7e14']
             }]
         },
         options: {
             maintainAspectRatio: false,
+            animation: false,
             plugins: {
                 legend: {
                     position: 'right'
@@ -140,16 +92,14 @@
             }
         }
     });
-    {% endif %}
 
-    {% if stats.get('hourly_stats') %}
-    new Chart(document.getElementById('hourlyChart'), {
+    const hourlyChart = new Chart(document.getElementById('hourlyChart'), {
         type: 'line',
         data: {
-            labels: {{ stats.hourly_stats.keys()|list|tojson }},
+            labels: {{ stats.get('hourly_stats', {}).keys()|list|tojson }},
             datasets: [{
                 label: 'Anfragen pro Stunde',
-                data: {{ stats.hourly_stats.values()|list|tojson }},
+                data: {{ stats.get('hourly_stats', {}).values()|list|tojson }},
                 borderColor: '#4e73df',
                 backgroundColor: 'rgba(78, 115, 223, 0.1)',
                 tension: 0.1,
@@ -158,16 +108,15 @@
         },
         options: {
             maintainAspectRatio: false,
+            animation: false,
             scales: {
                 y: {
                     beginAtZero: true,
                     // Anfragen sind ganze Zahlen -> keine krummen Zwischenwerte.
-                    // Schrittweite wählt Chart.js automatisch (skaliert mit).
                     ticks: {
                         precision: 0
                     },
-                    // 'grace' fügt oben/unten Puffer hinzu, damit die Spitze
-                    // nicht direkt am oberen Rand klebt (abgeschnitten wirkt).
+                    // Puffer oben, damit die Spitze nicht am Rand klebt.
                     grace: '15%',
                     grid: {
                         color: 'rgba(0, 0, 0, 0.05)'
@@ -186,23 +135,46 @@
             }
         }
     });
-    {% endif %}
 
-    // Auto-Refresh der letzten Anfragen
-    function updateRecentRequests() {
-        fetch('/api/recent-requests')
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('recent-requests-list');
-                if (container) {
-                    container.innerHTML = data.html;
-                }
-            })
-            .catch(error => console.error('Error:', error));
+    function setChartData(chart, series) {
+        chart.data.labels = series.labels;
+        chart.data.datasets[0].data = series.data;
+        chart.update();
     }
 
-    // Aktualisiere alle 3 Sekunden
-    setInterval(updateRecentRequests, 3000);
+    function setHtml(id, html) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.innerHTML = html;
+        }
+    }
+
+    // Ganze Ansicht nachladen: Kacheln, Diagramme, Übersicht und letzte Anfragen.
+    function refreshDashboard() {
+        fetch('/api/dashboard-stats')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                setHtml('dashboard-tiles', data.tiles_html);
+                setHtml('dashboard-processors', data.processors_html);
+                setHtml('recent-requests-list', data.recent_html);
+                setChartData(operationsChart, data.charts.operations);
+                setChartData(hourlyChart, data.charts.hourly);
+                setHtml('dashboard-generated-at', data.generated_at);
+                setHtml('dashboard-refresh-error', '');
+            })
+            .catch(error => {
+                // Stand bleibt stehen; der Hinweis sagt, dass er veraltet ist.
+                setHtml('dashboard-refresh-error', 'Aktualisierung fehlgeschlagen');
+                console.error('Dashboard-Aktualisierung:', error);
+            });
+    }
+
+    setInterval(refreshDashboard, REFRESH_MS);
 
     // Animiere die Laufanzeige
     const style = document.createElement('style');
@@ -218,4 +190,4 @@
     `;
     document.head.appendChild(style);
 </script>
-{% endblock %} 
+{% endblock %}

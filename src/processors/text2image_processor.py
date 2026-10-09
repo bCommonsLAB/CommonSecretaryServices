@@ -481,6 +481,11 @@ class Text2ImageProcessor(CacheableProcessor[Text2ImageProcessingResult]):
                     if response.process:
                         object.__setattr__(response.process, 'is_from_cache', True)  # type: ignore
                         object.__setattr__(response.process, 'cache_key', cache_key)  # type: ignore
+                    # Dieser Pfad umgeht create_response; Cache-Treffer trotzdem im Dashboard melden.
+                    from src.utils.performance_tracker import get_performance_tracker
+                    cache_tracker = get_performance_tracker()
+                    if cache_tracker is not None:
+                        cache_tracker.set_from_cache(True)
                     return response
             
             # Bildgenerierung via Provider

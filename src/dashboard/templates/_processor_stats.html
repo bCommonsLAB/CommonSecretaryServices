@@ -1,0 +1,38 @@
+{# Performance-Übersicht je Prozessor. Wird beim ersten Laden und vom
+   Auto-Refresh (/api/dashboard-stats) aus derselben Vorlage gerendert.
+   Kosten/Anfrage: Mittel nur über Anfragen mit bekanntem Preis; ohne solche "?". #}
+<table class="table table-hover">
+    <thead>
+        <tr>
+            <th>Processor</th>
+            <th>Anfragen (24h)</th>
+            <th>Durchschn. Dauer</th>
+            <th>Erfolgsrate</th>
+            <th>Token/Anfrage</th>
+            <th>Kosten/Anfrage</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for processor, data in stats.get('processor_stats', {}).items() %}
+        <tr>
+            <td>{{ processor }}</td>
+            <td>{{ data.get('request_count', 0) }}</td>
+            <td>{{ "%.2f"|format(data.get('avg_duration', 0)) }}s</td>
+            <td>{{ "%.1f"|format(data.get('success_rate', 0)) }}%</td>
+            <td>{{ data.get('avg_tokens', 0) }}</td>
+            <td>
+                {% if data.get('avg_cost') is none %}
+                    <span class="text-muted" title="Für keine dieser Anfragen liefert der Provider einen Preis">?</span>
+                {% else %}
+                    {{ data.get('avg_cost_text') }}
+                    {% if data.get('cost_note') %}
+                        <small class="text-muted" title="Mittel nur über die Anfragen mit Preis">({{ data.get('cost_note') }})</small>
+                    {% endif %}
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-muted">Keine Anfragen in den letzten 24 Stunden.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
