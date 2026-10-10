@@ -85,6 +85,13 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
     extra_any: Any = getattr(params, "extra", None)
     extra: Dict[str, Any] = extra_any if isinstance(extra_any, dict) else {}
 
+    # translate=false: kein Stueck nachtraeglich uebersetzen (Transkript als Abbild).
+    # Liegt in "extra"; False darf nicht von einem "or" verschluckt werden.
+    translate_any: Any = getattr(params, "translate", None)
+    if translate_any is None:
+        translate_any = extra.get("translate", True)
+    translate: bool = translate_any if isinstance(translate_any, bool) else str(translate_any).strip().lower() not in ("false", "0", "no", "nein")
+
     mode_any: Any = getattr(params, "mode", None) or extra.get("mode") or MODE_PLAIN
     mode = str(mode_any)
     if mode not in VALID_MODES:
@@ -215,6 +222,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
                 template=template,
                 use_cache=use_cache,
                 transcription_context=transcription_context,
+                translate=translate,
             )
 
         status_value = getattr(result, "status", None)

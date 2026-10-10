@@ -73,7 +73,7 @@ from src.core.models.transformer import (
 from src.core.models.llm import LLMRequest
 from src.core.models.enums import OutputFormat
 from src.core.models.audio import (
-    AudioSegmentInfo, Chapter, TranscriptionResult, TranscriptionSegment
+    AudioSegmentInfo, Chapter, ChunkTranslation, TranscriptionResult, TranscriptionSegment
 )
 from src.core.exceptions import ProcessingError
 from src.processors.base_processor import BaseProcessor
@@ -111,6 +111,37 @@ class TemplateFieldDefinition:
     description: str
     max_length: int = 5000
     default: Optional[str] = None
+
+
+def translation_decision(
+    source_language: str,
+    target_language: str,
+    translate: bool,
+    expected_languages: List[str],
+) -> Tuple[bool, str]:
+    """
+    Entscheidet, ob ein Stueck nach dem Transkribieren uebersetzt wird.
+
+    Fuer ein Transkript als Abbild der Wirklichkeit ist eine Uebersetzung falsch.
+    Am Pruef-Transkript (de/it gemischt) liess der Dienst ganze Stuecke uebersetzen,
+    sobald das Modell fuer sie genau eine fremde Sprache meldete. Deshalb:
+
+    - ``translate=False``: nie uebersetzen.
+    - Sprache steht in ``expected_languages`` (Feld ``languages``): nicht uebersetzen —
+      wer Deutsch und Italienisch erwartet, will die italienischen Teile italienisch.
+    - Sonst wie bisher: uebersetzen, wenn Quelle und Ziel verschieden sind.
+
+    Returns:
+        (uebersetzen, Grund) — der Grund steht im Log, wenn nicht uebersetzt wird
+    """
+    if source_language == target_language:
+        return False, "Quelle gleich Ziel"
+    if not translate:
+        return False, "translate=false"
+    if source_language in expected_languages:
+        return False, f"'{source_language}' steht in languages"
+    return True, "Quelle weicht vom Ziel ab"
+
 
 class WhisperTranscriber:
     """Klasse für die Interaktion mit GPT-4."""
@@ -2010,9 +2041,14 @@ class WhisperTranscriber:
         target_language: str = "de",
         logger: Optional[ProcessingLogger] = None,
         processor: Optional[str] = None,
-        transcription_context: Optional[TranscriptionContext] = None
+        transcription_context: Optional[TranscriptionContext] = None,
+        translate: bool = True,
     ) -> TranscriptionResult:
         """Transkribiert mehrere Audio-Segmente parallel (max. 5 gleichzeitig).
+
+        ``translate=False`` uebersetzt kein Stueck nachtraeglich; der Gesamttext bleibt
+        in der Originalsprache (siehe translation_decision). ``translated_chunks`` im
+        Ergebnis nennt die Stuecke, deren Text uebersetzt wurde.
         
         Args:
             segments: Liste von AudioSegmentInfo oder Chapter Objekten
@@ -2036,6 +2072,8 @@ class WhisperTranscriber:
         # je Stueck vom Modell gemeldete Sprache.
         combined_segments: List[TranscriptionSegment] = []
         reported_languages: List[str] = []
+        translated_chunks: List[ChunkTranslation] = []
+        expected_languages: List[str] = list(transcription_context.languages) if transcription_context else []
 
         # Extrahiere alle Segmente aus der Kapitelstruktur
         all_segments: List[AudioSegmentInfo] = []
@@ -2114,8 +2152,18 @@ class WhisperTranscriber:
                         else result.source_language
                     )
 
-                    # Übersetzung nur, wenn Quelle und Ziel wirklich verschieden sind
-                    needs_translation = effective_source_lang != target_language
+                    # Uebersetzung nur, wenn Quelle und Ziel verschieden sind, der Aufrufer
+                    # sie nicht abgeschaltet hat und die Sprache nicht ausdruecklich erwartet ist.
+                    needs_translation, reason = translation_decision(
+                        effective_source_lang, target_language, translate, expected_languages
+                    )
+                    chunk_info = current_batch[i]
+                    if not needs_translation and effective_source_lang != target_language and logger:
+                        logger.info(
+                            f"Stück {segment_index + 1}: nicht übersetzt ({reason})",
+                            source_language=effective_source_lang,
+                            target_language=target_language,
+                        )
                     if needs_translation and result.text.strip():
                         translation_result = self.translate_text(
                             text=result.text,
@@ -2128,6 +2176,19 @@ class WhisperTranscriber:
                         # Verwende übersetzten Text
                         if translation_result.text.strip():
                             combined_text_parts.append(translation_result.text)
+                            translated_chunks.append(ChunkTranslation(
+                                index=segment_index + 1,
+                                start=float(chunk_info.start),
+                                end=float(chunk_info.end),
+                                source_language=effective_source_lang,
+                                target_language=target_language,
+                            ))
+                            if logger:
+                                logger.info(
+                                    f"Stück {segment_index + 1} übersetzt: {effective_source_lang} -> {target_language}",
+                                    start_s=round(float(chunk_info.start), 1),
+                                    end_s=round(float(chunk_info.end), 1),
+                                )
                         else:
                             combined_text_parts.append(result.text if result.text.strip() else "")
                     else:
@@ -2165,4 +2226,5 @@ class WhisperTranscriber:
             source_language=detected_language,
             segments=combined_segments,
             detected_language=model_language,
+            translated_chunks=translated_chunks,
         )

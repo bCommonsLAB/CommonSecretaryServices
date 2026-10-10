@@ -77,6 +77,7 @@ upload_parser.add_argument('prompt', location='form', type=str, required=False, 
 upload_parser.add_argument('keywords', location='form', type=str, required=False, help='Begriffe, die vorkommen koennen (Eigennamen, Fachwoerter) — kommagetrennt oder JSON-Liste')
 upload_parser.add_argument('languages', location='form', type=str, required=False, help='Moegliche Sprachen bei mehrsprachigem Material (ISO 639-1) — kommagetrennt oder JSON-Liste')
 upload_parser.add_argument('useCache', location='form', type=inputs.boolean, default=True, help='Cache verwenden (default: True)')
+upload_parser.add_argument('translate', location='form', type=inputs.boolean, default=True, help='false = nichts nachtraeglich in target_language uebersetzen; Text bleibt in der Originalsprache (default: true)')
 # Async/Webhook (analog zu PDF)
 upload_parser.add_argument('callback_url', location='form', type=str, required=False, help='Optional: Webhook-URL für asynchrone Verarbeitung')
 upload_parser.add_argument('callback_token', location='form', type=str, required=False, help='Optional: Token für Webhook-Auth')
@@ -149,7 +150,7 @@ def get_audio_processor(process_id: Optional[str] = None) -> AudioProcessor:
     )
 
 # Audio-Verarbeitungs-Funktion
-async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'auto', target_language: str = 'de', template: str = '', use_cache: bool = True, transcription_context: Optional[TranscriptionContext] = None) -> Dict[str, Any]:
+async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], source_language: str = 'auto', target_language: str = 'de', template: str = '', use_cache: bool = True, transcription_context: Optional[TranscriptionContext] = None, translate: bool = True) -> Dict[str, Any]:
     """
     Verarbeitet eine hochgeladene Datei.
     
@@ -161,6 +162,7 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
         template: Optional Template für die Verarbeitung
         use_cache: Ob der Cache verwendet werden soll (default: True)
         transcription_context: Optionaler Kontext zur Aufnahme (Thema, Begriffe, Sprachen)
+        translate: False = kein Stueck nachtraeglich in target_language uebersetzen
         
     Returns:
         Dict mit den Verarbeitungsergebnissen
@@ -193,7 +195,8 @@ async def process_file(uploaded_file: FileStorage, source_info: Dict[str, Any], 
             target_language=target_language,
             template=template,
             use_cache=use_cache,
-            transcription_context=transcription_context
+            transcription_context=transcription_context,
+            translate=translate,
         )
         
         # Direkte Konvertierung in das flache Format wie in der alten routes.py
@@ -327,6 +330,8 @@ class AudioProcessEndpoint(Resource):
             target_language = str(args.get('target_language', 'de') or 'de')
             template = str(args.get('template', '') or '')
             use_cache = bool(args.get('useCache', True))
+            translate_arg: Any = args.get('translate')
+            translate = True if translate_arg is None else bool(translate_arg)
             transcription_context = build_transcription_context(args, source_language)
             callback_url = str(args.get('callback_url', '') or '') or None
             callback_token = str(args.get('callback_token', '') or '') or None
@@ -387,6 +392,8 @@ class AudioProcessEndpoint(Resource):
                     # Kontext zur Aufnahme (Thema, Begriffe, Sprachen). Eigenes Feld,
                     # weil "context" oben die Datei-Metadaten fuers Template meint.
                     "transcription_context": transcription_context.to_dict(),
+                    # false = nichts nachtraeglich uebersetzen (Transkript als Abbild).
+                    "translate": bool(translate),
                     "webhook": {
                         "url": callback_url,
                         "token": callback_token,
@@ -429,7 +436,8 @@ class AudioProcessEndpoint(Resource):
                 target_language,
                 template,
                 use_cache,
-                transcription_context
+                transcription_context,
+                translate,
             ))
             return result
 
