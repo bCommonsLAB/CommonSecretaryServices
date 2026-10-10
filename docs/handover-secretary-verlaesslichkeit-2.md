@@ -317,3 +317,43 @@ hinfällig: in keinem Lauf eine Schleife.
 - Ein Sprachwechsel mitten im Satz ohne Punkt ergibt einen gemischten Satz
   („… auf Italienisch zusammen, ci sono state vari punti …" → `text_language: it`).
 - Wort-Zeitmarken gibt es mit gpt-transcribe nicht; die Satzzeiten sind Schätzungen.
+
+---
+
+## Auftrag F (klein, aus KS 09.10.2026): Transkription ohne Übersetzung
+
+KnowledgeScout schickt ab jetzt `languages` (JSON-Liste, z. B. `["de","it"]`) aus
+einer Library-Voreinstellung bzw. dem Transkriptions-Dialog. Das verhindert die
+Übersetzung aber nur bei **gemischten** Stücken. Befund im Code
+(`transcription_utils.py` um Z. 2105–2120, `openai_provider.py` Z. 285–290): Meldet
+das Modell für ein Stück **genau eine** Sprache, die von `target_language`
+abweicht, übersetzt der Dienst das Stück. Ein rein italienisches Stück in einer
+deutsch-italienischen Diskussion wird also weiterhin still ins Deutsche übersetzt.
+`target_language` weglassen hilft nicht: die Route setzt dann `de` ein
+(`audio_routes.py` Z. 72 und 327).
+
+Für ein Transkript als Abbild der Wirklichkeit braucht es einen ausdrücklichen
+Schalter:
+
+1. Neues Form-Feld `translate` (Boolean, Default `true` — Bestandsverhalten bleibt).
+   Bei `translate=false` wird kein Stück übersetzt, egal was das Modell meldet;
+   `transcription.text`/`output_text` sind dann die Modelltexte in Originalsprache.
+2. Alternativ (und zusätzlich sinnvoll): Steht die gemeldete Sprache eines Stücks
+   in `languages`, nicht übersetzen. Dann reicht `languages` allein.
+3. Wenn übersetzt wurde: je Stück vermerken (`translated_from` am Segment oder eine
+   Liste `translated_chunks` im `data`-Block). Heute sieht der Client es nicht.
+4. Log-Zeile je übersetztem Stück mit gemeldeter Sprache und Ziel.
+
+KS schickt `translate=false`, sobald das Feld im Vertrag steht; bis dahin bleibt
+`languages` der einzige Schutz. Bitte im Vertrag (`docs/reference/api/endpoints/audio.md`)
+festhalten, welche der beiden Varianten gebaut wurde.
+
+### Nachtrag F (KS, 10.10.2026)
+
+KS schickt seit Commit `eded39ad` bei JEDER normalen Audio-Transkription
+`translate=false` (Form-Feld, String). Owner-Entscheid: Das Transkript bildet
+immer das Original ab, Uebersetzen gehoert in die Transformation — ohne
+Ausnahme. Bitte Variante 1 bauen (Feld auswerten, bei `false` nie
+uebersetzen, auch nicht bei eindeutig gemeldeter Fremdsprache) und in
+`data` vermerken, falls doch uebersetzt wurde (`translated_chunks`). Der
+Sprecher-Weg (`process-diarized`) wird von KS nicht mehr angeboten.
