@@ -19,6 +19,8 @@ Process an audio file with transcription and optional template-based transformat
 | `target_language` | String | No | `de` | Target language for translation (ISO 639-1 code) |
 | `template` | String | No | `""` | Optional template name for text transformation |
 | `useCache` | Boolean | No | `true` | Whether to use cache |
+| `languages` | String | No | - | Expected languages of the recording (comma-separated or JSON list). A chunk whose reported language is listed here is **not** translated |
+| `translate` | Boolean | No | `true` | `false` = never translate afterwards; `transcription.text` stays in the original language(s). See „Nachträgliche Übersetzung" |
 | `callback_url` | String | No | - | If set, processing is **asynchronous** and results are delivered via webhook (HTTP 202 response) |
 | `callback_token` | String | No | - | Optional token sent as `Authorization: Bearer ...` and `X-Callback-Token` to the webhook |
 | `jobId` | String | No | - | Optional external job id (client-generated). Returned in the 202 ACK `job.id` |
@@ -199,15 +201,36 @@ Geschätzte Zeiten nehmen gleichmäßiges Sprechtempo an. Gegen die Zeiten von
 `whisper-1` lagen sie am Prüf-Transkript 15–30 s daneben. Sie reichen, um die Gegend
 im Audio zu finden, nicht den genauen Satzanfang.
 
-#### Nachträgliche Übersetzung und `languages`
+#### Nachträgliche Übersetzung (`translate`, `languages`, `translated_chunks`)
 
-Ist `target_language` gesetzt und meldet das Modell für ein Stück genau **eine**
-andere Sprache, lässt der Dienst den Text dieses Stücks übersetzen; die Segmente
-behalten den Originaltext, `transcription.text` ist dann übersetzt. Meldet das Modell
-mehrere Sprachen, wird nicht übersetzt. Am Prüf-Transkript (de/it gemischt) wurden ohne
-Sprachangabe drei Stücke übersetzt, eines davon, weil das Modell „Schwedisch" meldete.
-Mit `languages=de,it` meldete es bei gemischten Stücken beide Sprachen, und nichts
-wurde übersetzt. Für gemischtsprachige Aufnahmen deshalb `languages` mitschicken.
+Nach dem Transkribieren kann der Dienst den Text eines Stücks in `target_language`
+übersetzen lassen. Die Segmente behalten immer den Originaltext des Modells; übersetzt
+wird nur `transcription.text` bzw. `output_text`. Ob ein Stück übersetzt wird:
+
+| Fall | Übersetzt? |
+|---|---|
+| Modell meldet die Zielsprache, keine oder mehrere Sprachen | nein |
+| `translate=false` | **nein, nie** |
+| gemeldete Sprache steht in `languages` | nein |
+| sonst (genau eine andere Sprache gemeldet) | ja |
+
+Beide Schutzwege sind gebaut: `translate=false` schaltet die Übersetzung ganz ab;
+`languages` schützt alle ausdrücklich erwarteten Sprachen. `target_language` wegzulassen
+reicht nicht, die Route setzt dann `de` ein.
+
+Jedes tatsächlich übersetzte Stück steht in `data.translated_chunks` (Sync-Antwort,
+Webhook, SSE) und im Dienst-Log („Stück 3 übersetzt: it -> de"). Leer heißt: nichts
+übersetzt.
+
+```json
+"translated_chunks": [
+  { "index": 3, "start": 597.4, "end": 889.2, "source_language": "it", "target_language": "de" }
+]
+```
+
+Hintergrund: Am Prüf-Transkript (de/it gemischt) wurden ohne Sprachangabe drei Stücke
+übersetzt, eines davon, weil das Modell „Schwedisch" meldete. Der Client sah davon nichts.
+Für ein Transkript als Abbild der Wirklichkeit `translate=false` schicken.
 
 #### Wort-Zeitmarken (`words`) — standardmäßig aus
 
@@ -258,7 +281,7 @@ The webhook receives one final message when finished.
 
 `transcription.text` bleibt. Liegt am Job ein `data`-Block (`structured_data`), kommen
 `output_text` und — nur wenn der Processor sie gesetzt hat — `segments`, `language`,
-`speakers`, `dropped_context`, `detected_language`, `duration`, `llm_model`,
+`translated_chunks`, `speakers`, `dropped_context`, `detected_language`, `duration`, `llm_model`,
 `chunk_count` und `from_cache` flach dazu. `segments` haben dieselbe Form wie in der
 Sync-Antwort: `start`, `end`, `text`, `speaker` (nur Sprecher-Weg) und die
 Verlässlichkeitswerte `avg_logprob`, `compression_ratio`, `no_speech_prob`,

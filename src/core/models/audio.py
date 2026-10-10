@@ -265,17 +265,56 @@ class TranscriptionSegment:
         )
 
 @dataclass
+@dataclass(frozen=True)
+class ChunkTranslation:
+    """Vermerk: der Text dieses Stuecks wurde nach dem Transkribieren uebersetzt.
+
+    Die Segmente behalten immer den Originaltext des Modells; uebersetzt wird nur
+    ``transcription.text``. Ohne diesen Vermerk sah der Client nicht, welche Teile
+    des Gesamttexts Uebersetzung sind.
+    """
+    index: int
+    start: float
+    end: float
+    source_language: str
+    target_language: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Konvertiert den Vermerk in ein Dictionary."""
+        return {
+            "index": self.index,
+            "start": round(self.start, _TIME_DIGITS),
+            "end": round(self.end, _TIME_DIGITS),
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ChunkTranslation':
+        """Erstellt den Vermerk aus einem Dictionary."""
+        return cls(
+            index=int(data["index"]),
+            start=float(data["start"]),
+            end=float(data["end"]),
+            source_language=str(data["source_language"]),
+            target_language=str(data["target_language"]),
+        )
+
+
+@dataclass
 class TranscriptionResult:
     """Ein Transkriptionsergebnis mit Text, Sprache und Segmenten.
 
     ``source_language`` ist die Sprache, mit der weitergearbeitet wird (Vorgabe des
     Aufrufers oder, bei "auto", die erkannte). ``detected_language`` ist nur das,
     was das Modell selbst gemeldet hat — None, wenn es nichts gemeldet hat.
+    ``translated_chunks`` nennt die Stuecke, deren Text nachtraeglich uebersetzt wurde.
     """
     text: str
     source_language: str
     segments: List[TranscriptionSegment] = field(default_factory=list)
     detected_language: Optional[str] = None
+    translated_chunks: List[ChunkTranslation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Validiert das Transkriptionsergebnis."""
@@ -290,7 +329,8 @@ class TranscriptionResult:
             "text": self.text,
             "source_language": self.source_language,
             "detected_language": self.detected_language,
-            "segments": [s.to_dict() for s in self.segments] if self.segments else []
+            "segments": [s.to_dict() for s in self.segments] if self.segments else [],
+            "translated_chunks": [t.to_dict() for t in self.translated_chunks],
         }
 
     @classmethod
@@ -300,12 +340,18 @@ class TranscriptionResult:
             TranscriptionSegment.from_dict(s) for s in data.get('segments', [])
         ]
         detected: Any = data.get('detected_language')
+        raw_translations: Any = data.get('translated_chunks')
+        translations: List[ChunkTranslation] = (
+            [ChunkTranslation.from_dict(t) for t in raw_translations]
+            if isinstance(raw_translations, list) else []
+        )
 
         return cls(
             text=data['text'],
             source_language=data['source_language'],
             segments=segments,
             detected_language=detected if isinstance(detected, str) and detected.strip() else None,
+            translated_chunks=translations,
         )
 
 @dataclass
@@ -514,13 +560,15 @@ class AudioProcessingResult:
         Vertrag fuer Clients (Sync-Antwort, Webhook und SSE lesen ``data.segments``
         mit den Verlaesslichkeitswerten je Abschnitt und ``data.language`` fuer die
         Sprachdrift-Pruefung). ``language`` ist None, wenn das Modell keine Sprache
-        gemeldet hat.
+        gemeldet hat. ``translated_chunks`` nennt die Stuecke, deren Text in
+        ``transcription.text`` eine Uebersetzung ist (leer: nichts uebersetzt).
         """
         transcription = self.transcription.to_dict() if self.transcription else None
         return {
             'transcription': transcription,
             'segments': list(transcription['segments']) if transcription else [],
             'language': self.transcription.detected_language if self.transcription else None,
+            'translated_chunks': list(transcription['translated_chunks']) if transcription else [],
             'metadata': self.metadata.to_dict() if self.metadata else None,
             'process_id': self.process_id,
             'transformation_result': self.transformation_result,

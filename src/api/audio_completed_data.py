@@ -30,6 +30,8 @@ _OPTIONAL_KEYS = (
     "speakers",
     "segments",
     "language",
+    # Stuecke, deren Text in transcription.text nachtraeglich uebersetzt wurde.
+    "translated_chunks",
     "dropped_context",
     "detected_language",
     "duration",

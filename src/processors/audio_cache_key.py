@@ -48,6 +48,7 @@ def build_audio_cache_key_base(
     template: Optional[str] = None,
     transcription_context: Optional[TranscriptionContext] = None,
     mode: str = MODE_PLAIN,
+    translate: bool = True,
 ) -> str:
     """
     Baut den Klartext-Schluessel. Der Aufrufer hasht ihn (generate_cache_key).
@@ -71,4 +72,8 @@ def build_audio_cache_key_base(
         base_key += f"|context={json.dumps(transcription_context.to_dict(), sort_keys=True)}"
     if mode != MODE_PLAIN:
         base_key += f"|mode={mode}"
+    # Nur der abweichende Wert kommt hinein, damit bestehende Eintraege gueltig bleiben.
+    # Ohne ihn bekaeme translate=false das frueher uebersetzte Ergebnis aus dem Cache.
+    if not translate:
+        base_key += "|translate=0"
     return base_key

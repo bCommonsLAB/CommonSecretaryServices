@@ -89,6 +89,30 @@ except ImportError:
 # Typ-Variable für AudioSegment
 T = TypeVar('T', bound='AudioSegmentProtocol')
 
+
+def describe_split(chapter_number: Optional[int], duration_minutes: float, pieces: int, cuts_at_pause: int) -> str:
+    """
+    Log-Zeile zum Aufteilen einer langen Aufnahme.
+
+    Frueher stand dort „Kapitel 1 zu lang, teile es auf". Leser hielten das fuer
+    einen Fehler und fuer eine Aufforderung an sie. Lange Aufnahmen sind normal; der
+    Dienst teilt sie selbst. Die Zeile sagt das, mit Dauer und Stueckzahl.
+
+    Args:
+        chapter_number: Nummer des Kapitels ab 1, oder None fuer die ganze Datei
+        duration_minutes: Dauer des Kapitels bzw. der Datei
+        pieces: Anzahl der Stuecke
+        cuts_at_pause: wie viele der ``pieces - 1`` Schnitte an einer Sprechpause liegen
+    """
+    subject = "Lange Aufnahme" if chapter_number is None else f"Kapitel {chapter_number}"
+    pronoun = "sie" if chapter_number is None else "es"
+    duration = f"{duration_minutes:.1f}".replace(".", ",")
+    cuts = max(pieces - 1, 0)
+    return (
+        f"{subject} ({duration} Min.): der Dienst teilt {pronoun} automatisch in {pieces} Stücke "
+        f"({cuts_at_pause} von {cuts} Schnitten an Sprechpausen), kein Eingriff nötig"
+    )
+
 # Protokoll für Audio-Segmente
 class AudioSegmentProtocol(Protocol):
     """Protocol für AudioSegment."""
@@ -497,6 +521,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             process_dir.mkdir(parents=True, exist_ok=True)
             
             # Wenn keine Kapitel vorhanden sind, erstelle ein Kapitel über die gesamte Länge
+            whole_file = not chapters
             if not chapters:
                 duration_ms: int = len(audio)    
                 chapters = [{
@@ -544,7 +569,12 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         search_window_ms=int(self.segment_search_window * 1000),
                         min_chunk_ms=min(60_000, int(self.segment_duration * 1000) // 2),
                     )
-                    self.logger.info(f"Kapitel {i+1} zu lang, teile es an Sprechpausen auf",
+                    self.logger.info(describe_split(
+                                       None if whole_file else i + 1,
+                                       chapter_duration_minutes,
+                                       pieces=len(plans),
+                                       cuts_at_pause=sum(1 for p in plans[:-1] if p.cut_at_pause),
+                                   ),
                                    duration_minutes=chapter_duration_minutes,
                                    max_duration_minutes=max_duration_minutes,
                                    pieces=len(plans),
@@ -638,7 +668,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
     def _create_cache_key(self, audio_path: str, source_info: Optional[Dict[str, Any]] = None, 
                          target_language: Optional[str] = None, template: Optional[str] = None,
                          transcription_context: Optional[TranscriptionContext] = None,
-                         mode: str = MODE_PLAIN) -> str:
+                         mode: str = MODE_PLAIN, translate: bool = True) -> str:
         """Erstellt einen Cache-Schlüssel basierend auf Audio-Quelle, Zielsprache, Template, Kontext und Modus.
         
         Args:
@@ -663,6 +693,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             template=template,
             transcription_context=transcription_context,
             mode=mode,
+            translate=translate,
         )
         self.logger.debug(f"Cache-Schlüssel erstellt: {base_key}")
         return self.generate_cache_key(base_key)
@@ -749,7 +780,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
         template: Optional[str] = None,
         skip_segments: Optional[List[int]] = None,
         use_cache: bool = True,
-        transcription_context: Optional[TranscriptionContext] = None
+        transcription_context: Optional[TranscriptionContext] = None,
+        translate: bool = True,
     ) -> AudioResponse:
         """Verarbeitet eine Audio-Datei.
 
@@ -757,6 +789,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             transcription_context: Optionaler Kontext zur Aufnahme (Thema, Eigennamen,
                 erwartete Sprachen). Verbessert genau die Stellen, an denen
                 Transkription sonst scheitert.
+            translate: False = kein Stueck nachtraeglich in target_language uebersetzen;
+                der Text bleibt in der Originalsprache (Transkript als Abbild).
         """
         
         try:
@@ -771,7 +805,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 source_info=source_info,
                 target_language=target_language,
                 template=template,
-                transcription_context=transcription_context
+                transcription_context=transcription_context,
+                translate=translate,
             )
             
             # Cache prüfen
@@ -798,7 +833,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                             "source_info": source_info,
                             "target_language": target_language,
                             "template": template,
-                            "use_cache": use_cache
+                            "use_cache": use_cache,
+                            "translate": translate,
                         },
                         response_class=AudioResponse,
                         from_cache=True,
@@ -821,7 +857,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                 target_language=target_language,
                 logger=self.logger,
                 processor=self.__class__.__name__,
-                transcription_context=transcription_context
+                transcription_context=transcription_context,
+                translate=translate,
             )
             
             # Template-Transformation wenn nötig
@@ -840,6 +877,7 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                         source_language=transcription_result.source_language,
                         segments=transcription_result.segments,
                         detected_language=transcription_result.detected_language,
+                        translated_chunks=transcription_result.translated_chunks,
                     )
             
             # Ergebnis erstellen
@@ -881,7 +919,8 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
                     'source_language': source_language,
                     'target_language': target_language,
                     'template': template,
-                    'use_cache': use_cache
+                    'use_cache': use_cache,
+                    'translate': translate,
                 },
                 response_class=AudioResponse,
                 from_cache=False,

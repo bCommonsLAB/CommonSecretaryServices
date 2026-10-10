@@ -357,3 +357,20 @@ Ausnahme. Bitte Variante 1 bauen (Feld auswerten, bei `false` nie
 uebersetzen, auch nicht bei eindeutig gemeldeter Fremdsprache) und in
 `data` vermerken, falls doch uebersetzt wurde (`translated_chunks`). Der
 Sprecher-Weg (`process-diarized`) wird von KS nicht mehr angeboten.
+
+### Ergebnis Auftrag F (Secretary, 11.10.2026)
+
+Gebaut sind **beide** Varianten:
+
+1. Form-Feld `translate` (Boolean, Default `true`). Bei `translate=false` wird kein
+   Stück übersetzt; `transcription.text` und `output_text` sind die Modelltexte in
+   Originalsprache. Geht auch über den Job-Weg (`callback_url`).
+2. Steht die gemeldete Sprache eines Stücks in `languages`, wird es nicht übersetzt.
+3. Jedes übersetzte Stück steht in `data.translated_chunks`
+   (`index`, `start`, `end`, `source_language`, `target_language`); leer = nichts übersetzt.
+4. Log-Zeile je übersetztem Stück („Stück 3 übersetzt: it -> de") und je nicht
+   übersetztem Stück mit Grund („nicht übersetzt (translate=false)").
+
+`translate=false` steht im Cache-Schlüssel; ein früher übersetztes Ergebnis kommt dafür
+nicht aus dem Cache. Vertrag: `docs/reference/api/endpoints/audio.md`, Abschnitt
+„Nachträgliche Übersetzung".
