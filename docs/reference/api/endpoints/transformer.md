@@ -132,6 +132,34 @@ curl -X POST "http://localhost:5001/api/transformer/template" \
 }
 ```
 
+### Response (Error)
+
+**Status Code**: `400 Bad Request`
+
+Scheitert die Transformation im Dienst — etwa weil der LLM-Anbieter die Modellkennung
+ablehnt —, steht der Fehler **außen**: `status: "error"`, `error.code`, `error.message`.
+`data` ist dann `null`.
+
+```json
+{
+  "status": "error",
+  "request": { "processor": "transformer", "parameters": { "template": "", "...": "..." } },
+  "process": { "id": "…", "llm_info": { "requests": [] } },
+  "error": {
+    "code": "TEMPLATE_TRANSFORMATION_ERROR",
+    "message": "Fehler bei der Template-Transformation: LLM-Anfrage fehlgeschlagen. Modell: deepseek/deepseek-v4-flash-latest. Fehler: … is not a valid model ID",
+    "details": { "error_type": "ProcessingError", "template": "" }
+  },
+  "data": null
+}
+```
+
+Bis 10.10.2026 kam derselbe Fehler mit HTTP 200 und außen `status: "success"`; die
+Fehlerantwort steckte dann komplett in `data`. Clients, die nur den HTTP-Code oder das
+äußere `status` prüften, hielten den Lauf für gelungen. Der Python-Traceback steht nur
+noch im Dienst-Log, nicht in `error.details`. Dasselbe gilt für `/api/transformer/text`
+und `/api/transformer/text/file`.
+
 ## POST /api/transformer/html-table
 
 Extract tables from HTML webpage.
