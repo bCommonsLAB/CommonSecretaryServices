@@ -67,7 +67,7 @@ from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker
 from src.utils.logger import ProcessingLogger
 from src.utils.performance_tracker import PerformanceTracker
-from src.core.models.enums import OutputFormat
+from src.core.models.enums import OutputFormat, ProcessingStatus
 from src.core.models.base import ErrorInfo
 from src.core.llm.config_manager import LLMConfigManager
 from src.core.llm.use_cases import UseCase
@@ -143,6 +143,54 @@ def _truncate_text(text: str, max_length: int = 100) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length] + "..."
+
+
+# HTTP-Status fuer eine gescheiterte Transformation. Derselbe Wert, den diese Routen
+# schon fuer ProcessingError liefern — Clients behandeln beides gleich.
+FAILED_TRANSFORMATION_STATUS = 400
+
+
+def _failed_result_response(
+    processor: TransformerProcessor,
+    result: Any,
+    request_info: Dict[str, Any],
+) -> Optional[tuple[Dict[str, Any], int]]:
+    """
+    Fehlerantwort, wenn der Processor ein gescheitertes Ergebnis geliefert hat; sonst None.
+
+    ``transformByTemplate``, ``transformByUrl`` und ``transform`` werfen bei einem
+    Fehler keine Ausnahme, sondern liefern eine Antwort mit ``error``. Die Routen haben
+    diese Antwort danach ein zweites Mal verpackt: aussen ``status: "success"`` und
+    HTTP 200, innen in ``data`` die eigentliche Fehlerantwort. Clients hielten den Lauf
+    fuer gelungen; KnowledgeScout merkte es erst am fehlenden ``structured_data``
+    (Prod 10.10.2026, ungueltige Modellkennung bei OpenRouter).
+
+    Jetzt: aussen ``status: "error"``, ``error`` mit Code und Meldung des Processors,
+    HTTP ``FAILED_TRANSFORMATION_STATUS``.
+    """
+    error: Any = getattr(result, "error", None)
+    if error is None and getattr(result, "status", None) != ProcessingStatus.ERROR:
+        return None
+    if not isinstance(error, ErrorInfo):
+        error = ErrorInfo(code="TRANSFORMATION_ERROR", message="Transformation fehlgeschlagen", details={})
+    # Der Traceback steht im Dienst-Log; an den Client geht er nicht.
+    details: Dict[str, Any] = {k: v for k, v in (error.details or {}).items() if k != "traceback"}
+    error = ErrorInfo(code=error.code, message=error.message, details=details)
+    logger.error(
+        "Transformation gescheitert — Antwort mit status=error",
+        error_code=error.code,
+        error_message=str(error.message)[:300],
+    )
+    response: TransformerResponse = processor.create_response(
+        processor_name="transformer",
+        result=None,
+        request_info=request_info,
+        response_class=TransformerResponse,
+        from_cache=False,
+        cache_key="",
+        error=error,
+    )
+    return response.to_dict(), FAILED_TRANSFORMATION_STATUS
 
 # Hilfsfunktionen für LLM-Tracking
 def _track_llm_usage(model: str, tokens: int, duration: float, purpose: str = "api") -> None:
@@ -398,20 +446,24 @@ class TransformTextEndpoint(Resource):
             # Antwort erstellen
             end_time: float = time.time()
             duration_ms = int((end_time - start_time) * 1000)
+            text_request_info: Dict[str, Any] = {
+                'text': _truncate_text(source_text),
+                'source_language': source_language,
+                'target_language': target_language,
+                'summarize': summarize,
+                'target_format': target_format_str,
+                'context': context,
+                'model': model,
+                'provider': provider,
+                'duration_ms': duration_ms
+            }
+            failed = _failed_result_response(processor, result, text_request_info)
+            if failed is not None:
+                return failed
             response: TransformerResponse = processor.create_response(
                 processor_name="transformer",
                 result=result,
-                request_info={
-                    'text': _truncate_text(source_text),
-                    'source_language': source_language,
-                    'target_language': target_language,
-                    'summarize': summarize,
-                    'target_format': target_format_str,
-                    'context': context,
-                    'model': model,
-                    'provider': provider,
-                    'duration_ms': duration_ms
-                },
+                request_info=text_request_info,
                 response_class=TransformerResponse,
                 from_cache=processor.process_info.is_from_cache,    
                 cache_key=processor.process_info.cache_key or ""
@@ -807,22 +859,26 @@ class TemplateTransformEndpoint(Resource):
             # Antwort erstellen
             end_time: float = time.time()
             duration_ms = int((end_time - start_time) * 1000)
+            template_request_info: Dict[str, Any] = {
+                'text': _truncate_text(text) if text else None,
+                'url': url if url else None,
+                'template': template,
+                'template_content': _truncate_text(template_content) if template_content else None,
+                'source_language': source_language,
+                'target_language': target_language,
+                'context': context,
+                'additional_field_descriptions': additional_field_descriptions,
+                'use_cache': use_cache,
+                'duration_ms': duration_ms
+            }
+            failed = _failed_result_response(transformer_processor, transform_result, template_request_info)
+            if failed is not None:
+                return failed
 
             response: TransformerResponse = transformer_processor.create_response(
                 processor_name="transformer",
                 result=transform_result,
-                request_info={
-                    'text': _truncate_text(text) if text else None,
-                    'url': url if url else None,
-                    'template': template,
-                    'template_content': _truncate_text(template_content) if template_content else None,
-                    'source_language': source_language,
-                    'target_language': target_language,
-                    'context': context,
-                    'additional_field_descriptions': additional_field_descriptions,
-                    'use_cache': use_cache,
-                    'duration_ms': duration_ms
-                },
+                request_info=template_request_info,
                 response_class=TransformerResponse,
                 from_cache=transformer_processor.process_info.is_from_cache,    
                 cache_key=transformer_processor.process_info.cache_key or ""
@@ -1657,19 +1713,24 @@ class TransformTextFileEndpoint(Resource):
             end_time: float = time.time()
             duration_ms = int((end_time - process_start_time) * 1000)
             
+            file_request_info: Dict[str, Any] = {
+                'filename': filename,
+                'text': _truncate_text(source_text),
+                'source_language': source_language,
+                'target_language': target_language,
+                'summarize': summarize,
+                'target_format': target_format_str,
+                'context': context,
+                'duration_ms': duration_ms
+            }
+            failed = _failed_result_response(processor, result, file_request_info)
+            if failed is not None:
+                return failed
+
             response: TransformerResponse = processor.create_response(
                 processor_name="transformer",
                 result=result,
-                request_info={
-                    'filename': filename,
-                    'text': _truncate_text(source_text),
-                    'source_language': source_language,
-                    'target_language': target_language,
-                    'summarize': summarize,
-                    'target_format': target_format_str,
-                    'context': context,
-                    'duration_ms': duration_ms
-                },
+                request_info=file_request_info,
                 response_class=TransformerResponse,
                 from_cache=processor.process_info.is_from_cache,
                 cache_key=processor.process_info.cache_key or ""
