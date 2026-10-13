@@ -71,6 +71,7 @@ def _ydl_opts(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     opts: Dict[str, Any] = {
         'quiet': True,
         'no_warnings': True,
+        'noprogress': True,
         'noplaylist': True,
         'format': FORMAT,
         'socket_timeout': 30,
