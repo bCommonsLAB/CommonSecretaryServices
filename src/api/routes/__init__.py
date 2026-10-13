@@ -247,6 +247,7 @@ from .health_routes import health_ns
 from .realtime_routes import realtime_ns
 from .booklet_routes import booklet_ns
 from .transcript_routes import transcript_ns
+from .media_routes import media_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore
@@ -268,6 +269,7 @@ api.add_namespace(image_analyzer_ns, path='/image-analyzer')  # type: ignore
 api.add_namespace(health_ns, path='/health')  # type: ignore
 api.add_namespace(realtime_ns, path='/realtime')  # type: ignore
 api.add_namespace(transcript_ns, path='/transcript')  # type: ignore
+api.add_namespace(media_ns, path='/media')  # type: ignore
 
 # Root-Namespace für die API-Root-Seite
 root_ns: Namespace = api.namespace('', description='Root Namespace')  # type: ignore
