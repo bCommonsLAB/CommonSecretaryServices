@@ -10,11 +10,14 @@ Medien einer Webseite oder Player-Adresse per yt-dlp fuer KnowledgeScout
   (Rai-News-Podcasts, YouTube-Audio m4a).
 - /download laedt per yt-dlp (mit ffmpeg fuer HLS/DASH, z. B. Rai-Videos) in ein
   Temp-Verzeichnis und liefert die Datei als Antwort — fuer alles, was keine
-  direkte Datei ist. Bevorzugt die reine Tonspur (m4a), sonst beste Qualitaet.
+  direkte Audio-Datei ist. Mit `nur_audio` (Vorgabe true) zieht ffmpeg die
+  Tonspur als m4a heraus: KnowledgeScout braucht fuer Videos nur die
+  Transkription, und Audio-Optionen (Sprecher, Kontext, Begriffe) gelten nur
+  fuer Audio.
 
 Kein stiller Fallback: kennt yt-dlp die Seite nicht, kommt ein Fehler mit Grund.
 
-Eingabe (JSON, beide): { "url": "https://..." }
+Eingabe (JSON): { "url": "https://..." }; /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
 Ausgabe /resolve: { "status": "success", "data": { "extractor", "title", "duration", "ext",
   "url", "protocol", "http_headers", "ist_audio" } }
 Ausgabe /download: Dateibytes; Header X-Media-Ext, X-Media-Title (URL-kodiert),
@@ -121,14 +124,22 @@ def resolve_media_url(url: str) -> Dict[str, Any]:
     }
 
 
-def download_media(url: str, workdir: str) -> Dict[str, Any]:
-    """Laedt per yt-dlp (HLS/DASH ueber ffmpeg) nach workdir; liefert Pfad und Metadaten."""
+def download_media(url: str, workdir: str, nur_audio: bool = True) -> Dict[str, Any]:
+    """Laedt per yt-dlp (HLS/DASH ueber ffmpeg) nach workdir; liefert Pfad und Metadaten.
+
+    nur_audio: Tonspur per ffmpeg als m4a herausziehen (auch aus Videos).
+    """
     outtmpl = os.path.join(workdir, 'medium.%(ext)s')
-    with yt_dlp.YoutubeDL(_ydl_opts({'outtmpl': outtmpl})) as ydl:
+    extra: Dict[str, Any] = {'outtmpl': outtmpl}
+    if nur_audio:
+        extra['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
+    with yt_dlp.YoutubeDL(_ydl_opts(extra)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=True), url)
     files = [f for f in os.listdir(workdir) if f.startswith('medium.') and not f.endswith('.part')]
+    if nur_audio:
+        files = [f for f in files if f.lower().endswith('.m4a')]
     if not files:
-        raise ValueError("yt-dlp hat keine Datei abgelegt")
+        raise ValueError("yt-dlp hat keine Datei abgelegt" + (" (keine Tonspur extrahierbar)" if nur_audio else ""))
     path = os.path.join(workdir, files[0])
     return {
         "path": path,
@@ -136,7 +147,7 @@ def download_media(url: str, workdir: str) -> Dict[str, Any]:
         "title": info.get('title'),
         "duration": info.get('duration'),
         "extractor": info.get('extractor'),
-        "ist_audio": str(info.get('vcodec') or 'none') == 'none',
+        "ist_audio": True if nur_audio else str(info.get('vcodec') or 'none') == 'none',
     }
 
 
@@ -171,12 +182,16 @@ class MediaDownloadEndpoint(Resource):
     @media_ns.expect(request_model)
     @media_ns.doc(description="Laedt das Medium einer Webseiten-/Player-Adresse per yt-dlp (ffmpeg fuer Streams) und liefert die Datei; Metadaten in X-Media-*-Headern.")
     def post(self) -> Union[Response, Tuple[Dict[str, Any], int]]:
-        url = _read_url(request.get_json(silent=True) or {})
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        url = _read_url(payload)
         if not url:
             return _error("MISSING_URL", "Feld 'url' (http/https) ist erforderlich", 400)
+        nur_audio_raw = payload.get("nur_audio", True)
+        if not isinstance(nur_audio_raw, bool):
+            return _error("INVALID_NUR_AUDIO", "Feld 'nur_audio' muss true oder false sein", 400)
         workdir = tempfile.mkdtemp(prefix='ks-media-')
         try:
-            meta = download_media(url, workdir)
+            meta = download_media(url, workdir, nur_audio=nur_audio_raw)
             with open(meta["path"], 'rb') as fh:
                 data = fh.read()
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
