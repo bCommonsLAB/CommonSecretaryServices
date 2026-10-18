@@ -66,16 +66,18 @@ Liefert die Nextcloud keine Gruppen: Statt `DASHBOARD_REQUIRED_GROUP` eine Liste
 ### Basic Auth (Notzugang, lokal, ohne Nextcloud)
 
 ```bash
-python -m src.dashboard.auth hash-password      # fragt das Passwort ab und gibt den Hash aus
+python -m src.dashboard.auth hash-password      # fragt das Passwort ab und gibt die fertige Zeile aus
 ```
 
-In die `.env`, den Hash in **einfachen Anführungszeichen**, weil er `$`-Zeichen enthält:
+Ohne Python-Umgebung geht das auch im Terminal des laufenden Containers. Die ausgegebene Zeile so übernehmen, wie sie ist:
 
 ```bash
 DASHBOARD_AUTH_MODE=basic
 DASHBOARD_USER=admin
-DASHBOARD_PASSWORD_HASH='scrypt:32768:8:1$...$...'
+DASHBOARD_PASSWORD_HASH=pbkdf2:sha256:1000000.<salt>.<hash>
 ```
+
+Der Hash ist mit Punkten getrennt und enthält kein `$`. So kann ihn weder eine `.env`-Datei noch Docker Compose noch eine Deploy-Oberfläche verfälschen, und er braucht keine Anführungszeichen. Die klassische Werkzeug-Schreibweise mit `$` funktioniert ebenfalls, auch in Anführungszeichen oder mit verdoppelten `$$`. Ein unbrauchbarer Hash, zum Beispiel ein übernommener Platzhalter, sperrt das Dashboard mit einer Meldung im Server-Log. Die API läuft in dem Fall weiter.
 
 Bei Störungen der Nextcloud lässt sich eine Installation so auf den Notzugang umschalten: `DASHBOARD_AUTH_MODE=basic` setzen und neu starten.
 
@@ -120,11 +122,12 @@ Erwartung: Dashboard-Pfade liefern 302 zur Anmeldung (OIDC) oder 401 (Basic), ni
 
 | Symptom | Ursache |
 |---|---|
-| Start bricht mit „Sicherheitskonfiguration unvollständig“ ab | Die aufgezählten Variablen fehlen oder sind zu kurz |
+| Start bricht mit „Sicherheitskonfiguration unvollständig“ ab | `SECRETARY_SERVICE_API_KEY` fehlt |
+| Log meldet „Dashboard gesperrt, Anmeldung unvollständig“ | Die dort aufgezählten Dashboard-Variablen fehlen oder sind ungültig; die API läuft trotzdem |
 | Dashboard zeigt „Dashboard gesperrt“ | Keine Anmeldeart eingerichtet oder Konfiguration unvollständig, Details im Server-Log |
 | „Anmeldedienst nicht erreichbar“ | Discovery-Adresse falsch (`OIDC_ISSUER` bzw. `OIDC_DISCOVERY_URL`) oder Nextcloud vom Server aus nicht erreichbar |
 | Nextcloud meldet ungültige Weiterleitungsadresse | `<PUBLIC_BASE_URL>/auth/callback` ist beim Client nicht eingetragen |
 | „Anmeldung fehlgeschlagen“ nach Rückkehr | `issuer` stimmt nicht mit `OIDC_ISSUER` überein, Uhrzeit des Servers falsch oder Cookie blockiert |
 | „Kein Zugriff“ nach erfolgreicher Anmeldung | Konto nicht in `DASHBOARD_REQUIRED_GROUP` oder Gruppen fehlen im Token, siehe Claim-Namen im Log |
-| Basic-Passwort wird nie akzeptiert | Hash in der `.env` ohne einfache Anführungszeichen, `$`-Teile wurden ersetzt |
+| Basic-Passwort wird nie akzeptiert | Hash passt nicht zum Passwort; das Log nennt „Passwort falsch“ oder „Benutzername unbekannt“. Hash neu erzeugen und in der Punkt-Schreibweise eintragen |
 | 400 bei Speichern im Dashboard | CSRF-Token fehlt, Seite neu laden |

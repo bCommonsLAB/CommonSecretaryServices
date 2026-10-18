@@ -25,6 +25,7 @@ Kommandozeile zum Erzeugen eines Passwort-Hashes fuer den Basic-Modus:
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -139,8 +140,12 @@ def dashboard_security_problems(mode: Optional[str] = None) -> List[str]:
         pw_hash = env_str("DASHBOARD_PASSWORD_HASH")
         if not pw_hash:
             problems.append("DASHBOARD_PASSWORD_HASH fehlt (erzeugen mit `python -m src.dashboard.auth hash-password`).")
-        elif ":" not in pw_hash or "$" not in pw_hash:
-            problems.append("DASHBOARD_PASSWORD_HASH hat kein gueltiges Format (Werkzeug-Hash, z. B. 'scrypt:...$...$...').")
+        elif normalize_password_hash(pw_hash) is None:
+            problems.append(
+                "DASHBOARD_PASSWORD_HASH ist kein gueltiger Passwort-Hash. Haeufige Ursachen: Platzhalter aus der "
+                "Anleitung uebernommen oder $-Zeichen beim Deployment ersetzt. Neu erzeugen mit "
+                "`python -m src.dashboard.auth hash-password` und die Schreibweise mit Punkten verwenden."
+            )
 
     if mode == "oidc":
         for var in ("OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"):
@@ -295,12 +300,45 @@ def _user_from_session(state: DashboardAuthState) -> Optional[Dict[str, Any]]:
     return data
 
 
+# Werkzeug-Hash: "<methode>$<salt>$<hash>". Zusaetzlich erlaubt ist die Schreibweise mit Punkten
+# statt "$" ("<methode>.<salt>.<hash>"), weil "$" in .env-Dateien, Docker Compose und
+# Deploy-Oberflaechen leicht als Variable ersetzt wird.
+_PASSWORD_HASH_RE = re.compile(
+    r"^(?P<method>pbkdf2:[a-z0-9]+(?::\d+)?|scrypt(?::\d+:\d+:\d+)?)"
+    r"[$.](?P<salt>[A-Za-z0-9]+)[$.](?P<digest>[0-9a-f]{32,})$"
+)
+
+
+def normalize_password_hash(raw: Optional[str]) -> Optional[str]:
+    """
+    Bringt DASHBOARD_PASSWORD_HASH in die Werkzeug-Form oder liefert None, wenn er unbrauchbar ist.
+
+    Toleriert umschliessende Anfuehrungszeichen (manche Oberflaechen reichen sie in den Wert durch),
+    verdoppelte "$$" (Compose-Schreibweise) und die Schreibweise mit Punkten.
+    """
+    if not raw:
+        return None
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    value = value.replace("$$", "$")
+    match = _PASSWORD_HASH_RE.match(value)
+    if not match:
+        return None
+    return f"{match['method']}${match['salt']}${match['digest']}"
+
+
+def dotted_password_hash(werkzeug_hash: str) -> str:
+    """Werkzeug-Hash in die $-freie Schreibweise mit Punkten umwandeln."""
+    return werkzeug_hash.replace("$", ".")
+
+
 def _user_from_basic() -> Optional[Dict[str, Any]]:
     auth = request.authorization
     if auth is None or (auth.type or "").lower() != "basic":
         return None
     expected_user = env_str("DASHBOARD_USER")
-    pw_hash = env_str("DASHBOARD_PASSWORD_HASH")
+    pw_hash = normalize_password_hash(env_str("DASHBOARD_PASSWORD_HASH"))
     if not expected_user or not pw_hash:
         return None
     user_ok = constant_time_equals(auth.username or "", expected_user)
@@ -310,6 +348,12 @@ def _user_from_basic() -> Optional[Dict[str, Any]]:
         pw_ok = False
     if user_ok and pw_ok:
         return {"name": expected_user, "auth": "basic", "groups": []}
+    reason = "Passwort falsch" if user_ok else "Benutzername unbekannt"
+    try:
+        logger.warning("Dashboard-Anmeldung (Basic) abgewiesen", reason=reason,
+                       remote_addr=request.remote_addr or "")
+    except Exception:
+        pass
     return None
 
 
@@ -606,8 +650,9 @@ def _cli(argv: List[str]) -> int:
         if not pw1 or pw1 != pw2:
             print("Passwoerter leer oder nicht gleich.")
             return 1
-        print(generate_password_hash(pw1))
-        print("In die .env als DASHBOARD_PASSWORD_HASH eintragen, in einfachen Anfuehrungszeichen (wegen der $-Zeichen).")
+        hashed = dotted_password_hash(generate_password_hash(pw1, method="pbkdf2:sha256"))
+        print(f"DASHBOARD_PASSWORD_HASH={hashed}")
+        print("Diese Zeile so in die Umgebung der Installation uebernehmen (ohne Anfuehrungszeichen).")
         return 0
     print("Verwendung: python -m src.dashboard.auth hash-password")
     return 2

@@ -172,3 +172,49 @@ def test_dashboard_guard_is_first_before_request_hook() -> None:
 
     app = make_app()
     assert app.before_request_funcs[None][0] is _dashboard_guard
+
+
+# --- Passwort-Hash in verschiedenen Schreibweisen (Erfahrung aus dem ersten Rollout) -----
+
+@pytest.mark.parametrize("variant", ["plain", "single_quotes", "double_quotes", "dotted", "compose_dollars"])
+def test_password_hash_variants_are_accepted(monkeypatch: Any, variant: str) -> None:
+    from src.dashboard.auth import dotted_password_hash
+
+    real = generate_password_hash(PASSWORD, method="pbkdf2:sha256")
+    value = {
+        "plain": real,
+        "single_quotes": f"'{real}'",
+        "double_quotes": f'"{real}"',
+        "dotted": dotted_password_hash(real),
+        "compose_dollars": real.replace("$", "$$"),
+    }[variant]
+    _basic_env(monkeypatch)
+    monkeypatch.setenv("DASHBOARD_PASSWORD_HASH", value)
+    client = make_app().test_client()
+    assert client.get("/logs", headers=_basic("admin", PASSWORD)).status_code == 200
+    assert client.get("/logs", headers=_basic("admin", "falsch")).status_code == 401
+
+
+@pytest.mark.parametrize("broken", [
+    "'scrypt:32768:8:1$...$...'",          # Platzhalter aus der Anleitung
+    "pbkdf2:sha256:600000",                 # $-Teile beim Deployment ersetzt
+    "pbkdf2:sha256:600000$abc$",            # Hash-Teil fehlt
+    "geheim",                               # Klartext statt Hash
+])
+def test_broken_password_hash_locks_dashboard_with_reason(monkeypatch: Any, broken: str) -> None:
+    from src.dashboard.auth import dashboard_security_problems
+
+    _basic_env(monkeypatch)
+    monkeypatch.setenv("DASHBOARD_PASSWORD_HASH", broken)
+    assert any("kein gueltiger Passwort-Hash" in p for p in dashboard_security_problems())
+    assert make_app().test_client().get("/logs", headers=_basic("admin", PASSWORD)).status_code == 503
+
+
+def test_dashboard_problem_does_not_block_api(monkeypatch: Any) -> None:
+    from src.api.auth import api_security_problems
+
+    _basic_env(monkeypatch)
+    monkeypatch.setenv("DASHBOARD_PASSWORD_HASH", "kaputt")
+    assert api_security_problems() == []
+    client = make_app().test_client()
+    assert client.get("/api/booklet/themes", headers={"X-Secretary-Api-Key": TOKEN}).status_code == 200
