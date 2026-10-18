@@ -20,14 +20,23 @@ zu ändern. Jede Folgesitzung setzt genau ein Arbeitspaket um und liefert es als
 Die Zeilennummern in der Analyse beziehen sich auf Commit `7e3789f`. Wenn `main` inzwischen weitergelaufen ist,
 die Stellen per Suche nach Funktionsnamen wiederfinden, nicht blind nach Zeilennummer.
 
+## Leitprinzip
+
+Der Dienst wird auf vielen Rechnern installiert. **Jede Schutzmaßnahme gehört in die Anwendung oder in die
+mitgelieferten Dateien, nicht in die Konfiguration eines Proxys.** Eine frische Installation ohne
+Sicherheitskonfiguration ist geschlossen, pro Installation genügen Umgebungsvariablen. Details im Plan unter
+„Leitprinzip“. Jede Umsetzung wird daran gemessen.
+
 ## Entscheidungen
 
 - **E1 Dashboard-Anmeldung: entschieden.** Die eigene Nextcloud ist Anmeldedienst nach OpenID Connect
-  (App „OIDC Identity Provider“). Davor sitzt oauth2-proxy als Forward-Auth in Traefik. Flask liest nur den
-  Benutzernamen aus dem Header `X-Auth-Request-User`. Basic Auth bleibt als Notzugang und für lokale Setups.
-  Kein US-amerikanischer Identity Provider. Begründung und verworfene Alternativen stehen im Plan unter E1.
-- **E2 Proxy-Vertrauen: offen.** Läuft der Dienst in Produktion immer hinter Traefik, der `X-Forwarded-For`
-  selbst setzt? Erwartung: ja, `TRUSTED_PROXY_COUNT=1`. Vor AP-01 bestätigen lassen.
+  (App „OIDC Identity Provider“). Die Anwendung spricht selbst mit ihr (Authlib in Flask), ohne oauth2-proxy
+  und ohne Traefik-Konfiguration. Basic Auth bleibt als Notzugang und für Installationen ohne Nextcloud-Zugang.
+  Ohne Konfiguration ist das Dashboard gesperrt. Kein US-amerikanischer Identity Provider. Eine erste Variante
+  mit oauth2-proxy wurde verworfen, weil sie Proxy-Konfiguration je Installation verlangt; sie steht nur noch
+  als Option in AP-20.
+- **E2 Proxy-Vertrauen: offen, aber nicht sicherheitskritisch.** `TRUSTED_PROXY_COUNT` (Default 0) betrifft nur
+  Client-IPs für Logs, Rate-Limit und Swagger-Whitelist. Für die Produktionsinstanz hinter Dokploy vermutlich 1.
 - **E3 yt-dlp Generic-Extractor: offen.** Vorschlag: bleibt erlaubt, aber nur zu öffentlichen IP-Zielen.
   Betrifft AP-12, nicht die ersten Pakete.
 
@@ -36,14 +45,15 @@ die Stellen per Suche nach Funktionsnamen wiederfinden, nicht blind nach Zeilenn
 Noch keines umgesetzt. Die Außenprüfung aus AP-00 ist erledigt (18.10.2026, Ergebnis im Plan unter AP-00):
 auf `secretaryservices.bcommonslab.org` sind Dashboard, `/logs` mit aktuellen Einträgen und `/llm-config`
 ohne Anmeldung erreichbar, `/api/health/` zeigt das OpenRouter-Restguthaben. Die API selbst verlangt den Token,
-auch mit gefälschtem `X-Forwarded-For`. Das Sperren der Dashboard-Pfade im Proxy ist damit die dringendste
-offene Aufgabe in AP-00.
+auch mit gefälschtem `X-Forwarded-For`. **AP-01 und AP-02 haben deshalb Vorrang.** Eine Sperre in Dokploy ist
+nur ein optionaler Sofortschutz für diese eine Instanz, bis AP-02 dort ausgerollt ist.
 
-- **AP-00 und AP-00b sind Aufgaben für den Betreiber**, keine Code-Arbeit: Erreichbarkeit von Dashboard und
-  Mongo-Port prüfen, Proxy-Regeln, Env-Variablen bereinigen, Keys rotieren, Nextcloud als OIDC-Anbieter
-  einrichten. Eine Sitzung kann dabei begleiten, aber nichts davon selbst erledigen.
+- **AP-00 und AP-00b sind Aufgaben für den Betreiber**, keine Code-Arbeit: Mongo-Port prüfen, Env-Variablen
+  bereinigen, Keys rotieren, GitHub-Einstellungen, Nextcloud-Client anlegen. Eine Sitzung kann begleiten und
+  Außenprüfungen machen, wenn die Hosts in der Netzwerkrichtlinie der Umgebung freigeschaltet sind.
 - **Nächstes Code-Paket ist AP-01** (Auth-Middleware fail-closed und spoof-sicher), danach AP-02
-  (Dashboard-Anmeldung über Nextcloud), dann AP-03 bis AP-06.
+  (Dashboard-Anmeldung in der Anwendung). AP-02 lässt sich ohne fertiges AP-00b umsetzen und mit `basic`
+  ausrollen; `oidc` wird aktiv, sobald der Nextcloud-Client existiert. Danach AP-03 bis AP-07.
 
 ## So startet die nächste Sitzung
 
@@ -84,7 +94,8 @@ Ablauf je Paket:
 
 - Der Mongo-Port 27017 der Produktion ist nicht geprüft, weil der Proxy der Cloud-Umgebung nur Web-Verbindungen
   durchlässt. Lokal mit `nc` prüfen, siehe AP-00.
-- Die Traefik- und oauth2-proxy-Vorlage in AP-02 ist nicht gegen eine laufende Installation getestet.
-  Vor dem Einsatz mit der aktuellen oauth2-proxy-Dokumentation und der Traefik-Version abgleichen.
+- Ob die Nextcloud-OIDC-App mehrere Weiterleitungsadressen je Client und `http://localhost` erlaubt, klärt AP-00b.
+  Davon hängt ab, ob alle Installationen einen gemeinsamen Client nutzen können.
+- Die optionale oauth2-proxy-Vorlage in AP-20 ist nicht gegen eine laufende Installation getestet.
 - Ob die Nextcloud-App die Gruppen im Token liefert und unter welchem Claim, klärt AP-00b.
 - Die Tests des Projekts wurden in dieser Sitzung nicht ausgeführt.
