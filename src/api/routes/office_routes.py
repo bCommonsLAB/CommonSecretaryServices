@@ -23,6 +23,8 @@ from flask import Response, request  # type: ignore
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 from werkzeug.datastructures import FileStorage
 
+from src.utils.safe_paths import ensure_within, safe_upload_name
+
 from src.core.mongodb.secretary_repository import SecretaryJobRepository
 from src.core.models.job_models import JobStatus
 from src.utils.logger import get_logger
@@ -101,11 +103,12 @@ office_via_pdf_parser.add_argument("wait_ms", location="form", type=int, require
 
 
 def _save_upload_to_temp(file: FileStorage, base_dir: str) -> str:
+    """Speichert den Upload unter bereinigtem Namen im eigenen Ordner (AP-03: kein ../ aus dem Client)."""
     os.makedirs(base_dir, exist_ok=True)
-    filename = file.filename or "upload.bin"
-    out_path = os.path.join(base_dir, filename)
-    file.save(out_path)
-    return out_path
+    filename = safe_upload_name(file.filename, default_stem="upload")
+    out_path = ensure_within(base_dir, os.path.join(base_dir, filename))
+    file.save(str(out_path))
+    return str(out_path)
 
 
 def _json_response(data: Dict[str, Any], status_code: int = 200) -> Tuple[Dict[str, Any], int]:

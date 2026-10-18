@@ -47,6 +47,8 @@ Features:
 from datetime import datetime, UTC
 import hashlib
 from pathlib import Path
+
+from src.utils.safe_paths import ensure_within, safe_path_component
 from typing import Any, Dict, List, Optional, Tuple, TypeVar, cast, TypedDict
 import traceback
 from contextlib import nullcontext
@@ -494,14 +496,15 @@ class EventProcessor(CacheableProcessor[EventProcessingResult]):
          # Sanitize translated names for directory creation
         sanitized_event = self._sanitize_filename(event_name)
         
-        # Erstelle den Verzeichnispfad
-        base_path: Path = self.base_dir / sanitized_event / target_language 
+        # Erstelle den Verzeichnispfad (AP-03: Sprachcode als einzelner, bereinigter Pfadbestandteil)
+        base_path: Path = self.base_dir / sanitized_event / safe_path_component(target_language, default="de")
         
         # Stelle sicher, dass das Verzeichnis existiert
         base_path.mkdir(parents=True, exist_ok=True)
 
 
-        file_path: Path = base_path / (event_name + ".md")
+        file_path: Path = base_path / (safe_path_component(event_name, default="event") + ".md")
+        ensure_within(self.base_dir, file_path)
 
         # Zusammenfassung in die Datei schreiben
         with open(file_path, 'w', encoding='utf-8') as f:

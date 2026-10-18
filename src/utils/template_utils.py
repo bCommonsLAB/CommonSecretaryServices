@@ -89,7 +89,12 @@ def load_template(
     if not template_name:
         raise ValueError("Template-Name darf nicht leer sein")
 
-    template_path = os.path.join(templates_dir, f"{template_name}.md")
+    # AP-03: Template-Name ohne Pfadtrenner und ohne "..", Pfad muss im Template-Ordner bleiben
+    from src.utils.safe_paths import ensure_within, is_safe_template_name
+
+    if not is_safe_template_name(template_name):
+        raise ValueError(f"Ungültiger Template-Name: {template_name!r}")
+    template_path = str(ensure_within(templates_dir, os.path.join(templates_dir, f"{template_name}.md")))
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
             return f.read()

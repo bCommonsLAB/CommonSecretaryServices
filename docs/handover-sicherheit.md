@@ -65,14 +65,16 @@ Beim Rollout beachten:
 - **Nachtrag Rollout PR #38/#39:** Der Basic-Notzugang ist in Produktion aktiv. Der Passwort-Hash wird am robustesten in der
   Punkt-Schreibweise ohne `$` eingetragen (`python -m src.dashboard.auth hash-password`). Eine unvollständige
   Dashboard-Konfiguration sperrt nur das Dashboard, nicht den Start.
-- **Nächstes Code-Paket ist AP-03** (Dateinamen und Temp-Dateien), dann AP-04 bis AP-06.
+- **AP-03 ist umgesetzt** (PR #41): `src/utils/safe_paths.py` für Upload-Namen, Pfadbestandteile aus Requests,
+  Template-Namen und `ensure_within`. Neue Stellen, die Pfade aus Request-Daten bauen, nutzen diese Helfer.
+- **Nächstes Code-Paket ist AP-04** (Timeouts, Größenlimits und TLS-Verifikation), dann AP-05 und AP-06.
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-03 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-04 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:

@@ -216,7 +216,9 @@ Schritte:
 
 Akzeptanz: Tests mit Dateiname `../../x.docx` landet unter `temp_dir`; `template=../x` wirft `ValueError`.
 
-- [ ] erledigt am ______, PR #____
+- [x] erledigt am 18.10.2026, PR #41. Umsetzung: `src/utils/safe_paths.py` (`safe_upload_name`, `safe_path_component`, `is_safe_template_name`, `ensure_within`), angewendet in `office_routes`, `video_processor`, `imageocr_routes`, `template_utils.load_template`, Tests `.tests/test_safe_paths.py`.
+  Abweichung von Schritt 1: Der Upload-Name bleibt lesbar (`secure_filename` auf Name und Endung, Verzeichnisanteile verworfen) statt einer UUID, weil Office- und Video-Verarbeitung den Namen in Ausgaben weiterreichen. Die Sicherheit kommt aus dem bereinigten Namen, dem eigenen Ordner je Auftrag und `ensure_within`.
+  Zusätzlich gefunden und mit erledigt: `event_processor._save_event_summary` baute den Dateinamen aus dem rohen Eventnamen (`../../x` schrieb außerhalb von `base_dir`). `session_processor._process_attachments` legte den Asset-Ordner unter dem rohen, übersetzten Eventnamen an. `base_processor` setzte den Sprachcode ungeprüft in den Pfad, und `_sanitize_filename` ließ `..` als Ordnernamen durch. Alle vier Stellen nutzen jetzt `safe_path_component` bzw. `ensure_within`. Die Audio-Routen nutzen bereits UUID-Namen und brauchten keine Änderung.
 
 ### AP-04 Timeouts, Größenlimits und TLS-Verifikation
 Befunde: H2, H6 (Timeouts). Aufwand: M. Dateien: `src/processors/pdf_processor.py`, `src/processors/audio_processor.py`, `src/processors/video_processor.py`, `src/api/routes/media_routes.py`, `src/main.py`, `config/config.yaml`.
@@ -509,6 +511,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 3/7 |
+| 1 | AP-01 … AP-07 | 4/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |
