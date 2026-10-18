@@ -130,3 +130,16 @@ def is_loopback(ip: Optional[str]) -> bool:
 def format_problems(problems: Iterable[str]) -> str:
     """Formatiert Konfigurationsprobleme als Aufzaehlung fuer Log und Konsole."""
     return "\n".join(f"  - {p}" for p in problems)
+
+
+def redact_uri(uri: Optional[str]) -> str:
+    """
+    Verbindungsadresse fuer Logs: Passwort aus "scheme://user:pass@host" entfernen.
+
+    Beispiel: "mongodb://admin:geheim@mongodb:27017/db" -> "mongodb://admin:***@mongodb:27017/db"
+    """
+    if not uri:
+        return ""
+    import re
+
+    return re.sub(r"^([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/@]*):([^@]*)@", r"\1\2:***@", uri)

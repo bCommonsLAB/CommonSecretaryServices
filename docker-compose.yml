@@ -1,6 +1,11 @@
+# Sicher per Default (Sicherheitsplan AP-07):
+# - MongoDB ist nur im Compose-Netz erreichbar (kein Host-Port) und verlangt Anmeldung.
+# - Ohne MONGO_ROOT_USER und MONGO_ROOT_PASSWORD in der .env startet Compose nicht.
+# - Bestehende Installationen mit Daten: docs/deployment/mongo-migration.md
 services:
   secretary-services:
     build: .
+    restart: unless-stopped
     ports:
       - "5001:5001"
     volumes:
@@ -9,12 +14,20 @@ services:
       - ./cache:/app/cache
       - ./config/config.yaml:/app/config/config.yaml
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5001/api/health/live', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     environment:
       # API-Keys werden ausschließlich hier (bzw. in der .env) gepflegt,
       # niemals in config.yaml oder im Frontend.
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - MONGODB_URI=mongodb://mongodb:27017/
+      # Passwort nur aus Buchstaben und Ziffern (z. B. `openssl rand -hex 24`), weil es in der URI steht.
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER:?MONGO_ROOT_USER fehlt in der .env (siehe .env.example)}:${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD fehlt in der .env (siehe .env.example)}@mongodb:27017/${MONGO_DB_NAME:-commonsec}?authSource=admin
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -40,10 +53,22 @@ services:
 
   mongodb:
     image: mongo:6
-    ports:
-      - "27017:27017"
+    restart: unless-stopped
+    # --auth erzwingt die Anmeldung auch fuer bestehende Datenverzeichnisse.
+    # Kein "ports:"-Eintrag: die Datenbank ist von aussen nicht erreichbar.
+    command: ["mongod", "--auth"]
+    environment:
+      # Legt den Admin-Benutzer nur bei einem leeren Datenverzeichnis an.
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:?MONGO_ROOT_USER fehlt in der .env (siehe .env.example)}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD fehlt in der .env (siehe .env.example)}
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
 volumes:
   mongo_data: 

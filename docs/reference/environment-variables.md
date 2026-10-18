@@ -33,6 +33,13 @@ Complete documentation of all environment variables required for Common Secretar
 - **Description**: Signs the dashboard session and CSRF tokens. One random value per installation.
 - **Example**: output of `openssl rand -hex 32`
 
+## MongoDB of the bundled compose file
+
+### `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `MONGO_DB_NAME`
+
+- **Required**: `MONGO_ROOT_USER` and `MONGO_ROOT_PASSWORD` for `docker compose up`; compose refuses to start without them
+- **Description**: Admin account of the bundled MongoDB (started with `--auth`, no host port). The compose file builds `MONGODB_URI` for the service from them. `MONGO_DB_NAME` defaults to `commonsec`. Use a password of letters and digits only, e.g. `openssl rand -hex 24`. Existing data volumes: [MongoDB-Migration](../deployment/mongo-migration.md)
+
 ## Dashboard sign-in
 
 The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own sign-in. Without configuration it is **locked** (503 with a hint page). Guide: [Dashboard-Anmeldung](../deployment/dashboard-anmeldung.md).

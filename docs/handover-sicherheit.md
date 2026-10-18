@@ -60,14 +60,19 @@ Beim Rollout beachten:
 - **AP-00 und AP-00b sind Aufgaben für den Betreiber**, keine Code-Arbeit: Mongo-Port prüfen, Env-Variablen
   bereinigen, Keys rotieren, GitHub-Einstellungen, Nextcloud-Client anlegen. Eine Sitzung kann begleiten und
   Außenprüfungen machen, wenn die Hosts in der Netzwerkrichtlinie der Umgebung freigeschaltet sind.
-- **Nächstes Code-Paket ist AP-07** (mitgelieferte Compose: Mongo ohne Host-Port und mit Zugangsdaten), dann AP-03 bis AP-06.
+- **AP-07 ist umgesetzt** (PR #40): mitgelieferte Compose mit MongoDB ohne Host-Port und mit `--auth`, Pflichtwerte
+  `MONGO_ROOT_USER`/`MONGO_ROOT_PASSWORD`, Migrationsanleitung `docs/deployment/mongo-migration.md`.
+- **Nachtrag Rollout PR #38/#39:** Der Basic-Notzugang ist in Produktion aktiv. Der Passwort-Hash wird am robustesten in der
+  Punkt-Schreibweise ohne `$` eingetragen (`python -m src.dashboard.auth hash-password`). Eine unvollständige
+  Dashboard-Konfiguration sperrt nur das Dashboard, nicht den Start.
+- **Nächstes Code-Paket ist AP-03** (Dateinamen und Temp-Dateien), dann AP-04 bis AP-06.
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-07 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-03 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:
