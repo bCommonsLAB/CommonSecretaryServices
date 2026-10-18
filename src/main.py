@@ -76,8 +76,9 @@ logger = get_logger(process_id="main")
 
 def _check_security_config() -> None:
     """
-    Fail-closed beim Start (AP-01/AP-02): ohne Service-Token oder mit unvollstaendiger
-    Dashboard-Anmeldung startet der Server nicht. Details: docs/deployment/dashboard-anmeldung.md
+    Fail-closed beim Start (AP-01/AP-02): ohne Service-Token startet der Server nicht.
+    Eine unvollstaendige Dashboard-Anmeldung wird gemeldet und sperrt nur das Dashboard.
+    Details: docs/deployment/dashboard-anmeldung.md
     """
     from src.api.auth import api_security_problems, api_security_warnings
     from src.dashboard.auth import dashboard_security_problems
@@ -85,7 +86,13 @@ def _check_security_config() -> None:
 
     for warning in api_security_warnings():
         logger.warning(warning)
-    problems = api_security_problems() + dashboard_security_problems()
+    # Eine unvollstaendige Dashboard-Anmeldung sperrt nur das Dashboard (503 mit Hinweis),
+    # damit die API fuer Clients wie KnowledgeScout weiterlaeuft.
+    dashboard_problems = dashboard_security_problems()
+    if dashboard_problems:
+        logger.error("Dashboard bleibt gesperrt, Anmeldung unvollstaendig:\n" + format_problems(dashboard_problems))
+        print("[MAIN] Dashboard gesperrt, Anmeldung unvollstaendig:\n" + format_problems(dashboard_problems), file=sys.stderr)
+    problems = api_security_problems()
     if problems:
         message = "Start abgebrochen, Sicherheitskonfiguration unvollstaendig:\n" + format_problems(problems)
         logger.error(message)

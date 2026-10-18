@@ -70,7 +70,7 @@ The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own si
 ### `DASHBOARD_USER`, `DASHBOARD_PASSWORD_HASH`
 
 - **Required**: for `basic`
-- **Description**: Emergency or local sign-in via HTTP Basic Auth. Create the hash with `python -m src.dashboard.auth hash-password` and put it in single quotes in `.env` (it contains `$`).
+- **Description**: Emergency or local sign-in via HTTP Basic Auth. Create it with `python -m src.dashboard.auth hash-password`, which prints a ready line in dot notation (`pbkdf2:sha256:<iterations>.<salt>.<hash>`, no `$`, no quotes needed). The classic Werkzeug form with `$` is accepted too, also quoted or with `$$`. An invalid hash locks the dashboard with a log message; the API keeps running.
 
 ### `DASHBOARD_FORWARD_USER_HEADER`, `DASHBOARD_FORWARD_GROUPS_HEADER`, `DASHBOARD_LOGOUT_URL`
 
@@ -153,7 +153,7 @@ VOYAGE_API_KEY=pa-your-voyage-key-here
 FLASK_SECRET_KEY=random-value-per-installation
 DASHBOARD_AUTH_MODE=basic
 DASHBOARD_USER=admin
-DASHBOARD_PASSWORD_HASH='scrypt:32768:8:1$...$...'
+DASHBOARD_PASSWORD_HASH=pbkdf2:sha256:1000000.<salt>.<hash>
 SWAGGER_IP_WHITELIST=192.168.1.0/24
 AUTH_LOG_DECISIONS=false
 PYTHONHTTPSVERIFY=1
