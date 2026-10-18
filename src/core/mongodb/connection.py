@@ -42,6 +42,7 @@ Features:
 - System: os.environ - MONGODB_URI environment variable
 """
 from pymongo import MongoClient
+from src.core.security import redact_uri
 from pymongo.database import Database
 from typing import Optional, Any, Set
 from pymongo.errors import ConfigurationError
@@ -81,7 +82,7 @@ def get_mongodb_client() -> MongoClient[Any]:
             logger.error("Bitte setze die MONGODB_URI Umgebungsvariable in deiner .env Datei oder Umgebung")
             raise ValueError("MONGODB_URI Umgebungsvariable ist nicht gesetzt")
         
-        logger.info(f"Verbindung zur MongoDB wird hergestellt: {uri[:30]}...")
+        logger.info(f"Verbindung zur MongoDB wird hergestellt: {redact_uri(uri)}")
         
         # Client erstellen
         try:
@@ -97,7 +98,7 @@ def get_mongodb_client() -> MongoClient[Any]:
             
         except Exception as e:
             logger.error(f"Fehler bei der MongoDB-Verbindung: {str(e)}")
-            logger.error(f"URI: {uri[:30]}...")
+            logger.error(f"URI: {redact_uri(uri)}")
             logger.error("Bitte prüfe:")
             logger.error("1. Ist die MONGODB_URI Umgebungsvariable korrekt gesetzt?")
             logger.error("2. Ist die MongoDB-Instanz erreichbar?")

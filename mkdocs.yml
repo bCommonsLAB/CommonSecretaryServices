@@ -71,6 +71,7 @@ nav:
     - Configuration: reference/configuration.md
     - Environment Variables: reference/environment-variables.md
     - Dashboard-Anmeldung: deployment/dashboard-anmeldung.md
+    - MongoDB-Migration: deployment/mongo-migration.md
   - Explanations:
     - Async Events:
       - Secretary Job Worker – Detailed: explanations/async-events/secretary-job-worker-detailed.md

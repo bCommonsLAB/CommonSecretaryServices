@@ -306,7 +306,10 @@ cd CommonSecretaryServices
 ```env
 # Required: API Keys
 OPENAI_API_KEY=sk-proj-your-key-here
-MONGODB_URI=mongodb://mongodb:27017/commonsec
+
+# Required: MongoDB of the bundled compose file (no host port, authentication on)
+MONGO_ROOT_USER=secretary
+MONGO_ROOT_PASSWORD=generate-with-openssl-rand-hex-24
 
 # Required: API Authentication
 SECRETARY_SERVICE_API_KEY=your-secure-api-key-here
@@ -345,7 +348,7 @@ The service will be available at `http://localhost:5001`
 
 The included `docker-compose.yml` sets up:
 - Secretary Services container (port 5001)
-- MongoDB container (port 27017)
+- MongoDB container with authentication, reachable only inside the compose network (no host port). Existing installations with data: see [docs/deployment/mongo-migration.md](docs/deployment/mongo-migration.md)
 - Volume mounts for logs, cache, and temp files
 - Environment variable injection
 

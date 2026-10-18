@@ -269,7 +269,13 @@ Schritte:
 
 Akzeptanz: Frische Installation mit `.env` aus `.env.example` startet; `docker compose up` ohne Mongo-Zugangsdaten bricht mit verständlicher Meldung ab; Port 27017 ist auf dem Host nicht offen (`ss -ltn`); Migration an einer Kopie eines bestehenden Volumes einmal durchgespielt.
 
-- [ ] erledigt am ______, PR #____
+- [x] erledigt am 18.10.2026, PR #40. Umsetzung: `docker-compose.yml`, Anleitung `docs/deployment/mongo-migration.md`, Tests `.tests/test_compose_security.py`.
+  Zusätzlich zum Plan:
+  - `command: ["mongod", "--auth"]` erzwingt die Anmeldung auch bei bestehenden Datenverzeichnissen, auf die `MONGO_INITDB_*` nicht wirkt. Der erste Benutzer lässt sich danach von innerhalb des Containers anlegen (Localhost-Ausnahme von MongoDB).
+  - Die alte Compose-Datei setzte `MONGODB_URI` ohne Datenbanknamen, obwohl `src/core/mongodb/connection.py` ihn verlangt. Die neue URI enthält `MONGO_DB_NAME` (Standard `commonsec`).
+  - Die Verbindungsadresse wird in `connection.py` und `worker_manager.py` ohne Passwort geloggt (`redact_uri`). Vorher landeten die ersten 30 Zeichen mit Benutzername und Teilen des Passworts im Log.
+  Nicht geprüft: Die Migration eines bestehenden Volumes konnte nicht durchgespielt werden, weil in der Entwicklungsumgebung kein Docker-Dienst läuft. Validiert sind die Interpolation und der Abbruch ohne Zugangsdaten (`docker compose config`).
+  Produktion: Die Produktionsinstanz scheint diese Compose-Datei nicht zu nutzen (Variablen, die dort nicht aufgeführt sind, kommen im Container an). Vor dem nächsten Deployment prüfen, woher ihre MongoDB kommt.
 
 ---
 
@@ -476,7 +482,7 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | K1 Dashboard ohne Auth | AP-02 (in der Anwendung), AP-00b (Nextcloud-Client), AP-00 (optionaler Sofortschutz), AP-20 (optional mit Proxy) |
 | K2 Whitelist spoofbar | AP-00 (Env), AP-01 |
 | K3 Fail-open | AP-00 (Env), AP-01 |
-| K4 Mongo offen | AP-07 (mitgelieferte Compose), AP-00 (Produktionsinstanz) |
+| K4 Mongo offen | AP-07 erledigt (mitgelieferte Compose), AP-00 (Produktionsinstanz prüfen) |
 | K5 Key im Code | AP-00 (Rotation), AP-18 |
 | K6 Deploy-Token | AP-00 (Rotation), AP-15 |
 | H1 SSRF | AP-04 (Vorbereitung), AP-12 |
@@ -503,6 +509,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 2/7 |
+| 1 | AP-01 … AP-07 | 3/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

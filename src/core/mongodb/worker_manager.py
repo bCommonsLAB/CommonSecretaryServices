@@ -50,6 +50,7 @@ from typing import Dict, Optional
 from src.processors.session_processor import SessionProcessor
 from src.core.models.job_models import Job, JobStatus, JobProgress, JobError, JobResults
 from src.core.resource_tracking import ResourceCalculator
+from src.core.security import redact_uri
 from .repository import SessionJobRepository
 
 # Logger initialisieren
@@ -442,7 +443,7 @@ def get_worker_manager() -> Optional[SessionWorkerManager]:
                 logger.error("Bitte setze die MONGODB_URI Umgebungsvariable in deiner .env Datei oder Umgebung")
                 return None
             
-            logger.info(f"MongoDB URI gefunden: {mongodb_uri[:20]}...")
+            logger.info(f"MongoDB URI gefunden: {redact_uri(mongodb_uri)}")
             
             max_concurrent = worker_config.get('max_concurrent', 5)
             poll_interval_sec = worker_config.get('poll_interval_sec', 5)
