@@ -156,7 +156,11 @@ Schritte:
 
 Akzeptanz: Tests mit Flask-Testclient: (a) ohne Token 401, (b) mit Token 200, (c) `X-Forwarded-For: 127.0.0.1` ohne Token 401, (d) `Host: localhost` ohne Token 401, (e) mit `TRUSTED_PROXY_COUNT=1` und Whitelist greift die Forwarded-IP nur für `/api/doc`, (f) Start ohne Key wirft.
 
-- [ ] erledigt am ______, PR #____
+- [x] erledigt am 18.10.2026, PR #38. Umsetzung: `src/core/security.py`, `src/api/auth.py`, Startprüfung in `src/main.py`, Tests `.tests/test_api_auth.py`.
+  Abweichungen vom Plan:
+  - Der Start bricht in `src/main.py` ab, nicht beim Import der App, damit Tests und Werkzeuge die App weiter importieren können. Zusätzlich antworten geschützte Routen zur Laufzeit mit 503, falls ein anderer Startweg genutzt wird (gunicorn in AP-14 muss `_check_security_config` ebenfalls aufrufen).
+  - Ein zu kurzer Token (unter 32 Zeichen) erzeugt nur eine Warnung, damit bestehende Installationen nach dem Update starten.
+  - Lesende Aufrufe auf `/api/health/` und `/api/llm-config/` sowie Swagger sind zusätzlich mit gültiger Dashboard-Anmeldung erlaubt, weil Dashboard-Seiten sie aus dem Browser laden. Eine Dashboard-Anmeldung öffnet keine Verarbeitungsroute (Test vorhanden).
 
 ### AP-02 Dashboard authentifizieren (in der Anwendung, Nextcloud per OIDC)
 Befunde: K1, M4 (CSRF). Aufwand: M–L. Voraussetzung: AP-01. Für den Modus `oidc` im Betrieb: AP-00b. Dateien: `src/dashboard/app.py`, neue Dateien `src/dashboard/auth.py` und `src/dashboard/templates/auth_*.html`, `requirements.txt` (`authlib`, `flask-wtf`), `.env.example`, neue Datei `docs/deployment/dashboard-anmeldung.md`, `docs/reference/environment-variables.md`, `src/dashboard/templates/base.html`, Tests `.tests/test_dashboard_auth.py`.
@@ -197,7 +201,9 @@ Akzeptanz:
   - POST `/clear-logs` ohne CSRF-Token liefert 400.
 - Abnahme auf der Produktionsinstanz: Die Außenprüfung aus AP-00 wiederholen. `/`, `/logs`, `/llm-config`, `/test` liefern keine 200 mehr ohne Anmeldung, sondern eine Weiterleitung zur Nextcloud. Ein Konto außerhalb von `secretary-admins` wird abgewiesen. `/api/*` mit API-Key funktioniert unverändert.
 
-- [ ] erledigt am ______, PR #____
+- [x] erledigt am 18.10.2026, PR #38. Umsetzung: `src/dashboard/auth.py`, Verdrahtung in `src/dashboard/app.py` und `src/api/__init__.py`, CSRF in `base.html`, Anleitung `docs/deployment/dashboard-anmeldung.md`, Tests `.tests/test_dashboard_auth.py` und `.tests/test_dashboard_oidc.py` (nachgebildeter OIDC-Anbieter mit echtem RSA-Schlüssel; Signatur, nonce, Issuer, Audience, Ablauf, PKCE, Gruppe, Open-Redirect und Sitzungsablauf geprüft).
+  Zusätzlich gefunden und mit erledigt: Die Dashboard-Routen `/api/dashboard-stats` und `/api/recent-requests` gehören nicht zum API-Blueprint und waren deshalb auch durch die alte Token-Prüfung nie geschützt. Der Dashboard-Schutz unterscheidet nach Blueprint und erfasst sie jetzt. Die mitgelieferte `docker-compose.yml` reicht die neuen Variablen an den Container durch.
+  Offen für den Betrieb: Nextcloud-Client nach AP-00b anlegen und die Variablen je Installation setzen. Bis dahin ist das Dashboard nach dem Rollout gesperrt (503), die API arbeitet normal.
 
 ### AP-03 Dateinamen und Temp-Dateien
 Befunde: H3, M6. Aufwand: S. Dateien: `src/api/routes/office_routes.py`, `src/processors/video_processor.py`, `src/api/routes/imageocr_routes.py`, `src/utils/template_utils.py`, `src/api/routes/audio_routes.py` (prüfen).
@@ -323,7 +329,7 @@ Akzeptanz: PR-Check läuft in unter 15 Minuten; absichtlich eingeschleuster Fake
 Befunde: M4 (Header), H6 (Rate-Limit). Aufwand: M. Dateien: `src/dashboard/app.py`, `src/api/routes/__init__.py`, `requirements.txt` (`flask-limiter`), `config/config.yaml`.
 
 Schritte:
-1. `after_request`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Content-Security-Policy` für das Dashboard (Skripte nur `self` plus verwendete CDNs, danach schrittweise verschärfen), `Strict-Transport-Security`, wenn `PUBLIC_BASE_URL` mit `https` beginnt.
+1. `after_request`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (nicht `no-referrer`: der CSRF-Schutz aus AP-02 prüft hinter HTTPS den Referer bei schreibenden Anfragen), `Content-Security-Policy` für das Dashboard (Skripte nur `self` plus verwendete CDNs, danach schrittweise verschärfen), `Strict-Transport-Security`, wenn `PUBLIC_BASE_URL` mit `https` beginnt.
 2. `flask-limiter` mit Schlüssel = Service-Token-Hash (API) bzw. Dashboard-Nutzer; Standard 60/min, teure Endpunkte (`/api/media/*`, `/api/audio/*`, `/api/video/*`, Batch-Tests) 10/min; Werte aus `config.yaml rate_limiting`. Speicher: In-Memory reicht für eine Instanz, sonst Redis.
 3. Alte `RateLimiter`-Klasse entfernen oder als Adapter nutzen.
 
@@ -497,6 +503,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 0/7 |
+| 1 | AP-01 … AP-07 | 2/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

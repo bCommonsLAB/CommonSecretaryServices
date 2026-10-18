@@ -20,6 +20,23 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       # Flask MAX_CONTENT_LENGTH; Default 500 MB, überschreibbar via .env
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      # Sicherheit (docs/deployment/dashboard-anmeldung.md). Ohne SECRETARY_SERVICE_API_KEY
+      # startet der Dienst nicht; ohne Dashboard-Anmeldung ist das Dashboard gesperrt.
+      # Leere Werte gelten als nicht gesetzt.
+      - SECRETARY_SERVICE_API_KEY=${SECRETARY_SERVICE_API_KEY:-}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - TRUSTED_PROXY_COUNT=${TRUSTED_PROXY_COUNT:-0}
+      - DASHBOARD_AUTH_MODE=${DASHBOARD_AUTH_MODE:-}
+      - DASHBOARD_REQUIRED_GROUP=${DASHBOARD_REQUIRED_GROUP:-}
+      - DASHBOARD_ALLOWED_USERS=${DASHBOARD_ALLOWED_USERS:-}
+      - DASHBOARD_USER=${DASHBOARD_USER:-}
+      - DASHBOARD_PASSWORD_HASH=${DASHBOARD_PASSWORD_HASH:-}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - SWAGGER_IP_WHITELIST=${SWAGGER_IP_WHITELIST:-}
 
   mongodb:
     image: mongo:6

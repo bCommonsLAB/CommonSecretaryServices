@@ -3,6 +3,7 @@ Audio test route handler
 """
 from flask import render_template, request, make_response
 import requests
+from src.dashboard.utils import service_auth_headers
 import json
 import traceback
 import os
@@ -82,7 +83,7 @@ def run_audio_test():
                     data=data)
 
         # Call the audio processing API endpoint
-        response = requests.post(api_url, files=files, data=data)
+        response = requests.post(api_url, files=files, data=data, headers=service_auth_headers())
         
         logger.info("Received API response", 
                    status_code=response.status_code,

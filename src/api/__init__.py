@@ -91,6 +91,12 @@ def create_app(template_dir: Optional[str] = None, static_dir: Optional[str] = N
     app.config['MAX_FORM_MEMORY_SIZE'] = _max_upload_bytes
     app.config['PREFERRED_URL_SCHEME'] = 'http'
     
+    # Sicherheit (AP-01/AP-02): wie in src/dashboard/app.py
+    from src.core.security import apply_proxy_fix
+    from src.dashboard.auth import init_dashboard_auth
+    apply_proxy_fix(app)
+    init_dashboard_auth(app)
+
     # Registriere die API-Routen bei der App
     app.register_blueprint(api_blueprint, url_prefix='/api')
     

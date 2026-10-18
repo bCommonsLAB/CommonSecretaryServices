@@ -42,25 +42,32 @@ Sicherheitskonfiguration ist geschlossen, pro Installation genügen Umgebungsvar
 
 ## Stand der Arbeitspakete
 
-Noch keines umgesetzt. Die Außenprüfung aus AP-00 ist erledigt (18.10.2026, Ergebnis im Plan unter AP-00):
-auf `secretaryservices.bcommonslab.org` sind Dashboard, `/logs` mit aktuellen Einträgen und `/llm-config`
-ohne Anmeldung erreichbar, `/api/health/` zeigt das OpenRouter-Restguthaben. Die API selbst verlangt den Token,
-auch mit gefälschtem `X-Forwarded-For`. **AP-01 und AP-02 haben deshalb Vorrang.** Eine Sperre in Dokploy ist
-nur ein optionaler Sofortschutz für diese eine Instanz, bis AP-02 dort ausgerollt ist.
+**AP-01 und AP-02 sind umgesetzt** (18.10.2026, PR #38, Details und Abweichungen im Plan bei den Paketen):
+
+- API fail-closed: ohne `SECRETARY_SERVICE_API_KEY` startet `src/main.py` nicht, geschützte Routen antworten sonst 503.
+  Frei ist nur `/api/health/live`. Header-Umgehungen über `X-Forwarded-For`, `X-Real-IP` und `Host` sind geschlossen.
+- Dashboard in der Anwendung geschützt: Nextcloud per OIDC, Basic als Notzugang, ohne Konfiguration gesperrt, CSRF-Schutz.
+- 63 neue Tests in `.tests/test_api_auth.py`, `.tests/test_dashboard_auth.py`, `.tests/test_dashboard_oidc.py`.
+
+Die Außenprüfung aus AP-00 (18.10.2026) hatte auf `secretaryservices.bcommonslab.org` ein offenes Dashboard, offene
+`/logs` und `/llm-config` und ein öffentliches Restguthaben unter `/api/health/` gezeigt. **Nach dem Rollout von PR #38
+ist das Dashboard dort gesperrt**, bis die Anmeldung konfiguriert ist (`docs/deployment/dashboard-anmeldung.md`).
+
+Beim Rollout beachten:
+- Clients, die `/api/health/` ohne Token abfragen (Vorab-Prüfung in KnowledgeScout?), bekommen jetzt 401 und müssen den Token senden.
+- Swagger braucht Token, Dashboard-Anmeldung oder `SWAGGER_IP_WHITELIST`.
 
 - **AP-00 und AP-00b sind Aufgaben für den Betreiber**, keine Code-Arbeit: Mongo-Port prüfen, Env-Variablen
   bereinigen, Keys rotieren, GitHub-Einstellungen, Nextcloud-Client anlegen. Eine Sitzung kann begleiten und
   Außenprüfungen machen, wenn die Hosts in der Netzwerkrichtlinie der Umgebung freigeschaltet sind.
-- **Nächstes Code-Paket ist AP-01** (Auth-Middleware fail-closed und spoof-sicher), danach AP-02
-  (Dashboard-Anmeldung in der Anwendung). AP-02 lässt sich ohne fertiges AP-00b umsetzen und mit `basic`
-  ausrollen; `oidc` wird aktiv, sobald der Nextcloud-Client existiert. Danach AP-03 bis AP-07.
+- **Nächstes Code-Paket ist AP-07** (mitgelieferte Compose: Mongo ohne Host-Port und mit Zugangsdaten), dann AP-03 bis AP-06.
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-01 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-07 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:
@@ -86,8 +93,12 @@ Ablauf je Paket:
   `src/dashboard/app.py` und im API-Blueprint `src/api/routes/__init__.py` wirken.
 - **Die Hintergrund-Worker starten beim ersten Request** in `before_request` von `src/dashboard/app.py`.
   Beim Wechsel auf gunicorn mit mehreren Prozessen (AP-14) liefen sie mehrfach. Das ist im Plan vermerkt.
-- **Die Dashboard-Testrouten** (`/run_*_test`) rufen die eigene API ohne Token auf. Nach AP-01 schlagen sie
-  fehl, bis AP-02 sie umstellt. Das ist erwartet und im PR von AP-01 zu erwähnen.
+- **Test-Umgebung:** Unter Python 3.13 fehlt `audioop` (pydub); dort `audioop-lts` installieren oder Python 3.12
+  wie in der Produktion verwenden. Ohne MongoDB, Voyage-Key und die Schrift Jost scheitern 7 vorhandene Tests
+  umgebungsbedingt (Booklet-Schrift, zwei RAG-Endpunkt-Tests, RAG-Prozessor, drei Mongo-Cache-Tests). Mit einer
+  nicht erreichbaren `MONGODB_URI` ohne kurze Timeouts hängen manche Tests minutenlang.
+- **Tests, die die API per Test-Client aufrufen, brauchen einen Token** (Muster: `.tests/test_rag_embed_text_endpoint.py`
+  oder `.tests/auth_test_support.py`).
 - **Pillow-Major-Update in AP-06** kann OCR, Booklet und PDF-Seitenbilder berühren. Dort gründlich testen.
 
 ## Nicht geprüft
@@ -98,4 +109,4 @@ Ablauf je Paket:
   Davon hängt ab, ob alle Installationen einen gemeinsamen Client nutzen können.
 - Die optionale oauth2-proxy-Vorlage in AP-20 ist nicht gegen eine laufende Installation getestet.
 - Ob die Nextcloud-App die Gruppen im Token liefert und unter welchem Claim, klärt AP-00b.
-- Die Tests des Projekts wurden in dieser Sitzung nicht ausgeführt.
+- Die OIDC-Anmeldung ist gegen einen nachgebildeten Anbieter getestet, noch nicht gegen die echte Nextcloud.
