@@ -11,7 +11,7 @@ Dieses Dokument ist der Arbeitsvorrat für Claude-Code-Sitzungen. Jedes Arbeitsp
 2. Ein AP = ein Branch `claude/sec-ap-xx-kurzname` = ein PR gegen `main`. Keine Vermischung mehrerer APs in einem PR.
 3. Vor dem Push: `pytest .tests src/tests -q` muss grün sein; neue Schutzmaßnahmen bekommen einen Test in `.tests/`.
 4. Nach dem Merge: Checkbox hier abhaken, Datum und PR-Nummer eintragen, offene Reste als Notiz ans AP hängen.
-5. Reihenfolge: AP-00 zuerst (Betriebsmaßnahmen ohne Code), dann Phase 1 in der angegebenen Reihenfolge, Phase 2 kann parallel laufen, Phase 3 danach.
+5. Reihenfolge: AP-00 und AP-00b zuerst (Betriebsmaßnahmen ohne Code), dann Phase 1 in der angegebenen Reihenfolge, Phase 2 kann parallel laufen, Phase 3 danach.
 6. Nichts aus diesem Plan ändert den fachlichen Funktionsumfang. Wo eine Maßnahme ein Verhalten ändert (z. B. fail-closed), wird das in README und `docs/reference/environment-variables.md` nachgezogen.
 
 Legende Aufwand: S = unter einem halben Tag, M = ein Tag, L = mehrere Tage.
@@ -20,29 +20,43 @@ Legende Aufwand: S = unter einem halben Tag, M = ein Tag, L = mehrere Tage.
 
 ## Offene Entscheidungen (vor Phase 1 klären)
 
-### E1 – Authentifizierung für das Dashboard (kein US-Identity-Provider)
+### E1 – Authentifizierung für das Dashboard (kein US-Identity-Provider) – ENTSCHIEDEN
 
-Die Analyse fordert eine Anmeldung für das Dashboard (K1). Der Betreiber möchte keinen US-amerikanischen Identity Provider (also nicht Auth0/Okta, Microsoft Entra, Google, Clerk, AWS Cognito, Firebase). Geeignete Alternativen, alle Open Source und selbst betreibbar, Daten bleiben auf eigener Infrastruktur:
+**Entscheidung (18.10.2026): Die eigene Nextcloud-Instanz wird Anmeldedienst nach OpenID Connect (OIDC).** Vor Traefik sitzt **oauth2-proxy** als Forward-Auth-Schicht und wickelt die Anmeldung mit Nextcloud ab. Flask liest nur den vom Proxy gesetzten Benutzernamen. Ein Basic-Auth-Zugang bleibt als Notzugang und für lokale Setups ohne Proxy.
 
-| Option | Herkunft | Betrieb | Passt, wenn … | Aufwand im Projekt |
-|---|---|---|---|---|
-| **Authelia** (Forward-Auth vor Traefik) | Community-Projekt, kein Unternehmen dahinter | Ein Container neben dem Service, Nutzer in YAML/LDAP, TOTP/WebAuthn eingebaut | Dokploy/Traefik bleibt die Eingangstür und das Dashboard braucht nur „wer darf rein“ ohne eigene Nutzerverwaltung im Code | **S**: keine Code-Änderung, nur Compose-Labels und Authelia-Konfiguration |
-| **Zitadel** | Schweiz (Zitadel AG), Apache 2.0 | Self-hosted (Postgres) oder Cloud mit Region CH/EU | Ein OIDC-Provider für mehrere eigene Dienste (KnowledgeScout, Secretary, weitere) gewünscht, Mandanten, Service-Accounts für Maschinen | **M**: OIDC-Login in Flask über Authlib, Rollen aus Token |
-| **Ory Kratos + Hydra** (oder Ory Network, EU-Region) | Ursprung und Team in München, Apache 2.0; Gesellschaftsstruktur vor Entscheidung prüfen | Self-hosted, API-first, kein fertiges Admin-UI | Entwicklerzentriert, eigene Login-UI akzeptabel | **M–L** |
-| **Keycloak** | CNCF-Projekt, maßgeblich von Red Hat (IBM, US-Konzern) entwickelt; self-hosted, keine Daten beim Hersteller | Ein Container, Java, viel Funktion | Schon im Einsatz oder Enterprise-Features (SAML, LDAP-Föderation) nötig | **M**; Vorbehalt: Hersteller ist US-amerikanisch, auch wenn kein Datenabfluss stattfindet |
-| **Authentik** | Open Source, Firma Authentik Security Inc. ist US-registriert, Gründer und Team in Deutschland | Self-hosted, modernes Admin-UI, Forward-Auth und OIDC | Komfortables UI gewünscht und der Firmensitz nicht stört | **M** |
-| **LemonLDAP::NG** | Frankreich, Open Source | Self-hosted, Perl | Französischer Behördenstandard, sonst eher schwergewichtig | **L** |
-| Vorhandener Dienst als OIDC-Provider (**Nextcloud**, **Forgejo/Gitea**, **GitLab self-hosted**) | EU-Projekte | Bereits vorhanden | Wenn es im bCommonsLAB schon ein Nextcloud oder Forgejo gibt | **M** |
+Begründung:
 
-Hinweis: Firmensitz und Eigentümerstruktur ändern sich. Vor der Entscheidung beim gewählten Anbieter aktuell nachsehen.
+- Keine neue Benutzerverwaltung: Konten, Gruppen und Zwei-Faktor-Anmeldung kommen aus der bestehenden Nextcloud.
+- Kein US-Anbieter: Nextcloud ist self-hosted, die OIDC-App und oauth2-proxy sind Open Source, alle Daten bleiben auf eigener Infrastruktur.
+- Wenig Python-Code: Das Dashboard braucht nur einen Modus, der einen Header vom vertrauenswürdigen Proxy auswertet. Den ganzen OIDC-Ablauf übernimmt oauth2-proxy.
+- Authelia scheidet aus, weil es selbst Anmeldedienst ist und keinen fremden OIDC-Anbieter wie Nextcloud als Quelle nutzen kann.
 
-**Empfehlung:**
+Ablauf einer Dashboard-Anmeldung:
 
-- **Jetzt (Phase 1, AP-02):** Forward-Auth mit **Authelia** vor `/` (Dashboard) und `/api/doc`. Das schließt K1 ohne eine Zeile Python, bringt Zwei-Faktor-Anmeldung mit und ist mit Traefik/Dokploy eine reine Konfigurationsfrage. Als Rückfallebene zusätzlich im Code ein Dashboard-Secret (Basic Auth) hinter `DASHBOARD_AUTH_MODE=basic`, damit lokale und Docker-Compose-Setups ohne Proxy nicht offen sind.
-- **Mittelfristig (Phase 3, AP-20):** Wenn mehrere eigene Dienste einen gemeinsamen Login brauchen, **Zitadel** (CH) oder **Ory** (DE) als OIDC-Provider; das Dashboard bekommt dann einen OIDC-Login über Authlib, Authelia kann als Forward-Auth-Schicht gegen denselben Provider weiterlaufen oder entfällt.
-- **Maschinenzugriff bleibt API-Key:** KnowledgeScout und andere Clients authentifizieren sich weiter mit Service-Tokens (AP-19 macht daraus mehrere Keys mit Rechten). OIDC Client-Credentials ist dafür später möglich, aber nicht nötig.
+```
+Browser ──► Traefik ──forwardAuth──► oauth2-proxy  (Cookie gültig?)
+   │             │                        │ nein
+   │             │                        ▼
+   │◄────── Redirect zu Nextcloud /apps/oidc/authorize (Login + 2FA)
+   │──────► oauth2-proxy /oauth2/callback  (Code → Token, Gruppe prüfen, Cookie setzen)
+   │──────► Traefik ──► Flask mit Header X-Auth-Request-User / -Groups
+```
 
-Entscheidung: `[ ]` Authelia + Basic-Fallback (empfohlen) `[ ]` Zitadel `[ ]` Ory `[ ]` andere: ______ (Datum, Name)
+Maschinenzugriff bleibt beim API-Key: KnowledgeScout und andere Clients nutzen weiter Service-Tokens auf `/api/*`. Diese Pfade laufen **nicht** über oauth2-proxy (AP-19 macht daraus mehrere Keys mit Rechten).
+
+Risiken und Gegenmaßnahmen:
+
+| Risiko | Gegenmaßnahme |
+|---|---|
+| Nextcloud wird sicherheitskritisch: wer Nextcloud übernimmt, kommt ins Dashboard | Zwei-Faktor-Pflicht für die Gruppe `secretary-admins`, Nextcloud aktuell halten, Brute-Force-Schutz aktiv |
+| Nextcloud gestört, niemand kommt ins Dashboard | Basic-Auth-Notzugang (`DASHBOARD_AUTH_MODE=basic`) per Env umschaltbar, Passwort im Passwortmanager |
+| OIDC-App ist eine Community-App, nicht von der Nextcloud GmbH | Wartungsstand vor Einrichtung prüfen (AP-00b), bei Updates von Nextcloud mittesten |
+| Header `X-Auth-Request-User` von außen gefälscht | Flask akzeptiert ihn nur mit `TRUSTED_PROXY_COUNT>0`, Port 5001 ist nicht direkt erreichbar, Traefik entfernt eingehende `X-Auth-Request-*`-Header |
+| Gruppen fehlen im Token, jedes Nextcloud-Konto kommt rein | In AP-00b prüfen; Ersatz: Liste erlaubter E-Mail-Adressen in oauth2-proxy |
+
+Geprüfte und verworfene Alternativen (zur Dokumentation): Authelia (kein externer OIDC-Anbieter als Quelle), Zitadel (Schweiz, eigener Dienst nötig), Ory (München, API-first, eigene Login-UI), LemonLDAP::NG (Frankreich, schwergewichtig), Keycloak und Authentik (Hersteller US-Gesellschaften). Zitadel bleibt die Ausweichoption, falls später mehr als ein Dashboard eine zentrale, mandantenfähige Anmeldung braucht.
+
+Entscheidung: `[x]` Nextcloud (OIDC) + oauth2-proxy + Basic-Notzugang, 18.10.2026
 
 ### E2 – Reverse-Proxy-Vertrauen
 
@@ -64,7 +78,7 @@ Entscheidung: `[ ]` Public-IP-Prüfung (empfohlen) `[ ]` Host-Allowlist
 Befunde: K1, K2, K3, K4, K5, K6. Aufwand: S. Zuständig: Betreiber (nicht Claude-Sitzung, aber die Sitzung kann die Checkliste begleiten).
 
 - [ ] Von außen prüfen: sind `https://<host>/`, `/logs`, `/llm-config` und Port 27017 erreichbar? Ergebnis hier notieren: ______
-- [ ] In Dokploy/Traefik nur `/api/*` öffentlich routen; `/`, `/logs`, `/llm-config`, `/docs`, `/test*` auf interne IPs oder VPN beschränken (bis AP-02 fertig ist).
+- [ ] In Dokploy/Traefik nur `/api/*` öffentlich routen; `/`, `/logs`, `/llm-config`, `/docs`, `/test*` auf interne IPs oder VPN beschränken (bis AP-02 mit Nextcloud-Anmeldung in Betrieb ist).
 - [ ] Produktions-Env: `ALLOW_SWAGGER_WHITELIST` leeren, `ALLOW_LOCALHOST_NO_AUTH=false`, `PYTHONHTTPSVERIFY` nicht gesetzt.
 - [ ] `SECRETARY_SERVICE_API_KEY` gesetzt und mindestens 32 Zufallsbytes (`openssl rand -hex 32`). Clients (KnowledgeScout) aktualisieren.
 - [ ] Dokploy-Deploy-Token rotieren (K6); neuen Wert als GitHub-Secret `DOKPLOY_DEPLOY_URL` ablegen (wird in AP-15 im Workflow verwendet).
@@ -72,6 +86,19 @@ Befunde: K1, K2, K3, K4, K5, K6. Aufwand: S. Zuständig: Betreiber (nicht Claude
 - [ ] Falls `PYTHONHTTPSVERIFY=0` je auf einem Server lief: OpenAI-, Mistral-, OpenRouter-, Voyage-Keys rotieren.
 - [ ] MongoDB: Port-Mapping entfernen, Root-User setzen, `MONGODB_URI` mit Credentials; Compose-Änderung kommt mit AP-14, bis dahin manuell.
 - [ ] GitHub: Secret Scanning + Push Protection aktivieren, Branch-Protection für `main` (PR-Pflicht, Checks erforderlich).
+
+### AP-00b Nextcloud als Anmeldedienst vorbereiten
+Befund: K1 (Voraussetzung für AP-02). Aufwand: S. Zuständig: Betreiber der Nextcloud.
+
+- [ ] Nextcloud-Version und Erreichbarkeit notieren: ______ (URL der Instanz: ______)
+- [ ] App **„OIDC Identity Provider“** (App-ID `oidc`) aus dem App Store installieren. Nicht verwechseln mit `user_oidc`, die Nextcloud zum Client eines anderen Anbieters macht. Wartungsstand prüfen: letzte Veröffentlichung, Kompatibilität mit der eingesetzten Nextcloud-Version.
+- [ ] Discovery-Adresse ermitteln, die von außen antwortet: `https://<nextcloud>/.well-known/openid-configuration` oder `https://<nextcloud>/index.php/.well-known/openid-configuration`. Den Wert `issuer` aus der Antwort notieren: ______ (wird `OAUTH2_PROXY_OIDC_ISSUER_URL`).
+- [ ] Gruppe `secretary-admins` anlegen und berechtigte Personen aufnehmen.
+- [ ] Zwei-Faktor-Anmeldung für `secretary-admins` erzwingen (Verwaltung → Sicherheit → Zwei-Faktor-Authentifizierung erzwingen, auf Gruppe beschränken).
+- [ ] Unter Verwaltung → Sicherheit → OpenID Connect einen Client anlegen: Name `secretary-dashboard`, Typ vertraulich (confidential), Signatur RS256, Weiterleitungsadresse `https://<secretary-host>/oauth2/callback`. Client-ID und Client-Secret im Passwortmanager ablegen.
+- [ ] Prüfen, ob das ID-Token oder der Userinfo-Endpunkt die Gruppen liefert und unter welchem Claim (meist `groups`). Test zum Beispiel über die Weiterleitung mit einem kurzen oauth2-proxy-Probelauf und `--show-debug-on-error`, oder mit einem OIDC-Testclient. Ergebnis: Claim-Name ______, enthält `secretary-admins`: ja / nein.
+- [ ] Falls keine Gruppen kommen: Liste der erlaubten E-Mail-Adressen für oauth2-proxy festlegen (`OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE`).
+- [ ] Werte für Dokploy vorbereiten (als Secrets, nicht im Repo): `NC_OIDC_CLIENT_ID`, `NC_OIDC_CLIENT_SECRET`, `OAUTH2_COOKIE_SECRET` (genau 32 Zeichen, z. B. `openssl rand -hex 16`), `DASHBOARD_USER`, `DASHBOARD_PASSWORD_HASH` für den Notzugang.
 
 ---
 
@@ -93,18 +120,87 @@ Akzeptanz: Tests mit Flask-Testclient: (a) ohne Token 401, (b) mit Token 200, (c
 
 - [ ] erledigt am ______, PR #____
 
-### AP-02 Dashboard authentifizieren
-Befunde: K1, M4 (CSRF). Aufwand: M. Dateien: `src/dashboard/app.py`, neue Datei `src/dashboard/auth.py`, `docker-compose.yml`, `docs/deployment/authelia.md` (neu), Templates für Logout-Link.
+### AP-02 Dashboard authentifizieren (Nextcloud über oauth2-proxy)
+Befunde: K1, M4 (CSRF). Aufwand: M. Voraussetzung: AP-01 (wegen `TRUSTED_PROXY_COUNT`), für den Produktivbetrieb AP-00b. Dateien: `src/dashboard/app.py`, neue Datei `src/dashboard/auth.py`, neue Datei `docker-compose.auth.yml`, neue Datei `docs/deployment/nextcloud-oidc.md`, `docs/reference/environment-variables.md`, `src/dashboard/templates/base.html` (Benutzername und Abmelden), Tests `.tests/test_dashboard_auth.py`.
 
 Schritte:
-1. `DASHBOARD_AUTH_MODE` mit Werten `basic` (Default), `forward` (Proxy liefert `Remote-User`-Header, nur zusammen mit `TRUSTED_PROXY_COUNT>0` akzeptiert), `off` (nur mit `ALLOW_INSECURE_NO_AUTH=true`).
-2. `basic`: `DASHBOARD_USER` und `DASHBOARD_PASSWORD_HASH` (Argon2 oder Werkzeug `pbkdf2`), geprüft in einem `app.before_request`, das alle Pfade außer `/api/*` (eigene Middleware) und `/api/health/live` abdeckt.
-3. `forward`: Header `Remote-User` muss vorhanden sein, sonst 401; Nutzername ins Log-Kontext.
-4. CSRF: für alle Dashboard-POSTs ein Double-Submit-Cookie oder `flask-wtf` CSRFProtect; die Fetch-Aufrufe in `llm_config.html` senden den Token als Header.
-5. Dashboard-Testrouten (`/run_*_test`) senden den Service-Token an die interne API mit, statt auf eine Auth-Ausnahme zu bauen.
-6. Beispiel-Compose-Ausschnitt und Traefik-Labels für Authelia in `docs/deployment/authelia.md`, inklusive `access_control` (Dashboard: zwei Faktoren; `/api/doc`: ein Faktor).
+1. `src/dashboard/auth.py` mit `DASHBOARD_AUTH_MODE`:
+   - `forward` (Produktion): Benutzer kommt aus dem Header `DASHBOARD_FORWARD_USER_HEADER` (Default `X-Auth-Request-User`). Fehlt er, Antwort 401. Wird nur akzeptiert, wenn `TRUSTED_PROXY_COUNT>0`; sonst bricht der Start mit klarer Meldung ab. Optional zweite Prüfung: `DASHBOARD_REQUIRED_GROUP` (z. B. `secretary-admins`) gegen den Header `DASHBOARD_FORWARD_GROUPS_HEADER` (Default `X-Auth-Request-Groups`, kommagetrennt). Die Gruppenprüfung in oauth2-proxy bleibt die maßgebliche, diese ist Verteidigung in der Tiefe.
+   - `basic` (Default, lokal und Notzugang): `DASHBOARD_USER` und `DASHBOARD_PASSWORD_HASH` (Werkzeug `generate_password_hash`, scrypt oder pbkdf2), Vergleich zeitkonstant, Antwort 401 mit `WWW-Authenticate`.
+   - `off`: nur zusammen mit `ALLOW_INSECURE_NO_AUTH=true`, mit Warnung im Log.
+2. Ein `app.before_request` in `src/dashboard/app.py` ruft die Prüfung für alle Pfade außer `/api/*` auf, ausgenommen `/api/doc*` und `/api/swagger.json`, die ebenfalls die Dashboard-Anmeldung verlangen. `/api/health/live` bleibt frei. Der Benutzername kommt in `flask.g.dashboard_user` und in den Log-Kontext.
+3. CSRF: für alle Dashboard-POSTs `flask-wtf` CSRFProtect oder ein Double-Submit-Cookie. Die `fetch`-Aufrufe in `llm_config.html`, `dashboard.html` und den Testseiten senden den Token als Header `X-CSRFToken`. `/api/*` bleibt ausgenommen, weil dort der API-Key gilt.
+4. Dashboard-Testrouten (`/run_*_test`) senden den Service-Token an die interne API mit, statt auf eine Auth-Ausnahme zu bauen.
+5. `base.html`: angemeldeten Benutzer anzeigen; im Modus `forward` ein Link „Abmelden“ auf `/oauth2/sign_out?rd=<DASHBOARD_LOGOUT_REDIRECT>`.
+6. `docker-compose.auth.yml` als Overlay mit dem Dienst `oauth2-proxy` und den Traefik-Labels (siehe Vorlage unten). In der Standard-Compose ändert sich nichts.
+7. `docs/deployment/nextcloud-oidc.md`: Schritt-für-Schritt-Anleitung aus AP-00b plus diese Konfiguration, Prüfliste für die Abnahme, Umschalten auf den Notzugang, Fehlerbilder (falsche Issuer-URL, fehlender Gruppen-Claim, Cookie-Domain).
+8. `docs/reference/environment-variables.md` um alle neuen Variablen ergänzen.
 
-Akzeptanz: Tests: `/logs` ohne Auth 401, mit Basic 200; POST `/clear-logs` ohne CSRF-Token 400; `forward` ohne `TRUSTED_PROXY_COUNT` wird beim Start abgelehnt.
+Vorlage für `docker-compose.auth.yml` (Werte aus Dokploy-Secrets, Hostnamen anpassen):
+
+```yaml
+services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1   # beim Umsetzen auf aktuelle Version prüfen und per Digest pinnen
+    environment:
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_PROVIDER_DISPLAY_NAME: Nextcloud
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${NC_OIDC_ISSUER}            # Wert "issuer" aus AP-00b
+      OAUTH2_PROXY_CLIENT_ID: ${NC_OIDC_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${NC_OIDC_CLIENT_SECRET}
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_SCOPE: "openid profile email groups"          # "groups" nur, wenn die App den Scope kennt
+      OAUTH2_PROXY_OIDC_GROUPS_CLAIM: groups                    # Claim-Name aus AP-00b
+      OAUTH2_PROXY_ALLOWED_GROUPS: secretary-admins
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_UPSTREAMS: static://202
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REDIRECT_URL: https://${SECRETARY_HOST}/oauth2/callback
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_COOKIE_SECRET}
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      OAUTH2_PROXY_COOKIE_EXPIRE: 12h
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.secretary-oauth2.rule=Host(`${SECRETARY_HOST}`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.secretary-oauth2.priority=100
+      - traefik.http.services.secretary-oauth2.loadbalancer.server.port=4180
+      - traefik.http.middlewares.nc-auth.forwardauth.address=http://oauth2-proxy:4180/oauth2/auth
+      - traefik.http.middlewares.nc-auth.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email,X-Auth-Request-Groups
+      - traefik.http.middlewares.nc-signin.errors.status=401
+      - traefik.http.middlewares.nc-signin.errors.service=secretary-oauth2
+      - traefik.http.middlewares.nc-signin.errors.query=/oauth2/sign_in
+
+  secretary-services:
+    environment:
+      DASHBOARD_AUTH_MODE: forward
+      TRUSTED_PROXY_COUNT: "1"
+      DASHBOARD_REQUIRED_GROUP: secretary-admins
+    labels:
+      - traefik.enable=true
+      # 1) Maschinen-API: nur API-Key, kein oauth2-proxy
+      - traefik.http.routers.secretary-api.rule=Host(`${SECRETARY_HOST}`) && PathPrefix(`/api/`) && !PathPrefix(`/api/doc`) && !PathPrefix(`/api/swagger.json`)
+      - traefik.http.routers.secretary-api.priority=50
+      - traefik.http.routers.secretary-api.middlewares=strip-auth-headers
+      # 2) Alles andere (Dashboard, Swagger, Docs): Nextcloud-Login
+      - traefik.http.routers.secretary-ui.rule=Host(`${SECRETARY_HOST}`)
+      - traefik.http.routers.secretary-ui.priority=10
+      - traefik.http.routers.secretary-ui.middlewares=strip-auth-headers,nc-signin,nc-auth
+      - traefik.http.services.secretary.loadbalancer.server.port=5001
+      # Eingehende X-Auth-Request-* Header vom Client entfernen (gegen Fälschung)
+      - traefik.http.middlewares.strip-auth-headers.headers.customrequestheaders.X-Auth-Request-User=
+      - traefik.http.middlewares.strip-auth-headers.headers.customrequestheaders.X-Auth-Request-Email=
+      - traefik.http.middlewares.strip-auth-headers.headers.customrequestheaders.X-Auth-Request-Groups=
+```
+
+Hinweise für die umsetzende Sitzung: Die Vorlage vor dem Einsatz mit der aktuellen oauth2-proxy-Dokumentation (Abschnitt Integration mit Traefik) und der eingesetzten Traefik-Version abgleichen, insbesondere wie nach der Anmeldung auf die ursprüngliche Seite zurückgeleitet wird. `trustForwardHeader` bewusst nicht setzen, damit vom Client gelieferte `X-Forwarded-*`-Header nicht an oauth2-proxy gelangen. Router-Namen, Entrypoints und TLS-Resolver an die bestehende Dokploy-Konfiguration anpassen; Dokploy kann eigene Labels setzen, die Vorlage ist dann als Ergänzung zu verstehen. Ob die Matcher-Syntax `!PathPrefix` verfügbar ist, hängt von der Traefik-Version ab (v3: ja); sonst die API-Router mit höherer Priorität ausdrücklich für Swagger ergänzen.
+
+Akzeptanz:
+- Tests (Flask-Testclient, ohne echten Proxy): `/logs` im Modus `basic` ohne Zugangsdaten 401, mit Zugangsdaten 200; im Modus `forward` mit `TRUSTED_PROXY_COUNT=1` ohne Header 401, mit Header 200, mit falscher Gruppe 403; `forward` ohne `TRUSTED_PROXY_COUNT` verweigert den Start; POST `/clear-logs` ohne CSRF-Token 400; `/api/audio/process` ist von der Dashboard-Prüfung nicht betroffen.
+- Abnahme im Betrieb (in `docs/deployment/nextcloud-oidc.md` als Prüfliste): Dashboard leitet auf Nextcloud um; Konto außerhalb von `secretary-admins` wird abgewiesen; `curl -H "X-Auth-Request-User: admin" https://<host>/logs` liefert keinen Zugriff; `/api/*` mit API-Key funktioniert ohne Nextcloud-Anmeldung; Abmelden beendet die Dashboard-Sitzung.
 
 - [ ] erledigt am ______, PR #____
 
@@ -267,12 +363,13 @@ Akzeptanz: Zwei Keys, Job von Key A ist für Key B 404; Key ohne Scope `media` b
 
 - [ ] erledigt am ______, PR #____
 
-### AP-20 OIDC-Login für das Dashboard (je nach E1)
-Befund: K1 (Ausbau). Aufwand: M. Dateien: `src/dashboard/auth.py`, `requirements.txt` (`authlib`), Templates.
+### AP-20 Optional: OIDC direkt in Flask oder zentraler Login für weitere Dienste
+Befund: K1 (Ausbau). Aufwand: M. Nur nötig, wenn einer der beiden Fälle eintritt.
 
-Schritte: `DASHBOARD_AUTH_MODE=oidc` mit `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`; Login-Flow über Authlib (`authorization_code` + PKCE), Session-Cookie `Secure, HttpOnly, SameSite=Lax`, Rollenprüfung aus Claim `roles` oder Gruppen; Logout über `end_session_endpoint`. Getestet gegen den in E1 gewählten Provider (Zitadel oder Ory in Docker-Compose für Entwicklung).
+- **Fall A, oauth2-proxy soll entfallen:** `DASHBOARD_AUTH_MODE=oidc` mit `OIDC_ISSUER` (Nextcloud-Issuer aus AP-00b), `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REQUIRED_GROUP`; Anmeldung über Authlib (Authorization Code mit PKCE), Sitzungs-Cookie `Secure`, `HttpOnly`, `SameSite=Lax`, Gruppenprüfung aus dem Claim, Abmelden über `end_session_endpoint`, falls die Nextcloud-App ihn anbietet. Für die Entwicklung eine Nextcloud mit OIDC-App in `docker-compose.dev-auth.yml`.
+- **Fall B, weitere Dienste (z. B. KnowledgeScout) sollen denselben Login nutzen:** je Dienst einen eigenen OIDC-Client in Nextcloud anlegen, gleiche Gruppenlogik. Reicht Nextcloud dafür nicht mehr (Mandanten, Service-Accounts, feinere Rollen), Umstieg auf Zitadel prüfen; die Flask-Seite bleibt gleich, nur der Issuer ändert sich.
 
-- [ ] erledigt am ______, PR #____
+- [ ] Bedarf geprüft am ______, Ergebnis: ______
 
 ### AP-21 Konverter in eigenen Worker-Container
 Befunde: M9, Rest von H4. Aufwand: L. Dateien: `docker-compose.yml`, neues `Dockerfile.worker`, `src/core/mongodb/secretary_worker_manager.py` (Start als eigener Prozess `python -m src.worker`), `src/dashboard/app.py` (Worker nicht mehr im Web-Prozess starten).
@@ -299,7 +396,7 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 
 | Befund | AP |
 |---|---|
-| K1 Dashboard ohne Auth | AP-00 (Netz), AP-02, AP-20 |
+| K1 Dashboard ohne Auth | AP-00 (Netz), AP-00b (Nextcloud), AP-02, AP-20 (optional) |
 | K2 Whitelist spoofbar | AP-00 (Env), AP-01 |
 | K3 Fail-open | AP-00 (Env), AP-01 |
 | K4 Mongo offen | AP-00, AP-14 |
@@ -328,7 +425,7 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 
 | Phase | Pakete | erledigt |
 |---|---|---|
-| 0 | AP-00 | 0/1 |
+| 0 | AP-00, AP-00b | 0/2 |
 | 1 | AP-01 … AP-06 | 0/6 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |
