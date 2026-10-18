@@ -33,7 +33,11 @@ die Stellen per Suche nach Funktionsnamen wiederfinden, nicht blind nach Zeilenn
 
 ## Stand der Arbeitspakete
 
-Noch keines umgesetzt.
+Noch keines umgesetzt. Die Außenprüfung aus AP-00 ist erledigt (18.10.2026, Ergebnis im Plan unter AP-00):
+auf `secretaryservices.bcommonslab.org` sind Dashboard, `/logs` mit aktuellen Einträgen und `/llm-config`
+ohne Anmeldung erreichbar, `/api/health/` zeigt das OpenRouter-Restguthaben. Die API selbst verlangt den Token,
+auch mit gefälschtem `X-Forwarded-For`. Das Sperren der Dashboard-Pfade im Proxy ist damit die dringendste
+offene Aufgabe in AP-00.
 
 - **AP-00 und AP-00b sind Aufgaben für den Betreiber**, keine Code-Arbeit: Erreichbarkeit von Dashboard und
   Mongo-Port prüfen, Proxy-Regeln, Env-Variablen bereinigen, Keys rotieren, Nextcloud als OIDC-Anbieter
@@ -78,8 +82,8 @@ Ablauf je Paket:
 
 ## Nicht geprüft
 
-- Kein Test gegen die Produktionsinstanz. Ob Dashboard und Mongo-Port von außen erreichbar sind, ist offen
-  und Teil von AP-00.
+- Der Mongo-Port 27017 der Produktion ist nicht geprüft, weil der Proxy der Cloud-Umgebung nur Web-Verbindungen
+  durchlässt. Lokal mit `nc` prüfen, siehe AP-00.
 - Die Traefik- und oauth2-proxy-Vorlage in AP-02 ist nicht gegen eine laufende Installation getestet.
   Vor dem Einsatz mit der aktuellen oauth2-proxy-Dokumentation und der Traefik-Version abgleichen.
 - Ob die Nextcloud-App die Gruppen im Token liefert und unter welchem Claim, klärt AP-00b.

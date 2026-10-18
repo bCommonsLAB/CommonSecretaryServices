@@ -77,7 +77,21 @@ Entscheidung: `[ ]` Public-IP-Prüfung (empfohlen) `[ ]` Host-Allowlist
 ### AP-00 Betrieb absichern
 Befunde: K1, K2, K3, K4, K5, K6. Aufwand: S. Zuständig: Betreiber (nicht Claude-Sitzung, aber die Sitzung kann die Checkliste begleiten).
 
-- [ ] Von außen prüfen: sind `https://<host>/`, `/logs`, `/llm-config` und Port 27017 erreichbar? Ergebnis hier notieren: ______
+- [x] Von außen prüfen: sind `https://<host>/`, `/logs`, `/llm-config` und Port 27017 erreichbar? Geprüft am 18.10.2026 aus einer Claude-Code-Cloud-Sitzung, nur GET-Anfragen, nur Statuscodes ausgewertet:
+
+  | Pfad auf `secretaryservices.bcommonslab.org` | Status | Bewertung |
+  |---|---|---|
+  | `/` (Dashboard) | 200 | **offen (K1 bestätigt)** |
+  | `/logs` | 200, aktuelle Einträge vom selben Tag | **offen, Logs öffentlich lesbar (K1, M5)** |
+  | `/llm-config`, `/llm-config/api/models` | 200 | **offen, Konfiguration einsehbar und vermutlich änderbar** |
+  | `/test` | 200 | offen |
+  | `/api/doc`, `/api/swagger.json` | 200 | offen (bewusste Ausnahme, M3) |
+  | `/api/health/` | 200, enthält Provider, Modelle und `remaining_usd` | **Guthaben öffentlich (M3)** |
+  | `/api/jobs/<id>` ohne Token | 401 | Token-Pflicht greift |
+  | `/api/jobs/<id>` mit `X-Forwarded-For: 127.0.0.1` oder `X-Real-IP: 127.0.0.1` | 401 | Header-Umgehung greift derzeit nicht, Whitelist ist offenbar leer (K2 aktuell nicht ausnutzbar, Code-Fix in AP-01 bleibt nötig) |
+  | Antwort-Header | `Server: Werkzeug/3.1.9 Python/3.12.1`, keine Security-Header | Entwicklungsserver in Produktion bestätigt (H4, M4) |
+
+  Nicht geprüft: Port 27017 (über den Proxy der Cloud-Umgebung nicht testbar, lokal mit `nc -vz -w 5 secretaryservices.bcommonslab.org 27017` prüfen: ______). `commonsecretaryservices.bcommonslab.org` aus README und API-Doku war nicht erreichbar (Proxy meldet 502); vermutlich alter Hostname, README und Doku in AP-18 auf `secretaryservices.bcommonslab.org` vereinheitlichen. Ergebnis lokal bestätigen: ______
 - [ ] In Dokploy/Traefik nur `/api/*` öffentlich routen; `/`, `/logs`, `/llm-config`, `/docs`, `/test*` auf interne IPs oder VPN beschränken (bis AP-02 mit Nextcloud-Anmeldung in Betrieb ist).
 - [ ] Produktions-Env: `ALLOW_SWAGGER_WHITELIST` leeren, `ALLOW_LOCALHOST_NO_AUTH=false`, `PYTHONHTTPSVERIFY` nicht gesetzt.
 - [ ] `SECRETARY_SERVICE_API_KEY` gesetzt und mindestens 32 Zufallsbytes (`openssl rand -hex 32`). Clients (KnowledgeScout) aktualisieren.
@@ -340,7 +354,8 @@ Befunde: N1, N2. Aufwand: S.
 
 Schritte:
 1. `git rm -r --cached .obsidian .vscode site src/scripts/test1.pdf src/scripts/test2.pdf`; `.gitignore` ergänzen (`site/`, `.vscode/`, `*.pdf` unter `src/scripts/`).
-2. `.env.example`: Atlas-Hostname durch `cluster.example.mongodb.net` und Benutzerpfad durch `<pfad>` ersetzen; gleiches in `docs/handover-ks-transkript-verlaesslichkeit.md`.
+2. Produktions-Hostnamen in README und `docs/reference/api/*` auf `secretaryservices.bcommonslab.org` vereinheitlichen (AP-00-Prüfung: der ältere Name antwortete nicht).
+3. `.env.example`: Atlas-Hostname durch `cluster.example.mongodb.net` und Benutzerpfad durch `<pfad>` ersetzen; gleiches in `docs/handover-ks-transkript-verlaesslichkeit.md`.
 3. Hardcodierten Key aus `src/scripts/test_localbrain.py` und `test_openwebui.py` entfernen (nur Env-Variable); History-Rewrite nicht nötig, der Key wird in AP-00 rotiert.
 4. `mkdocs.yml` prüfen, ob `site/` im Deployment gebraucht wird (Docs-Route liest `site/`); wenn ja, im Dockerfile `mkdocs build` ausführen statt das Build-Ergebnis zu committen.
 
