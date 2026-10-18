@@ -14,6 +14,7 @@
         <div class="card-body">
             <h6>Text-Transformation Test</h6>
             <form method="POST" action="/run_transformer_test">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label for="input_text" class="form-label">Text oder URL:</label>
                     <textarea class="form-control" id="input_text" name="input_text" rows="4" placeholder="Geben Sie Text ein oder eine URL..."></textarea>

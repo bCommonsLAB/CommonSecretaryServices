@@ -70,6 +70,7 @@ nav:
       - Job Models: reference/data-models/job.md
     - Configuration: reference/configuration.md
     - Environment Variables: reference/environment-variables.md
+    - Dashboard-Anmeldung: deployment/dashboard-anmeldung.md
   - Explanations:
     - Async Events:
       - Secretary Job Worker – Detailed: explanations/async-events/secretary-job-worker-detailed.md

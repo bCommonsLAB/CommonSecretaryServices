@@ -97,28 +97,21 @@ app_logger: ProcessingLogger = get_logger(process_id="flask-app")
 if os.environ.get('WERKZEUG_RUN_MAIN'):
     app_logger = get_logger(process_id="flask-app-reloader")
 
-# Logge Auth-relevante Env-Parameter beim Start, um effektive Konfiguration zu verifizieren
+# Sicherheit (AP-01/AP-02): Proxy-Header nur bei TRUSTED_PROXY_COUNT > 0 auswerten,
+# Dashboard-Anmeldung und CSRF-Schutz als erste before_request-Funktion registrieren.
+from src.core.security import apply_proxy_fix
+from src.dashboard.auth import init_dashboard_auth, dashboard_security_summary
+from src.api.auth import api_security_summary
+
+apply_proxy_fix(app)
+init_dashboard_auth(app)
+
+# Effektive Sicherheitskonfiguration loggen (ohne Geheimnisse und ohne Rohwerte)
 try:
-    def _parse_ip_whitelist(raw_value: str) -> list[str]:
-        separators = [',', ';', ' ']
-        normalized = raw_value
-        for sep in separators[:-1]:
-            normalized = normalized.replace(sep, ' ')
-        return [p.strip() for p in normalized.split(' ') if p.strip()]
-
-    _service_token_present = bool(os.environ.get('SECRETARY_SERVICE_API_KEY'))
-    _allow_localhost = os.environ.get('ALLOW_LOCALHOST_NO_AUTH', 'false').lower() in {'1', 'true', 'yes'}
-    _whitelist_raw = os.environ.get('ALLOW_SWAGGER_WHITELIST', '')
-    _whitelist_list = _parse_ip_whitelist(_whitelist_raw)
-    _auth_log_decisions = os.environ.get('AUTH_LOG_DECISIONS', 'false').lower() in {'1', 'true', 'yes'}
-
     app_logger.info(
         "Auth-Startup-Konfiguration",
-        service_token_present=_service_token_present,
-        allow_localhost_no_auth=_allow_localhost,
-        allow_swagger_whitelist_raw=_whitelist_raw,
-        allow_swagger_whitelist=_whitelist_list,
-        auth_log_decisions=_auth_log_decisions
+        **api_security_summary(),
+        **dashboard_security_summary(),
     )
 except Exception:
     pass

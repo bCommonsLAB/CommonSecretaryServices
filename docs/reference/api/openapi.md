@@ -80,32 +80,33 @@ Swagger UI supports two authentication methods:
 
 Both methods are configured in the Swagger UI authorization dialog.
 
-## Exempt Paths
+## Access to Swagger
 
-The following paths do not require authentication and can be accessed without an API key:
-- `/api/doc` - Swagger UI itself
-- `/api/swagger.json` - OpenAPI specification
-- `/api/health` - Health check endpoints
+`/api/doc` and `/api/swagger.json` are reachable with any of:
+
+- the API key (header as above),
+- a dashboard sign-in in the same browser (open Swagger via the "API" link in the dashboard),
+- an address from `SWAGGER_IP_WHITELIST`.
+
+Only `/api/health/live` is public without any sign-in.
 
 ## IP Whitelist
 
-For Swagger UI access, you can configure an IP whitelist via the `ALLOW_SWAGGER_WHITELIST` environment variable:
-
 ```bash
-ALLOW_SWAGGER_WHITELIST=192.168.1.0/24,10.0.0.1
+SWAGGER_IP_WHITELIST=192.168.1.0/24,10.0.0.1
 ```
 
-This allows access to Swagger UI from specified IP addresses without authentication.
+Entries are IP addresses or CIDR networks, compared against the actual peer address. The whitelist opens Swagger only, never processing endpoints. Behind a reverse proxy set `TRUSTED_PROXY_COUNT` so the real client address is used; `X-Forwarded-For` sent by clients is ignored otherwise. The old name `ALLOW_SWAGGER_WHITELIST` still works but is deprecated.
 
 ## Localhost Access
 
-For local development, you can allow localhost access without authentication:
+For local development, you can allow loopback peers without an API key:
 
 ```bash
 ALLOW_LOCALHOST_NO_AUTH=true
 ```
 
-This allows access from `127.0.0.1` and `localhost` without an API key.
+Only the real peer address counts (`127.0.0.0/8`, `::1`); `Host` and forwarding headers are ignored.
 
 ## Related Documentation
 

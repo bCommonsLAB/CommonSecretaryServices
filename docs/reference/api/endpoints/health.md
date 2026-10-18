@@ -9,10 +9,12 @@ These endpoints answer the question *"can this operation run right now?"* — th
 do **not** measure load/throughput (overload handling is covered by separate
 strategies).
 
-!!! info "No authentication required"
-    All `/api/health*` endpoints are **exempt from the service token** (see the
-    auth middleware). They never return secrets (no API keys, no raw provider
-    tracebacks).
+!!! info "Authentication"
+    Only `/api/health/live` is public (liveness probe for Docker/Kubernetes).
+    All other `/api/health*` endpoints need the service token, because they
+    reveal providers, models and the remaining OpenRouter credit. The dashboard's
+    health page reads them with the dashboard sign-in instead (GET only).
+    They never return secrets (no API keys, no raw provider tracebacks).
 
 ## How resolution works
 

@@ -314,9 +314,18 @@ SECRETARY_SERVICE_API_KEY=your-secure-api-key-here
 # Optional: Additional LLM Provider
 MISTRAL_API_KEY=your-mistral-key-here
 
+# Required: Dashboard sign-in (see docs/deployment/dashboard-anmeldung.md)
+FLASK_SECRET_KEY=generate-with-openssl-rand-hex-32
+DASHBOARD_AUTH_MODE=oidc
+OIDC_ISSUER=https://cloud.example.org
+OIDC_CLIENT_ID=secretary-dashboard
+OIDC_CLIENT_SECRET=from-nextcloud
+PUBLIC_BASE_URL=https://secretary.example.org
+DASHBOARD_REQUIRED_GROUP=secretary-admins
+
 # Optional: Security Settings
-ALLOW_LOCALHOST_NO_AUTH=false
-ALLOW_SWAGGER_WHITELIST=127.0.0.1,localhost
+TRUSTED_PROXY_COUNT=0
+SWAGGER_IP_WHITELIST=
 AUTH_LOG_DECISIONS=false
 
 # Optional: SSL/TLS Settings
@@ -357,9 +366,14 @@ services:
       - MISTRAL_API_KEY=6s6...
       - MONGODB_URI=mongodb+srv://apiUser:j...
       - SECRETARY_SERVICE_API_KEY=your-secure-key
-      - ALLOW_LOCALHOST_NO_AUTH=false
-      - ALLOW_SWAGGER_WHITELIST=127.0.0.1
-      - AUTH_LOG_DECISIONS=true
+      - FLASK_SECRET_KEY=your-random-secret
+      - DASHBOARD_AUTH_MODE=oidc
+      - OIDC_ISSUER=https://cloud.example.org
+      - OIDC_CLIENT_ID=secretary-dashboard
+      - OIDC_CLIENT_SECRET=...
+      - PUBLIC_BASE_URL=https://secretary.example.org
+      - DASHBOARD_REQUIRED_GROUP=secretary-admins
+      - TRUSTED_PROXY_COUNT=1
     volumes:
       - ./logs:/app/logs
       - ./cache:/app/cache
@@ -421,10 +435,18 @@ python src/main.py
 |----------|----------|-------------|---------|
 | `OPENAI_API_KEY` | ✅ Yes | OpenAI API key for GPT/Whisper | - |
 | `MONGODB_URI` | ✅ Yes | MongoDB connection string | - |
-| `SECRETARY_SERVICE_API_KEY` | ✅ Yes | API authentication token | - |
+| `SECRETARY_SERVICE_API_KEY` | ✅ Yes | API authentication token; the server does not start without it | - |
+| `FLASK_SECRET_KEY` | ✅ For the dashboard | Signs session and CSRF token, one random value per installation | - |
+| `DASHBOARD_AUTH_MODE` | ❌ No | `oidc`, `basic`, `forward` or `off`; without sign-in config the dashboard is locked | derived |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | For `oidc` | Nextcloud as OpenID Connect provider | - |
+| `PUBLIC_BASE_URL` | For `oidc` | Public address of this installation (callback URL) | - |
+| `DASHBOARD_REQUIRED_GROUP` | For `oidc` | Group allowed into the dashboard | - |
+| `DASHBOARD_USER`, `DASHBOARD_PASSWORD_HASH` | For `basic` | Emergency/local sign-in | - |
+| `TRUSTED_PROXY_COUNT` | ❌ No | Number of trusted reverse proxies; 0 ignores `X-Forwarded-*` | `0` |
+| `SWAGGER_IP_WHITELIST` | ❌ No | IPs/CIDR that may open Swagger without sign-in | - |
 | `MISTRAL_API_KEY` | ❌ No | Mistral AI key (for PDF OCR) | - |
-| `ALLOW_LOCALHOST_NO_AUTH` | ❌ No | Allow localhost without auth | `false` |
-| `ALLOW_SWAGGER_WHITELIST` | ❌ No | IP whitelist for Swagger UI | - |
+| `ALLOW_LOCALHOST_NO_AUTH` | ❌ No | Allow loopback peers without token (development) | `false` |
+| `ALLOW_INSECURE_NO_AUTH` | ❌ No | Run without any sign-in (local development only) | `false` |
 | `AUTH_LOG_DECISIONS` | ❌ No | Log authentication decisions | `false` |
 | `PYTHONHTTPSVERIFY` | ❌ No | SSL verification (0/1) | `1` |
 | `YTDLP_COOKIES_FILE` | ❌ No | Path to YouTube cookies file | - |
@@ -461,7 +483,11 @@ Authorization: Bearer your-api-key
 X-Secretary-Api-Key: your-api-key
 ```
 
-Set `SECRETARY_SERVICE_API_KEY` in your environment to configure the expected token.
+Set `SECRETARY_SERVICE_API_KEY` in your environment to configure the expected token. Without it the server refuses to start (fail-closed).
+
+- Public without token: only `/api/health/live`.
+- Swagger UI (`/api/doc`, `/api/swagger.json`): token, dashboard sign-in or an address from `SWAGGER_IP_WHITELIST`.
+- The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`) needs its own sign-in, see [docs/deployment/dashboard-anmeldung.md](docs/deployment/dashboard-anmeldung.md). A dashboard sign-in never grants access to processing endpoints.
 
 ### Example Requests
 

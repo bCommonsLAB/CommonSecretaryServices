@@ -33,6 +33,8 @@ Features:
 import psutil
 import platform
 import sys
+import os
+from typing import Dict
 
 def get_system_info():
     """
@@ -55,3 +57,13 @@ def get_system_info():
         'memory_usage': psutil.virtual_memory().percent,
         'disk_usage': psutil.disk_usage('/').percent
     } 
+
+def service_auth_headers() -> Dict[str, str]:
+    """
+    Header fuer Aufrufe des Dashboards an die eigene API (AP-01/AP-02).
+
+    Die API verlangt den Service-Token; die Dashboard-Testrouten senden ihn deshalb mit,
+    statt sich auf eine Auth-Ausnahme zu verlassen.
+    """
+    token = (os.environ.get("SECRETARY_SERVICE_API_KEY") or "").strip()
+    return {"X-Secretary-Api-Key": token} if token else {}

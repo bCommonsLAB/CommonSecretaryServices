@@ -3,6 +3,7 @@ Youtube test route handler
 """
 from flask import render_template, request, make_response
 import requests
+from src.dashboard.utils import service_auth_headers
 import json
 import traceback
 import os
@@ -68,7 +69,7 @@ def run_youtube_test():
                    container_ip=container_ip,
                    params=params)
                    
-        response = requests.post(api_url, json=params)
+        response = requests.post(api_url, json=params, headers=service_auth_headers())
         
         logger.info("Received API response", 
                    status_code=response.status_code,

@@ -20,11 +20,22 @@ from flask import Flask
 from src.api import create_app
 
 
+_TEST_TOKEN = "rag-test-token-" + "x" * 32
+
+
+@pytest.fixture(autouse=True)
+def _service_token(monkeypatch: Any) -> None:
+    """Die API verlangt seit AP-01 immer einen Service-Token."""
+    monkeypatch.setenv("SECRETARY_SERVICE_API_KEY", _TEST_TOKEN)
+
+
 def _get_test_client() -> Any:
-    """Hilfsfunktion, um einen Flask-Test-Client für die API zu erstellen."""
+    """Hilfsfunktion, um einen Flask-Test-Client für die API zu erstellen (mit Service-Token)."""
     app: Flask = create_app()
     app.testing = True
-    return app.test_client()
+    client = app.test_client()
+    client.environ_base["HTTP_X_SECRETARY_API_KEY"] = _TEST_TOKEN
+    return client
 
 
 def test_embed_text_uses_default_embedding_model_when_not_specified() -> None:

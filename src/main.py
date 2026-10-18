@@ -74,7 +74,27 @@ from src.utils.logger import get_logger, logger_service
 logger_service.reset()
 logger = get_logger(process_id="main")
 
+def _check_security_config() -> None:
+    """
+    Fail-closed beim Start (AP-01/AP-02): ohne Service-Token oder mit unvollstaendiger
+    Dashboard-Anmeldung startet der Server nicht. Details: docs/deployment/dashboard-anmeldung.md
+    """
+    from src.api.auth import api_security_problems, api_security_warnings
+    from src.dashboard.auth import dashboard_security_problems
+    from src.core.security import format_problems
+
+    for warning in api_security_warnings():
+        logger.warning(warning)
+    problems = api_security_problems() + dashboard_security_problems()
+    if problems:
+        message = "Start abgebrochen, Sicherheitskonfiguration unvollstaendig:\n" + format_problems(problems)
+        logger.error(message)
+        print(f"[MAIN] {message}", file=sys.stderr)
+        sys.exit(2)
+
+
 if __name__ == '__main__':
+    _check_security_config()
     # Nur loggen, wenn es nicht der Reloader-Prozess ist
     if not os.environ.get('WERKZEUG_RUN_MAIN'):
         logger.info("Anwendung wird gestartet")
