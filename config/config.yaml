@@ -54,9 +54,10 @@ llm_providers:
       - devstral-2-2512-free
       - pixtral-large-latest
       - pixtral-small-latest
+      # Document-OCR API (/v1/ocr) nimmt nur OCR-Modelle, keine Pixtral-Chat-Modelle
       ocr_pdf:
-      - pixtral-large-latest
-      - pixtral-small-latest
+      - mistral-ocr-latest
+      - mistral-ocr-2512
       image_analysis:
       - pixtral-large-latest
       - pixtral-small-latest
