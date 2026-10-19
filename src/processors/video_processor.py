@@ -46,6 +46,8 @@ Features:
 - Internal: src.core.config - Configuration
 """
 from pathlib import Path
+
+from src.utils.safe_paths import safe_upload_name
 from typing import Dict, Any, Optional, Union, Tuple, List, cast
 from datetime import datetime
 import uuid
@@ -756,7 +758,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 title = video_source.file_name or "uploaded_video"
                 if not video_source.file_name or not binary_data:
                     raise ValueError("Dateiname und Binärdaten erforderlich für Upload")
-                temp_video_path = working_dir / video_source.file_name
+                temp_video_path = working_dir / safe_upload_name(video_source.file_name, default_stem="video")
                 temp_video_path.write_bytes(binary_data)
 
             # ffmpeg-Filterkette aufbauen
@@ -1016,7 +1018,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                     raise ValueError("Dateiname und Binärdaten erforderlich für Upload")
                 
                 # Binärdaten speichern
-                temp_video_path = working_dir / video_source.file_name
+                temp_video_path = working_dir / safe_upload_name(video_source.file_name, default_stem="video")
                 temp_video_path.write_bytes(binary_data)
 
                 # Zu MP3 konvertieren

@@ -62,6 +62,8 @@ import uuid
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+
+from src.utils.safe_paths import ensure_within, safe_path_component
 from typing import Any, ContextManager, Dict, Optional, BinaryIO, Tuple, TypeVar, Type, Generic, List, Union
 import os
 import time
@@ -621,6 +623,10 @@ class BaseProcessor(Generic[T]):
         # Entferne führende und abschließende Unterstriche
         sanitized = sanitized.strip('_')
         
+        # "." und ".." sind keine gueltigen Namen (AP-03: sonst Sprung in den Elternordner)
+        if sanitized.strip(". ") == "":
+            sanitized = ''
+
         # Stelle sicher, dass der Name nicht leer ist
         if not sanitized:
             sanitized = 'unnamed'
@@ -763,7 +769,10 @@ class BaseProcessor(Generic[T]):
         sanitized_track = self._sanitize_filename(translated_track)
         
         # Erstelle den Verzeichnispfad
-        base_path: Path = self.base_dir / sanitized_event / target_language / sanitized_track
+        base_path: Path = (
+            self.base_dir / sanitized_event / safe_path_component(target_language, default="de") / sanitized_track
+        )
+        ensure_within(self.base_dir, base_path)
         
         # Stelle sicher, dass das Verzeichnis existiert
         base_path.mkdir(parents=True, exist_ok=True)

@@ -89,6 +89,7 @@ from src.processors.pdf_processor import PDFProcessor
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
+from src.utils.safe_paths import ensure_within
 
 # TypeVar für den Rückgabetyp von Tasks definieren
 T = TypeVar('T')
@@ -835,7 +836,8 @@ Die Struktur wurde so entworfen, dass mehrsprachige Sessions gemeinsame Assets v
         try:
             with tracker.measure_operation('process_attachments', 'session') if tracker else nullcontext():
                 self.logger.info(f"Verarbeite Anhänge: {attachments_url}")
-                assets_dir: Path = self.base_dir / target_dir
+                # target_dir enthaelt den (uebersetzten) Eventnamen aus dem Request
+                assets_dir: Path = ensure_within(self.base_dir, self.base_dir / target_dir)
 
                 # Erstelle Verzeichnis für Assets
                 if not assets_dir.exists():

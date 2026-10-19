@@ -36,18 +36,20 @@ Features:
 """
 # pyright: reportUnknownMemberType=warning, reportUnknownParameterType=warning, reportUnknownVariableType=warning
 import os
+import shutil
+import tempfile
 import uuid
 import json
 import asyncio
 import hashlib
 from typing import Dict, Any, Union, Optional, cast
-from pathlib import Path
 
 from flask_restx import Namespace, Resource, fields, inputs  # type: ignore
 from flask_restx.reqparse import RequestParser  # type: ignore
 from werkzeug.datastructures import FileStorage
 
 from src.core.exceptions import ProcessingError
+from src.utils.safe_paths import safe_upload_name
 from src.utils.logger import get_logger
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 from src.processors.imageocr_processor import (
@@ -160,6 +162,7 @@ class ImageOCREndpoint(Resource):
             use_cache = bool(args.get('useCache', True))  # type: ignore
             process_id = str(uuid.uuid4())
             temp_file_path: str = ""  # Initialisierung für Linter
+            temp_dir: str = ""
             
             try:
                 # Prüfe, ob eine Datei hochgeladen wurde
@@ -171,7 +174,9 @@ class ImageOCREndpoint(Resource):
                 tracker: Optional[PerformanceTracker] = get_performance_tracker()
                 
                 # Speichere die Datei temporär
-                temp_file_path = os.path.join(os.path.dirname(__file__), f"temp_{uuid.uuid4()}{Path(uploaded_file.filename).suffix}")
+                # AP-03: eigener Temp-Ordner statt Quellcode-Verzeichnis, bereinigter Name
+                temp_dir = tempfile.mkdtemp(prefix="imageocr-")
+                temp_file_path = os.path.join(temp_dir, safe_upload_name(uploaded_file.filename, default_stem="image"))
                 uploaded_file.save(temp_file_path)
                 
                 # Berechne den Hash der Datei für Cache-Key
@@ -218,12 +223,9 @@ class ImageOCREndpoint(Resource):
                     }
                 }, 400
             finally:
-                # Lösche die temporäre Datei
-                if temp_file_path and os.path.exists(temp_file_path):
-                    try:
-                        os.unlink(temp_file_path)
-                    except Exception as e:
-                        logger.warning(f"Konnte temporäre Datei nicht löschen: {str(e)}")
+                # Temporären Ordner samt Datei löschen
+                if temp_dir:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
         
         # Führe die asynchrone Verarbeitung aus
         return asyncio.run(process_request())
