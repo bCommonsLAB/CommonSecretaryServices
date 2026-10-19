@@ -58,13 +58,15 @@ print(f"[MAIN] YTDLP_COOKIES_FILE={os.getenv('YTDLP_COOKIES_FILE')}")
 print(f"[MAIN] YTDLP_COOKIES_FROM_BROWSER={os.getenv('YTDLP_COOKIES_FROM_BROWSER')}")
 print(f"[MAIN] YTDLP_YOUTUBE_COOKIES_FILE={os.getenv('YTDLP_YOUTUBE_COOKIES_FILE')}")
 
-# WICHTIG: Windows-TLS-Workaround für yt-dlp MUSS ganz am Anfang stehen
-# Deaktiviere SSL-Verifikation, wenn PYTHONHTTPSVERIFY=0 gesetzt ist
-# Dies muss VOR allen anderen Imports passieren, damit yt-dlp/requests es nutzen
-if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore
-    print("[MAIN] SSL-Verifikation global deaktiviert (PYTHONHTTPSVERIFY=0)")
+# TLS-Regel (AP-04) MUSS vor allen anderen Imports angewendet werden, damit yt-dlp/requests
+# den Kontext nutzen. PYTHONHTTPSVERIFY=0 wirkt nur zusammen mit FLASK_ENV=development.
+from src.core.security import apply_tls_policy
+_tls_state = apply_tls_policy()
+if _tls_state == "disabled":
+    print("[MAIN] WARNUNG: TLS-Prüfung global deaktiviert (PYTHONHTTPSVERIFY=0, FLASK_ENV=development)")
+elif _tls_state == "ignored":
+    print("[MAIN] WARNUNG: PYTHONHTTPSVERIFY=0 wird ignoriert, TLS-Prüfung bleibt aktiv "
+          "(nur zusammen mit FLASK_ENV=development wirksam)")
 
 # Jetzt können wir die Module importieren
 from src.dashboard.app import app

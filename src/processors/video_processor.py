@@ -47,6 +47,7 @@ Features:
 """
 from pathlib import Path
 
+from src.utils.http_fetch import download_to_file
 from src.utils.safe_paths import safe_upload_name
 from typing import Dict, Any, Optional, Union, Tuple, List, cast
 from datetime import datetime
@@ -58,11 +59,9 @@ import os
 import requests
 import re
 
-# Windows-TLS-Workaround: Deaktiviere SSL-Verifikation BEVOR yt-dlp geladen wird
-# Dies muss VOR dem yt-dlp-Import passieren, damit yt-dlp den gepatchten Context nutzt
-if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore
+# TLS-Regel VOR dem yt-dlp-Import anwenden (AP-04): PYTHONHTTPSVERIFY=0 wirkt nur mit FLASK_ENV=development.
+from src.core.security import apply_tls_policy, tls_verify
+apply_tls_policy()
 
 import yt_dlp  # type: ignore
 
@@ -120,6 +119,8 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         
         # Video-spezifische Konfigurationen
         self.max_duration = video_config.get('max_duration', 3600)  # 1 Stunde
+        # Obergrenze für direkte Downloads (Vimeo-API), AP-04
+        self.max_download_bytes = int(video_config.get('max_download_size', 2_000_000_000))
         
         # Debug-Logging der Video-Konfiguration
         self.logger.debug("VideoProcessor initialisiert mit Konfiguration", 
@@ -164,8 +165,9 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
             'retries': 10,
             'sleep_interval': 3,
             'max_sleep_interval': 10,
-            'nocheckcertificate': True,
-            'legacy_server_connect': True,  # Hilft bei TLS-Problemen auf Windows
+            # TLS-Prüfung nur im Entwicklungsmodus abschaltbar (AP-04, src.core.security)
+            'nocheckcertificate': not tls_verify(),
+            'legacy_server_connect': not tls_verify(),  # Windows-Workaround, nur Entwicklung
             'source_address': '0.0.0.0',  # Bindet an alle Interfaces (Windows-TLS-Workaround)
             'ignoreerrors': False,
             'no_playlist': True,
@@ -251,7 +253,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
 
             # CA-Bundle für yt-dlp: Setze Umgebungsvariable, die yt-dlp intern prüft
             # yt-dlp nutzt SSL_CERT_FILE/REQUESTS_CA_BUNDLE automatisch, wenn gesetzt
-            # Zusätzlich: Falls PYTHONHTTPSVERIFY=0 gesetzt ist, wird TLS-Prüfung deaktiviert
+            # TLS-Prüfung bleibt an; PYTHONHTTPSVERIFY=0 wirkt nur mit FLASK_ENV=development (AP-04)
             if ca_bundle and os.path.isfile(ca_bundle):
                 # Stelle sicher, dass die Env-Variable auch für Subprozesse (yt-dlp) gesetzt ist
                 os.environ['SSL_CERT_FILE'] = ca_bundle
@@ -259,8 +261,8 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 self.logger.info("yt-dlp: CA-Bundle in Umgebung gesetzt", ca_bundle=ca_bundle)
             
             # Windows-TLS-Workaround: SSL-Context-Patch wird bereits beim Modul-Import gemacht (Zeile 42-44)
-            if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
-                self.logger.warning("SSL-Verifikation global deaktiviert (PYTHONHTTPSVERIFY=0) - nur für Debug!")
+            if not tls_verify():
+                self.logger.warning("TLS-Prüfung deaktiviert (PYTHONHTTPSVERIFY=0, FLASK_ENV=development) - nur für Entwicklung!")
         except Exception as _e:
             # Niemals Initialisierung brechen – nur loggen
             self.logger.warning("yt-dlp Auth/Cookies Konfiguration konnte nicht angewendet werden", error=str(_e))
@@ -365,7 +367,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 f'https://api.vimeo.com/videos/{video_id}',
                 headers=headers,
                 timeout=30,
-                verify=False if os.getenv('PYTHONHTTPSVERIFY') == '0' else True
+                verify=tls_verify()
             )
             response.raise_for_status()
             
@@ -452,24 +454,16 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         try:
             # Lade Video-Datei herunter
             self.logger.info(f"Lade Video via Vimeo API: {title}")
-            response = requests.get(
-                download_url,
-                stream=True,
-                timeout=300,
-                verify=False if os.getenv('PYTHONHTTPSVERIFY') == '0' else True
+            # Speichere als temporäre Videodatei (Name aus der Vimeo-API bereinigt, AP-03)
+            video_file = working_dir / safe_upload_name(f"{title[:50]}.mp4", default_stem="video")
+            download_to_file(
+                download_url, video_file, max_bytes=self.max_download_bytes, timeout=(10, 300)
             )
-            response.raise_for_status()
-            
-            # Speichere als temporäre Videodatei
-            video_file = working_dir / f"{title[:50]}.mp4"
-            with open(video_file, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
             
             self.logger.info(f"Video heruntergeladen: {video_file.stat().st_size} bytes")
             
             # Konvertiere zu MP3 mit ffmpeg
-            audio_file = working_dir / f"{title[:50]}.mp3"
+            audio_file = video_file.with_suffix(".mp3")
             cmd = [
                 'ffmpeg', '-i', str(video_file),
                 '-vn', '-acodec', 'libmp3lame',
@@ -503,7 +497,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
         
         # Windows-TLS-Workaround: Bei PYTHONHTTPSVERIFY=0 nutze yt-dlp CLI statt Python-API
         # weil das CLI besser mit SSL-ENV-Variablen umgeht
-        if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+        if not tls_verify():
             try:
                 # Finde yt-dlp im venv oder System-PATH
                 import shutil
@@ -739,7 +733,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                     'outtmpl': str(working_dir / '%(title)s.%(ext)s'),
                     'retries': 10,
                     'socket_timeout': 30,
-                    'nocheckcertificate': True,
+                    'nocheckcertificate': not tls_verify(),
                 }) as ydl:
                     info: YDLDict = ydl.extract_info(normalized_url, download=True)  # type: ignore
                     if not info:
@@ -965,7 +959,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                         self.logger.info("Video erfolgreich via Vimeo API heruntergeladen")
                 
                 # Versuch 2: yt-dlp CLI (bei PYTHONHTTPSVERIFY=0)
-                if not download_success and os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
+                if not download_success and not tls_verify():
                     try:
                         self.logger.info(f"Versuche Download via CLI (TLS-Workaround): {normalized_url}")
                         

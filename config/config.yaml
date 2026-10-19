@@ -371,7 +371,6 @@ processors:
     max_file_size: 120000000
     ydl_opts:
       format: bestaudio/best
-      nocheckcertificate: true
       postprocessors:
       - key: FFmpegExtractAudio
         preferredcodec: mp3

@@ -53,7 +53,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union, cast
 from dataclasses import dataclass, field
 import time
-import requests
+
+from src.utils.http_fetch import download_to_file
 import shutil
 import os
 from urllib.parse import urlparse
@@ -405,12 +406,8 @@ class ImageOCRProcessor(CacheableProcessor[ImageOCRProcessingResult]):
                     local_file_path = str(working_dir / file_name)
                     
                     # Bild herunterladen
-                    response = requests.get(url_str, timeout=30)
-                    response.raise_for_status()  # Fehler werfen, wenn Download fehlschlägt
-                    
-                    # Bild speichern
-                    with open(local_file_path, 'wb') as f:
-                        f.write(response.content)
+                    # AP-04: Größenlimit gilt schon beim Download, nicht erst danach
+                    download_to_file(url_str, local_file_path, max_bytes=self.max_file_size, timeout=(10, 30))
                     
                     self.logger.info(f"Bild erfolgreich heruntergeladen nach: {local_file_path}")
                 except Exception as e:

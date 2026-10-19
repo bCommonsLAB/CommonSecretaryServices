@@ -40,10 +40,9 @@ from urllib.parse import quote
 from flask import Response, request
 from flask_restx import Namespace, Resource, fields
 
-# Windows-TLS-Workaround wie in video_processor: VOR dem yt-dlp-Import.
-if os.getenv('PYTHONHTTPSVERIFY', '').lower() in {'0', 'false'}:
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context  # type: ignore
+# TLS-Regel VOR dem yt-dlp-Import anwenden (AP-04): PYTHONHTTPSVERIFY=0 wirkt nur mit FLASK_ENV=development.
+from src.core.security import apply_tls_policy
+apply_tls_policy()
 
 import yt_dlp  # type: ignore
 

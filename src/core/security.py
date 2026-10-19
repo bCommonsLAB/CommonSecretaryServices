@@ -143,3 +143,41 @@ def redact_uri(uri: Optional[str]) -> str:
     import re
 
     return re.sub(r"^([a-zA-Z][a-zA-Z0-9+.-]*://)([^:/@]*):([^@]*)@", r"\1\2:***@", uri)
+
+
+def insecure_tls_requested() -> bool:
+    """PYTHONHTTPSVERIFY=0 (oder false) ist gesetzt."""
+    raw = os.environ.get("PYTHONHTTPSVERIFY")
+    return raw is not None and raw.strip().lower() in {"0", "false"}
+
+
+def insecure_tls_allowed() -> bool:
+    """
+    TLS-Prüfung darf nur abgeschaltet werden, wenn PYTHONHTTPSVERIFY=0 UND
+    FLASK_ENV=development gesetzt sind (lokale Entwicklung hinter einem
+    TLS-brechenden Proxy). In jedem anderen Fall bleibt die Prüfung an.
+    """
+    return insecure_tls_requested() and (os.environ.get("FLASK_ENV") or "").strip().lower() == "development"
+
+
+def tls_verify() -> bool:
+    """Wert für ``requests(..., verify=...)`` und ``not nocheckcertificate`` bei yt-dlp."""
+    return not insecure_tls_allowed()
+
+
+def apply_tls_policy() -> str:
+    """
+    Wendet die TLS-Regel prozessweit an und liefert den Zustand für das Log:
+    "verified", "ignored" (PYTHONHTTPSVERIFY=0 ohne FLASK_ENV=development)
+    oder "disabled" (Entwicklungsmodus, globaler SSL-Kontext ohne Prüfung).
+
+    Mehrfache Aufrufe sind unschädlich.
+    """
+    if not insecure_tls_requested():
+        return "verified"
+    if not insecure_tls_allowed():
+        return "ignored"
+    import ssl
+
+    ssl._create_default_https_context = ssl._create_unverified_context
+    return "disabled"

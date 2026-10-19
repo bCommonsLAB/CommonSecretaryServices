@@ -428,6 +428,15 @@ export PYTHONPATH="."
 python src/main.py
 ```
 
+**TLS errors on Windows or behind a corporate proxy:** do not disable verification. Point Python to a CA bundle instead:
+
+```powershell
+$env:SSL_CERT_FILE = python -c "import certifi; print(certifi.where())"
+$env:REQUESTS_CA_BUNDLE = $env:SSL_CERT_FILE
+```
+
+If the proxy re-signs TLS traffic, append its CA certificate to a copy of that bundle and use the copy. `PYTHONHTTPSVERIFY=0` only works together with `FLASK_ENV=development` and is meant as a last resort for local debugging.
+
 ---
 
 ## 🔧 Configuration
@@ -451,7 +460,7 @@ python src/main.py
 | `ALLOW_LOCALHOST_NO_AUTH` | ❌ No | Allow loopback peers without token (development) | `false` |
 | `ALLOW_INSECURE_NO_AUTH` | ❌ No | Run without any sign-in (local development only) | `false` |
 | `AUTH_LOG_DECISIONS` | ❌ No | Log authentication decisions | `false` |
-| `PYTHONHTTPSVERIFY` | ❌ No | SSL verification (0/1) | `1` |
+| `PYTHONHTTPSVERIFY` | ❌ No | `0` disables TLS verification, only together with `FLASK_ENV=development` | `1` |
 | `YTDLP_COOKIES_FILE` | ❌ No | Path to YouTube cookies file | - |
 
 ### Configuration File (`config/config.yaml`)
