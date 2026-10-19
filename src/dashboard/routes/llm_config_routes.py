@@ -34,6 +34,7 @@ from src.core.mongodb.llm_model_repository import (
 from pymongo import DESCENDING
 from src.core.models.llm_models import LLMModel, LLMTestResult
 from src.core.llm.model_selector import LLMModelSelector
+from src.core.llm.model_names import normalize_model_name
 
 # Create the blueprint
 llm_config = Blueprint('llm_config_dashboard', __name__)
@@ -63,7 +64,7 @@ USE_CASE_DEFAULTS: Dict[str, Dict[str, str]] = {
     # nur mit diesem Modell; der Seed traegt es fuer den Use-Case ein.
     "diarized_transcription": {"provider": "openai", "model": "gpt-4o-transcribe-diarize"},
     "image2text": {"provider": "openai", "model": "gpt-4o"},
-    "ocr_pdf": {"provider": "mistral", "model": "pixtral-large-latest"},
+    "ocr_pdf": {"provider": "mistral", "model": "mistral-ocr-latest"},
     "chat_completion": {"provider": "openai", "model": "gpt-4.1-mini"},
     # Fehlte bisher — dieselbe Falle wie bei live_transcription.
     "embedding": {"provider": "voyageai", "model": "voyage-3-large"},
@@ -1088,7 +1089,8 @@ def create_model_api() -> Any:
             }), 400
         
         provider = data.get('provider')
-        model_name = data.get('model_name')
+        # "mistral/mistral-ocr-latest" oder "mistralai/..." ergaeben doppelte IDs
+        model_name = normalize_model_name(provider, data.get('model_name'))
         use_cases = data.get('use_cases', [])
         
         if not provider or not model_name:
@@ -1692,6 +1694,7 @@ def import_config_api() -> Any:
                         if not isinstance(model_name, str) or not model_name.strip():
                             continue
                         
+                        model_name = normalize_model_name(provider_name, model_name)
                         model_id = f"{provider_name}/{model_name}"
                         
                         # Prüfe ob Modell bereits existiert
@@ -1733,7 +1736,7 @@ def import_config_api() -> Any:
                 if not provider or not model:
                     continue
                 
-                model_id = f"{provider}/{model}"
+                model_id = f"{provider}/{normalize_model_name(provider, str(model))}"
                 
                 # Prüfe ob Modell existiert
                 existing_model = model_repo.get_model(model_id)

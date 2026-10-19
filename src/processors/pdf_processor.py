@@ -77,6 +77,7 @@ from src.utils.image2text_utils import Image2TextService
 from src.core.llm import LLMConfigManager, UseCase
 from src.core.llm.ocr_cost import estimate_mistral_ocr_cost, extract_mistral_ocr_pages
 from src.core.llm.health import record_operation_result
+from src.core.llm.model_names import MISTRAL_OCR_FALLBACK_MODEL, normalize_model_name
 from src.core.models.llm import LLMRequest
 
 # Konstanten für Processor-Typen
@@ -112,6 +113,19 @@ if TYPE_CHECKING:
 # Typ-Aliase für bessere Linter-Unterstützung
 FitzPageType = Any  # type: ignore
 FitzPixmapType = Any  # type: ignore
+
+
+def _is_invalid_model_response(resp: "requests.Response") -> bool:
+    """True, wenn Mistral das Modell ablehnt (HTTP 400, type ``invalid_model``)."""
+    if resp.status_code != 400:
+        return False
+    try:
+        body = resp.json()
+    except ValueError:
+        return "invalid model" in resp.text.lower()
+    if not isinstance(body, dict):
+        return False
+    return body.get("type") == "invalid_model" or "invalid model" in str(body.get("message", "")).lower()
 
 @dataclass(frozen=True)
 class PDFProcessingResult:
@@ -472,16 +486,13 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
 
         Die OCR-API erwartet OCR-Modell-IDs (z. B. ``mistral-ocr-latest``), nicht
         zwingend Pixtral/Vision-Chat-Modelle; falsche IDs führen zu API-Fehlern.
-        Ein Provider-Präfix (``mistral/…``, z. B. aus der Katalog-ID) wird
-        entfernt – die API lehnt es mit ``Invalid model`` ab.
+        Ein Provider-Präfix (``mistral/…`` aus der Katalog-ID oder ``mistralai/…``
+        aus OpenRouter) wird entfernt – die API lehnt es mit ``Invalid model`` ab.
         """
         import os as _os
 
         def _strip_provider(name: str) -> str:
-            name = name.strip()
-            while name.lower().startswith("mistral/"):
-                name = name[len("mistral/"):].strip()
-            return name
+            return normalize_model_name("mistral", name)
 
         env_model = _strip_provider(_os.environ.get("MISTRAL_MODEL") or "")
         if env_model:
@@ -499,7 +510,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                 "Mistral-OCR: ocr_pdf aus LLM-Config nicht nutzbar, Fallback mistral-ocr-latest",
                 error=str(ex),
             )
-        return "mistral-ocr-latest"
+        return MISTRAL_OCR_FALLBACK_MODEL
 
     def _track_mistral_ocr_usage(self, ocr_json: Dict[str, Any], model: str) -> None:
         """
@@ -651,7 +662,22 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         self.logger.debug("Mistral-OCR: OCR Payload", payload=payload_log)
         
         ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
-        
+
+        # Abgeschaltetes oder falsch eingetragenes Modell: einmal mit dem aktuellen
+        # OCR-Alias wiederholen, damit die Verarbeitung nicht an der Konfiguration haengt.
+        if _is_invalid_model_response(ocr_resp) and ocr_model != MISTRAL_OCR_FALLBACK_MODEL:
+            self.logger.warning(
+                "Mistral-OCR: Modell abgelehnt, wiederhole mit Fallback. "
+                "Bitte Use-Case ocr_pdf in der LLM-Konfiguration bzw. MISTRAL_MODEL korrigieren.",
+                rejected_model=ocr_model,
+                fallback_model=MISTRAL_OCR_FALLBACK_MODEL,
+                response_body=ocr_resp.text[:300],
+            )
+            ocr_model = MISTRAL_OCR_FALLBACK_MODEL
+            payload["model"] = ocr_model
+            self._record_model(ocr_model)
+            ocr_resp = requests.post(ocr_url, headers=headers_json, json=payload, timeout=300)
+
         self.logger.debug(
             "Mistral-OCR: OCR Response empfangen",
             status_code=ocr_resp.status_code,
