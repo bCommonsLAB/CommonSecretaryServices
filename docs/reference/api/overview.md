@@ -64,6 +64,18 @@ The complete interactive API documentation is available via **Swagger UI** at:
 
 **See**: [Video Endpoints](endpoints/video.md) for detailed documentation.
 
+### Media (yt-dlp)
+
+**Namespace**: `/api/media`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/media/resolve` | Resolve a page or player URL to the direct media URL, with yt-dlp metadata (description, date, channel, chapters, thumbnail) |
+| POST | `/api/media/download` | Download the medium via yt-dlp (HLS/DASH through ffmpeg), audio track only by default |
+| POST | `/api/media/playlist` | Flat list of a playlist's entries (YouTube, Vimeo, PeerTube); private or deleted entries are kept with a reason |
+
+**See**: [Media Endpoints](endpoints/media.md) for detailed documentation.
+
 ### PDF Processing
 
 **Namespace**: `/api/pdf`

@@ -1,27 +1,42 @@
 """
-@fileoverview Media Routes - POST /api/media/resolve, POST /api/media/download
+@fileoverview Media Routes - POST /api/media/resolve, /download, /playlist
 
 @description
 Medien einer Webseite oder Player-Adresse per yt-dlp fuer KnowledgeScout
-(Webseite als Quelle erschliessen). Zwei Wege:
+(Webseite als Quelle erschliessen). Drei Wege:
 
 - /resolve loest die Adresse zur direkten Medienadresse auf, laedt nichts.
   KnowledgeScout laedt die Datei selbst, wenn das Protokoll http(s) ist
-  (Rai-News-Podcasts, YouTube-Audio m4a).
+  (Rai-News-Podcasts, YouTube-Audio m4a). Dazu kommt ein Block `metadata`
+  mit allem, was yt-dlp ueber die Seite weiss (Beschreibung, Datum, Kanal,
+  Kapitel, Tags, Vorschaubild) — fuer Videoseiten die bessere Quelle als das
+  Server-HTML.
 - /download laedt per yt-dlp (mit ffmpeg fuer HLS/DASH, z. B. Rai-Videos) in ein
   Temp-Verzeichnis und liefert die Datei als Antwort — fuer alles, was keine
   direkte Audio-Datei ist. Mit `nur_audio` (Vorgabe true) zieht ffmpeg die
   Tonspur als m4a heraus: KnowledgeScout braucht fuer Videos nur die
   Transkription, und Audio-Optionen (Sprecher, Kontext, Begriffe) gelten nur
   fuer Audio.
+- /playlist loest eine Playlist (YouTube, Vimeo, PeerTube — alles, was yt-dlp
+  als Playlist kennt) flach auf: nur die Liste der Eintraege, kein Abruf je
+  Video, kein Download. Private oder geloeschte Eintraege bleiben in der Liste
+  und tragen einen Grund.
+
+`noplaylist` bleibt fuer /resolve und /download gesetzt: ein Video-Link mit
+`&list=` liefert dort nur das eine Video, nie die ganze Playlist.
 
 Kein stiller Fallback: kennt yt-dlp die Seite nicht, kommt ein Fehler mit Grund.
 
 Eingabe (JSON): { "url": "https://..." }; /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
 Ausgabe /resolve: { "status": "success", "data": { "extractor", "title", "duration", "ext",
-  "url", "protocol", "http_headers", "ist_audio" } }
+  "url", "protocol", "http_headers", "ist_audio", "metadata": { "id", "description",
+  "upload_date" (ISO JJJJ-MM-TT oder null), "uploader", "channel", "chapters", "tags",
+  "thumbnail", "webpage_url" } } }
 Ausgabe /download: Dateibytes; Header X-Media-Ext, X-Media-Title (URL-kodiert),
   X-Media-Duration, X-Media-Is-Audio, X-Media-Extractor
+Ausgabe /playlist: { "status": "success", "data": { "extractor", "id", "title", "uploader",
+  "channel", "description", "webpage_url", "anzahl", "anzahl_verfuegbar",
+  "entries": [{ "position", "id", "url", "title", "duration", "verfuegbar", "grund" }] } }
 
 @module api.routes.media_routes
 @exports
@@ -104,6 +119,61 @@ def _read_url(payload: Dict[str, Any]) -> Optional[str]:
     return url.strip()
 
 
+def _iso_date(raw: Any) -> Optional[str]:
+    """yt-dlp liefert Daten als 'JJJJMMTT'; nach ISO 'JJJJ-MM-TT'. Unbekannt bleibt None — nie geraten."""
+    if isinstance(raw, str) and len(raw) == 8 and raw.isdigit():
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+    return None
+
+
+def _best_thumbnail(info: Dict[str, Any]) -> Optional[str]:
+    """Vorschaubild in der hoechsten bekannten Aufloesung; sonst das von yt-dlp gewaehlte."""
+    best_url: Optional[str] = None
+    best_pixels = -1
+    thumbs = info.get('thumbnails')
+    if isinstance(thumbs, list):
+        for thumb in thumbs:
+            if not isinstance(thumb, dict) or not isinstance(thumb.get('url'), str):
+                continue
+            width, height = thumb.get('width'), thumb.get('height')
+            pixels = width * height if isinstance(width, int) and isinstance(height, int) else 0
+            if pixels > best_pixels:
+                best_pixels, best_url = pixels, thumb['url']
+    fallback = info.get('thumbnail')
+    if best_pixels > 0 and best_url:
+        return best_url
+    if isinstance(fallback, str) and fallback:
+        return fallback
+    return best_url
+
+
+def _metadata_block(info: Dict[str, Any]) -> Dict[str, Any]:
+    """Alles, was yt-dlp ueber die Seite weiss und KnowledgeScout fuer die Sammeldatei braucht."""
+    chapters = []
+    chapters_raw = info.get('chapters')
+    if isinstance(chapters_raw, list):
+        for chapter in chapters_raw:
+            if isinstance(chapter, dict):
+                chapters.append({
+                    "title": chapter.get('title'),
+                    "start_time": chapter.get('start_time'),
+                    "end_time": chapter.get('end_time'),
+                })
+    tags_raw = info.get('tags')
+    tags = [t for t in tags_raw if isinstance(t, str)] if isinstance(tags_raw, list) else []
+    return {
+        "id": info.get('id'),
+        "description": info.get('description'),
+        "upload_date": _iso_date(info.get('upload_date')),
+        "uploader": info.get('uploader'),
+        "channel": info.get('channel'),
+        "chapters": chapters,
+        "tags": tags,
+        "thumbnail": _best_thumbnail(info),
+        "webpage_url": info.get('webpage_url'),
+    }
+
+
 def resolve_media_url(url: str) -> Dict[str, Any]:
     """Metadaten und direkte Adresse per yt-dlp (download=False). Wirft bei unbekannter Seite."""
     with yt_dlp.YoutubeDL(_ydl_opts({'skip_download': True})) as ydl:
@@ -120,6 +190,71 @@ def resolve_media_url(url: str) -> Dict[str, Any]:
         "protocol": info.get('protocol'),
         "http_headers": info.get('http_headers') or {},
         "ist_audio": str(info.get('vcodec') or 'none') == 'none',
+        "metadata": _metadata_block(info),
+    }
+
+
+# Flache Auflösung: yt-dlp holt nur die Liste, nicht die Seite jedes Videos.
+PLAYLIST_OPTS: Dict[str, Any] = {'extract_flat': 'in_playlist', 'noplaylist': False, 'skip_download': True}
+
+_UNAVAILABLE_TITLES = {'[private video]': 'privat', '[deleted video]': 'geloescht'}
+_UNAVAILABLE_AVAILABILITY = {
+    'private': 'privat',
+    'premium_only': 'nur Premium',
+    'subscriber_only': 'nur Abonnenten',
+    'needs_auth': 'Anmeldung noetig',
+}
+
+
+def _entry_availability(entry: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """(verfuegbar, grund) eines flachen Playlist-Eintrags. YouTube nennt private und geloeschte Videos nur im Titel."""
+    title = entry.get('title')
+    if isinstance(title, str) and title.strip().lower() in _UNAVAILABLE_TITLES:
+        return False, _UNAVAILABLE_TITLES[title.strip().lower()]
+    availability = entry.get('availability')
+    if isinstance(availability, str) and availability in _UNAVAILABLE_AVAILABILITY:
+        return False, _UNAVAILABLE_AVAILABILITY[availability]
+    if entry.get('live_status') == 'is_upcoming':
+        return False, 'angekuendigt, noch nicht gesendet'
+    return True, None
+
+
+def resolve_playlist(url: str) -> Dict[str, Any]:
+    """Flache Liste einer Playlist per yt-dlp. Wirft bei unbekannter Seite, leerer Playlist oder wenn die Adresse keine Playlist ist."""
+    with yt_dlp.YoutubeDL(_ydl_opts(PLAYLIST_OPTS)) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not isinstance(info, dict):
+        raise ValueError("yt-dlp lieferte keine Metadaten")
+    entries_raw = info.get('entries')
+    if entries_raw is None:
+        raise ValueError("Adresse ist keine Playlist: yt-dlp lieferte ein einzelnes Medium")
+    entries_list = [e for e in list(entries_raw) if isinstance(e, dict)]
+    if not entries_list:
+        raise ValueError("Playlist ist leer oder ihre Eintraege sind nicht lesbar")
+    entries = []
+    for position, entry in enumerate(entries_list, start=1):
+        index = entry.get('playlist_index')
+        verfuegbar, grund = _entry_availability(entry)
+        entries.append({
+            "position": index if isinstance(index, int) and index > 0 else position,
+            "id": entry.get('id'),
+            "url": entry.get('url') or entry.get('webpage_url'),
+            "title": entry.get('title'),
+            "duration": entry.get('duration'),
+            "verfuegbar": verfuegbar,
+            "grund": grund,
+        })
+    return {
+        "extractor": info.get('extractor'),
+        "id": info.get('id'),
+        "title": info.get('title'),
+        "uploader": info.get('uploader'),
+        "channel": info.get('channel'),
+        "description": info.get('description'),
+        "webpage_url": info.get('webpage_url'),
+        "anzahl": len(entries),
+        "anzahl_verfuegbar": sum(1 for e in entries if e["verfuegbar"]),
+        "entries": entries,
     }
 
 
@@ -171,6 +306,30 @@ class MediaResolveEndpoint(Resource):
             logger.error("Unerwarteter Fehler beim Aufloesen", error=e, url=url)
             return _error("INTERNAL_ERROR", str(e), 500)
         logger.info("Medium aufgeloest", url=url, extractor=data.get("extractor"), ext=data.get("ext"), protocol=data.get("protocol"))
+        return {"status": "success", "data": data}
+
+
+@media_ns.route("/playlist")
+class MediaPlaylistEndpoint(Resource):
+    """Flache Liste einer Playlist; ruft keine Video-Seite ab und laedt nichts herunter."""
+
+    @media_ns.expect(request_model)
+    @media_ns.doc(description="Loest eine Playlist-Adresse per yt-dlp flach auf (Titel, Besitzer, Beschreibung, Eintraege mit Position, Id, Adresse, Titel, Dauer). Private oder geloeschte Eintraege stehen mit Grund in der Liste. Keine Playlist oder leere Playlist ist ein Fehler.")
+    def post(self) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
+        url = _read_url(request.get_json(silent=True) or {})
+        if not url:
+            return _error("MISSING_URL", "Feld 'url' (http/https) ist erforderlich", 400)
+        try:
+            data = resolve_playlist(url)
+        except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
+            logger.warning("yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar", url=url, error=str(e))
+            return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {e}", 422)
+        except ValueError as e:
+            return _error("PLAYLIST_NOT_RESOLVABLE", str(e), 422)
+        except Exception as e:
+            logger.error("Unerwarteter Fehler beim Aufloesen der Playlist", error=e, url=url)
+            return _error("INTERNAL_ERROR", str(e), 500)
+        logger.info("Playlist aufgeloest", url=url, extractor=data.get("extractor"), anzahl=data.get("anzahl"), anzahl_verfuegbar=data.get("anzahl_verfuegbar"))
         return {"status": "success", "data": data}
 
 
