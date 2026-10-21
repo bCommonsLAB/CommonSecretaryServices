@@ -7,6 +7,29 @@ Fallback: kennt yt-dlp die Seite nicht, kommt ein Fehler mit Grund.
 `noplaylist` ist für `/resolve` und `/download` gesetzt: ein Video-Link mit `&list=` liefert dort nur
 das eine Video, nie die ganze Playlist. Nur `/playlist` löst Listen auf.
 
+## Anmeldung je Aufruf: Feld `cookies`
+
+Alle drei Routen nehmen optional ein Feld `cookies` mit dem Inhalt einer Netscape-`cookies.txt`
+(Export aus dem Browser, z. B. „Get cookies.txt LOCALLY"). KnowledgeScout hinterlegt diese Datei
+je Person im Konto („Video-Anmeldung") und schickt sie bei jedem Medien-Aufruf mit. So braucht
+der Server keine gemeinsame Anmeldung, und YouTube-Sperren („Sign in to confirm you're not a bot",
+private oder nur für Mitglieder sichtbare Videos) lassen sich mit dem eigenen Konto umgehen.
+
+```json
+{ "url": "https://www.youtube.com/watch?v=VIDEO_ID", "cookies": "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t...\n" }
+```
+
+Verhalten:
+
+- Der Inhalt landet je Aufruf in einer temporären Datei mit Rechten `0600`, geht als `cookiefile` an
+  yt-dlp und wird nach dem Aufruf gelöscht, auch wenn yt-dlp scheitert. Nichts bleibt auf dem Server.
+- Er hat Vorrang vor der Server-Datei `YTDLP_COOKIES_FILE`. Ohne das Feld gilt die Server-Datei wie bisher.
+- Er taucht in keiner Antwort und keinem Log auf; geloggt wird nur, ob eine Anmeldung mitkam (`anmeldung`).
+- Geprüft werden nur Typ, Leere und Größe (höchstens 256 KiB); das Format kennt yt-dlp, die Pflicht-Cookies
+  prüft KnowledgeScout beim Hinterlegen.
+
+**Fehler**: `400 INVALID_COOKIES`, wenn das Feld kein Text, leer, größer als 256 KiB ist oder Null-Bytes enthält.
+
 ## POST /api/media/resolve
 
 Löst eine Seiten- oder Player-Adresse zur direkten Medienadresse auf und liefert die Metadaten,
@@ -17,6 +40,8 @@ die yt-dlp über die Seite kennt. Lädt nichts herunter.
 ```json
 { "url": "https://www.youtube.com/watch?v=VIDEO_ID" }
 ```
+
+Optional `cookies`, siehe [Anmeldung je Aufruf](#anmeldung-je-aufruf-feld-cookies).
 
 ### Response
 
@@ -59,7 +84,7 @@ die yt-dlp über die Seite kennt. Lädt nichts herunter.
 
 Die Felder außerhalb von `metadata` sind unverändert zu früheren Versionen.
 
-**Fehler**: `400 MISSING_URL`, `422 MEDIA_NOT_RESOLVABLE` (unbekannte Seite oder keine direkte Medienadresse).
+**Fehler**: `400 MISSING_URL`, `400 INVALID_COOKIES`, `422 MEDIA_NOT_RESOLVABLE` (unbekannte Seite oder keine direkte Medienadresse).
 
 ## POST /api/media/download
 
@@ -72,12 +97,14 @@ Lädt das Medium per yt-dlp (HLS/DASH über ffmpeg) und liefert die Datei als An
 { "url": "https://www.rainews.it/...", "nur_audio": true }
 ```
 
+Optional `cookies`, siehe [Anmeldung je Aufruf](#anmeldung-je-aufruf-feld-cookies).
+
 ### Response
 
 Dateibytes mit den Headern `X-Media-Ext`, `X-Media-Title` (URL-kodiert), `X-Media-Duration`,
 `X-Media-Is-Audio`, `X-Media-Extractor`.
 
-**Fehler**: `400 MISSING_URL`, `400 INVALID_NUR_AUDIO`, `422 MEDIA_NOT_DOWNLOADABLE`.
+**Fehler**: `400 MISSING_URL`, `400 INVALID_NUR_AUDIO`, `400 INVALID_COOKIES`, `422 MEDIA_NOT_DOWNLOADABLE`.
 
 ## POST /api/media/playlist
 
@@ -91,6 +118,8 @@ stillschweigend fehlt.
 ```json
 { "url": "https://www.youtube.com/playlist?list=PLAYLIST_ID" }
 ```
+
+Optional `cookies`, siehe [Anmeldung je Aufruf](#anmeldung-je-aufruf-feld-cookies).
 
 ### Response
 
@@ -128,14 +157,14 @@ stillschweigend fehlt.
 Für Beschreibung, Datum und Kapitel eines einzelnen Videos anschließend `/resolve` auf die
 `url` des Eintrags rufen; die flache Liste enthält diese Felder nicht.
 
-**Fehler**: `400 MISSING_URL`, `422 PLAYLIST_NOT_RESOLVABLE` (unbekannte Seite, private oder
+**Fehler**: `400 MISSING_URL`, `400 INVALID_COOKIES`, `422 PLAYLIST_NOT_RESOLVABLE` (unbekannte Seite, private oder
 gelöschte Playlist, leere Playlist, oder die Adresse ist keine Playlist sondern ein einzelnes Video).
 
 ## Konfiguration
 
 | Variable | Wirkung |
 |---|---|
-| `YTDLP_COOKIES_FILE` | Netscape-Cookie-Datei für yt-dlp, wenn die Seite eine Anmeldung verlangt |
+| `YTDLP_COOKIES_FILE` | Netscape-Cookie-Datei des Servers für yt-dlp, wenn die Seite eine Anmeldung verlangt; ein mitgeschicktes Feld `cookies` hat Vorrang |
 
 ## Siehe auch
 

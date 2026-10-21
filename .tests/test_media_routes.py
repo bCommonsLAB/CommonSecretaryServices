@@ -1,11 +1,13 @@
 """
-Tests fuer Welle S des Plans „Playlist erschliessen" (src/api/routes/media_routes.py):
+Tests fuer die Wellen S und C1 des Plans „Playlist erschliessen" (src/api/routes/media_routes.py):
 
 - /resolve liefert zusaetzlich einen Block `metadata` (Beschreibung, Datum als ISO,
   Kanal, Kapitel, Tags, bestes Vorschaubild, Seitenadresse); bestehende Felder bleiben.
 - /playlist loest flach auf (extract_flat 'in_playlist', ohne noplaylist) und nennt
   private oder geloeschte Eintraege mit Grund, statt sie wegzulassen.
 - noplaylist bleibt fuer /resolve und /download gesetzt.
+- C1: Feld `cookies` je Aufruf als temporaere 0600-Datei an yt-dlp, Vorrang vor YTDLP_COOKIES_FILE,
+  danach geloescht, nie in Antwort oder Log.
 
 yt-dlp wird durch einen Fake ersetzt: kein Netz, keine Downloads.
 """
@@ -269,3 +271,148 @@ def test_route_resolve_antwort_enthaelt_metadata(client: Any) -> None:
     resp = client.post("/api/media/resolve", json={"url": "https://www.youtube.com/watch?v=abc123def45"}, headers=AUTH)
     assert resp.status_code == 200
     assert resp.get_json()["data"]["metadata"]["upload_date"] == "2015-03-12"
+
+
+# --- Welle C1: Anmeldung je Aufruf (Feld `cookies`) -------------------------------------------
+#
+# Der Inhalt einer Netscape-cookies.txt kommt im Body mit, landet je Aufruf in einer temporaeren
+# Datei mit Rechten 0600, geht als cookiefile an yt-dlp, hat Vorrang vor YTDLP_COOKIES_FILE und
+# wird danach geloescht — auch wenn yt-dlp scheitert. Er taucht in keiner Antwort und keinem Log auf.
+
+import os
+import stat
+
+COOKIES = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2000000000\tSID\tgeheim-abc\n"
+
+
+class CookieSpy(FakeYoutubeDL):
+    """Merkt sich beim Aufruf, ob die Cookie-Datei existiert, welche Rechte und welchen Inhalt sie hat."""
+
+    gesehen: Dict[str, Any] = {}
+
+    def __init__(self, opts: Dict[str, Any]) -> None:
+        super().__init__(opts)
+        self.opts = opts
+
+    def extract_info(self, url: str, download: bool = False) -> Any:
+        path = self.opts.get("cookiefile")
+        if path and os.path.exists(path):
+            CookieSpy.gesehen = {
+                "path": path,
+                "mode": stat.S_IMODE(os.stat(path).st_mode),
+                "inhalt": open(path, encoding="utf-8").read(),
+            }
+        else:
+            CookieSpy.gesehen = {"path": path}
+        return super().extract_info(url, download)
+
+
+@pytest.fixture
+def spy(monkeypatch: Any) -> None:
+    CookieSpy.gesehen = {}
+    monkeypatch.setattr(media_routes.yt_dlp, "YoutubeDL", CookieSpy)
+
+
+def test_cookies_landen_in_tempdatei_0600_und_verschwinden_danach(spy: Any) -> None:
+    FakeYoutubeDL.info = _video_info()
+    media_routes.resolve_media_url("https://www.youtube.com/watch?v=abc123def45", cookies=COOKIES)
+    gesehen = CookieSpy.gesehen
+    assert gesehen["inhalt"] == COOKIES
+    assert gesehen["mode"] == 0o600
+    assert os.path.basename(gesehen["path"]).startswith("ks-cookies-")
+    assert not os.path.exists(gesehen["path"])
+
+
+def test_cookies_haben_vorrang_vor_server_datei(spy: Any, monkeypatch: Any, tmp_path: Any) -> None:
+    server = tmp_path / "server-cookies.txt"
+    server.write_text("# server\n")
+    monkeypatch.setenv("YTDLP_COOKIES_FILE", str(server))
+    FakeYoutubeDL.info = _playlist_info()
+    media_routes.resolve_playlist("https://www.youtube.com/playlist?list=PL1", cookies=COOKIES)
+    assert CookieSpy.gesehen["inhalt"] == COOKIES
+    assert CookieSpy.gesehen["path"] != str(server)
+
+
+def test_ohne_cookies_bleibt_server_datei(spy: Any, monkeypatch: Any, tmp_path: Any) -> None:
+    server = tmp_path / "server-cookies.txt"
+    server.write_text("# server\n")
+    monkeypatch.setenv("YTDLP_COOKIES_FILE", str(server))
+    FakeYoutubeDL.info = _video_info()
+    media_routes.resolve_media_url("https://example.org/v")
+    assert CookieSpy.gesehen["path"] == str(server)
+
+
+def test_ohne_cookies_und_ohne_server_datei_kein_cookiefile(spy: Any) -> None:
+    FakeYoutubeDL.info = _video_info()
+    media_routes.resolve_media_url("https://example.org/v")
+    assert CookieSpy.gesehen["path"] is None
+
+
+def test_cookie_datei_wird_auch_bei_ytdlp_fehler_geloescht(spy: Any, monkeypatch: Any) -> None:
+    def kaputt(self: Any, url: str, download: bool = False) -> Any:
+        path = self.opts["cookiefile"]
+        assert os.path.exists(path)
+        CookieSpy.gesehen = {"path": path}
+        raise media_routes.yt_dlp.utils.DownloadError("Sign in to confirm you're not a bot")
+
+    monkeypatch.setattr(CookieSpy, "extract_info", kaputt)
+    with pytest.raises(media_routes.yt_dlp.utils.DownloadError):
+        media_routes.resolve_media_url("https://www.youtube.com/watch?v=abc123def45", cookies=COOKIES)
+    assert not os.path.exists(CookieSpy.gesehen["path"])
+
+
+def test_download_reicht_cookies_durch(spy: Any, monkeypatch: Any, tmp_path: Any) -> None:
+    def laedt(self: Any, url: str, download: bool = False) -> Any:
+        assert download is True
+        CookieSpy.gesehen = {"path": self.opts["cookiefile"], "inhalt": open(self.opts["cookiefile"], encoding="utf-8").read()}
+        (tmp_path / "medium.m4a").write_bytes(b"x")
+        return _video_info()
+
+    monkeypatch.setattr(CookieSpy, "extract_info", laedt)
+    meta = media_routes.download_media("https://www.youtube.com/watch?v=abc123def45", str(tmp_path), cookies=COOKIES)
+    assert meta["ext"] == "m4a"
+    assert CookieSpy.gesehen["inhalt"] == COOKIES
+    assert not os.path.exists(CookieSpy.gesehen["path"])
+
+
+@pytest.mark.parametrize("payload, erwartet", [
+    ({}, None),
+    ({"cookies": None}, None),
+    ({"cookies": COOKIES}, COOKIES),
+])
+def test_read_cookies_optional(payload: Dict[str, Any], erwartet: Optional[str]) -> None:
+    assert media_routes._read_cookies(payload) == erwartet
+
+
+@pytest.mark.parametrize("cookies", [123, ["a"], {"a": 1}, True, "", "   \n", "a\x00b", "x" * (media_routes.COOKIES_MAX_BYTES + 1)])
+def test_read_cookies_unbrauchbar(cookies: Any) -> None:
+    with pytest.raises(media_routes.InvalidCookies):
+        media_routes._read_cookies({"cookies": cookies})
+
+
+@pytest.mark.parametrize("pfad", ["/api/media/resolve", "/api/media/playlist", "/api/media/download"])
+def test_route_cookies_falscher_typ_400(client: Any, pfad: str) -> None:
+    resp = client.post(pfad, json={"url": "https://example.org/v", "cookies": 42}, headers=AUTH)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"]["code"] == "INVALID_COOKIES"
+    assert FakeYoutubeDL.seen_opts == []
+
+
+def test_route_resolve_mit_cookies_nennt_inhalt_nirgends(client: Any, spy: Any) -> None:
+    FakeYoutubeDL.info = _video_info()
+    resp = client.post("/api/media/resolve", json={"url": "https://www.youtube.com/watch?v=abc123def45", "cookies": COOKIES}, headers=AUTH)
+    assert resp.status_code == 200
+    assert CookieSpy.gesehen["inhalt"] == COOKIES
+    assert not os.path.exists(CookieSpy.gesehen["path"])
+    assert "geheim-abc" not in resp.get_data(as_text=True)
+
+
+def test_route_resolve_fehler_mit_cookies_nennt_inhalt_nirgends(client: Any, spy: Any, monkeypatch: Any) -> None:
+    def kaputt(self: Any, url: str, download: bool = False) -> Any:
+        raise media_routes.yt_dlp.utils.DownloadError("Sign in to confirm you're not a bot")
+
+    monkeypatch.setattr(CookieSpy, "extract_info", kaputt)
+    resp = client.post("/api/media/resolve", json={"url": "https://www.youtube.com/watch?v=abc123def45", "cookies": COOKIES}, headers=AUTH)
+    assert resp.status_code == 422
+    assert resp.get_json()["error"]["code"] == "MEDIA_NOT_RESOLVABLE"
+    assert "geheim-abc" not in resp.get_data(as_text=True)

@@ -27,7 +27,14 @@ Medien einer Webseite oder Player-Adresse per yt-dlp fuer KnowledgeScout
 
 Kein stiller Fallback: kennt yt-dlp die Seite nicht, kommt ein Fehler mit Grund.
 
-Eingabe (JSON): { "url": "https://..." }; /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
+Anmeldung je Aufruf (Welle C1 „Playlist erschliessen"): alle drei Routen nehmen optional ein Feld
+`cookies` (Inhalt einer Netscape-cookies.txt, wie KnowledgeScout sie je Person im Konto hinterlegt).
+Der Inhalt landet je Aufruf in einer temporaeren Datei mit Rechten 0600, geht als `cookiefile` an
+yt-dlp und wird danach geloescht — auch im Fehlerfall. Er wird nie geloggt und hat Vorrang vor der
+Server-Datei `YTDLP_COOKIES_FILE`. Ohne das Feld verhaelt sich der Secretary wie bisher.
+
+Eingabe (JSON): { "url": "https://...", "cookies": "# Netscape HTTP Cookie File\n..." (optional) };
+  /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
 Ausgabe /resolve: { "status": "success", "data": { "extractor", "title", "duration", "ext",
   "url", "protocol", "http_headers", "ist_audio", "metadata": { "id", "description",
   "upload_date" (ISO JJJJ-MM-TT oder null), "uploader", "channel", "chapters", "tags",
@@ -49,7 +56,8 @@ Ausgabe /playlist: { "status": "success", "data": { "extractor", "id", "title", 
 import os
 import shutil
 import tempfile
-from typing import Any, Dict, Optional, Tuple, Union
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, Optional, Tuple, Union
 from urllib.parse import quote
 
 from flask import Response, request
@@ -69,7 +77,11 @@ media_ns = Namespace("media", description="Medien einer Webseite aufloesen oder 
 
 request_model = media_ns.model("MediaRequest", {
     "url": fields.String(required=True, description="Webseiten- oder Player-Adresse"),
+    "cookies": fields.String(required=False, description="Optional: Inhalt einer Netscape-cookies.txt fuer diesen Aufruf (Anmeldung der Person); hat Vorrang vor YTDLP_COOKIES_FILE, wird nie gespeichert oder geloggt"),
 })
+
+# Obergrenze fuer das Feld `cookies`: eine YouTube-Export-Datei hat wenige KiB; alles darueber ist kein Cookie-Export.
+COOKIES_MAX_BYTES = 256 * 1024
 
 # Reine Tonspur zuerst (m4a spielt im Browser, ist klein), sonst beste Qualitaet.
 FORMAT = 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best'
@@ -84,7 +96,8 @@ def _error(code: str, message: str, status: int, details: Optional[Dict[str, Any
     return {"status": "error", "error": {"code": code, "message": message, "details": details}}, status
 
 
-def _ydl_opts(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _ydl_opts(extra: Optional[Dict[str, Any]] = None, cookiefile: Optional[str] = None) -> Dict[str, Any]:
+    """yt-dlp-Optionen. `cookiefile` (Anmeldung des Aufrufs) hat Vorrang vor YTDLP_COOKIES_FILE (Server-Datei)."""
     opts: Dict[str, Any] = {
         'quiet': True,
         'no_warnings': True,
@@ -94,12 +107,63 @@ def _ydl_opts(extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         'socket_timeout': 30,
         'retries': 5,
     }
-    cookies_file = os.getenv('YTDLP_COOKIES_FILE')
-    if cookies_file and os.path.isfile(cookies_file):
-        opts['cookiefile'] = cookies_file
+    if cookiefile:
+        opts['cookiefile'] = cookiefile
+    else:
+        cookies_file = os.getenv('YTDLP_COOKIES_FILE')
+        if cookies_file and os.path.isfile(cookies_file):
+            opts['cookiefile'] = cookies_file
     if extra:
         opts.update(extra)
     return opts
+
+
+class InvalidCookies(ValueError):
+    """Feld `cookies` ist vorhanden, aber unbrauchbar (Typ, leer, zu gross). Wird zum 400 INVALID_COOKIES."""
+
+
+def _read_cookies(payload: Dict[str, Any]) -> Optional[str]:
+    """Optionales Feld `cookies`: None wenn nicht gesetzt, sonst der Inhalt; wirft InvalidCookies.
+
+    Der Inhalt wird hier nicht geprueft (Format kennt yt-dlp, Pflicht-Cookies prueft KnowledgeScout beim
+    Hinterlegen), nur Typ, Leere und Groesse. Er taucht in keiner Fehlermeldung und keinem Log auf.
+    """
+    if "cookies" not in payload or payload["cookies"] is None:
+        return None
+    raw = payload["cookies"]
+    if not isinstance(raw, str):
+        raise InvalidCookies("Feld 'cookies' muss ein Text sein (Inhalt einer Netscape-cookies.txt)")
+    if not raw.strip():
+        raise InvalidCookies("Feld 'cookies' ist leer; weglassen, wenn keine Anmeldung mitgegeben wird")
+    if len(raw.encode("utf-8")) > COOKIES_MAX_BYTES:
+        raise InvalidCookies(f"Feld 'cookies' ist groesser als {COOKIES_MAX_BYTES // 1024} KiB; das ist kein Cookie-Export")
+    if "\x00" in raw:
+        raise InvalidCookies("Feld 'cookies' enthaelt Null-Bytes; das ist kein Cookie-Export")
+    return raw
+
+
+@contextmanager
+def _cookie_file(cookies: Optional[str]) -> Iterator[Optional[str]]:
+    """Legt den Cookie-Inhalt fuer die Dauer des Aufrufs in eine Datei mit Rechten 0600 und loescht sie danach.
+
+    Ohne Inhalt liefert der Kontext None, und _ydl_opts faellt auf YTDLP_COOKIES_FILE zurueck.
+    mkstemp legt die Datei bereits mit 0600 an; chmod stellt das sicher, falls ein umask-Sonderfall greift.
+    yt-dlp schreibt beim Schliessen aktualisierte Cookies in dieselbe Datei; auch die verschwinden mit ihr.
+    """
+    if cookies is None:
+        yield None
+        return
+    fd, path = tempfile.mkstemp(prefix='ks-cookies-', suffix='.txt')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            fh.write(cookies)
+        os.chmod(path, 0o600)
+        yield path
+    finally:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
 
 
 def _first_entry(info: Any, url: str) -> Dict[str, Any]:
@@ -174,9 +238,12 @@ def _metadata_block(info: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def resolve_media_url(url: str) -> Dict[str, Any]:
-    """Metadaten und direkte Adresse per yt-dlp (download=False). Wirft bei unbekannter Seite."""
-    with yt_dlp.YoutubeDL(_ydl_opts({'skip_download': True})) as ydl:
+def resolve_media_url(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
+    """Metadaten und direkte Adresse per yt-dlp (download=False). Wirft bei unbekannter Seite.
+
+    cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
+    """
+    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts({'skip_download': True}, cookiefile)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=False), url)
     direct = info.get('url')
     if not isinstance(direct, str) or not direct:
@@ -219,9 +286,12 @@ def _entry_availability(entry: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def resolve_playlist(url: str) -> Dict[str, Any]:
-    """Flache Liste einer Playlist per yt-dlp. Wirft bei unbekannter Seite, leerer Playlist oder wenn die Adresse keine Playlist ist."""
-    with yt_dlp.YoutubeDL(_ydl_opts(PLAYLIST_OPTS)) as ydl:
+def resolve_playlist(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
+    """Flache Liste einer Playlist per yt-dlp. Wirft bei unbekannter Seite, leerer Playlist oder wenn die Adresse keine Playlist ist.
+
+    cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
+    """
+    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts(PLAYLIST_OPTS, cookiefile)) as ydl:
         info = ydl.extract_info(url, download=False)
     if not isinstance(info, dict):
         raise ValueError("yt-dlp lieferte keine Metadaten")
@@ -258,16 +328,17 @@ def resolve_playlist(url: str) -> Dict[str, Any]:
     }
 
 
-def download_media(url: str, workdir: str, nur_audio: bool = True) -> Dict[str, Any]:
+def download_media(url: str, workdir: str, nur_audio: bool = True, cookies: Optional[str] = None) -> Dict[str, Any]:
     """Laedt per yt-dlp (HLS/DASH ueber ffmpeg) nach workdir; liefert Pfad und Metadaten.
 
     nur_audio: Tonspur per ffmpeg als m4a herausziehen (auch aus Videos).
+    cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
     """
     outtmpl = os.path.join(workdir, 'medium.%(ext)s')
     extra: Dict[str, Any] = {'outtmpl': outtmpl}
     if nur_audio:
         extra['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
-    with yt_dlp.YoutubeDL(_ydl_opts(extra)) as ydl:
+    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts(extra, cookiefile)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=True), url)
     files = [f for f in os.listdir(workdir) if f.startswith('medium.') and not f.endswith('.part')]
     if nur_audio:
@@ -290,13 +361,18 @@ class MediaResolveEndpoint(Resource):
     """Direkte Medienadresse einer Seite; laedt nichts herunter."""
 
     @media_ns.expect(request_model)
-    @media_ns.doc(description="Loest eine Webseiten-/Player-Adresse per yt-dlp zur direkten Medienadresse auf. Unbekannte Seiten sind ein Fehler.")
+    @media_ns.doc(description="Loest eine Webseiten-/Player-Adresse per yt-dlp zur direkten Medienadresse auf. Unbekannte Seiten sind ein Fehler. Optional `cookies` (Netscape-Format) fuer diesen Aufruf.")
     def post(self) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
-        url = _read_url(request.get_json(silent=True) or {})
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        url = _read_url(payload)
         if not url:
             return _error("MISSING_URL", "Feld 'url' (http/https) ist erforderlich", 400)
         try:
-            data = resolve_media_url(url)
+            cookies = _read_cookies(payload)
+        except InvalidCookies as e:
+            return _error("INVALID_COOKIES", str(e), 400)
+        try:
+            data = resolve_media_url(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Seite nicht oder kein Medium", url=url, error=str(e))
             return _error("MEDIA_NOT_RESOLVABLE", f"Kein Medium aufloesbar: {e}", 422)
@@ -305,7 +381,7 @@ class MediaResolveEndpoint(Resource):
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Aufloesen", error=e, url=url)
             return _error("INTERNAL_ERROR", str(e), 500)
-        logger.info("Medium aufgeloest", url=url, extractor=data.get("extractor"), ext=data.get("ext"), protocol=data.get("protocol"))
+        logger.info("Medium aufgeloest", url=url, extractor=data.get("extractor"), ext=data.get("ext"), protocol=data.get("protocol"), anmeldung=cookies is not None)
         return {"status": "success", "data": data}
 
 
@@ -314,13 +390,18 @@ class MediaPlaylistEndpoint(Resource):
     """Flache Liste einer Playlist; ruft keine Video-Seite ab und laedt nichts herunter."""
 
     @media_ns.expect(request_model)
-    @media_ns.doc(description="Loest eine Playlist-Adresse per yt-dlp flach auf (Titel, Besitzer, Beschreibung, Eintraege mit Position, Id, Adresse, Titel, Dauer). Private oder geloeschte Eintraege stehen mit Grund in der Liste. Keine Playlist oder leere Playlist ist ein Fehler.")
+    @media_ns.doc(description="Loest eine Playlist-Adresse per yt-dlp flach auf (Titel, Besitzer, Beschreibung, Eintraege mit Position, Id, Adresse, Titel, Dauer). Private oder geloeschte Eintraege stehen mit Grund in der Liste. Keine Playlist oder leere Playlist ist ein Fehler. Optional `cookies` (Netscape-Format) fuer diesen Aufruf.")
     def post(self) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
-        url = _read_url(request.get_json(silent=True) or {})
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        url = _read_url(payload)
         if not url:
             return _error("MISSING_URL", "Feld 'url' (http/https) ist erforderlich", 400)
         try:
-            data = resolve_playlist(url)
+            cookies = _read_cookies(payload)
+        except InvalidCookies as e:
+            return _error("INVALID_COOKIES", str(e), 400)
+        try:
+            data = resolve_playlist(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar", url=url, error=str(e))
             return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {e}", 422)
@@ -329,7 +410,7 @@ class MediaPlaylistEndpoint(Resource):
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Aufloesen der Playlist", error=e, url=url)
             return _error("INTERNAL_ERROR", str(e), 500)
-        logger.info("Playlist aufgeloest", url=url, extractor=data.get("extractor"), anzahl=data.get("anzahl"), anzahl_verfuegbar=data.get("anzahl_verfuegbar"))
+        logger.info("Playlist aufgeloest", url=url, extractor=data.get("extractor"), anzahl=data.get("anzahl"), anzahl_verfuegbar=data.get("anzahl_verfuegbar"), anmeldung=cookies is not None)
         return {"status": "success", "data": data}
 
 
@@ -338,7 +419,7 @@ class MediaDownloadEndpoint(Resource):
     """Laedt das Medium per yt-dlp (auch HLS/DASH) und liefert die Datei."""
 
     @media_ns.expect(request_model)
-    @media_ns.doc(description="Laedt das Medium einer Webseiten-/Player-Adresse per yt-dlp (ffmpeg fuer Streams) und liefert die Datei; Metadaten in X-Media-*-Headern.")
+    @media_ns.doc(description="Laedt das Medium einer Webseiten-/Player-Adresse per yt-dlp (ffmpeg fuer Streams) und liefert die Datei; Metadaten in X-Media-*-Headern. Optional `cookies` (Netscape-Format) fuer diesen Aufruf.")
     def post(self) -> Union[Response, Tuple[Dict[str, Any], int]]:
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
         url = _read_url(payload)
@@ -347,9 +428,13 @@ class MediaDownloadEndpoint(Resource):
         nur_audio_raw = payload.get("nur_audio", True)
         if not isinstance(nur_audio_raw, bool):
             return _error("INVALID_NUR_AUDIO", "Feld 'nur_audio' muss true oder false sein", 400)
+        try:
+            cookies = _read_cookies(payload)
+        except InvalidCookies as e:
+            return _error("INVALID_COOKIES", str(e), 400)
         workdir = tempfile.mkdtemp(prefix='ks-media-')
         try:
-            meta = download_media(url, workdir, nur_audio=nur_audio_raw)
+            meta = download_media(url, workdir, nur_audio=nur_audio_raw, cookies=cookies)
             with open(meta["path"], 'rb') as fh:
                 data = fh.read()
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
@@ -363,7 +448,7 @@ class MediaDownloadEndpoint(Resource):
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
         ext = meta["ext"]
-        logger.info("Medium geladen", url=url, extractor=meta.get("extractor"), ext=ext, bytes=len(data))
+        logger.info("Medium geladen", url=url, extractor=meta.get("extractor"), ext=ext, bytes=len(data), anmeldung=cookies is not None)
         headers = {
             'X-Media-Ext': ext,
             'X-Media-Title': quote(str(meta.get("title") or ''), safe=''),
