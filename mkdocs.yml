@@ -51,6 +51,7 @@ nav:
         - Audio: reference/api/endpoints/audio.md
         - Transcript: reference/api/endpoints/transcript.md
         - Video: reference/api/endpoints/video.md
+        - Media: reference/api/endpoints/media.md
         - PDF: reference/api/endpoints/pdf.md
         - ImageOCR: reference/api/endpoints/imageocr.md
         - Image Analyzer: reference/api/endpoints/image-analyzer.md
