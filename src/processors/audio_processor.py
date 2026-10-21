@@ -53,7 +53,6 @@ from types import TracebackType
 import hashlib
 import json
 import uuid
-import requests
 import re
 from datetime import datetime
 import time
@@ -63,6 +62,7 @@ from src.core.llm.transcription_context import TranscriptionContext
 from src.processors.audio_cache_key import MODE_PLAIN, build_audio_cache_key_base
 from src.core.resource_tracking import ResourceCalculator
 from src.core.exceptions import ProcessingError
+from src.utils.http_fetch import DownloadTooLarge, download_to_file
 from src.utils.transcription_utils import WhisperTranscriber
 from src.utils.pause_chunking import plan_chunks, pydub_silence_finder
 from src.processors.transformer_processor import TransformerProcessor
@@ -393,23 +393,15 @@ class AudioProcessor(CacheableProcessor[AudioProcessingResult]):
             # Temporären Dateinamen generieren
             temp_file = self.temp_dir / f"audio_{str(uuid.uuid4())}{self.temp_file_suffix}"
             
-            # Audio-Datei herunterladen
-            response: requests.Response = requests.get(url, stream=True)
-            if response.status_code != 200:
-                raise ProcessingError(f"Fehler beim Herunterladen der Audio-Datei (Status {response.status_code})")
-            
-            content_length = int(response.headers.get('content-length', 0))
-            if content_length > self.max_file_size:
+            # Audio-Datei herunterladen (AP-04: Timeout, Größe wird beim Streamen gezählt)
+            try:
+                download_to_file(url, temp_file, max_bytes=self.max_file_size)
+            except DownloadTooLarge as too_large:
                 raise ProcessingError(
-                    f"Audio-Datei zu groß: {content_length} Bytes (max: {self.max_file_size} Bytes)",
+                    f"Audio-Datei zu groß: {too_large}",
                     details={"error_code": 'VALIDATION_ERROR'}
                 )
-            
-            # In temporäre Datei speichern
-            with open(temp_file, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-                
+
             self.logger.debug(f"Audio-Datei heruntergeladen: {url} -> {temp_file}")
             return temp_file
             

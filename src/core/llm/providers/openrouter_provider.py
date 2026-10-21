@@ -28,6 +28,10 @@ from ...exceptions import ProcessingError
 from ...models.llm import LLMRequest
 from ..use_cases import UseCase
 from ..usage_cost import extract_usage_cost, extract_usage_tokens
+from src.utils.http_fetch import fetch_bytes
+
+# Obergrenze für von OpenRouter verlinkte Bilder
+_MAX_GENERATED_IMAGE_BYTES = 50 * 1024 * 1024
 
 logger = get_logger(process_id="openrouter-provider")
 
@@ -215,9 +219,8 @@ class OpenRouterProvider:
             return base64.b64decode(base64_data)
         if isinstance(image_url, str):
             # Externe URL serverseitig laden, damit der Client keine externe URL braucht
-            from urllib.request import urlopen
-            with urlopen(image_url) as response_stream:
-                return response_stream.read()
+            # AP-04: Timeout und Größenlimit; requests lädt kein file://
+            return fetch_bytes(image_url, max_bytes=_MAX_GENERATED_IMAGE_BYTES, timeout=(10, 60))
         
         raise ProcessingError("Weder b64_json noch URL in der OpenRouter Response gefunden")
 
@@ -260,9 +263,8 @@ class OpenRouterProvider:
             base64_data = image_url.split(",", 1)[1]
             return base64.b64decode(base64_data)
         if isinstance(image_url, str):
-            from urllib.request import urlopen
-            with urlopen(image_url) as response_stream:
-                return response_stream.read()
+            # AP-04: Timeout und Größenlimit; requests lädt kein file://
+            return fetch_bytes(image_url, max_bytes=_MAX_GENERATED_IMAGE_BYTES, timeout=(10, 60))
         
         raise ProcessingError(f"Unbekanntes Bild-URL-Format: {type(image_url)}")
     
@@ -312,9 +314,8 @@ class OpenRouterProvider:
             base64_data = image_url.split(",", 1)[1]
             return base64.b64decode(base64_data)
         if isinstance(image_url, str):
-            from urllib.request import urlopen
-            with urlopen(image_url) as response_stream:
-                return response_stream.read()
+            # AP-04: Timeout und Größenlimit; requests lädt kein file://
+            return fetch_bytes(image_url, max_bytes=_MAX_GENERATED_IMAGE_BYTES, timeout=(10, 60))
         
         raise ProcessingError(f"Unbekanntes Bild-URL-Format in Dict-Response: {type(image_url)}")
     

@@ -67,14 +67,20 @@ Beim Rollout beachten:
   Dashboard-Konfiguration sperrt nur das Dashboard, nicht den Start.
 - **AP-03 ist umgesetzt** (PR #41): `src/utils/safe_paths.py` für Upload-Namen, Pfadbestandteile aus Requests,
   Template-Namen und `ensure_within`. Neue Stellen, die Pfade aus Request-Daten bauen, nutzen diese Helfer.
-- **Nächstes Code-Paket ist AP-04** (Timeouts, Größenlimits und TLS-Verifikation), dann AP-05 und AP-06.
+- **AP-04 ist umgesetzt** (PR #43): Downloads aus Request-URLs laufen über `src/utils/http_fetch.py`
+  (Timeout, Gesamtdauer, Größenlimit beim Streamen). TLS-Prüfung ist immer an; `PYTHONHTTPSVERIFY=0` wirkt nur
+  zusammen mit `FLASK_ENV=development`. Beim Rollout prüfen, ob eine Installation `PYTHONHTTPSVERIFY=0` gesetzt hat
+  und auf ein CA-Bundle (`SSL_CERT_FILE`) angewiesen ist.
+- **Nachtrag PR #42:** Mistral-OCR wiederholt bei `invalid_model` einmal mit `mistral-ocr-latest`; Modellnamen im
+  LLM-Katalog werden ohne Provider-Präfix gespeichert.
+- **Nächstes Code-Paket ist AP-05** (Fehlerausgaben und Informationsabfluss), dann AP-06.
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-04 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-05 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:

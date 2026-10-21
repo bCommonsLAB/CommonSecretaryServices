@@ -78,6 +78,8 @@ from src.core.llm import LLMConfigManager, UseCase
 from src.core.llm.ocr_cost import estimate_mistral_ocr_cost, extract_mistral_ocr_pages
 from src.core.llm.health import record_operation_result
 from src.core.llm.model_names import MISTRAL_OCR_FALLBACK_MODEL, normalize_model_name
+from src.core.security import tls_verify
+from src.utils.http_fetch import download_to_file
 from src.core.models.llm import LLMRequest
 
 # Konstanten für Processor-Typen
@@ -464,7 +466,9 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         if not ext:
             # Wenn keine Endung gefunden wurde, versuche sie aus dem Content-Type zu ermitteln
             try:
-                response: requests.Response = requests.head(url)
+                response: requests.Response = requests.head(
+                    url, timeout=(5, 15), allow_redirects=True, verify=tls_verify()
+                )
                 content_type: str = response.headers.get('content-type', '').lower()
                 if 'powerpoint' in content_type or 'presentation' in content_type:
                     return '.pptx'
@@ -1520,12 +1524,8 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     path = temp_file
                 else:
                     self.logger.info(f"Lade Datei herunter: {file_path} (Dateiendung: {file_extension})")
-                # Lade Datei von URL herunter
-                download_resp: requests.Response = requests.get(str(file_path), stream=True)
-                download_resp.raise_for_status()
-                with open(temp_file, 'wb') as f:
-                    for chunk in download_resp.iter_content(chunk_size=8192):
-                        f.write(chunk)
+                    # AP-04: Timeout und Größenlimit gelten beim Streamen, nicht nur per Content-Length
+                    download_to_file(str(file_path), temp_file, max_bytes=self.max_file_size)
                     # Speichere den Originalnamen aus der URL
                     original_name_file = working_dir / "original_name.txt"
                     with open(original_name_file, 'w') as f2:
@@ -1540,56 +1540,6 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
                     with open(original_path_file, 'w') as f:
                         f.write(str(file_path))
 
-            # Erstelle Arbeitsverzeichnis, falls es nicht existiert
-            if not working_dir.exists():
-                working_dir.mkdir(parents=True, exist_ok=True)
-                self.logger.debug(f"Arbeitsverzeichnis angelegt: {str(working_dir)}")
-            
-            # Prüfe ob es sich um eine URL handelt
-            if str(file_path).startswith(('http://', 'https://')):
-                # Extrahiere Dateiendung aus URL
-                file_extension = self._get_file_extension(str(file_path))
-                
-                # Validiere die Dateiendung für URLs
-                valid_extensions = ['.pdf', '.pptx', '.ppt']
-                if file_extension.lower() not in valid_extensions:
-                    raise ProcessingError(
-                        f"Ungültiges Dateiformat: {file_extension} "
-                        f"(Unterstützte Formate: {', '.join(valid_extensions)})"
-                    )
-                    
-                temp_file = working_dir / f"document{file_extension}"
-                
-                # Prüfe, ob die Datei bereits existiert und nicht überschrieben werden soll
-                if temp_file.exists() and not force_overwrite:
-                    self.logger.info(f"Datei existiert bereits, überspringe Download: {temp_file}")
-                    path = temp_file
-                else:
-                    self.logger.info(f"Lade Datei herunter: {file_path} (Dateiendung: {file_extension})")
-                # Lade Datei von URL herunter
-                download_resp2 = requests.get(str(file_path), stream=True)
-                download_resp2.raise_for_status()
-                
-                with open(temp_file, 'wb') as f:
-                    for chunk in download_resp2.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                    # Speichere den Originalnamen aus der URL
-                    original_name_file = working_dir / "original_name.txt"
-                    with open(original_name_file, 'w') as f:
-                        f.write(str(file_path))
-                
-                path = temp_file
-            else:
-                # Lokale Datei wird direkt verwendet
-                path = Path(file_path)
-                
-                # Speichere den Originalpfad
-                original_path_file = working_dir / "original_path.txt"
-                if not original_path_file.exists() or force_overwrite:
-                    with open(original_path_file, 'w') as f:
-                        f.write(str(file_path))
-            
             self.logger.info(f"Verarbeite Datei: {path.name}",
                            file_size=path.stat().st_size,
                            working_dir=str(working_dir),

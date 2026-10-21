@@ -134,8 +134,9 @@ The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own si
 
 - **Type**: Boolean/String (`true`, `false`, `1`, `0`)
 - **Default**: `true`
-- **Description**: Disable SSL certificate verification (Windows workaround)
-- **Example**: `0` or `false` (not recommended for production)
+- **Description**: Disable TLS certificate verification for outgoing connections (Windows/corporate-proxy workaround). Takes effect **only together with `FLASK_ENV=development`**; otherwise the value is ignored, verification stays on and the start log prints a warning.
+- **Example**: `0` or `false` (local development only)
+- **Better alternative**: point `SSL_CERT_FILE` (and `REQUESTS_CA_BUNDLE`) to a CA bundle that contains the proxy certificate, e.g. the output of `python -c "import certifi; print(certifi.where())"` extended with your proxy CA.
 
 ### `YTDLP_COOKIES_FILE`
 
@@ -201,8 +202,9 @@ services:
 
 ### SSL/TLS
 
-- **Production**: Keep `PYTHONHTTPSVERIFY=1` (default)
-- **Development**: Can disable for testing (`PYTHONHTTPSVERIFY=0`)
+- **Production**: TLS verification is always on. `PYTHONHTTPSVERIFY=0` is ignored unless `FLASK_ENV=development` is also set.
+- **Development**: Prefer `SSL_CERT_FILE` with a CA bundle over disabling verification.
+- **Downloads** from request URLs (PDF, audio, images, Vimeo) use connect/read timeouts, a total duration limit and the processor's size limit, counted while streaming.
 
 ## Related Documentation
 

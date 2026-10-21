@@ -231,7 +231,9 @@ Schritte:
 
 Akzeptanz: Grep nach `nocheckcertificate|verify=False|_create_unverified_context` liefert nur noch die Dev-Guard-Stelle; Test für `download_to_file` mit Mock-Server, der mehr als `max_bytes` liefert, wirft.
 
-- [ ] erledigt am ______, PR #____
+- [x] erledigt am 19.10.2026, PR #43. Umsetzung: `src/utils/http_fetch.py` (`download_to_file`, `fetch_bytes`: Timeout (10 s, 60 s), Gesamtdauer 30 min, Größenlimit beim Streamen gezählt, User-Agent, `allow_private` für AP-12 vorbereitet), TLS-Regel in `src/core/security.py` (`insecure_tls_allowed`, `tls_verify`, `apply_tls_policy`), Tests `.tests/test_http_fetch.py`.
+  Umgestellt: PDF-Download per URL (plus Timeout für `requests.head`), Audio-Download, Vimeo-API-Download (neues Limit `processors.video.max_download_size`, Default 2 GB), Bild-OCR per URL, von OpenRouter verlinkte Bilder (`urlopen` ohne Timeout, nahm auch `file://`). `nocheckcertificate`/`legacy_server_connect` bei yt-dlp und `verify=` hängen an `tls_verify()`; `PYTHONHTTPSVERIFY=0` ohne `FLASK_ENV=development` wird ignoriert und beim Start gewarnt.
+  Zusätzlich gefunden und mit erledigt: `pdf_processor` lud URL-Dateien doppelt (der Download-Block stand zweimal hintereinander und lief auch bei vorhandener Datei). Der Dateiname beim Vimeo-Download kommt jetzt durch `safe_upload_name`.
 
 ### AP-05 Fehlerausgaben und Informationsabfluss
 Befunde: M3, M10 (tote Schalter). Aufwand: S. Dateien: `src/api/routes/pdf_routes.py`, `session_routes.py`, `common_routes.py`, `imageocr_routes.py`, `src/main.py`, `src/dashboard/app.py`, `config/config.yaml`.
@@ -511,6 +513,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 4/7 |
+| 1 | AP-01 … AP-07 | 5/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

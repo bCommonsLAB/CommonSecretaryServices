@@ -58,6 +58,7 @@ from src.processors.ytdlp_youtube_opts import (
 )
 
 from src.core.config import Config
+from src.core.security import tls_verify
 from src.core.models.base import ErrorInfo, ProcessInfo
 from src.core.models.youtube import (
     YoutubeMetadata,
@@ -197,7 +198,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 'retries': 10,
                 'sleep_interval': 3,
                 'max_sleep_interval': 10,
-                'nocheckcertificate': True,
+                'nocheckcertificate': not tls_verify(),
                 'no_playlist': True,
                 'youtube_include_dash_manifest': False
             }
@@ -240,7 +241,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
                 'socket_timeout': self.ydl_opts['socket_timeout'],
                 'retries': self.ydl_opts['retries'],
                 'sleep_interval': self.ydl_opts['sleep_interval'],
-                'nocheckcertificate': True,
+                'nocheckcertificate': not tls_verify(),
                 'youtube_include_dash_manifest': False
             }
             apply_youtube_ytdlp_opts(extract_opts_raw)
