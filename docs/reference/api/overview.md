@@ -74,6 +74,8 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | POST | `/api/media/download` | Download the medium via yt-dlp (HLS/DASH through ffmpeg), audio track only by default |
 | POST | `/api/media/playlist` | Flat list of a playlist's entries (YouTube, Vimeo, PeerTube); private or deleted entries are kept with a reason |
 
+All three accept an optional `cookies` field (Netscape cookies.txt content) for a per-call login; it is written to a temporary 0600 file, passed to yt-dlp, deleted afterwards, never logged, and takes precedence over `YTDLP_COOKIES_FILE`.
+
 **See**: [Media Endpoints](endpoints/media.md) for detailed documentation.
 
 ### PDF Processing
