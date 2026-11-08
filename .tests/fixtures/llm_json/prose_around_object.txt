@@ -1,0 +1,3 @@
+Hier ist das Ergebnis:
+{"titel": "T", "status": "ok"}
+Ich hoffe, das hilft.

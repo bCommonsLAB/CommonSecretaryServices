@@ -89,6 +89,13 @@ voyageai>=0.2.0
 # JSON Schema Validation
 jsonschema>=4.20.0
 
+# Reparatur von LLM-JSON (unmaskierte Anführungszeichen in langen Werten, rohe
+# Zeilenumbrüche, kaputte Escapes). Befund 05.11.2026: Gemini scheitert bei langen
+# *_md-Feldern der Vorlage chatverlauf-de in etwa der Hälfte der Fälle. Reine
+# Python-Bibliothek ohne Abhängigkeiten; gepinnt, weil sich das Reparaturverhalten
+# zwischen Versionen ändert und die Fixtures in .tests/fixtures/llm_json darauf stehen.
+json-repair==0.64.6
+
 # Projektheft (job_type booklet): HTML/CSS -> PDF ohne Browser, QR-Codes
 # WeasyPrint braucht Pango und HarfBuzz als Systempakete (siehe Dockerfile)
 weasyprint==70.0

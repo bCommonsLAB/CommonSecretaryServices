@@ -99,6 +99,11 @@ class TransformerData:
     format: OutputFormat
     summarized: bool = False
     structured_data: Optional[Any] = None
+    # True, wenn das LLM-JSON vor dem Parsen repariert werden musste (kein stiller
+    # Fallback: Clients sehen, dass der Inhalt verändert wurde). repair_info nennt
+    # Stufe und Hinweise; None, wenn nicht repariert.
+    repaired: bool = False
+    repair_info: Optional[Dict[str, Any]] = None
 
     def has_structured_data(self) -> bool:
         """
@@ -111,13 +116,17 @@ class TransformerData:
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert die Ausgabedaten in ein Dictionary."""
-        return {
+        result: Dict[str, Any] = {
             "text": self.text,
             "language": self.language,
             "format": self.format.value,
             "summarized": self.summarized,
-            "structured_data": self.structured_data
+            "structured_data": self.structured_data,
+            "repaired": self.repaired,
         }
+        if self.repair_info is not None:
+            result["repair_info"] = self.repair_info
+        return result
 
 @dataclass(frozen=True)
 class TranslationResult:
@@ -149,13 +158,18 @@ class TransformationResult(CacheableResult):
     target_language: str
     structured_data: Optional[Any] = None
     processed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    
+    # Siehe TransformerData.repaired / repair_info
+    repaired: bool = False
+    repair_info: Optional[Dict[str, Any]] = None
+
     def __post_init__(self) -> None:
         """Validiert das TransformationResult."""
         if not self.text:
             raise ValueError("'text' darf nicht leer sein")
         if not self.target_language:
             raise ValueError("'target_language' darf nicht leer sein")
+        if self.repair_info is not None and not self.repaired:
+            raise ValueError("'repair_info' ohne repaired=True")
     
     @property
     def status(self) -> ProcessingStatus:
@@ -165,12 +179,15 @@ class TransformationResult(CacheableResult):
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert das Ergebnis in ein Dictionary."""
         # Nur die für den Cache relevanten Daten speichern
-        result = {
+        result: Dict[str, Any] = {
             "text": self.text,
             "target_language": self.target_language,
             "structured_data": self.structured_data,
-            "processed_at": self.processed_at
+            "processed_at": self.processed_at,
+            "repaired": self.repaired,
         }
+        if self.repair_info is not None:
+            result["repair_info"] = self.repair_info
         return result
     
     @classmethod
@@ -187,11 +204,15 @@ class TransformationResult(CacheableResult):
         if not data:
             return cls(text="", target_language="unknown")
             
+        repaired = bool(data.get("repaired", False))
+        repair_info = data.get("repair_info") if repaired else None
         return cls(
             text=data.get("text", ""),
             target_language=data.get("target_language", "unknown"),
             structured_data=data.get("structured_data"),
-            processed_at=data.get("processed_at", datetime.now(UTC).isoformat())
+            processed_at=data.get("processed_at", datetime.now(UTC).isoformat()),
+            repaired=repaired,
+            repair_info=repair_info if isinstance(repair_info, dict) else None,
         )
     
     @classmethod

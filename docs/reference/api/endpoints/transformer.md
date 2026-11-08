@@ -160,6 +160,55 @@ Fehlerantwort steckte dann komplett in `data`. Clients, die nur den HTTP-Code od
 noch im Dienst-Log, nicht in `error.details`. Dasselbe gilt für `/api/transformer/text`
 und `/api/transformer/text/file`.
 
+### LLM-JSON: Antwortmodus, Reparatur, Fehlerstatus
+
+Das Modell soll ein JSON-Objekt liefern. Bei langen Textfeldern (Markdown in
+`*_md`-Feldern) kamen bis 08.11.2026 in etwa der Hälfte der Fälle unmaskierte gerade
+Anführungszeichen, rohe Zeilenumbrüche oder ungültige Escapes zurück. Seitdem:
+
+1. **JSON-Antwortmodus**: Die Anfrage geht mit `response_format: {type: json_object}`
+   an den Provider, wo er das durchreicht (`openrouter`, `openai`, `ollama`). Vorgabe an,
+   je Modell in `config.yaml` unter `llm_config.json_response_mode.models` abschaltbar,
+   für die Installation mit `LLM_JSON_RESPONSE_MODE=off`. Lehnt Provider oder Modell den
+   Modus ab, wird genau einmal ohne wiederholt (steht im Dienst-Log).
+2. **Reparatur**: Lässt sich die Antwort nicht direkt parsen, folgen eine Bereinigung
+   (trailing Kommas, ungültige Escapes), ein strukturgeführtes Maskieren von geraden
+   Anführungszeichen, rohen Zeilenumbrüchen und kaputten Escapes in String-Werten
+   (entscheidet anhand von `:`, `,` + nächstem Schlüssel, `}`/`]`, ob ein
+   Anführungszeichen den Wert schließt) und zuletzt die Bibliothek `json_repair`
+   (einfache Anführungszeichen, fehlende Klammern). Wurde der Inhalt dabei verändert,
+   steht das in der Antwort: `data.repaired: true` und `data.repair_info` mit `stage`
+   (`sanitized`, `escaped_quotes` oder `json_repair`), `hints` (gekürzte
+   Reparaturhinweise) und `json_mode` (ob der Antwortmodus aktiv war). Ohne Reparatur
+   ist `data.repaired: false`.
+3. **Fehler bleibt Fehler**: Ergibt auch die Reparatur kein nicht-leeres Objekt, oder
+   endet die Antwort nicht mit `}` (abgeschnitten), antwortet der Dienst mit HTTP 400 und
+   außen `status: "error"`, `error.code: "TEMPLATE_ERROR"`,
+   `error.details.error_type: "LLMJSONParseError"`. Die Meldung nennt Zeile und Spalte
+   des ersten Parse-Fehlers, die Antwortlänge und, wenn `LLM_JSON_DEBUG_DIR` gesetzt ist,
+   die Datei mit der vollständigen Rohantwort. Bis 08.11.2026 stand die Fehlermeldung
+   stattdessen als Wert in jedem Feld von `data.structured_data` bei HTTP 200.
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "TEMPLATE_ERROR",
+    "message": "LLM lieferte kein gültiges JSON. JSON konnte nicht geparst werden. Primärer Fehler: Expecting ',' delimiter: line 39 column 612 (char 20417) (Zeile 39, Spalte 612). … Antwortlänge: 23811 Zeichen. Rohantwort: /app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.failed.txt",
+    "details": {
+      "error_type": "LLMJSONParseError",
+      "template": "chatverlauf-de",
+      "model": "google/gemini-2.5-flash",
+      "json_mode": true,
+      "line": 39,
+      "column": 612,
+      "raw_response_file": "/app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.failed.txt"
+    }
+  },
+  "data": null
+}
+```
+
 ## POST /api/transformer/html-table
 
 Extract tables from HTML webpage.

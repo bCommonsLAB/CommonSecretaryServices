@@ -1,0 +1,5 @@
+{
+  "titel": "Pfade",
+  "pfad": "C:\Users\peter\projekte",
+  "notiz": "x\qy und \d+"
+}
