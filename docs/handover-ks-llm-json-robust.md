@@ -43,7 +43,7 @@ A2, A33, A70) scheiterten reproduzierbar, zwölf weitere am 05.11. im ersten Ver
    `column`, `raw_response_file`. Keine Fehlermeldung mehr als Feldwert. Der Job-Weg
    (`callback_url`) meldet denselben Fehler als `phase=error`.
 4. **Rohantworten sammeln.** Mit `LLM_JSON_DEBUG_DIR=<Ordner>` landet jede nicht
-   parsebare Antwort vollständig als `<Zeit>_<Vorlage>_<id>.raw.txt` plus `.meta.json`
+   parsebare Antwort vollständig als `<Zeit>_<Vorlage>_<id>.failed.txt`, jede reparierte als `….repaired.txt`, plus `.meta.json`
    (Modell, Fehler, Zeile, Spalte) dort; der Pfad steht in der Fehlermeldung. Vorgabe aus.
    Nur die Modellantwort, kein Prompt, kein Eingabetext, keine Schlüssel.
 
@@ -74,6 +74,31 @@ A2, A33, A70) scheiterten reproduzierbar, zwölf weitere am 05.11. im ersten Ver
    herausnehmen und eine Stichprobe (fünf Belege) erneut laufen lassen.
 4. Falls weiter etwas scheitert: Rohantwort aus `LLM_JSON_DEBUG_DIR` als Fixture nach
    `.tests/fixtures/llm_json/` und einen pytest-Fall in `.tests/test_llm_json_parsing.py`.
+
+## Lokaler Nachweis (08.11.2026)
+
+Peter hat den Stand c4217cd lokal gestartet (Haupt-Checkout, Branch `test/llm-json-robust`,
+Port 5001); eine zweite Instanz aus dem Worktree lief auf 5002 mit `LLM_JSON_DEBUG_DIR`.
+Fünf echte Belege direkt an `/api/transformer/template` mit der Vorlage `chatverlauf-de`
+und `google/gemini-2.5-flash` über OpenRouter, je zweimal (10 Aufrufe):
+
+| Beleg | Bytes | Ergebnis 5001 | Ergebnis 5002 |
+|---|---|---|---|
+| A2 (Code, PR 3 geprüft) | 40.941 | 200, 20 Felder, **repariert** (`escaped_quotes`) | 200, 20 Felder, **repariert** (`escaped_quotes`) |
+| A33 (Code, Welle 5b) | 8.070 | 200, 20 Felder, direkt | 200, 20 Felder, direkt |
+| A70 (Code, Vorlagen kalibriert) | 31.936 | 200, 20 Felder, **repariert** (`escaped_quotes`) | 200, 20 Felder, direkt |
+| B13 (Chat, Audiodateien) | 11.681 | 200, 20 Felder, direkt | 200, 20 Felder, direkt |
+| C12 (Chat, Habitattypen) | 4.123 | 200, 20 Felder, direkt | 200, 20 Felder, direkt |
+
+Null Fehler, kein Fehlertext in `structured_data`. Der JSON-Antwortmodus war aktiv
+(`json_mode: true`) und verhindert die unmaskierten Anführungszeichen **nicht**
+vollständig: In drei von zehn Aufrufen griff die Maskierungsstufe. Die eingefangene
+Rohantwort (A2) scheitert bei „Expecting ',' delimiter: line 39 column 665“ in
+`befunde_md` an einem Code-Span mit `content: "PDF"` — genau das bekannte Fehlerbild; die
+Maskierung liefert alle 20 Felder mit erhaltenem Zitat. Die Rohantwort liegt im
+Scratchpad der Sitzung (`llm-json-debug/…_template_content_ce363fa2.repaired.txt`), nicht
+im Repo: Sie enthält Inhalt aus Peters Sitzung. Das Muster steht als Fall in
+`test_escape_stage_cases`.
 
 ## Tests
 

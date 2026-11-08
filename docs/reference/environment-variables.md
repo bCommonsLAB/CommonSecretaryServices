@@ -149,7 +149,7 @@ The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own si
 
 - **Type**: String (directory path)
 - **Default**: Empty (off)
-- **Description**: When set, every LLM response that cannot be parsed as JSON (template transformations, `/api/transformer/chat` with `response_format=json_object`) is written in full to this directory as `<timestamp>_<template>_<id>.raw.txt` plus a `.meta.json` with model, error, line and column. Only the model's answer is stored, never the prompt, the input text or any key. The error message names the file.
+- **Description**: When set, every LLM response that cannot be parsed as JSON (template transformations, `/api/transformer/chat` with `response_format=json_object`) is written in full to this directory as `<timestamp>_<template>_<id>.failed.txt`, and every response that needed repair as `….repaired.txt`, each with a `.meta.json` (model, outcome, repair stage, error, line and column). Only the model's answer is stored, never the prompt, the input text or any key. The error message names the file.
 - **Example**: `./logs/llm-json`
 
 ### `LLM_JSON_RESPONSE_MODE`

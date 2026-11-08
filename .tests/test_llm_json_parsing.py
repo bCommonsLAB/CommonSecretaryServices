@@ -99,6 +99,10 @@ def test_json_repair_library_catches_what_the_quote_stage_cannot() -> None:
     ('{"a": "Zeile 1\nZeile\t2 \\d+ C:\\Users"}', {"a": "Zeile 1\nZeile\t2 \\d+ C:\\Users"}),
     # fehlendes Komma vor dem nächsten Schlüssel
     ('{"titel": "T"\n"status": "ok"}', {"titel": "T", "status": "ok"}),
+    # Echter Fall 08.11.2026 (Beleg A2, Gemini im JSON-Modus, "Expecting ',' delimiter: line 39
+    # column 665"): Code-Span mit Schlüssel-Wert-Paar in geraden Anführungszeichen im Wert
+    ('{"befunde_md": "- Der Pfad (`content: "PDF"`) läuft über den Mask-Mechanismus.", "offen_md": "x"}',
+     {"befunde_md": '- Der Pfad (`content: "PDF"`) läuft über den Mask-Mechanismus.', "offen_md": "x"}),
 ])
 def test_escape_stage_cases(raw: str, expected: Dict[str, Any]) -> None:
     outcome = parse_llm_json(raw)
@@ -204,15 +208,37 @@ def test_debug_dir_receives_full_raw_response(tmp_path: Path, monkeypatch: pytes
     assert info.value.dump_path is not None
     dump = Path(info.value.dump_path)
     assert dump.exists()
-    assert dump.name.endswith(".raw.txt") and "chatverlauf-de" in dump.name
+    assert dump.name.endswith(".failed.txt") and "chatverlauf-de" in dump.name
     assert dump.read_text(encoding="utf-8") == raw, "vollständig, nicht nur 500 Zeichen"
     assert str(dump) in str(info.value)
     assert "Content-Snippet" not in str(info.value)
 
     meta = json.loads(dump.with_suffix("").with_suffix(".meta.json").read_text(encoding="utf-8"))
     assert meta["model"] == "google/gemini-2.5-flash"
+    assert meta["outcome"] == "failed"
     assert meta["line"] == 1 and meta["column"] == 1
     assert meta["content_chars"] == len(raw)
+
+
+def test_debug_dir_also_keeps_repaired_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reparierte Antworten sind Fixture-Material und landen ebenfalls im Debug-Ordner."""
+    debug_dir = tmp_path / "llm-json"
+    monkeypatch.setenv(LLM_JSON_DEBUG_DIR_ENV, str(debug_dir))
+    raw = _fixture("gemini_quotes_newlines_escape.txt")
+
+    outcome = parse_llm_json(raw, label="chatverlauf-de", model="google/gemini-2.5-flash")
+
+    assert outcome.repaired is True
+    dumps = sorted(debug_dir.glob("*.repaired.txt"))
+    assert len(dumps) == 1
+    assert dumps[0].read_text(encoding="utf-8") == raw
+    meta = json.loads(dumps[0].with_suffix("").with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert meta["outcome"] == "repaired" and meta["stage"] == "escaped_quotes"
+    assert meta["line"] is not None, "Ort des ersten Parse-Fehlers bleibt erhalten"
+
+    # Direkt parsebare Antworten erzeugen keine Datei.
+    parse_llm_json(_fixture("valid_direct.txt"))
+    assert len(list(debug_dir.iterdir())) == 2
 
 
 def test_debug_dir_off_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

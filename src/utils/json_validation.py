@@ -387,13 +387,16 @@ def _dump_raw_response(
     primary_error: Optional[json.JSONDecodeError],
     label: Optional[str],
     model: Optional[str],
+    outcome: str = "failed",
+    stage: Optional[str] = None,
 ) -> Optional[str]:
     """
     Legt die vollständige Rohantwort im Debug-Ordner ab, wenn ``LLM_JSON_DEBUG_DIR``
     gesetzt ist. Liefert den Pfad oder None (aus oder Schreibfehler).
 
-    Es wird nur die Modellantwort gespeichert; Prompt, Eingabetext und Schlüssel
-    gehören nicht hinein.
+    ``outcome`` ist "failed" (nicht parsebar) oder "repaired" (nur mit Reparatur
+    parsebar); beides sind die Fälle, aus denen Fixtures entstehen. Es wird nur die
+    Modellantwort gespeichert; Prompt, Eingabetext und Schlüssel gehören nicht hinein.
     """
     debug_dir_str = (os.getenv(LLM_JSON_DEBUG_DIR_ENV) or "").strip()
     if not debug_dir_str:
@@ -404,12 +407,14 @@ def _dump_raw_response(
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label or "llm")[:40] or "llm"
         base = debug_dir / f"{stamp}_{safe_label}_{uuid.uuid4().hex[:8]}"
-        raw_path = base.with_suffix(".raw.txt")
+        raw_path = base.with_suffix(f".{outcome}.txt")
         raw_path.write_text(content, encoding="utf-8")
         meta: Dict[str, Any] = {
             "written_at": stamp,
             "label": label,
             "model": model,
+            "outcome": outcome,
+            "stage": stage,
             "content_chars": len(content),
             "primary_error": str(primary_error) if primary_error else None,
             "line": primary_error.lineno if primary_error else None,
@@ -499,6 +504,11 @@ def parse_llm_json(
             dump_path=dump,
         )
 
+    def _repaired(outcome: JSONParseOutcome) -> JSONParseOutcome:
+        # Reparierte Antworten sind Fixture-Material: mit Debug-Ordner ebenfalls ablegen.
+        _dump_raw_response(content, primary_error, label, model, outcome="repaired", stage=outcome.stage)
+        return outcome
+
     # Stufe 2: JSON-Substring und sanitize
     candidate: str = extract_json_substring(cleaned_content) or cleaned_content
     sanitized: str = sanitize_json_string(candidate)
@@ -509,12 +519,12 @@ def parse_llm_json(
         secondary_error = e_secondary
     else:
         if isinstance(parsed, dict):
-            return JSONParseOutcome(
+            return _repaired(JSONParseOutcome(
                 data=parsed,
                 repaired=True,
                 stage="sanitized",
                 repair_log=("trailing Kommas oder ungültige Escapes bereinigt",),
-            )
+            ))
 
     # Abgeschnittene Antwort: jede weitere Stufe würde das Objekt still schließen.
     truncated = _looks_truncated(cleaned_content)
@@ -529,14 +539,14 @@ def parse_llm_json(
             pass
         else:
             if isinstance(parsed_escaped, dict) and parsed_escaped:
-                return JSONParseOutcome(
+                return _repaired(JSONParseOutcome(
                     data=parsed_escaped,
                     repaired=True,
                     stage="escaped_quotes",
                     repair_log=(
                         "unmaskierte Anführungszeichen, Steuerzeichen oder Escapes in Werten maskiert",
                     ),
-                )
+                ))
 
     # Stufe 4: json_repair
     repaired_data: Optional[Dict[str, Any]] = None
@@ -544,12 +554,12 @@ def parse_llm_json(
     if not truncated:
         repaired_data, hints = _repair_with_library(sanitized)
     if repaired_data is not None:
-        return JSONParseOutcome(
+        return _repaired(JSONParseOutcome(
             data=repaired_data,
             repaired=True,
             stage="json_repair",
             repair_log=tuple(hints),
-        )
+        ))
 
     # Endgültig gescheitert: Rohantwort ablegen, Fehler mit Ort melden
     dump = _dump_raw_response(content, primary_error, label, model)

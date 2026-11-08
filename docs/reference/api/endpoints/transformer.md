@@ -194,7 +194,7 @@ Anführungszeichen, rohe Zeilenumbrüche oder ungültige Escapes zurück. Seitde
   "status": "error",
   "error": {
     "code": "TEMPLATE_ERROR",
-    "message": "LLM lieferte kein gültiges JSON. JSON konnte nicht geparst werden. Primärer Fehler: Expecting ',' delimiter: line 39 column 612 (char 20417) (Zeile 39, Spalte 612). … Antwortlänge: 23811 Zeichen. Rohantwort: /app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.raw.txt",
+    "message": "LLM lieferte kein gültiges JSON. JSON konnte nicht geparst werden. Primärer Fehler: Expecting ',' delimiter: line 39 column 612 (char 20417) (Zeile 39, Spalte 612). … Antwortlänge: 23811 Zeichen. Rohantwort: /app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.failed.txt",
     "details": {
       "error_type": "LLMJSONParseError",
       "template": "chatverlauf-de",
@@ -202,7 +202,7 @@ Anführungszeichen, rohe Zeilenumbrüche oder ungültige Escapes zurück. Seitde
       "json_mode": true,
       "line": 39,
       "column": 612,
-      "raw_response_file": "/app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.raw.txt"
+      "raw_response_file": "/app/logs/llm-json/20261108T101500Z_chatverlauf-de_1a2b3c4d.failed.txt"
     }
   },
   "data": null
