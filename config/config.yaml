@@ -42,6 +42,15 @@ llm_config:
       provider: openrouter
       # Vision-Modell für template-basierte Bildanalyse und Klassifizierung
       model: google/gemini-2.5-flash
+  # JSON-Antwortmodus für Template-Transformationen (/api/transformer/template):
+  # Das Modell wird mit response_format {type: json_object} angefragt, wo der
+  # Provider das durchreicht (openrouter, openai, ollama). Vorgabe an; je Modell
+  # überstimmbar. Umgebungsvariable LLM_JSON_RESPONSE_MODE=off schaltet alles aus.
+  json_response_mode:
+    enabled: true
+    models: {}
+    #  google/gemini-2.5-flash: true
+    #  some/model-without-json-mode: false
 llm_providers:
   mistral:
     # API-Key wird ausschließlich aus der Umgebungsvariable MISTRAL_API_KEY geladen.

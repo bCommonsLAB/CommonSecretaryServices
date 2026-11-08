@@ -2137,13 +2137,16 @@ Anforderungen:
                     error=error_info
                 )
             
-            # Erstelle TransformerData aus dem Ergebnis
+            # Erstelle TransformerData aus dem Ergebnis; repaired/repair_info zeigen
+            # dem Client, ob das LLM-JSON vor dem Parsen verändert werden musste.
             transformer_data = TransformerData(
                 text=result.text,
                 language=target_language,
                 format=OutputFormat.TEXT,
                 summarized=False,
-                structured_data=result.structured_data
+                structured_data=result.structured_data,
+                repaired=bool(getattr(result, "repaired", False)),
+                repair_info=getattr(result, "repair_info", None),
             )
             
             # Erstelle Response

@@ -1276,17 +1276,53 @@ class WhisperTranscriber:
                 
                 if not chat_provider:
                     raise ValueError("Chat-Completion Provider nicht verfügbar")
-                
-                # Verwende Provider (chat_model wurde bereits vor dem try-Block initialisiert)
-                raw_content, llm_request = chat_provider.chat_completion(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    model=chat_model,
-                    temperature=self.temperature
+
+                # Reparaturstufe 1: JSON-Antwortmodus, wo der Provider ihn durchreicht
+                # (OpenRouter -> Gemini response_mime_type). Konfigurierbar je Modell,
+                # Vorgabe an; siehe src/core/llm/json_mode.py.
+                from src.core.llm.json_mode import (
+                    json_response_mode_enabled,
+                    looks_like_response_format_rejection,
+                    response_format_kwargs,
                 )
-                
+                provider_name_for_mode: Optional[str] = provider
+                if not provider_name_for_mode:
+                    get_name = getattr(chat_provider, "get_provider_name", None)
+                    if callable(get_name):
+                        provider_name_for_mode = str(get_name())
+                json_mode_used = json_response_mode_enabled(chat_model, provider_name_for_mode)
+                chat_messages: List[Dict[str, str]] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+
+                # Verwende Provider (chat_model wurde bereits vor dem try-Block initialisiert)
+                try:
+                    raw_content, llm_request = chat_provider.chat_completion(
+                        messages=chat_messages,
+                        model=chat_model,
+                        temperature=self.temperature,
+                        **(response_format_kwargs() if json_mode_used else {})
+                    )
+                except Exception as mode_error:
+                    # Lehnt Provider oder Modell den JSON-Modus ab, genau einmal ohne
+                    # wiederholen; das steht im Log und in json_mode=false der Antwort.
+                    if not (json_mode_used and looks_like_response_format_rejection(mode_error)):
+                        raise
+                    if logger:
+                        logger.warning(
+                            "JSON-Antwortmodus abgelehnt, wiederhole ohne response_format",
+                            model=chat_model,
+                            provider=provider_name_for_mode,
+                            error=str(mode_error)[:300],
+                        )
+                    json_mode_used = False
+                    raw_content, llm_request = chat_provider.chat_completion(
+                        messages=chat_messages,
+                        model=chat_model,
+                        temperature=self.temperature
+                    )
+
                 if llm_request:
                     duration = llm_request.duration
                 response = None  # Für Kompatibilität mit bestehendem Code
@@ -1315,22 +1351,71 @@ class WhisperTranscriber:
             if not raw_content or not raw_content.strip():
                 raise ValueError("Leere Antwort vom LLM erhalten")
 
-            # Versuche JSON zu extrahieren mit zentraler Utility
+            # JSON parsen: direkt, bereinigt, sonst Reparaturstufe 2 (json_repair).
+            # Scheitert auch die, ist das ein Fehler der Transformation — keine
+            # Fehlermeldung als Feldwert mehr (KnowledgeScout musste die bis 08.11.2026
+            # an Textmarkern in structured_data erkennen).
+            from src.utils.json_validation import JSONParseError, parse_llm_json
+            json_repaired: bool = False
+            json_repair_info: Optional[Dict[str, Any]] = None
             try:
-                from src.utils.json_validation import extract_and_parse_json
-                result_json = extract_and_parse_json(raw_content)
-            except Exception as e:
+                parse_outcome = parse_llm_json(
+                    raw_content,
+                    label=template or "template_content",
+                    model=chat_model,
+                )
+            except JSONParseError as e:
                 if logger:
                     logger.error(
                         "Ungültiges JSON vom LLM",
-                        error=str(e),
-                        snippet=raw_content[:500]
+                        error=e,
+                        model=chat_model,
+                        json_mode=json_mode_used,
+                        line=e.line,
+                        column=e.column,
+                        raw_response_file=e.dump_path,
+                        content_chars=len(raw_content),
                     )
-                # Erstelle leeres JSON mit Fehlermeldung für jedes erwartete Feld
-                result_json = {
-                    name: f"Fehler bei der Extraktion: {str(e)}"
-                    for name in field_definitions.fields.keys()
-                }
+                # Kosten des gescheiterten Aufrufs trotzdem verbuchen
+                if llm_request:
+                    self.create_llm_request(
+                        purpose="template_transform",
+                        tokens=llm_request.tokens,
+                        duration=llm_request.duration,
+                        model=llm_request.model,
+                        cost=llm_request.cost,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        logger=logger,
+                        processor=processor
+                    )
+                return TransformationResult(
+                    text="Fehler bei der Template-Transformation: LLM lieferte kein gültiges JSON",
+                    target_language=target_language,
+                    structured_data={
+                        "error": f"LLM lieferte kein gültiges JSON. {str(e)}",
+                        "error_type": "LLMJSONParseError",
+                        "template": template,
+                        "model": chat_model,
+                        "json_mode": json_mode_used,
+                        "line": e.line,
+                        "column": e.column,
+                        "raw_response_file": e.dump_path,
+                    }
+                )
+            result_json = parse_outcome.data
+            json_repaired = parse_outcome.repaired
+            if json_repaired:
+                json_repair_info = parse_outcome.repair_info()
+                json_repair_info["json_mode"] = json_mode_used
+                if logger:
+                    logger.warning(
+                        "LLM-JSON musste repariert werden",
+                        model=chat_model,
+                        json_mode=json_mode_used,
+                        stage=parse_outcome.stage,
+                        hints=list(parse_outcome.repair_log)[:5],
+                    )
 
             # LLM-Nutzung tracken mit zentraler Methode
             if llm_request:
@@ -1531,7 +1616,9 @@ class WhisperTranscriber:
             return TransformationResult(
                 text=template_content_str,
                 target_language=target_language,
-                structured_data=final_structured_data
+                structured_data=final_structured_data,
+                repaired=json_repaired,
+                repair_info=json_repair_info,
             )
             
         except Exception as e:

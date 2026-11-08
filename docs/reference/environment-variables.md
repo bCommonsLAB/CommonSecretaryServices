@@ -145,6 +145,20 @@ The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own si
 - **Description**: Path to cookies file for yt-dlp (for YouTube videos requiring authentication)
 - **Example**: `/path/to/cookies.txt`
 
+### `LLM_JSON_DEBUG_DIR`
+
+- **Type**: String (directory path)
+- **Default**: Empty (off)
+- **Description**: When set, every LLM response that cannot be parsed as JSON (template transformations, `/api/transformer/chat` with `response_format=json_object`) is written in full to this directory as `<timestamp>_<template>_<id>.raw.txt` plus a `.meta.json` with model, error, line and column. Only the model's answer is stored, never the prompt, the input text or any key. The error message names the file.
+- **Example**: `./logs/llm-json`
+
+### `LLM_JSON_RESPONSE_MODE`
+
+- **Type**: String (`off`, `0`, `false` to disable)
+- **Default**: on
+- **Description**: Switches the JSON response mode (`response_format: {type: json_object}`) for template transformations off for the whole installation. Per-model settings live in `config.yaml` under `llm_config.json_response_mode`.
+- **Example**: `off`
+
 ## Environment File (.env)
 
 Create a `.env` file in the project root:

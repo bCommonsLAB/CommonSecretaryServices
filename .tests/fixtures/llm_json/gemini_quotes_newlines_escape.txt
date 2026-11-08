@@ -1,0 +1,32 @@
+```json
+{
+  "titel": "Sitzung 05.11.2026 — Altbestand Teil A",
+  "datum": "2026-11-05",
+  "umgebung": "Claude Code",
+  "hauptvorhaben": "KnowledgeScout",
+  "nebenvorhaben": "CommonSecretaryServices",
+  "beteiligte": "Peter, Claude",
+  "dauer_min": 240,
+  "zuege": 14,
+  "status": "abgeschlossen",
+  "zusammenfassung": "Belege nachgetragen, zwölf Zeilen mit LLM-JSON-Fehler.",
+  "stimmung": "konzentriert",
+  "offene_punkte": "A2, A33, A70",
+  "naechster_schritt": "Parser robust machen",
+  "tags": "archiv, llm-json",
+  "sprache": "de",
+  "quelle": "2026-11-05 Code Altbestand Teil A.md",
+  "entscheidungen_md": "- Peter sagte: "wir nehmen den Pfad C:\Daten\neu" und dabei bleibt es.
+- Die Vorlage "chatverlauf-de" verlangt seit 05.11. typografische Anführungszeichen; das halbiert die Fehler nur.
+- Regex \d+ bleibt ein ungültiges Escape, der Parser meldet "Invalid \escape".",
+  "getan_md": "## Getan
+
+1. 102 von 114 Zeilen abgehakt.
+2. Der Befehl `git commit -m "fix: parser"` lief durch.
+3. Zwölf Zeilen mit "Fehler: LLM-JSON (2×)" markiert.",
+  "befunde_md": "Fehler: Expecting ',' delimiter: line 39 column 600 (char 12345) — der "Content-Snippet" (500 Zeichen) zeigt die Stelle nicht.
+Secretary antwortet mit HTTP 200 und schreibt die Meldung als Feldwert.",
+  "verweise_md": "[[Organisation/Arbeitsliste Sitzungen nachtragen]] Zeilen A2, A33, A70, Vermerk "LLM-JSON".
+[[24.09 KnowledgeScout/2026-11-05 Befund Brücke]]"
+}
+```
