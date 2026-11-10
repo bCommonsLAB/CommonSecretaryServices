@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import requests  # type: ignore
+from src.utils import ssrf
 from PIL import Image, ImageOps
 
 from src.core.exceptions import ProcessingError
@@ -48,7 +49,9 @@ def load_image(source: str, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> Image.I
 
     if source.startswith("http://") or source.startswith("https://"):
         try:
-            response = requests.get(source, timeout=timeout, stream=True)
+            response = ssrf.get(source, timeout=timeout, stream=True)
+        except ssrf.SsrfBlocked as e:
+            raise ProcessingError(f"Bild konnte nicht geladen werden: {e}", details={"error_code": ssrf.SSRF_BLOCKED}) from e
         except requests.RequestException as e:
             raise ProcessingError(f"Bild konnte nicht geladen werden: {e}") from e
         if response.status_code != 200:

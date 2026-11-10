@@ -2,6 +2,32 @@
 
 General endpoints for common operations.
 
+## Error code `SSRF_BLOCKED` (all endpoints)
+
+URLs passed in a request are only fetched, and webhooks are only sent, if the target is public.
+Loopback, private networks, link-local and cloud metadata addresses and schemes other than
+`http`/`https` are refused.
+
+- A `callback_url` (form field, query parameter, JSON field, or `webhook.url`) that is not allowed
+  is refused when the request is accepted:
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "SSRF_BLOCKED",
+    "message": "Ziel nicht erlaubt: ... zeigt auf eine interne oder reservierte Adresse. ...",
+    "details": { "field": "callback_url" }
+  }
+}
+```
+
+  HTTP status `400`. No job is created.
+- A source URL that is not allowed fails when it is fetched. The media endpoints answer
+  `400 SSRF_BLOCKED`; the other endpoints report it in their usual error format with the message above.
+- Exceptions per installation: `WEBHOOK_ALLOWED_HOSTS` and `FETCH_ALLOWED_HOSTS`, see
+  [environment variables](../../environment-variables.md).
+
 ## GET /api/common/
 
 API home endpoint.

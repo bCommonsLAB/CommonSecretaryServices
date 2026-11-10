@@ -13,6 +13,8 @@ from typing import Iterator
 import pytest
 import requests
 
+from src.utils.ssrf import SsrfBlocked
+
 from src.utils.http_fetch import DownloadError, DownloadTooLarge, download_to_file, fetch_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +64,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+
+@pytest.fixture(autouse=True)
+def _allow_local_test_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Der Testserver läuft auf 127.0.0.1; der SSRF-Schutz (AP-12) sperrt das ohne Ausnahme."""
+    monkeypatch.setenv("FETCH_ALLOWED_HOSTS", "127.0.0.1")
 
 
 @pytest.fixture(scope="module")
@@ -114,7 +122,8 @@ def test_user_agent_is_set(server: str) -> None:
 def test_file_urls_are_not_fetched(tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("geheim", encoding="utf-8")
-    with pytest.raises(requests.exceptions.InvalidSchema):
+    # Seit AP-12 lehnt der SSRF-Schutz alles außer http/https ab, bevor requests die Adresse sieht
+    with pytest.raises(SsrfBlocked):
         fetch_bytes(secret.as_uri(), max_bytes=1000)
 
 
@@ -153,7 +162,7 @@ def test_download_uses_tls_verify(monkeypatch: pytest.MonkeyPatch) -> None:
         seen.update(kwargs)
         raise requests.ConnectionError("stop")
 
-    monkeypatch.setattr(http_fetch.requests, "get", fake_get)
+    monkeypatch.setattr(http_fetch.ssrf, "get", fake_get)
     monkeypatch.setenv("PYTHONHTTPSVERIFY", "0")
     monkeypatch.delenv("FLASK_ENV", raising=False)
     with pytest.raises(requests.ConnectionError):

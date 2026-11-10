@@ -49,7 +49,7 @@ def _patch_post(monkeypatch: pytest.MonkeyPatch) -> List[Dict[str, Any]]:
 
         return _Resp()
 
-    monkeypatch.setattr("src.core.processing.handlers.audio_handler.requests.post", _fake_post)
+    monkeypatch.setattr("src.core.processing.handlers.audio_handler.post_webhook", _fake_post)
     return posted
 
 

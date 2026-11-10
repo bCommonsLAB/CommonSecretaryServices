@@ -37,8 +37,8 @@ Sicherheitskonfiguration ist geschlossen, pro Installation genügen Umgebungsvar
   als Option in AP-20.
 - **E2 Proxy-Vertrauen: offen, aber nicht sicherheitskritisch.** `TRUSTED_PROXY_COUNT` (Default 0) betrifft nur
   Client-IPs für Logs, Rate-Limit und Swagger-Whitelist. Für die Produktionsinstanz hinter Dokploy vermutlich 1.
-- **E3 yt-dlp Generic-Extractor: offen.** Vorschlag: bleibt erlaubt, aber nur zu öffentlichen IP-Zielen.
-  Betrifft AP-12, nicht die ersten Pakete.
+- **E3 yt-dlp Generic-Extractor: entschieden (10.11.2026).** Jede öffentliche Seite bleibt erlaubt, interne Ziele
+  sind gesperrt. Umgesetzt in AP-12.
 
 ## Stand der Arbeitspakete
 
@@ -84,14 +84,22 @@ Beim Rollout beachten:
   selbst verwundbar ist. Neue oder geänderte Pakete immer in `requirements.txt` **und** `requirements.lock` nachziehen,
   Ablauf in `docs/deployment/abhaengigkeiten.md`. Beim Rollout beachten: Das Image wechselt auf Debian 13; nach dem
   ersten Deploy OCR (Tesseract), eine Office-Datei und ein Projektheft einmal durchlaufen lassen.
-- **Phase 1 ist damit abgeschlossen. Nächstes Code-Paket ist AP-12** (SSRF-Schutz zentral); vorher Entscheidung E3 klären.
+- **Phase 1 ist abgeschlossen** (AP-05 und AP-06 mit PR #47 gemerged).
+- **AP-12 ist umgesetzt** (10.11.2026, PR #48): `src/utils/ssrf.py` prüft jede
+  Adresse aus Requests. Neue Stellen nutzen `ssrf.get/head/post`, `download_to_file`/`fetch_bytes`, `post_webhook`
+  für Callback-Adressen und `GuardedYoutubeDL` statt `yt_dlp.YoutubeDL`; ein statischer Test in `.tests/test_ssrf.py`
+  schlägt sonst fehl. **Beim Rollout klären:** Ruft der Dienst einen Client über eine interne Adresse zurück
+  (KnowledgeScout auf demselben Rechner oder im selben Docker-Netz), muss dessen Hostname in
+  `WEBHOOK_ALLOWED_HOSTS` stehen, sonst lehnt der Dienst die Anfragen mit 400 `SSRF_BLOCKED` ab. Lädt er Dateien von
+  einem internen Server, gehört dessen Hostname in `FETCH_ALLOWED_HOSTS`.
+- **Nächstes Code-Paket ist AP-13** (Booklet-Renderer härten).
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-12 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-13 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:
@@ -124,6 +132,9 @@ Ablauf je Paket:
   umgebungsbedingt (Booklet-Schrift, zwei RAG-Endpunkt-Tests, RAG-Prozessor, vier Mongo-Cache-Tests; der vierte,
   `test_full_audio_cache`, wurde vor AP-06 mangels pytest-asyncio übersprungen). Mit einer
   nicht erreichbaren `MONGODB_URI` ohne kurze Timeouts hängen manche Tests minutenlang.
+- **Namensauflösung in Tests:** `.tests/conftest.py` löst jeden Hostnamen auf eine feste öffentliche Adresse auf;
+  interne Namen für einen Test über `conftest.FAKE_DNS` setzen. Tests mit lokalem Server brauchen
+  `FETCH_ALLOWED_HOSTS=127.0.0.1` oder `WEBHOOK_ALLOWED_HOSTS=127.0.0.1`.
 - **Tests, die die API per Test-Client aufrufen, brauchen einen Token** (Muster: `.tests/test_rag_embed_text_endpoint.py`
   oder `.tests/auth_test_support.py`).
 

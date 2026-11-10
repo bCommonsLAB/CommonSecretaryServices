@@ -50,6 +50,9 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - SWAGGER_IP_WHITELIST=${SWAGGER_IP_WHITELIST:-}
+      # SSRF-Schutz: Ausnahmen fuer interne Ziele (leer = nur oeffentliche Adressen)
+      - WEBHOOK_ALLOWED_HOSTS=${WEBHOOK_ALLOWED_HOSTS:-}
+      - FETCH_ALLOWED_HOSTS=${FETCH_ALLOWED_HOSTS:-}
 
   mongodb:
     image: mongo:6

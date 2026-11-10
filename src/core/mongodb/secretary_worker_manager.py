@@ -48,6 +48,7 @@ import traceback
 from datetime import datetime, UTC
 from typing import Dict, Optional, Any, cast, Callable, List
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 import json
 try:
     from bson import BSON  # type: ignore
@@ -364,7 +365,7 @@ class SecretaryWorkerManager:
                             headers["X-Callback-Token"] = str(callback_token)
                         try:
                             self.job_repo.add_log_entry(job.job_id, "info", f"Sende Error-Webhook an {callback_url}")
-                            resp = requests.post(url=str(callback_url), json=payload, headers=headers, timeout=30)
+                            resp = post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=30)
                             self.job_repo.add_log_entry(job.job_id, "info", f"Error-Webhook Antwort: {getattr(resp, 'status_code', None)} ok={getattr(resp, 'ok', None)}")
                         except Exception as post_err:
                             self.job_repo.add_log_entry(job.job_id, "error", f"Error-Webhook-POST fehlgeschlagen: {str(post_err)}")

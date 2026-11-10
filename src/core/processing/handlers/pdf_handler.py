@@ -40,6 +40,7 @@ Features:
 
 from typing import Any, Dict, Optional, cast
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 import os
 import base64
 import zipfile
@@ -146,7 +147,7 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 		}
 		try:
 			repo.add_log_entry(job.job_id, "info", f"Webhook-Progress: phase={phase} progress={progress}")
-			requests.post(url=str(callback_url), json=payload, headers=headers, timeout=15)
+			post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=15)
 		except Exception as _:
 			# Progress-Fehler nicht fatal
 			pass
@@ -350,7 +351,7 @@ async def handle_pdf_job(job: Job, repo: Any, resource_calculator: ResourceCalcu
 					error_headers["Authorization"] = f"Bearer {callback_token}"
 					error_headers["X-Callback-Token"] = str(callback_token)
 				repo.add_log_entry(job.job_id, "info", f"Sende Error-Webhook an {callback_url}")
-				resp = requests.post(url=str(callback_url), json=error_payload, headers=error_headers, timeout=30)
+				resp = post_webhook(url=str(callback_url), json=error_payload, headers=error_headers, timeout=30)
 				repo.add_log_entry(job.job_id, "info", f"Error-Webhook Antwort: {getattr(resp, 'status_code', None)}")
 			except Exception as webhook_err:
 				repo.add_log_entry(job.job_id, "error", f"Error-Webhook fehlgeschlagen: {str(webhook_err)}")

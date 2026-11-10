@@ -39,6 +39,7 @@ Features:
 
 from typing import Any, Dict, Optional, cast
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 
 from src.core.models.job_models import Job, JobProgress
 from src.core.resource_tracking import ResourceCalculator
@@ -99,7 +100,7 @@ async def handle_transformer_template_job(job: Job, repo: Any, resource_calculat
         }
         try:
             repo.add_log_entry(job.job_id, "info", f"Webhook-Progress: phase={phase} progress={progress}")
-            requests.post(url=str(callback_url), json=payload, headers=headers, timeout=15)
+            post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=15)
         except Exception:
             # Progress-Fehler nicht fatal
             pass

@@ -20,6 +20,7 @@ import os
 from src.utils.error_responses import redact_sensitive
 
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 
 from src.api.audio_completed_data import build_audio_completed_data
 from src.core.models.enums import ProcessingStatus
@@ -142,7 +143,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
         }
         try:
             repo.add_log_entry(job.job_id, "info", f"Webhook-Progress: progress={progress}")
-            requests.post(url=str(callback_url), json=payload, headers=headers, timeout=15)
+            post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=15)
         except Exception:
             # Progress-Fehler nicht fatal
             pass
@@ -303,7 +304,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
             }
             try:
                 repo.add_log_entry(job.job_id, "info", f"Sende Webhook-Callback an {callback_url}")
-                resp = requests.post(url=str(callback_url), json=payload_final, headers=headers_final, timeout=30)
+                resp = post_webhook(url=str(callback_url), json=payload_final, headers=headers_final, timeout=30)
                 repo.add_log_entry(
                     job.job_id,
                     "info",
@@ -332,7 +333,7 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
                     "data": None,
                 }
                 repo.add_log_entry(job.job_id, "info", f"Sende Error-Webhook an {callback_url}")
-                resp = requests.post(url=str(callback_url), json=error_payload, headers=error_headers, timeout=30)
+                resp = post_webhook(url=str(callback_url), json=error_payload, headers=error_headers, timeout=30)
                 repo.add_log_entry(job.job_id, "info", f"Error-Webhook Antwort: {getattr(resp, 'status_code', None)}")
             except Exception as webhook_err:
                 repo.add_log_entry(job.job_id, "error", f"Error-Webhook fehlgeschlagen: {str(webhook_err)}")

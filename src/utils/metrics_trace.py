@@ -132,7 +132,7 @@ def traced_webhook_post(
     """
     import time
     from urllib.parse import urlparse
-    import requests
+    from src.utils.ssrf import post_webhook
 
     host = urlparse(url).netloc or "unknown"
     log_metrics_event(
@@ -145,7 +145,7 @@ def traced_webhook_post(
     )
     started = time.time()
     try:
-        resp = requests.post(url=url, json=json, headers=headers, timeout=timeout)
+        resp = post_webhook(url=url, json=json, headers=headers, timeout=timeout)
         log_metrics_event(
             "webhook_post_end",
             job_id=job_id,
