@@ -85,7 +85,7 @@ Beim Rollout beachten:
   Ablauf in `docs/deployment/abhaengigkeiten.md`. Beim Rollout beachten: Das Image wechselt auf Debian 13; nach dem
   ersten Deploy OCR (Tesseract), eine Office-Datei und ein Projektheft einmal durchlaufen lassen.
 - **Phase 1 ist abgeschlossen** (AP-05 und AP-06 mit PR #47 gemerged).
-- **AP-12 ist umgesetzt** (10.11.2026, Branch `claude/security-issues-progress-1biry3`): `src/utils/ssrf.py` prüft jede
+- **AP-12 ist umgesetzt** (10.11.2026, PR #48): `src/utils/ssrf.py` prüft jede
   Adresse aus Requests. Neue Stellen nutzen `ssrf.get/head/post`, `download_to_file`/`fetch_bytes`, `post_webhook`
   für Callback-Adressen und `GuardedYoutubeDL` statt `yt_dlp.YoutubeDL`; ein statischer Test in `.tests/test_ssrf.py`
   schlägt sonst fehl. **Beim Rollout klären:** Ruft der Dienst einen Client über eine interne Adresse zurück
