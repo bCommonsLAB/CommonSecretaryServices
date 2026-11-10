@@ -265,7 +265,13 @@ Schritte:
 
 Akzeptanz: `pip-audit -r requirements.lock` ohne Befunde; Image baut; Tests grün.
 
-- [ ] erledigt am ______, PR #____
+- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `requirements.txt`, neu `requirements.lock` (139 Pakete, exakt gepinnt, mit Prüfsummen, erzeugt mit `uv pip compile`), `Dockerfile`, Anleitung `docs/deployment/abhaengigkeiten.md`, Tests `.tests/test_dependency_lock.py`.
+  - Abweichung vom Plan: **Pillow steht auf 13.0.0, nicht 12.3.0.** `pip-audit` meldete am 10.11.2026 für 12.3.0 bereits 39 neue Advisories, behoben in 13.0.0. Mit 13.0.0 lautet das Ergebnis „No known vulnerabilities found“. Weitere Stände im Lockfile: flask 3.1.3, pymongo 4.19.0, pytest 9.2.0; dnspython musste wegen pymongo auf ≥ 2.7 angehoben werden.
+  - Die Option `--only-binary :all:` steht nicht mehr in der Pillow-Zeile (sie verhinderte `pip-audit` und das Erzeugen des Lockfiles), sondern als `--only-binary=pillow` im Dockerfile.
+  - Dockerfile: Basisimage `python:3.12-slim` per Digest gepinnt, `apt-get upgrade` im Build, Installation mit `--require-hashes` aus dem Lockfile, `pip install --upgrade yt-dlp` entfernt. Das Basisimage wechselt damit von Debian 12 (bookworm) auf Debian 13 (trixie).
+  - Die bisher nicht gepinnten Pakete (openai, numpy, pandas, PyMuPDF, requests und weitere) sind im Lockfile auf dem Stand vom 10.11.2026 eingefroren. Das ist der Stand, den ein frischer Build ohnehin gezogen hätte.
+  - Zusätzlich gefunden und mit erledigt: `pyproject.toml` war als UTF-16 gespeichert und damit für alle Werkzeuge unlesbar. pytest 9 bricht daran ab, uv ebenfalls. Die Datei ist jetzt UTF-8, der Inhalt ist unverändert. Folge: Die Einstellungen für mypy, black und isort darin greifen jetzt erstmals.
+  - Geprüft: Testlauf unter Python 3.12 mit genau den Paketen des Lockfiles (555 bestanden, 8 umgebungsbedingt fehlgeschlagen, siehe Handover), Kurztest PDF-Seitenbilder (PyMuPDF, pdf2image) und der verwendeten Pillow-Funktionen mit Pillow 13. Nicht geprüft: OCR mit Tesseract und LibreOffice-Konvertierung gegen echte Dateien.
 
 ### AP-07 Mitgelieferte Compose sicher per Default
 Befund: K4. Aufwand: S–M. Dateien: `docker-compose.yml`, `.env.example`, README Abschnitt Docker, neue Datei `docs/deployment/mongo-migration.md`. Vorgezogen aus AP-14, weil die Compose-Datei auf jeder Installation landet.
@@ -519,6 +525,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 6/7 |
+| 1 | AP-01 … AP-07 | 7/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

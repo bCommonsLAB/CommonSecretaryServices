@@ -79,14 +79,19 @@ Beim Rollout beachten:
   Tests in `.tests/test_error_responses.py` schlagen sonst fehl. Stacktraces stehen auch nicht mehr in Job-Dokumenten
   und Fehler-Webhooks. Beim Rollout beachten: Clients, die `error.details.traceback` auswerten oder anzeigen, finden
   das Feld nicht mehr.
-- **Nächstes Code-Paket ist AP-06** (Abhängigkeiten und Docker-Basis).
+- **AP-06 ist umgesetzt** (10.11.2026, selber Branch): Installiert wird aus `requirements.lock` (gepinnt, mit Prüfsummen),
+  das Basisimage ist per Digest gepinnt, `pip-audit` meldet keine Befunde. Pillow steht auf 13.0.0, weil 12.3.0 inzwischen
+  selbst verwundbar ist. Neue oder geänderte Pakete immer in `requirements.txt` **und** `requirements.lock` nachziehen,
+  Ablauf in `docs/deployment/abhaengigkeiten.md`. Beim Rollout beachten: Das Image wechselt auf Debian 13; nach dem
+  ersten Deploy OCR (Tesseract), eine Office-Datei und ein Projektheft einmal durchlaufen lassen.
+- **Phase 1 ist damit abgeschlossen. Nächstes Code-Paket ist AP-12** (SSRF-Schutz zentral); vorher Entscheidung E3 klären.
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-06 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-12 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:
@@ -105,20 +110,22 @@ Ablauf je Paket:
 - **Keine Geheimnisse in Dateien, Commits oder PR-Texte kopieren.** Der Push wurde blockiert, solange der
   Bericht Bruchstücke eines echten Keys und des Deploy-Tokens enthielt. Fundstellen nur mit Datei und Zeile
   nennen, Werte kürzen oder als `<token>` schreiben.
-- **pip-audit scheitert an `requirements.txt`**, weil die Pillow-Zeile `--only-binary :all:` enthält.
-  Für den Audit eine Kopie ohne diese Option verwenden (AP-06 löst das mit einem Lockfile).
+- **pip-audit läuft gegen das Lockfile:** `pip-audit -r requirements.lock --require-hashes --disable-pip`.
+  In der Cloud-Umgebung ist `api.osv.dev` gesperrt, die Standardquelle PyPI funktioniert.
+- **Docker Hub begrenzt anonyme Abrufe** (Antwort 429). Für einen Probe-Build liefert `mirror.gcr.io/library/python`
+  denselben Digest.
 - **Zwei Einstiegspunkte:** Produktiv startet `src/main.py` die App aus `src/dashboard/app.py`.
   `src/api/__init__.py` ist eine zweite, laut Kommentar ungenutzte App-Factory. Auth-Änderungen müssen in
   `src/dashboard/app.py` und im API-Blueprint `src/api/routes/__init__.py` wirken.
 - **Die Hintergrund-Worker starten beim ersten Request** in `before_request` von `src/dashboard/app.py`.
   Beim Wechsel auf gunicorn mit mehreren Prozessen (AP-14) liefen sie mehrfach. Das ist im Plan vermerkt.
 - **Test-Umgebung:** Unter Python 3.13 fehlt `audioop` (pydub); dort `audioop-lts` installieren oder Python 3.12
-  wie in der Produktion verwenden. Ohne MongoDB, Voyage-Key und die Schrift Jost scheitern 7 vorhandene Tests
-  umgebungsbedingt (Booklet-Schrift, zwei RAG-Endpunkt-Tests, RAG-Prozessor, drei Mongo-Cache-Tests). Mit einer
+  wie in der Produktion verwenden. Ohne MongoDB, Voyage-Key und die Schrift Jost scheitern 8 vorhandene Tests
+  umgebungsbedingt (Booklet-Schrift, zwei RAG-Endpunkt-Tests, RAG-Prozessor, vier Mongo-Cache-Tests; der vierte,
+  `test_full_audio_cache`, wurde vor AP-06 mangels pytest-asyncio übersprungen). Mit einer
   nicht erreichbaren `MONGODB_URI` ohne kurze Timeouts hängen manche Tests minutenlang.
 - **Tests, die die API per Test-Client aufrufen, brauchen einen Token** (Muster: `.tests/test_rag_embed_text_endpoint.py`
   oder `.tests/auth_test_support.py`).
-- **Pillow-Major-Update in AP-06** kann OCR, Booklet und PDF-Seitenbilder berühren. Dort gründlich testen.
 
 ## Nicht geprüft
 
