@@ -43,6 +43,7 @@ from src.core.models.text2image import Text2ImageResponse
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.logger import ProcessingLogger
 
 # Initialisiere Logger
@@ -236,7 +237,7 @@ class Text2ImageGenerateEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', None)
                 }
             }, 400
@@ -252,7 +253,7 @@ class Text2ImageGenerateEndpoint(Resource):
                     'message': 'Ein unerwarteter Fehler ist aufgetreten',
                     'details': {
                         'error_type': type(e).__name__,
-                        'error_message': str(e)
+                        'error_message': public_error_message(e)
                     }
                 }
             }, 500

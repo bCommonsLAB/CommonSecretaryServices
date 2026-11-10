@@ -43,6 +43,7 @@ from werkzeug.datastructures import FileStorage
 
 from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.performance_tracker import get_performance_tracker
 from src.processors.image_analyzer_processor import ImageAnalyzerProcessor
 
@@ -359,7 +360,7 @@ class ImageAnalyzerUploadEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {'error_type': type(e).__name__}
                 }
             }
@@ -464,7 +465,7 @@ class ImageAnalyzerUrlEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {'error_type': type(e).__name__}
                 }
             }

@@ -41,6 +41,7 @@ from src.core.models.rag import RAGResponse
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger, ProcessingLogger
+from src.utils.error_responses import public_error_message
 
 # Initialisiere Logger
 logger: ProcessingLogger = get_logger(process_id="rag-api")
@@ -240,7 +241,7 @@ class RAGEmbedTextEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', None)
                 }
             }, 400
@@ -254,7 +255,7 @@ class RAGEmbedTextEndpoint(Resource):
                     'message': 'Ein unerwarteter Fehler ist aufgetreten',
                     'details': {
                         'error_type': type(e).__name__,
-                        'error_message': str(e)
+                        'error_message': public_error_message(e)
                     }
                 }
             }, 500

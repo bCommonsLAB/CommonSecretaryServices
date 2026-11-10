@@ -53,6 +53,17 @@ class ProcessingLogger:
     def warning(self, message: str, **kwargs: Any) -> None: ...
     def error(self, message: str, **kwargs: Any) -> None: ...
 
+# Diagnosefelder, die nie in API-Antworten, Webhooks oder Job-Dokumenten stehen duerfen (AP-05, M3).
+INTERNAL_DETAIL_KEYS = frozenset({"traceback", "stack_trace", "stacktrace"})
+
+
+def strip_internal_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Entfernt Stacktrace-Felder aus Fehlerdetails. Der Stacktrace gehoert ins Log."""
+    if not details:
+        return {}
+    return {key: value for key, value in details.items() if key not in INTERNAL_DETAIL_KEYS}
+
+
 @dataclass
 class ErrorInfo:
     """Fehlerinformationen für API-Responses"""
@@ -72,7 +83,7 @@ class ErrorInfo:
         return {
             'code': self.code,
             'message': self.message,
-            'details': self.details
+            'details': strip_internal_details(self.details)
         }
 
 @dataclass

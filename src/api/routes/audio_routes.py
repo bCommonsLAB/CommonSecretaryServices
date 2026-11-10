@@ -53,6 +53,7 @@ from src.core.exceptions import ProcessingError
 from src.core.llm.transcription_context import TranscriptionContext
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.logger import ProcessingLogger
 from src.core.mongodb import SecretaryJobRepository
 
@@ -450,7 +451,7 @@ class AudioProcessEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', None)
                 }
             }, 400
@@ -467,7 +468,7 @@ class AudioProcessEndpoint(Resource):
                     'message': 'Ein unerwarteter Fehler ist aufgetreten',
                     'details': {
                         'error_type': type(e).__name__,
-                        'error_message': str(e)
+                        'error_message': public_error_message(e)
                     }
                 }
             }, 500

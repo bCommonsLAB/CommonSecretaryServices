@@ -383,14 +383,15 @@ processors:
       postprocessors:
       - key: FFmpegExtractAudio
         preferredcodec: mp3
+# Hinweis: rate_limiting wird noch nicht ausgewertet. Die Anbindung folgt mit AP-16
+# (docs/sicherheitsplan-umsetzung.md); bis dahin begrenzt dieser Abschnitt nichts.
 rate_limiting:
   enabled: true
   requests_per_minute: 60
+# server: nur api_base_url wird ausgewertet. Die früheren Schalter debug, host und port
+# hatten keine Wirkung und sind entfernt (AP-05). Adresse und Port setzt der Start in src/main.py.
 server:
   api_base_url: http://localhost:5001
-  debug: true
-  host: 127.0.0.1
-  port: 5000
 session_worker:
   active: false
   max_concurrent: 3

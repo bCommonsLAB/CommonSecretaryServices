@@ -51,6 +51,7 @@ from src.processors.session_processor import SessionProcessor
 from src.core.models.job_models import Job, JobStatus, JobProgress, JobError, JobResults
 from src.core.resource_tracking import ResourceCalculator
 from src.core.security import redact_uri
+from src.utils.error_responses import redact_sensitive
 from .repository import SessionJobRepository
 
 # Logger initialisieren
@@ -347,9 +348,8 @@ class SessionWorkerManager:
             # Bei Fehler den Job-Status aktualisieren
             error_info = JobError(
                 code=type(e).__name__,
-                message=str(e),
+                message=redact_sensitive(str(e)),
                 details={
-                    "traceback": traceback.format_exc(),
                     "duration_ms": int((end_time - start_time).total_seconds() * 1000)
                 }
             )
@@ -377,7 +377,7 @@ class SessionWorkerManager:
                 self.job_repo.update_batch_progress(job.batch_id)
             
             logger.error(f"Fehler bei der Verarbeitung von Job {job_id}: {str(e)}")
-            logger.debug(traceback.format_exc())
+            logger.error(traceback.format_exc())
         finally:
             # Messung abschließen + in MongoDB persistieren, danach aufräumen.
             if metric_tracker is not None:

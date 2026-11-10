@@ -59,6 +59,7 @@ from src.core.resource_tracking import ResourceCalculator
 from src.core.processing import registry
 from .secretary_repository import SecretaryJobRepository
 from src.utils.logger import register_log_observer, unregister_log_observer
+from src.utils.error_responses import redact_sensitive
 
 
 logger = logging.getLogger(__name__)
@@ -313,18 +314,18 @@ class SecretaryWorkerManager:
             if job.batch_id:
                 self.job_repo.update_batch_progress(job.batch_id)
         except Exception as e:
-            logger.error(f"Fehler in Job {job.job_id}: {e}")
+            logger.error(f"Fehler in Job {job.job_id}: {e}\n{traceback.format_exc()}")
             if metric_tracker is not None:
                 metric_tracker.set_error(str(e), type(e).__name__)
             error_info = JobError(
                 code=type(e).__name__,
-                message=str(e),
-                details={"traceback": traceback.format_exc(), "duration_ms": int((datetime.now(UTC) - start_time).total_seconds() * 1000)},
+                message=redact_sensitive(str(e)),
+                details={"duration_ms": int((datetime.now(UTC) - start_time).total_seconds() * 1000)},
             )
             self.job_repo.update_job_status(
                 job_id=job.job_id,
                 status=JobStatus.FAILED,
-                progress=JobProgress(step="error", percent=0, message=str(e)),
+                progress=JobProgress(step="error", percent=0, message=redact_sensitive(str(e))),
                 error=error_info,
             )
             if job.batch_id:

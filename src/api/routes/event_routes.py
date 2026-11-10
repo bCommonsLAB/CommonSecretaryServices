@@ -44,6 +44,7 @@ from src.core.models.event import EventResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.event_processor import EventProcessor
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.logger import ProcessingLogger
 
 # Logger erstellen
@@ -222,7 +223,7 @@ class EventSummaryEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': e.__class__.__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {}
                 }
             }, 400
@@ -239,7 +240,7 @@ class EventSummaryEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'InternalServerError',
-                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {public_error_message(e)}',
                     'details': {}
                 }
             }, 500 

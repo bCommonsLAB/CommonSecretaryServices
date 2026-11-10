@@ -73,14 +73,20 @@ Beim Rollout beachten:
   und auf ein CA-Bundle (`SSL_CERT_FILE`) angewiesen ist.
 - **Nachtrag PR #42:** Mistral-OCR wiederholt bei `invalid_model` einmal mit `mistral-ocr-latest`; Modellnamen im
   LLM-Katalog werden ohne Provider-Präfix gespeichert.
-- **Nächstes Code-Paket ist AP-05** (Fehlerausgaben und Informationsabfluss), dann AP-06.
+- **AP-05 ist umgesetzt** (10.11.2026, Branch `claude/security-issues-progress-1biry3`): Fehlertexte für API-Antworten
+  laufen über `src/utils/error_responses.py`. Unerwartete Ausnahmen liefern `Interner Fehler (Referenz: <id>)`, der
+  Stacktrace steht unter `error_ref` im Log. Neue Routen nutzen `public_error_message(e)` statt `str(e)`; drei statische
+  Tests in `.tests/test_error_responses.py` schlagen sonst fehl. Stacktraces stehen auch nicht mehr in Job-Dokumenten
+  und Fehler-Webhooks. Beim Rollout beachten: Clients, die `error.details.traceback` auswerten oder anzeigen, finden
+  das Feld nicht mehr.
+- **Nächstes Code-Paket ist AP-06** (Abhängigkeiten und Docker-Basis).
 
 ## So startet die nächste Sitzung
 
 Startsatz:
 
 ```
-Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-05 aus docs/sicherheitsplan-umsetzung.md um.
+Lies docs/handover-sicherheit.md und setze dann Arbeitspaket AP-06 aus docs/sicherheitsplan-umsetzung.md um.
 ```
 
 Ablauf je Paket:

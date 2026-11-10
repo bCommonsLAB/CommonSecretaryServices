@@ -36,6 +36,7 @@ from src.core.llm.realtime_transcription import (
     RealtimeTranscriptionService,
 )
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="realtime-api")
 
@@ -109,7 +110,7 @@ class TranscriptionSessionEndpoint(Resource):
             return _error(code, message, _ERROR_STATUS[code])
         except Exception as e:
             logger.error(f"Unerwarteter Fehler bei der Ticket-Ausstellung: {str(e)}")
-            return _error("INTERNAL_ERROR", str(e), 500)
+            return _error("INTERNAL_ERROR", public_error_message(e), 500)
 
         return {"status": "success", "data": ticket.to_dict()}
 

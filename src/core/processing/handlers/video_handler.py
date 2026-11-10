@@ -17,7 +17,7 @@ Design:
 from __future__ import annotations
 
 import os
-import traceback
+from src.utils.error_responses import redact_sensitive
 from typing import Any, Dict, Optional, cast
 
 import requests  # type: ignore
@@ -218,8 +218,8 @@ async def handle_video_job(job: Job, repo: Any, resource_calculator: ResourceCal
                     "job": {"id": _client_job_id or job.job_id},
                     "error": {
                         "code": type(e).__name__,
-                        "message": str(e),
-                        "details": {"traceback": traceback.format_exc()},
+                        "message": redact_sensitive(str(e)),
+                        "details": {},
                     },
                     "data": None,
                 }

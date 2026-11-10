@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, cast
 import os
-import traceback
+from src.utils.error_responses import redact_sensitive
 
 import requests  # type: ignore
 
@@ -326,8 +326,8 @@ async def handle_audio_job(job: Job, repo: Any, resource_calculator: ResourceCal
                     "job": {"id": _client_job_id or job.job_id},
                     "error": {
                         "code": type(e).__name__,
-                        "message": str(e),
-                        "details": {"traceback": traceback.format_exc()},
+                        "message": redact_sensitive(str(e)),
+                        "details": {},
                     },
                     "data": None,
                 }

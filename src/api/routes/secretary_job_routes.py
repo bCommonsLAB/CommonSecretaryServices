@@ -43,6 +43,7 @@ from flask import request, Response
 from flask_restx import Namespace, Resource, fields  # type: ignore
 
 from src.core.mongodb import SecretaryJobRepository
+from src.utils.error_responses import public_error_message
 import json
 from datetime import datetime
 import os
@@ -281,6 +282,6 @@ class SecretaryJobArchiveDownloadEndpoint(Resource):
                 }
             )
         except Exception as e:
-            return json_response({"error": f"Fehler beim Download: {str(e)}"}, 500)
+            return json_response({"error": f"Fehler beim Download: {public_error_message(e)}"}, 500)
 
 

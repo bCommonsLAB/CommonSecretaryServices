@@ -45,6 +45,7 @@ from src.core.mongodb import SecretaryJobRepository
 from src.processors.audio_cache_key import MODE_DIARIZED
 from src.processors.diarized_audio_processor import DiarizedAudioProcessor
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="audio-diarized-api")
 
@@ -144,11 +145,11 @@ class AudioProcessDiarizedEndpoint(Resource):
         except ProcessingError as e:
             code = str((getattr(e, 'details', None) or {}).get('error_code') or type(e).__name__)
             logger.error('Sprecher-Transkription fehlgeschlagen', error=e, code=code)
-            return _error(code, str(e), _ERROR_STATUS.get(code, 400), getattr(e, 'details', None))
+            return _error(code, public_error_message(e), _ERROR_STATUS.get(code, 400), getattr(e, 'details', None))
         except Exception as e:
             logger.error('Unerwarteter Fehler bei der Sprecher-Transkription', error=e)
             return _error('INTERNAL_ERROR', 'Ein unerwarteter Fehler ist aufgetreten', 500,
-                          {'error_type': type(e).__name__, 'error_message': str(e)})
+                          {'error_type': type(e).__name__, 'error_message': public_error_message(e)})
         finally:
             if temp_path:
                 try:

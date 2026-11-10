@@ -51,6 +51,7 @@ import time
 
 from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 # Performance-Tracker wird in diesem Flow nicht benötigt
 from src.processors.pdf_processor import PDFProcessor
 from src.core.mongodb.secretary_repository import SecretaryJobRepository
@@ -586,10 +587,9 @@ class PDFEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': type(e).__name__,
-                        'message': str(e),
+                        'message': public_error_message(e),
                         'details': {
                             'error_type': type(e).__name__,
-                            'traceback': traceback.format_exc()
                         }
                     }
                 }, 400
@@ -783,10 +783,9 @@ class PDFMistralOCREndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': type(e).__name__,
-                        'message': str(e),
+                        'message': public_error_message(e),
                         'details': {
                             'error_type': type(e).__name__,
-                            'traceback': traceback.format_exc()
                         }
                     }
                 }, 400
@@ -956,10 +955,9 @@ class PDFUrlEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': type(e).__name__,
-                        'message': str(e),
+                        'message': public_error_message(e),
                         'details': {
                             'error_type': type(e).__name__,
-                            'traceback': traceback.format_exc()
                         }
                     }
                 }, 400
@@ -1004,7 +1002,7 @@ class PDFTextContentEndpoint(Resource):
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des Textinhalts: {str(e)}")
             return {
-                'error': str(e)
+                'error': public_error_message(e)
             }, 500
 
 @pdf_ns.route('/jobs/<string:job_id>/download-pages-archive')  # type: ignore
@@ -1094,7 +1092,7 @@ class PDFJobPagesArchiveDownloadEndpoint(Resource):
             
         except Exception as e:
             logger.error(f"Fehler beim Download des Seiten-Archives für Job {job_id}: {str(e)}", exc_info=True)
-            return {'error': f'Fehler beim Download: {str(e)}'}, 500
+            return {'error': f'Fehler beim Download: {public_error_message(e)}'}, 500
 
 
 @pdf_ns.route('/jobs/<string:job_id>/mistral-ocr-raw')  # type: ignore
@@ -1164,7 +1162,7 @@ class PDFJobMistralOCRRawEndpoint(Resource):
             
         except Exception as e:
             logger.error(f"Fehler beim Download der Mistral OCR Raw-Daten für Job {job_id}: {str(e)}", exc_info=True)
-            return {'error': f'Fehler beim Download: {str(e)}'}, 500
+            return {'error': f'Fehler beim Download: {public_error_message(e)}'}, 500
 
 
 @pdf_ns.route('/jobs/<string:job_id>/mistral-ocr-images')  # type: ignore
@@ -1241,5 +1239,5 @@ class PDFJobMistralOCRImagesEndpoint(Resource):
             
         except Exception as e:
             logger.error(f"Fehler beim Download der Mistral OCR Bilder für Job {job_id}: {str(e)}", exc_info=True)
-            return {'error': f'Fehler beim Download: {str(e)}'}, 500
+            return {'error': f'Fehler beim Download: {public_error_message(e)}'}, 500
 

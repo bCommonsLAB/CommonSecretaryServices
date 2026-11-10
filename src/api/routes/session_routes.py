@@ -45,6 +45,7 @@ from src.processors.session_processor import SessionProcessor
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 
 from src.core.models.session import SessionResponse
@@ -149,7 +150,7 @@ def handle_processing_error(error: Exception) -> tuple[Dict[str, Any], int]:
             'status': 'error',
             'error': {
                 'code': 'PROCESSING_ERROR',
-                'message': str(error),
+                'message': public_error_message(error),
                 'details': getattr(error, 'details', {})
             }
         }, 400
@@ -162,10 +163,9 @@ def handle_processing_error(error: Exception) -> tuple[Dict[str, Any], int]:
             'status': 'error',
             'error': {
                 'code': type(error).__name__,
-                'message': str(error),
+                'message': public_error_message(error),
                 'details': {
                     'error_type': type(error).__name__,
-                    'traceback': traceback.format_exc()
                 }
             }
         }, 400
@@ -273,10 +273,9 @@ class SessionProcessEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 500
@@ -334,10 +333,9 @@ class CachedSessionsEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 500

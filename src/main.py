@@ -52,11 +52,11 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(env_path, override=True)
-print(f"[MAIN] .env geladen: {env_path}")
-print(f"[MAIN] PYTHONHTTPSVERIFY={os.getenv('PYTHONHTTPSVERIFY')}")
-print(f"[MAIN] YTDLP_COOKIES_FILE={os.getenv('YTDLP_COOKIES_FILE')}")
-print(f"[MAIN] YTDLP_COOKIES_FROM_BROWSER={os.getenv('YTDLP_COOKIES_FROM_BROWSER')}")
-print(f"[MAIN] YTDLP_YOUTUBE_COOKIES_FILE={os.getenv('YTDLP_YOUTUBE_COOKIES_FILE')}")
+# Keine Pfade oder Werte aus der Umgebung ausgeben (AP-05): nur, ob etwas gesetzt ist.
+print(f"[MAIN] .env geladen: {'ja' if os.path.isfile(env_path) else 'nein (Datei fehlt)'}")
+print("[MAIN] yt-dlp-Cookies konfiguriert: " + ("ja" if any(
+    os.getenv(name) for name in ("YTDLP_COOKIES_FILE", "YTDLP_COOKIES_FROM_BROWSER", "YTDLP_YOUTUBE_COOKIES_FILE")
+) else "nein"))
 
 # TLS-Regel (AP-04) MUSS vor allen anderen Imports angewendet werden, damit yt-dlp/requests
 # den Kontext nutzen. PYTHONHTTPSVERIFY=0 wirkt nur zusammen mit FLASK_ENV=development.

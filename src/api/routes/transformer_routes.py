@@ -64,6 +64,7 @@ from src.core.exceptions import ProcessingError, FileSizeLimitExceeded, RateLimi
 from werkzeug.exceptions import RequestEntityTooLarge
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.performance_tracker import get_performance_tracker
 from src.utils.logger import ProcessingLogger
 from src.utils.performance_tracker import PerformanceTracker
@@ -492,8 +493,8 @@ class TransformTextEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code=e.__class__.__name__,
-                    message=str(e),
-                    details={"traceback": traceback.format_exc()}
+                    message=public_error_message(e),
+                    details={}
                 )
             )
             return error_response.to_dict(), 400
@@ -520,8 +521,8 @@ class TransformTextEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code="ProcessingError",
-                    message=f"Fehler bei der Text-Transformation: {str(e)}",
-                    details={"traceback": traceback.format_exc()}
+                    message=f"Fehler bei der Text-Transformation: {public_error_message(e)}",
+                    details={}
                 )
             )
             return error_response.to_dict(), 400
@@ -902,7 +903,7 @@ class TemplateTransformEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code=error.__class__.__name__,
-                    message=str(error),
+                    message=public_error_message(error),
                     details={}
                 )
             )
@@ -917,7 +918,7 @@ class TemplateTransformEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'ProcessingError', 
-                    'message': f'Fehler bei der Template-Transformation: {error}',
+                    'message': f'Fehler bei der Template-Transformation: {public_error_message(error)}',
                     'details': {}
                 }
             }, 400
@@ -1008,7 +1009,7 @@ class ChatEndpoint(Resource):
                             'status': 'error',
                             'error': {
                                 'code': 'InvalidSchema',
-                                'message': f'Ungültiger JSON-String für schema_json: {str(e)}',
+                                'message': f'Ungültiger JSON-String für schema_json: {public_error_message(e)}',
                                 'details': {}
                             }
                         }, 400
@@ -1059,7 +1060,7 @@ class ChatEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': 'InvalidJSON',
-                        'message': f'Ungültiger JSON-String für messages: {str(e)}',
+                        'message': f'Ungültiger JSON-String für messages: {public_error_message(e)}',
                         'details': {}
                     }
                 }, 400
@@ -1068,7 +1069,7 @@ class ChatEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': 'InvalidMessages',
-                        'message': str(e),
+                        'message': public_error_message(e),
                         'details': {}
                     }
                 }, 400
@@ -1161,7 +1162,7 @@ class ChatEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': 'ProviderError',
-                        'message': f'Fehler beim Laden des Providers: {str(e)}',
+                        'message': f'Fehler beim Laden des Providers: {public_error_message(e)}',
                         'details': {}
                     }
                 }, 400
@@ -1236,7 +1237,7 @@ class ChatEndpoint(Resource):
                                 'status': 'error',
                                 'error': {
                                     'code': 'JSONParseError',
-                                    'message': f'Fehler beim Extrahieren/Validieren von JSON: {str(e)}',
+                                    'message': f'Fehler beim Extrahieren/Validieren von JSON: {public_error_message(e)}',
                                     'details': {
                                         'response_text': response_text[:500]
                                     }
@@ -1349,7 +1350,7 @@ class ChatEndpoint(Resource):
                     'status': 'error',
                     'error': {
                         'code': 'ChatCompletionError',
-                        'message': f'Fehler bei Chat-Completion: {str(e)}',
+                        'message': f'Fehler bei Chat-Completion: {public_error_message(e)}',
                         'details': {}
                     }
                 }, 400
@@ -1364,7 +1365,7 @@ class ChatEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'ProcessingError',
-                    'message': f'Fehler bei Chat-Completion: {error}',
+                    'message': f'Fehler bei Chat-Completion: {public_error_message(error)}',
                     'details': {}
                 }
             }, 400
@@ -1502,7 +1503,7 @@ class HtmlTableTransformEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code=error.__class__.__name__,
-                    message=str(error),
+                    message=public_error_message(error),
                     details={}
                 )
             )
@@ -1517,7 +1518,7 @@ class HtmlTableTransformEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'ProcessingError',
-                    'message': f'Fehler bei der HTML-Tabellen-Transformation: {error}'
+                    'message': f'Fehler bei der HTML-Tabellen-Transformation: {public_error_message(error)}'
                 }
             }, 400 
 
@@ -1760,8 +1761,8 @@ class TransformTextFileEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code=e.__class__.__name__,
-                    message=str(e),
-                    details={"traceback": traceback.format_exc()}
+                    message=public_error_message(e),
+                    details={}
                 )
             )
             return error_response.to_dict(), 400
@@ -1789,8 +1790,8 @@ class TransformTextFileEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code="ProcessingError",
-                    message=f"Fehler bei der Text-Datei-Transformation: {str(e)}",
-                    details={"traceback": traceback.format_exc()}
+                    message=f"Fehler bei der Text-Datei-Transformation: {public_error_message(e)}",
+                    details={}
                 )
             )
             return error_response.to_dict(), 400
@@ -2117,8 +2118,8 @@ class XXLTextSummarizeEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code=e.__class__.__name__,
-                    message=str(e),
-                    details={"traceback": traceback.format_exc()},
+                    message=public_error_message(e),
+                    details={},
                 ),
             )
             return error_response.to_dict(), 400
@@ -2135,8 +2136,8 @@ class XXLTextSummarizeEndpoint(Resource):
                 cache_key="",
                 error=ErrorInfo(
                     code="ProcessingError",
-                    message=f"Fehler bei XXL-Text-Zusammenfassung: {str(e)}",
-                    details={"traceback": traceback.format_exc()},
+                    message=f"Fehler bei XXL-Text-Zusammenfassung: {public_error_message(e)}",
+                    details={},
                 ),
             )
             return error_response.to_dict(), 400
@@ -2210,7 +2211,7 @@ class MetadataEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'ProcessingError',
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {}
                 }
             }, 400
@@ -2224,10 +2225,9 @@ class MetadataEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 400 

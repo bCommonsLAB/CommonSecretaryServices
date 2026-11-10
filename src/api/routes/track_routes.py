@@ -44,6 +44,7 @@ from src.core.models.track import TrackResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.track_processor import TrackProcessor
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.logger import ProcessingLogger
 
 # Logger erstellen
@@ -218,7 +219,7 @@ class TrackSummaryEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': e.__class__.__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {}
                 }
             }, 400
@@ -235,7 +236,7 @@ class TrackSummaryEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'InternalServerError',
-                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {public_error_message(e)}',
                     'details': {}
                 }
             }, 500
@@ -301,7 +302,7 @@ class AvailableTracksEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'InternalServerError',
-                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {public_error_message(e)}',
                     'details': {}
                 }
             }, 500
@@ -406,7 +407,7 @@ class SummarizeAllTracksEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': e.__class__.__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {}
                 }
             }, 400
@@ -423,7 +424,7 @@ class SummarizeAllTracksEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'InternalServerError',
-                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {str(e)}',
+                    'message': f'Unerwarteter Fehler bei der Verarbeitung: {public_error_message(e)}',
                     'details': {}
                 }
             }, 500 

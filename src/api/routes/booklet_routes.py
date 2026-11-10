@@ -51,6 +51,7 @@ from src.processors.booklet.tokens import (
     THEMES,
 )
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="booklet-api")
 
@@ -156,7 +157,7 @@ class BookletJobsEndpoint(Resource):
         try:
             booklet = BookletRequest.from_dict(data)
         except ValidationError as e:
-            return _error("VALIDATION_ERROR", str(e), 400)
+            return _error("VALIDATION_ERROR", public_error_message(e), 400)
 
         repo = get_repo()
         job_id = repo.create_job({"job_type": "booklet", "parameters": data}, user_id=user_id)

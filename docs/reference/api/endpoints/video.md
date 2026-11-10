@@ -127,11 +127,14 @@ Bei Fehlern wird ein Error-Webhook gesendet:
   "error": {
     "code": "RuntimeError",
     "message": "Fehlermeldung",
-    "details": { "traceback": "..." }
+    "details": {}
   },
   "data": null
 }
 ```
+
+`error.details` enthält keinen Stacktrace. Der Stacktrace steht im Log des Dienstes; `error.message` ist von
+Pfaden und Zugangsdaten bereinigt.
 
 ### Job Status / Full Results
 

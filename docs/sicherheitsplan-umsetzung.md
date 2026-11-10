@@ -245,7 +245,13 @@ Schritte:
 
 Akzeptanz: Grep `format_exc()` in `src/api/routes` nur noch in Logger-Aufrufen.
 
-- [ ] erledigt am ______, PR #____
+- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `src/utils/error_responses.py` (`public_error_message`, `redact_sensitive`), angewendet in allen Dateien unter `src/api/routes`, Tests `.tests/test_error_responses.py` (darunter drei statische Prüfungen der Routen, die das Akzeptanzkriterium dauerhaft absichern).
+  - Regel: Eigene Ausnahmen aus `src.*`, `ValueError` und HTTP-Fehler behalten ihre Meldung, bereinigt von Pfaden, Zugangsdaten in Adressen, Tokens und Schlüsseln. Alle anderen Ausnahmen liefern `Interner Fehler (Referenz: <id>)`; der Stacktrace steht unter dieser Referenz im Log (`error_ref`).
+  - Für Clients ändert sich: Bei unerwarteten Fehlern steht in `error.message` kein Rohtext der Ausnahme mehr, und `error.details.traceback` gibt es nicht mehr. Statuscodes und `error.code` sind unverändert.
+  - `src/main.py` gibt beim Start keine Pfade oder Werte aus der Umgebung mehr aus, nur noch „konfiguriert: ja/nein“. Die Whitelist loggt `src/dashboard/app.py` seit AP-01 nicht mehr roh.
+  - `config/config.yaml`: `server.debug`, `server.host` und `server.port` entfernt (wurden nie ausgewertet). `rate_limiting` bleibt mit Hinweis stehen, die Anbindung entscheidet AP-16.
+  - Zusätzlich gefunden und mit erledigt: Stacktraces verließen den Dienst auch außerhalb der Routen. Die Prozessoren legen sie in `ErrorInfo.details` ab, die Worker in den Job-Dokumenten (lesbar über `/api/jobs/<id>`), und die Audio-, Video- und YouTube-Handler schickten sie im Fehler-Webhook an die Callback-Adresse des Aufrufers. `ErrorInfo.to_dict()` und `JobError.to_dict()` geben die Felder `traceback` und `stack_trace` jetzt nie mehr aus (auch nicht aus alten Job-Dokumenten), die Worker schreiben den Stacktrace ins Log, die Webhooks enthalten ihn nicht mehr.
+  - Offener Rest: Bei Jobs und Fehler-Webhooks bleibt die Meldung der Ausnahme erhalten und wird nur bereinigt (`redact_sensitive`), weil Clients sie als Fehlergrund anzeigen. Ob dort ebenfalls die allgemeine Meldung mit Referenz gelten soll, ist zu entscheiden. Die Dashboard-Testrouten (`src/dashboard/routes/tests/`) geben weiter Stacktraces an angemeldete Administratoren aus; sie gehören zu M10 und AP-16.
 
 ### AP-06 Abhängigkeiten und Docker-Basis
 Befunde: H5, H4 (Image, Pin). Aufwand: M (inklusive Testlauf). Dateien: `requirements.txt`, `Dockerfile`, neu `requirements.lock` oder `uv.lock`.
@@ -513,6 +519,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 5/7 |
+| 1 | AP-01 … AP-07 | 6/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |
