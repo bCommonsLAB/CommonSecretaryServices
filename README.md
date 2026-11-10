@@ -398,8 +398,8 @@ venv\Scripts\activate
 # Linux/Mac
 source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (pinned versions with hashes, see docs/deployment/abhaengigkeiten.md)
+pip install --require-hashes -r requirements.lock
 
 # Windows: Install python-magic-bin
 pip install python-magic-bin

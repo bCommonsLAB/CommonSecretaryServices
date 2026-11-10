@@ -1,7 +1,10 @@
-FROM python:3.12.1-slim
+# Basisimage python:3.12-slim, per Digest gepinnt (Stand 10.11.2026), damit jeder Build dasselbe
+# Image verwendet. Aktualisieren: docs/deployment/abhaengigkeiten.md
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
-# System-Abhängigkeiten installieren
-RUN apt-get update && apt-get install -y \
+# System-Abhängigkeiten installieren; apt-get upgrade holt Sicherheitsupdates, die seit dem
+# Stand des Basisimages erschienen sind
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     libmagic1 \
     ffmpeg \
     tesseract-ocr \
@@ -17,12 +20,11 @@ RUN apt-get update && apt-get install -y \
 # Arbeitsverzeichnis setzen
 WORKDIR /app
 
-# requirements.txt kopieren und Abhängigkeiten installieren
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Installiere die neueste Version von yt-dlp
-RUN pip install --no-cache-dir --upgrade yt-dlp
+# Abhängigkeiten aus dem Lockfile installieren: jede Version ist gepinnt und per Hash geprüft.
+# Kein nachträgliches "pip install --upgrade": yt-dlp und alle anderen Pakete werden bewusst
+# über requirements.txt und requirements.lock angehoben (docs/deployment/abhaengigkeiten.md).
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes --only-binary=pillow -r requirements.lock
 
 # Projektcode kopieren
 COPY . .

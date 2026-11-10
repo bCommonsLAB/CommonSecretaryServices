@@ -33,6 +33,7 @@ from flask_restx import Namespace, Resource  # type: ignore
 from src.core.llm.health import LLMHealthService, KNOWN_ENDPOINTS
 from src.core.llm.use_cases import UseCase
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="health-api")
 
@@ -67,7 +68,7 @@ class HealthOverviewEndpoint(Resource):
             return _service.check_all()
         except Exception as exc:
             logger.error(f"Health-Overview fehlgeschlagen: {exc}")
-            return {"status": "unknown", "error": str(exc)}, 500
+            return {"status": "unknown", "error": public_error_message(exc)}, 500
 
 
 @health_ns.route("/use-case/<string:use_case>")  # type: ignore
@@ -87,7 +88,7 @@ class UseCaseHealthEndpoint(Resource):
             return _service.check_use_case(use_case)
         except Exception as exc:
             logger.error(f"Health-Check (use-case={use_case}) fehlgeschlagen: {exc}")
-            return {"status": "unknown", "use_case": use_case, "error": str(exc)}, 500
+            return {"status": "unknown", "use_case": use_case, "error": public_error_message(exc)}, 500
 
 
 @health_ns.route("/endpoint/<string:endpoint>")  # type: ignore
@@ -102,4 +103,4 @@ class EndpointHealthEndpoint(Resource):
             return result
         except Exception as exc:
             logger.error(f"Health-Check (endpoint={endpoint}) fehlgeschlagen: {exc}")
-            return {"status": "unknown", "endpoint": endpoint, "error": str(exc)}, 500
+            return {"status": "unknown", "endpoint": endpoint, "error": public_error_message(exc)}, 500

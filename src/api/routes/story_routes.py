@@ -43,6 +43,7 @@ from datetime import datetime
 from src.core.models.story import StoryProcessorInput, StoryResponse
 from src.core.resource_tracking import ResourceCalculator
 from src.processors.story_processor import StoryProcessor
+from src.utils.error_responses import public_error_message
 
 # Erstelle einen neuen Namespace für Story-Routen
 story_ns = Namespace('story', description='Story Generierung und Verwaltung')
@@ -138,7 +139,7 @@ class StoryGenerationEndpoint(Resource):
                 'process': {},
                 'error': {
                     'code': 'VALIDATION_ERROR',
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {}
                 }
             }, 400
@@ -153,7 +154,7 @@ class StoryGenerationEndpoint(Resource):
                 'process': {},
                 'error': {
                     'code': 'INTERNAL_ERROR',
-                    'message': f'Interner Fehler bei der Story-Generierung: {str(e)}',
+                    'message': f'Interner Fehler bei der Story-Generierung: {public_error_message(e)}',
                     'details': {
                         'error_type': type(e).__name__
                     }
@@ -196,7 +197,7 @@ class TopicsEndpoint(Resource):
                 'process': {},
                 'error': {
                     'code': 'TOPICS_RETRIEVAL_ERROR',
-                    'message': f'Fehler beim Abrufen der Topics: {str(e)}',
+                    'message': f'Fehler beim Abrufen der Topics: {public_error_message(e)}',
                     'details': {
                         'error_type': type(e).__name__
                     }
@@ -239,7 +240,7 @@ class TargetGroupsEndpoint(Resource):
                 'process': {},
                 'error': {
                     'code': 'TARGET_GROUPS_RETRIEVAL_ERROR',
-                    'message': f'Fehler beim Abrufen der Zielgruppen: {str(e)}',
+                    'message': f'Fehler beim Abrufen der Zielgruppen: {public_error_message(e)}',
                     'details': {
                         'error_type': type(e).__name__
                     }

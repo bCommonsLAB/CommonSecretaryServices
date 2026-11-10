@@ -245,7 +245,13 @@ Schritte:
 
 Akzeptanz: Grep `format_exc()` in `src/api/routes` nur noch in Logger-Aufrufen.
 
-- [ ] erledigt am ______, PR #____
+- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `src/utils/error_responses.py` (`public_error_message`, `redact_sensitive`), angewendet in allen Dateien unter `src/api/routes`, Tests `.tests/test_error_responses.py` (darunter drei statische Prüfungen der Routen, die das Akzeptanzkriterium dauerhaft absichern).
+  - Regel: Eigene Ausnahmen aus `src.*`, `ValueError` und HTTP-Fehler behalten ihre Meldung, bereinigt von Pfaden, Zugangsdaten in Adressen, Tokens und Schlüsseln. Alle anderen Ausnahmen liefern `Interner Fehler (Referenz: <id>)`; der Stacktrace steht unter dieser Referenz im Log (`error_ref`).
+  - Für Clients ändert sich: Bei unerwarteten Fehlern steht in `error.message` kein Rohtext der Ausnahme mehr, und `error.details.traceback` gibt es nicht mehr. Statuscodes und `error.code` sind unverändert.
+  - `src/main.py` gibt beim Start keine Pfade oder Werte aus der Umgebung mehr aus, nur noch „konfiguriert: ja/nein“. Die Whitelist loggt `src/dashboard/app.py` seit AP-01 nicht mehr roh.
+  - `config/config.yaml`: `server.debug`, `server.host` und `server.port` entfernt (wurden nie ausgewertet). `rate_limiting` bleibt mit Hinweis stehen, die Anbindung entscheidet AP-16.
+  - Zusätzlich gefunden und mit erledigt: Stacktraces verließen den Dienst auch außerhalb der Routen. Die Prozessoren legen sie in `ErrorInfo.details` ab, die Worker in den Job-Dokumenten (lesbar über `/api/jobs/<id>`), und die Audio-, Video- und YouTube-Handler schickten sie im Fehler-Webhook an die Callback-Adresse des Aufrufers. `ErrorInfo.to_dict()` und `JobError.to_dict()` geben die Felder `traceback` und `stack_trace` jetzt nie mehr aus (auch nicht aus alten Job-Dokumenten), die Worker schreiben den Stacktrace ins Log, die Webhooks enthalten ihn nicht mehr.
+  - Offener Rest: Bei Jobs und Fehler-Webhooks bleibt die Meldung der Ausnahme erhalten und wird nur bereinigt (`redact_sensitive`), weil Clients sie als Fehlergrund anzeigen. Ob dort ebenfalls die allgemeine Meldung mit Referenz gelten soll, ist zu entscheiden. Die Dashboard-Testrouten (`src/dashboard/routes/tests/`) geben weiter Stacktraces an angemeldete Administratoren aus; sie gehören zu M10 und AP-16.
 
 ### AP-06 Abhängigkeiten und Docker-Basis
 Befunde: H5, H4 (Image, Pin). Aufwand: M (inklusive Testlauf). Dateien: `requirements.txt`, `Dockerfile`, neu `requirements.lock` oder `uv.lock`.
@@ -259,7 +265,14 @@ Schritte:
 
 Akzeptanz: `pip-audit -r requirements.lock` ohne Befunde; Image baut; Tests grün.
 
-- [ ] erledigt am ______, PR #____
+- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `requirements.txt`, neu `requirements.lock` (139 Pakete, exakt gepinnt, mit Prüfsummen, erzeugt mit `uv pip compile`), `Dockerfile`, Anleitung `docs/deployment/abhaengigkeiten.md`, Tests `.tests/test_dependency_lock.py`.
+  - Abweichung vom Plan: **Pillow steht auf 13.0.0, nicht 12.3.0.** `pip-audit` meldete am 10.11.2026 für 12.3.0 bereits 39 neue Advisories, behoben in 13.0.0. Mit 13.0.0 lautet das Ergebnis „No known vulnerabilities found“. Weitere Stände im Lockfile: flask 3.1.3, pymongo 4.19.0, pytest 9.2.0; dnspython musste wegen pymongo auf ≥ 2.7 angehoben werden.
+  - Die Option `--only-binary :all:` steht nicht mehr in der Pillow-Zeile (sie verhinderte `pip-audit` und das Erzeugen des Lockfiles), sondern als `--only-binary=pillow` im Dockerfile.
+  - Dockerfile: Basisimage `python:3.12-slim` per Digest gepinnt, `apt-get upgrade` im Build, Installation mit `--require-hashes` aus dem Lockfile, `pip install --upgrade yt-dlp` entfernt. Das Basisimage wechselt damit von Debian 12 (bookworm) auf Debian 13 (trixie).
+  - Die bisher nicht gepinnten Pakete (openai, numpy, pandas, PyMuPDF, requests und weitere) sind im Lockfile auf dem Stand vom 10.11.2026 eingefroren. Das ist der Stand, den ein frischer Build ohnehin gezogen hätte.
+  - Zusätzlich gefunden und mit erledigt: `pyproject.toml` war als UTF-16 gespeichert und damit für alle Werkzeuge unlesbar. pytest 9 bricht daran ab, uv ebenfalls. Die Datei ist jetzt UTF-8, der Inhalt ist unverändert. Folge: Die Einstellungen für mypy, black und isort darin greifen jetzt erstmals.
+  - Geprüft: Testlauf unter Python 3.12 mit genau den Paketen des Lockfiles (555 bestanden, 8 umgebungsbedingt fehlgeschlagen, siehe Handover), Kurztest PDF-Seitenbilder (PyMuPDF, pdf2image) und der verwendeten Pillow-Funktionen mit Pillow 13. Nicht geprüft: OCR mit Tesseract und LibreOffice-Konvertierung gegen echte Dateien.
+  - **Offen: Akzeptanzpunkt „Image baut“ ist nicht bestätigt.** In der Cloud-Sitzung ließ sich das Image nicht bauen, weil die Netzwerkrichtlinie `deb.debian.org` sperrt. Das Auflösen des Basisimages per Digest und die Installation aus dem Lockfile mit Hash-Prüfung (pip, Python 3.12) sind einzeln geprüft, die apt-Paketnamen unter Debian 13 nicht. Der PR-Check `checks.yml` baut das Image und klärt das beim Anlegen des Pull Requests.
 
 ### AP-07 Mitgelieferte Compose sicher per Default
 Befund: K4. Aufwand: S–M. Dateien: `docker-compose.yml`, `.env.example`, README Abschnitt Docker, neue Datei `docs/deployment/mongo-migration.md`. Vorgezogen aus AP-14, weil die Compose-Datei auf jeder Installation landet.
@@ -513,6 +526,6 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 | Phase | Pakete | erledigt |
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
-| 1 | AP-01 … AP-07 | 5/7 |
+| 1 | AP-01 … AP-07 | 7/7 |
 | 2 | AP-12 … AP-18 | 0/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

@@ -62,6 +62,7 @@ from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.core.mongodb.secretary_repository import SecretaryJobRepository
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.performance_tracker import get_performance_tracker, PerformanceTracker
 
 # Initialisiere Logger
@@ -448,7 +449,7 @@ class YoutubeEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': getattr(e, 'error_code', 'ProcessingError'),
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', {})
                 }
             }, 400
@@ -462,10 +463,9 @@ class YoutubeEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 400
@@ -624,7 +624,7 @@ class VideoProcessEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'PROCESSING_ERROR',
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', {})
                 }
             }, 400
@@ -637,10 +637,9 @@ class VideoProcessEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 500 
@@ -725,7 +724,7 @@ class VideoFramesEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': 'PROCESSING_ERROR',
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': getattr(e, 'details', {})
                 }
             }, 400
@@ -738,10 +737,9 @@ class VideoFramesEndpoint(Resource):
                 'status': 'error',
                 'error': {
                     'code': type(e).__name__,
-                    'message': str(e),
+                    'message': public_error_message(e),
                     'details': {
                         'error_type': type(e).__name__,
-                        'traceback': traceback.format_exc()
                     }
                 }
             }, 500

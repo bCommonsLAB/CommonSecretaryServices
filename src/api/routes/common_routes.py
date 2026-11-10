@@ -36,13 +36,13 @@ import os
 import traceback
 import mimetypes
 from pathlib import Path
-import sys
 import asyncio
 
 from src.processors.session_processor import SessionProcessor
 from src.core.exceptions import ProcessingError
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 from src.utils.logger import ProcessingLogger
 
 # Typvariable für Dekoratoren
@@ -134,7 +134,7 @@ def handle_processing_error(error: Exception) -> tuple[Dict[str, Any], int]:
             'status': 'error',
             'error': {
                 'code': 'PROCESSING_ERROR',
-                'message': str(error),
+                'message': public_error_message(error),
                 'details': getattr(error, 'details', {})
             }
         }, 400
@@ -147,10 +147,9 @@ def handle_processing_error(error: Exception) -> tuple[Dict[str, Any], int]:
             'status': 'error',
             'error': {
                 'code': type(error).__name__,
-                'message': str(error),
+                'message': public_error_message(error),
                 'details': {
                     'error_type': type(error).__name__,
-                    'traceback': traceback.format_exc()
                 }
             }
         }, 400
@@ -209,18 +208,12 @@ class SamplesEndpoint(Resource):
             # Wir gehen vom aktuellen Verzeichnis aus, nicht vom Modul-Verzeichnis
             samples_dir: Path = Path(os.getcwd()) / 'tests' / 'samples'
             
-            # Debug-Logging
-            print(f"Suche Beispieldateien in: {samples_dir}", file=sys.stderr)
-            print(f"Verzeichnis existiert: {samples_dir.exists()}", file=sys.stderr)
-            print(f"Verzeichnis ist Verzeichnis: {samples_dir.is_dir()}", file=sys.stderr)
             
             # Dateien auflisten
             files: list[dict[str, Any]] = []
             if samples_dir.exists() and samples_dir.is_dir():
-                print(f"Dateien im Verzeichnis: {list(samples_dir.glob('*'))}", file=sys.stderr)
                 for file_path in samples_dir.glob('*'):
                     if file_path.is_file():
-                        print(f"Gefundene Datei: {file_path.name}", file=sys.stderr)
                         files.append({
                             'name': file_path.name,
                             'size': file_path.stat().st_size,
@@ -228,7 +221,7 @@ class SamplesEndpoint(Resource):
                             'url': f'/api/samples/{file_path.name}'
                         })
             else:
-                print(f"Samples-Verzeichnis nicht gefunden: {samples_dir}", file=sys.stderr)
+                logger.warning("Samples-Verzeichnis nicht gefunden", samples_dir=str(samples_dir))
             
             return {
                 'status': 'success',
@@ -237,13 +230,12 @@ class SamplesEndpoint(Resource):
                 }
             }
         except Exception as e:
-            print(f"Fehler beim Auflisten der Beispieldateien: {e}", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
+            logger.error("Fehler beim Auflisten der Beispieldateien", error=e, stack_trace=traceback.format_exc())
             return {
                 'status': 'error',
                 'error': {
                     'code': 'SAMPLE_LIST_ERROR',
-                    'message': str(e)
+                    'message': public_error_message(e)
                 }
             }, 500
 
@@ -258,17 +250,12 @@ class SampleFileEndpoint(Resource):
             # Samples-Verzeichnis - Korrigierter Pfad
             samples_dir: Path = Path(os.getcwd()) / 'tests' / 'samples'
             
-            # Debug-Logging
-            print(f"Suche Datei {filename} in: {samples_dir}", file=sys.stderr)
             
             # Prüfe ob Datei existiert und im samples Verzeichnis liegt
             file_path: Path = samples_dir / filename
-            print(f"Vollständiger Dateipfad: {file_path}", file=sys.stderr)
-            print(f"Datei existiert: {file_path.exists()}", file=sys.stderr)
-            print(f"Datei ist Datei: {file_path.is_file()}", file=sys.stderr)
             
             if not file_path.is_file() or samples_dir not in file_path.parents:
-                print(f"Datei nicht gefunden: {file_path}", file=sys.stderr)
+                logger.warning("Beispieldatei nicht gefunden", filename=filename)
                 return {
                     'status': 'error',
                     'error': {
@@ -285,8 +272,6 @@ class SampleFileEndpoint(Resource):
                     mime_type = 'video/mp4'
                 else:
                     mime_type = 'application/octet-stream'
-            
-            print(f"Sende Datei {filename} mit MIME-Type {mime_type}", file=sys.stderr)
             
             # Sende Datei mit angepassten Headern
             response: Response = send_file(
@@ -312,13 +297,12 @@ class SampleFileEndpoint(Resource):
             return response
             
         except Exception as e:
-            print(f"Fehler beim Herunterladen der Beispieldatei: {e}", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
+            logger.error("Fehler beim Herunterladen der Beispieldatei", error=e, stack_trace=traceback.format_exc())
             return {
                 'status': 'error',
                 'error': {
                     'code': 'SAMPLE_DOWNLOAD_ERROR',
-                    'message': str(e)
+                    'message': public_error_message(e)
                 }
             }, 500
 

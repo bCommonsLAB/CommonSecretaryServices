@@ -37,6 +37,7 @@ from src.core.transcript.korrekturvorschlag_service import (
     KorrekturvorschlagService,
 )
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="transcript-api")
 
@@ -94,7 +95,7 @@ class KorrekturvorschlagEndpoint(Resource):
         try:
             begleittexte = parse_begleittexte(payload.get("begleittexte"))
         except ValueError as e:
-            return _error("INVALID_BEGLEITTEXTE", str(e), 400)
+            return _error("INVALID_BEGLEITTEXTE", public_error_message(e), 400)
         zielsprache_raw = payload.get("zielsprache")
         zielsprache = zielsprache_raw.strip() if isinstance(zielsprache_raw, str) and zielsprache_raw.strip() else "de"
 
@@ -103,10 +104,10 @@ class KorrekturvorschlagEndpoint(Resource):
         except ProcessingError as e:
             code = str((getattr(e, "details", None) or {}).get("error_code") or type(e).__name__)
             logger.error("Korrekturvorschlag fehlgeschlagen", error=e, code=code)
-            return _error(code, str(e), _ERROR_STATUS.get(code, 400), getattr(e, "details", None))
+            return _error(code, public_error_message(e), _ERROR_STATUS.get(code, 400), getattr(e, "details", None))
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Korrekturvorschlag", error=e)
-            return _error("INTERNAL_ERROR", str(e), 500)
+            return _error("INTERNAL_ERROR", public_error_message(e), 500)
 
         logger.info("Korrekturvorschlag erstellt", ersetzungen=len(vorschlag.ersetzungen),
                     sprecher=len(vorschlag.sprecher), verworfen=len(vorschlag.verworfen), modell=meta["modell"])

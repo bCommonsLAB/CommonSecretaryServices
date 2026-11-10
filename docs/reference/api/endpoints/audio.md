@@ -355,7 +355,7 @@ On failure:
   "error": {
     "code": "SomeError",
     "message": "Details...",
-    "details": { "traceback": "..." }
+    "details": {}
   },
   "data": null
 }

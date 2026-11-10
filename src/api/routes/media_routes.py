@@ -70,6 +70,7 @@ apply_tls_policy()
 import yt_dlp  # type: ignore
 
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 logger = get_logger(process_id="media-api")
 
@@ -370,17 +371,17 @@ class MediaResolveEndpoint(Resource):
         try:
             cookies = _read_cookies(payload)
         except InvalidCookies as e:
-            return _error("INVALID_COOKIES", str(e), 400)
+            return _error("INVALID_COOKIES", public_error_message(e), 400)
         try:
             data = resolve_media_url(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Seite nicht oder kein Medium", url=url, error=str(e))
-            return _error("MEDIA_NOT_RESOLVABLE", f"Kein Medium aufloesbar: {e}", 422)
+            return _error("MEDIA_NOT_RESOLVABLE", f"Kein Medium aufloesbar: {public_error_message(e, expected=True)}", 422)
         except ValueError as e:
-            return _error("MEDIA_NOT_RESOLVABLE", str(e), 422)
+            return _error("MEDIA_NOT_RESOLVABLE", public_error_message(e), 422)
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Aufloesen", error=e, url=url)
-            return _error("INTERNAL_ERROR", str(e), 500)
+            return _error("INTERNAL_ERROR", public_error_message(e), 500)
         logger.info("Medium aufgeloest", url=url, extractor=data.get("extractor"), ext=data.get("ext"), protocol=data.get("protocol"), anmeldung=cookies is not None)
         return {"status": "success", "data": data}
 
@@ -399,17 +400,17 @@ class MediaPlaylistEndpoint(Resource):
         try:
             cookies = _read_cookies(payload)
         except InvalidCookies as e:
-            return _error("INVALID_COOKIES", str(e), 400)
+            return _error("INVALID_COOKIES", public_error_message(e), 400)
         try:
             data = resolve_playlist(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar", url=url, error=str(e))
-            return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {e}", 422)
+            return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {public_error_message(e, expected=True)}", 422)
         except ValueError as e:
-            return _error("PLAYLIST_NOT_RESOLVABLE", str(e), 422)
+            return _error("PLAYLIST_NOT_RESOLVABLE", public_error_message(e), 422)
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Aufloesen der Playlist", error=e, url=url)
-            return _error("INTERNAL_ERROR", str(e), 500)
+            return _error("INTERNAL_ERROR", public_error_message(e), 500)
         logger.info("Playlist aufgeloest", url=url, extractor=data.get("extractor"), anzahl=data.get("anzahl"), anzahl_verfuegbar=data.get("anzahl_verfuegbar"), anmeldung=cookies is not None)
         return {"status": "success", "data": data}
 
@@ -431,7 +432,7 @@ class MediaDownloadEndpoint(Resource):
         try:
             cookies = _read_cookies(payload)
         except InvalidCookies as e:
-            return _error("INVALID_COOKIES", str(e), 400)
+            return _error("INVALID_COOKIES", public_error_message(e), 400)
         workdir = tempfile.mkdtemp(prefix='ks-media-')
         try:
             meta = download_media(url, workdir, nur_audio=nur_audio_raw, cookies=cookies)
@@ -439,12 +440,12 @@ class MediaDownloadEndpoint(Resource):
                 data = fh.read()
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp konnte nicht laden", url=url, error=str(e))
-            return _error("MEDIA_NOT_DOWNLOADABLE", f"Medium nicht ladbar: {e}", 422)
+            return _error("MEDIA_NOT_DOWNLOADABLE", f"Medium nicht ladbar: {public_error_message(e, expected=True)}", 422)
         except ValueError as e:
-            return _error("MEDIA_NOT_DOWNLOADABLE", str(e), 422)
+            return _error("MEDIA_NOT_DOWNLOADABLE", public_error_message(e), 422)
         except Exception as e:
             logger.error("Unerwarteter Fehler beim Laden", error=e, url=url)
-            return _error("INTERNAL_ERROR", str(e), 500)
+            return _error("INTERNAL_ERROR", public_error_message(e), 500)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
         ext = meta["ext"]

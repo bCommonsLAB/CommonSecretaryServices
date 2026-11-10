@@ -234,8 +234,7 @@ repo.update_job_error(
   "code": "PROCESSING_ERROR",
   "message": "Error message",
   "details": {
-    "error_type": "OCR_ERROR",
-    "traceback": "..."
+    "error_type": "OCR_ERROR"
   }
 }
 ```

@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, List
 
 from src.core.llm import LLMConfigManager, UseCase, ProviderManager
 from src.utils.logger import get_logger
+from src.utils.error_responses import public_error_message
 
 # Create the blueprint
 llm_config = Blueprint('llm_config', __name__)
@@ -61,7 +62,7 @@ def get_llm_config() -> Any:
         logger.error(f"Fehler beim Abrufen der LLM-Konfiguration: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Konfiguration: {str(e)}"
+            "message": f"Fehler beim Abrufen der Konfiguration: {public_error_message(e)}"
         }), 500
 
 
@@ -105,7 +106,7 @@ def get_providers() -> Any:
         logger.error(f"Fehler beim Abrufen der Provider: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Provider: {str(e)}"
+            "message": f"Fehler beim Abrufen der Provider: {public_error_message(e)}"
         }), 500
 
 
@@ -185,7 +186,7 @@ def get_models() -> Any:
         logger.error(f"Fehler beim Abrufen der Modelle: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Modelle: {str(e)}"
+            "message": f"Fehler beim Abrufen der Modelle: {public_error_message(e)}"
         }), 500
 
 
@@ -272,14 +273,14 @@ def test_provider() -> Any:
         except Exception as e:
             return jsonify({
                 "status": "error",
-                "message": f"Fehler beim Testen des Providers: {str(e)}"
+                "message": f"Fehler beim Testen des Providers: {public_error_message(e)}"
             }), 500
             
     except Exception as e:
         logger.error(f"Fehler beim Testen des Providers: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Testen: {str(e)}"
+            "message": f"Fehler beim Testen: {public_error_message(e)}"
         }), 500
 
 
@@ -401,7 +402,7 @@ def get_presets() -> Any:
         logger.error(f"Fehler beim Abrufen der Presets: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Presets: {str(e)}"
+            "message": f"Fehler beim Abrufen der Presets: {public_error_message(e)}"
         }), 500
 
 
@@ -485,7 +486,7 @@ def get_available_models_overview() -> Any:
         logger.error(f"Fehler beim Abrufen der Modell-Übersicht: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Fehler beim Abrufen der Modell-Übersicht: {str(e)}"
+            "message": f"Fehler beim Abrufen der Modell-Übersicht: {public_error_message(e)}"
         }), 500
 
 

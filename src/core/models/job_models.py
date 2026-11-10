@@ -51,6 +51,8 @@ from datetime import datetime, UTC
 import uuid
 from enum import Enum
 
+from src.core.models.base import strip_internal_details
+
 
 class JobStatus(str, Enum):
     """Status eines Jobs."""
@@ -280,8 +282,12 @@ class JobError:
     
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert den Fehler in ein Dictionary."""
-        # Alle Felder einschließen, auch mit None-Werten
-        return asdict(self)
+        # Alle Felder einschließen, auch mit None-Werten. Stacktraces aus älteren
+        # Job-Dokumenten werden nicht mehr ausgeliefert (AP-05).
+        data = asdict(self)
+        if isinstance(data.get("details"), dict):
+            data["details"] = strip_internal_details(data["details"])
+        return data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "JobError":
