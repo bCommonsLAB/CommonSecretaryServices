@@ -116,6 +116,8 @@ class Measurements(TypedDict):
     event: Optional[str]
     track: Optional[str]
     session: Optional[str]
+    # Kennungen des Aufrufers (z. B. query_id, library_id, chat_id) — nie Inhalte.
+    correlation: Dict[str, str]
 
 class PerformanceResult(TypedDict):
     """Ergebnis eines Performance-Trackings"""
@@ -176,7 +178,8 @@ class PerformanceTracker:
             'error': None,
             'event': None,
             'track': None,
-            'session': None
+            'session': None,
+            'correlation': {}
         }
         self._local = threading.local()
 
@@ -242,6 +245,16 @@ class PerformanceTracker:
                 'session': session
             }
         )
+
+    def set_correlation(self, correlation: Dict[str, str]) -> None:
+        """
+        Merkt die Kennungen des Aufrufers (aus den Korrelations-Headern).
+
+        Args:
+            correlation: Feldname -> Kennung, z. B. {'query_id': '...'}.
+                Bereits geprueft (siehe utils/correlation.py); keine Inhalte.
+        """
+        self.measurements['correlation'] = dict(correlation)
 
     def set_async_processing(self, is_async: bool = True) -> None:
         """
@@ -454,6 +467,8 @@ class PerformanceTracker:
                 'event': self.measurements.get('event', ''),
                 'track': self.measurements.get('track', ''),
                 'session': self.measurements.get('session', ''),
+                # Kennungen des Aufrufers; leeres Dict, wenn keine gesendet wurden.
+                'correlation': dict(self.measurements.get('correlation') or {}),
                 
                 'total_duration': self.measurements['total_duration'],
                 'endpoint': self.measurements['endpoint'],

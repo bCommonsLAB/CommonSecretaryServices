@@ -422,9 +422,14 @@ class OpenRouterProvider:
             # OpenRouter liefert usage.cost in USD in jeder Antwort.
             usage_cost = extract_usage_cost(usage)
 
+            # Das Modell, das laut Antwort tatsaechlich geliefert hat (OpenRouter
+            # kann umleiten). Nur fuers Log; abgerechnet wird unter `model`.
+            served_model = str(getattr(response, "model", "") or "")
+
             logger.info(
                 "OpenRouter chat_completion",
                 model=model,
+                served_model=served_model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 finish_reason=finish_reason,
@@ -452,6 +457,9 @@ class OpenRouterProvider:
                 duration=duration,
                 processor="OpenRouterProvider",
                 cost=usage_cost,
+                # Aufteilung nur, wenn usage vorhanden ist — sonst None (nicht 0).
+                prompt_tokens=prompt_tokens if usage is not None else None,
+                completion_tokens=completion_tokens if usage is not None else None,
             )
             
             return content, llm_request

@@ -100,7 +100,7 @@ def _as_text(value: object) -> str:
 
 def tracker_resource_fields(tracker: Any) -> Dict[str, Any]:
     """Liest Token/Kosten/Modell aus einem PerformanceTracker, falls vorhanden."""
-    empty: Dict[str, Any] = {"tokens": 0, "cost": 0.0, "models": []}
+    empty: Dict[str, Any] = {"tokens": 0, "cost": 0.0, "models": [], "priced": 0, "unpriced": 0}
     if tracker is None:
         return empty
     try:
@@ -111,6 +111,8 @@ def tracker_resource_fields(tracker: Any) -> Dict[str, Any]:
             "tokens": int(resources.get("total_tokens", 0) or 0),
             "cost": float(resources.get("total_cost", 0.0) or 0.0),
             "models": list(resources.get("models_used") or []),
+            "priced": int(resources.get("priced_requests", 0) or 0),
+            "unpriced": int(resources.get("unpriced_requests", 0) or 0),
         }
     except Exception:
         return empty

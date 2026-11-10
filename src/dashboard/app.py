@@ -271,6 +271,30 @@ def _maybe_start_request_tracker() -> None:
     tracker = get_performance_tracker() or get_performance_tracker(str(uuid.uuid4()))
     if tracker is not None and not tracker.processor_name:
         tracker.set_processor_name(processor)
+    if tracker is not None:
+        _apply_correlation_headers(tracker)
+
+
+def _apply_correlation_headers(tracker: Any) -> None:
+    """
+    Uebernimmt die Korrelations-Header des Aufrufers (X-Query-Id, X-Library-Id,
+    X-Chat-Id, X-Job-Id, ...) an den Metrik-Eintrag. Nur Kennungen; ein Wert,
+    der nicht wie eine Kennung aussieht, wird verworfen und hier gemeldet.
+    """
+    from flask import request
+    from src.utils.correlation import (
+        correlation_from_headers,
+        rejected_correlation_headers,
+    )
+
+    correlation = correlation_from_headers(request.headers)
+    if correlation:
+        tracker.set_correlation(correlation)
+    rejected = rejected_correlation_headers(request.headers)
+    if rejected:
+        app_logger.warning(
+            f"Korrelations-Header verworfen (keine gueltige Kennung): {', '.join(rejected)}"
+        )
 
 
 def _trace_incoming_api_request() -> None:
@@ -425,6 +449,9 @@ def finalize_performance_tracking(exception: Optional[BaseException] = None) -> 
             tokens=res["tokens"],
             cost=res["cost"],
             models=res["models"],
+            priced=res["priced"],
+            unpriced=res["unpriced"],
+            correlation=tracker.measurements.get("correlation") or {},
             thread=current_thread_name(),
         )
         tracker.complete_tracking()

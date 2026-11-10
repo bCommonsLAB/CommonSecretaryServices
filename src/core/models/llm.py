@@ -36,7 +36,7 @@ Features:
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Union, cast
+from typing import List, Dict, Any, Optional, Union, cast
 
 from ..validation import (
     is_non_empty_str, is_non_negative,
@@ -94,6 +94,8 @@ class LLMRequest:
         processor: Name des aufrufenden Processors
         cost: Kosten in USD (0.0 wenn der Provider keine Zahl liefert)
         timestamp: Zeitstempel der Anfrage (ISO 8601)
+        prompt_tokens: Eingabe-Tokens laut Provider-usage (None = nicht gemeldet)
+        completion_tokens: Ausgabe-Tokens laut Provider-usage (None = nicht gemeldet)
     """
     model: str
     purpose: str
@@ -105,6 +107,9 @@ class LLMRequest:
     timestamp: str = field(
         default_factory=lambda: datetime.now().isoformat()
     )
+    # None heisst „der Provider hat die Aufteilung nicht gemeldet" — nie schätzen.
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validiert die Felder nach der Initialisierung."""
@@ -120,10 +125,14 @@ class LLMRequest:
             raise ValueError("cost muss nicht-negativ sein")
         if not is_valid_iso_date(self.timestamp):
             raise ValueError("timestamp muss ein gültiges ISO 8601 Datum sein")
+        if self.prompt_tokens is not None and self.prompt_tokens < 0:
+            raise ValueError("prompt_tokens muss nicht-negativ sein")
+        if self.completion_tokens is not None and self.completion_tokens < 0:
+            raise ValueError("completion_tokens muss nicht-negativ sein")
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiert den Request in ein Dictionary."""
-        return {
+        result: Dict[str, Any] = {
             "model": self.model,
             "purpose": self.purpose,
             "tokens": self.tokens,
@@ -132,6 +141,13 @@ class LLMRequest:
             "cost": self.cost,
             "timestamp": self.timestamp
         }
+        # Nur ausgeben, wenn gemeldet: bestehende Verbraucher sehen kein neues Feld
+        # mit erfundenem Wert.
+        if self.prompt_tokens is not None:
+            result["prompt_tokens"] = self.prompt_tokens
+        if self.completion_tokens is not None:
+            result["completion_tokens"] = self.completion_tokens
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LLMRequest":
@@ -147,6 +163,9 @@ class LLMRequest:
         timestamp = data.get("timestamp")
         if timestamp:
             kwargs["timestamp"] = str(timestamp)
+        for key in ("prompt_tokens", "completion_tokens"):
+            if data.get(key) is not None:
+                kwargs[key] = int(data[key])
         return cls(**kwargs)
 
 @dataclass(frozen=True)

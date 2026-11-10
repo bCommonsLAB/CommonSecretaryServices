@@ -923,6 +923,28 @@ class TemplateTransformEndpoint(Resource):
                 }
             }, 400
 
+def _chat_usage(llm_request: Any, requested_model: str) -> Dict[str, Any]:
+    """
+    Verbrauch eines Chat-Aufrufs fuer die Antwort an den Aufrufer.
+
+    Die Werte stammen aus dem LLMRequest des Providers (usage der Antwort),
+    nichts wird geschaetzt. ``None`` heisst „nicht gemeldet":
+    - prompt_tokens / completion_tokens: der Provider liefert keine Aufteilung
+    - cost: kein Betrag vom Provider (LLMRequest.cost == 0.0 = Preis unbekannt)
+
+    Enthaelt nur Zahlen und die Modellkennung, keine Inhalte.
+    """
+    raw_cost = float(getattr(llm_request, 'cost', 0.0) or 0.0)
+    return {
+        'model': str(getattr(llm_request, 'model', '') or requested_model),
+        'prompt_tokens': getattr(llm_request, 'prompt_tokens', None),
+        'completion_tokens': getattr(llm_request, 'completion_tokens', None),
+        'total_tokens': int(getattr(llm_request, 'tokens', 0) or 0),
+        'cost': raw_cost if raw_cost > 0.0 else None,
+        'cost_currency': 'USD',
+    }
+
+
 # Chat-Completion-Endpunkt
 @transformer_ns.route('/chat')
 class ChatEndpoint(Resource):
@@ -982,6 +1004,8 @@ class ChatEndpoint(Resource):
             strict: Optional[bool] = args.get('strict')
             use_cache: bool = args.get('use_cache', True)
             timeout_ms: Optional[int] = args.get('timeout_ms')
+            # Herkunft des Modells fuers Log: aus der Anfrage oder Voreinstellung.
+            model_source: str = "request" if model else "default"
             
             # Validiere response_format
             if response_format not in ['text', 'json_object']:
@@ -1187,6 +1211,18 @@ class ChatEndpoint(Resource):
                         response_format_dict["schema"] = schema
                     chat_kwargs['response_format'] = response_format_dict
                 
+                # Wirksames Modell zum Zeitpunkt des Aufrufs loggen. Die
+                # __init__-Zeile des Processors nennt nur die Voreinstellung.
+                # Bewusst ohne Nachrichteninhalt.
+                logger.info(
+                    'Chat-Completion Modellaufruf',
+                    model=model or "",
+                    model_source=model_source,
+                    provider=provider_name or "unknown",
+                    messages_count=len(messages),
+                    response_format=response_format
+                )
+
                 # Rufe chat_completion auf
                 response_text: str
                 llm_request: Any
@@ -1284,6 +1320,15 @@ class ChatEndpoint(Resource):
                             purpose="chat_completion"
                         )
                 
+                # Modellaufruf registrieren wie die uebrigen Prozessoren: ueber
+                # add_llm_requests landen Modell, Tokens und Kosten sowohl in
+                # process.llm_info als auch im Metrik-Tracker (request_metrics).
+                # Frueher wurde llm_info hier direkt gesetzt — am Tracker vorbei,
+                # deshalb stand der Chat mit tokens=0, models=[] in der Metrik.
+                # Das LLMRequest des Providers traegt usage und Kosten der Antwort.
+                if llm_request is not None:
+                    transformer_processor.add_llm_requests([llm_request])
+                
                 # Erstelle Response mit üblicher Struktur
                 end_time: float = time.time()
                 duration_ms = int((end_time - start_time) * 1000)
@@ -1307,38 +1352,11 @@ class ChatEndpoint(Resource):
                     cache_key=""
                 )
                 
-                # Füge LLM-Info hinzu, falls verfügbar
-                if llm_request:
-                    from src.core.models.llm import LLMRequest, LLMInfo
-                    # Extrahiere Informationen aus llm_request
-                    model_name: str = model or "unknown"
-                    total_tokens: int = 0
-                    duration_ms: float = (time.time() - start_time) * 1000
-                    
-                    if hasattr(llm_request, 'model'):
-                        model_name = str(llm_request.model)
-                    if hasattr(llm_request, 'total_tokens'):
-                        total_tokens = int(llm_request.total_tokens)
-                    elif hasattr(llm_request, 'tokens'):
-                        total_tokens = int(llm_request.tokens)
-                    
-                    # Erstelle LLMRequest-Objekt
-                    llm_req = LLMRequest(
-                        model=model_name,
-                        purpose="chat_completion",
-                        tokens=total_tokens if total_tokens > 0 else 1,  # Mindestens 1 Token
-                        duration=duration_ms,
-                        processor="transformer"
-                    )
-                    
-                    # Erstelle LLMInfo mit dem Request
-                    llm_info = LLMInfo(requests=[llm_req])
-                    
-                    # Füge LLM-Info zur Process-Info hinzu
-                    if transformer_processor.process_info:
-                        object.__setattr__(transformer_processor.process_info, 'llm_info', llm_info)
-                
-                return response.to_dict()
+                response_dict: Dict[str, Any] = response.to_dict()
+                # Additiv: Verbrauch des Modellaufrufs fuer den Aufrufer
+                # (KnowledgeScout uebernimmt ihn ins Fragen-Protokoll).
+                response_dict['usage'] = _chat_usage(llm_request, model or "")
+                return response_dict
                 
             except Exception as e:
                 logger.error(
