@@ -86,6 +86,8 @@ Die Felder außerhalb von `metadata` sind unverändert zu früheren Versionen.
 
 **Fehler**: `400 MISSING_URL`, `400 INVALID_COOKIES`, `422 MEDIA_NOT_RESOLVABLE` (unbekannte Seite oder keine direkte Medienadresse).
 
+`400 SSRF_BLOCKED` bei allen drei Endpunkten, wenn die Adresse oder ein Ziel, das yt-dlp daraus abruft, kein öffentliches Ziel ist (eigener Rechner, privates Netz, Cloud-Metadaten) oder nicht `http`/`https` verwendet. Ausnahmen je Installation: `FETCH_ALLOWED_HOSTS`.
+
 ## POST /api/media/download
 
 Lädt das Medium per yt-dlp (HLS/DASH über ffmpeg) und liefert die Datei als Antwort. Mit

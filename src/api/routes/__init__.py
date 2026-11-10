@@ -74,6 +74,56 @@ from src.api.auth import check_api_request
 def _check_service_token() -> ResponseReturnValue | None:
     return check_api_request()
 
+
+# SSRF-Schutz (Arbeitspaket AP-12): Callback-Adressen schon beim Annehmen der Anfrage pruefen,
+# damit ein Job mit unerlaubtem Ziel sofort mit 400 scheitert statt spaeter still beim Senden.
+# Beim Senden prueft src.utils.ssrf.post_webhook erneut.
+from flask import jsonify, request as _request
+from src.utils.ssrf import SSRF_BLOCKED, SsrfBlocked, check_callback_url
+
+
+def _ssrf_error(error: SsrfBlocked, field: str | None = None):
+    details = {"field": field} if field else {}
+    return {"status": "error", "error": {"code": SSRF_BLOCKED, "message": str(error), "details": details}}, 400
+
+
+def _callback_candidates() -> list[tuple[str, object]]:
+    found: list[tuple[str, object]] = []
+    found.append(("callback_url", _request.args.get("callback_url")))
+    content_type = (_request.mimetype or "").lower()
+    if content_type in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        found.append(("callback_url", _request.form.get("callback_url")))
+    elif _request.is_json:
+        body = _request.get_json(silent=True)
+        if isinstance(body, dict):
+            found.append(("callback_url", body.get("callback_url")))
+            for container in ("webhook", "parameters"):
+                nested = body.get(container)
+                if isinstance(nested, dict):
+                    found.append((f"{container}.url", nested.get("url")) if container == "webhook" else (f"{container}.callback_url", nested.get("callback_url")))
+                    inner = nested.get("webhook")
+                    if isinstance(inner, dict):
+                        found.append((f"{container}.webhook.url", inner.get("url")))
+    return [(name, value) for name, value in found if isinstance(value, str) and value.strip()]
+
+
+@blueprint.before_request
+def _check_callback_target() -> ResponseReturnValue | None:
+    if _request.method not in ("POST", "PUT", "PATCH"):
+        return None
+    for field, value in _callback_candidates():
+        try:
+            check_callback_url(str(value))
+        except SsrfBlocked as error:
+            body, status = _ssrf_error(error, field)
+            return jsonify(body), status
+    return None
+
+
+@api.errorhandler(SsrfBlocked)
+def _handle_ssrf_blocked(error: SsrfBlocked):
+    return _ssrf_error(error)
+
 # Importiere Namespaces aus den Modulen
 from .audio_routes import audio_ns
 # Haengt POST /audio/process-diarized an denselben Namespace (Import genuegt)

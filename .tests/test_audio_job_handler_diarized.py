@@ -72,7 +72,7 @@ async def test_diarized_mode_uses_diarized_processor_and_output_text(monkeypatch
 
         return _Resp()
 
-    monkeypatch.setattr("src.core.processing.handlers.audio_handler.requests.post", _fake_post)
+    monkeypatch.setattr("src.core.processing.handlers.audio_handler.post_webhook", _fake_post)
 
     class _Params:
         filename = "/tmp/diskussion.mp3"

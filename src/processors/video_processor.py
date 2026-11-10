@@ -64,6 +64,7 @@ from src.core.security import apply_tls_policy, tls_verify
 apply_tls_policy()
 
 import yt_dlp  # type: ignore
+from src.utils.ssrf import GuardedYoutubeDL
 
 from src.core.config import Config
 from src.core.models.base import ErrorInfo
@@ -559,7 +560,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                 self.logger.warning("Vimeo API Fallback fehlgeschlagen", error=str(api_error))
         
         # Standard-Pfad: Python-API
-        with yt_dlp.YoutubeDL(cast(Any, self.ydl_opts)) as ydl:
+        with GuardedYoutubeDL(cast(Any, self.ydl_opts)) as ydl:
             info: YDLDict = ydl.extract_info(normalized_url, download=False)  # type: ignore
             if not info:
                 raise ValueError("Keine Video-Informationen gefunden")
@@ -725,7 +726,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
             # Video vorbereiten (vollständiges Video, nicht nur Audio)
             if video_source.url:
                 normalized_url = self._normalize_vimeo_url(video_source.url)
-                with yt_dlp.YoutubeDL({
+                with GuardedYoutubeDL({
                     'quiet': True,
                     'no_warnings': True,
                     'format': 'bestvideo+bestaudio/best',
@@ -1001,7 +1002,7 @@ class VideoProcessor(CacheableProcessor[VideoAnyResult]):
                     download_opts['outtmpl'] = output_path
                     
                     self.logger.info(f"Starte Download via yt-dlp Python-API: {normalized_url}")
-                    with yt_dlp.YoutubeDL(cast(Any, download_opts)) as ydl:
+                    with GuardedYoutubeDL(cast(Any, download_opts)) as ydl:
                         ydl.download([normalized_url])  # type: ignore
             else:
                 video_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()

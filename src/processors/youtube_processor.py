@@ -52,6 +52,7 @@ from datetime import datetime
 import time
 
 import yt_dlp  # type: ignore
+from src.utils.ssrf import GuardedYoutubeDL
 from src.processors.ytdlp_youtube_opts import (
     apply_youtube_ytdlp_opts,
     classify_youtube_cookie_error,
@@ -247,7 +248,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             apply_youtube_ytdlp_opts(extract_opts_raw)
             # yt-dlp._Params ist ein vollstaendiges TypedDict; unsere
             # Teilmenge ist zur Laufzeit gültig, aber nicht zuweisbar.
-            with yt_dlp.YoutubeDL(cast(Any, extract_opts_raw)) as ydl:
+            with GuardedYoutubeDL(cast(Any, extract_opts_raw)) as ydl:
                 info: YoutubeDLInfo = cast(YoutubeDLInfo, ydl.extract_info(url, download=False))  # type: ignore
                 if not info:
                     raise ProcessingError("Keine Video-Informationen gefunden")
@@ -490,7 +491,7 @@ class YoutubeProcessor(CacheableProcessor[YoutubeProcessingResult]):
             download_opts['outtmpl'] = output_path
             
             # 7. Video herunterladen
-            with yt_dlp.YoutubeDL(cast(Any, download_opts)) as ydl:
+            with GuardedYoutubeDL(cast(Any, download_opts)) as ydl:
                 ydl.download([url])  # type: ignore
             
             # 8. Audio-Datei finden

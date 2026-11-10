@@ -82,7 +82,7 @@ async def test_audio_handler_sends_completed_webhook_and_persists_results(monkey
 
         return _Resp()
 
-    monkeypatch.setattr("src.core.processing.handlers.audio_handler.requests.post", _fake_post)
+    monkeypatch.setattr("src.core.processing.handlers.audio_handler.post_webhook", _fake_post)
 
     repo = _FakeRepo()
 

@@ -17,6 +17,7 @@ from datetime import datetime, UTC
 from typing import Any, Dict, Optional, cast, List
 
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 
 from src.core.models.base import RequestInfo, ProcessInfo
 from src.core.models.enums import ProcessingStatus
@@ -82,7 +83,7 @@ async def handle_office_job(job: Job, repo: Any, resource_calculator: ResourceCa
             "process": {"id": job.job_id},
         }
         try:
-            requests.post(url=str(callback_url), json=payload, headers=headers, timeout=15)
+            post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=15)
         except Exception:
             pass
 
@@ -195,7 +196,7 @@ async def handle_office_job(job: Job, repo: Any, resource_calculator: ResourceCa
             },
         }
         try:
-            requests.post(url=str(callback_url), json=payload_final, headers=headers, timeout=30)
+            post_webhook(url=str(callback_url), json=payload_final, headers=headers, timeout=30)
         except Exception as e:
             repo.add_log_entry(job.job_id, "error", f"Webhook-POST fehlgeschlagen: {str(e)}")
 

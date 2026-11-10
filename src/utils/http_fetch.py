@@ -10,7 +10,9 @@ noch die Platte füllen:
 - Größenlimit wird beim Streamen gezählt, nicht nur aus ``Content-Length`` gelesen
 - TLS-Prüfung nach ``src.core.security.tls_verify()``
 
-``allow_private`` ist für AP-12 (SSRF-Schutz) vorbereitet und hat noch keine Wirkung.
+SSRF-Schutz (AP-12): Ziele werden über ``src.utils.ssrf`` geprüft, interne Adressen sind gesperrt
+(Ausnahmen je Installation: ``FETCH_ALLOWED_HOSTS``). ``allow_private=True`` schaltet die Prüfung ab
+und ist nur für Tests und fest konfigurierte interne Ziele gedacht, nie für Adressen aus Requests.
 
 @module utils.http_fetch
 """
@@ -24,6 +26,7 @@ from typing import Dict, Optional, Tuple, Union
 import requests
 
 from src.core.security import tls_verify
+from src.utils import ssrf
 
 DEFAULT_TIMEOUT: Tuple[float, float] = (10.0, 60.0)
 DEFAULT_MAX_SECONDS: float = 1800.0
@@ -43,10 +46,15 @@ def _open(
     url: str,
     timeout: Tuple[float, float],
     headers: Optional[Dict[str, str]],
+    allow_private: bool = False,
 ) -> requests.Response:
     merged = {"User-Agent": USER_AGENT}
     merged.update(headers or {})
-    resp = requests.get(url, stream=True, timeout=timeout, headers=merged, verify=tls_verify())
+    if allow_private:
+        resp = requests.get(url, stream=True, timeout=timeout, headers=merged, verify=tls_verify())
+    else:
+        # Prüft die Adresse, jede Weiterleitung und die tatsächlich verbundene IP (ssrf.SsrfBlocked).
+        resp = ssrf.get(url, stream=True, timeout=timeout, headers=merged, verify=tls_verify())
     resp.raise_for_status()
     return resp
 
@@ -64,7 +72,7 @@ def download_to_file(
     timeout: Tuple[float, float] = DEFAULT_TIMEOUT,
     max_seconds: Optional[float] = DEFAULT_MAX_SECONDS,
     headers: Optional[Dict[str, str]] = None,
-    allow_private: bool = False,  # TODO(AP-12): private Ziele sperren, solange False
+    allow_private: bool = False,
 ) -> int:
     """
     Lädt ``url`` nach ``dest`` und liefert die Anzahl Bytes.
@@ -76,7 +84,7 @@ def download_to_file(
     started = time.monotonic()
     written = 0
     try:
-        with _open(url, timeout, headers) as resp:
+        with _open(url, timeout, headers, allow_private) as resp:
             _check_declared_size(resp, max_bytes)
             with open(target, "wb") as fh:
                 for chunk in resp.iter_content(chunk_size=_CHUNK):
@@ -100,13 +108,13 @@ def fetch_bytes(
     timeout: Tuple[float, float] = DEFAULT_TIMEOUT,
     max_seconds: Optional[float] = DEFAULT_MAX_SECONDS,
     headers: Optional[Dict[str, str]] = None,
-    allow_private: bool = False,  # TODO(AP-12): private Ziele sperren, solange False
+    allow_private: bool = False,
 ) -> bytes:
     """Wie ``download_to_file``, liefert den Inhalt im Speicher."""
     started = time.monotonic()
     parts = []
     total = 0
-    with _open(url, timeout, headers) as resp:
+    with _open(url, timeout, headers, allow_private) as resp:
         _check_declared_size(resp, max_bytes)
         for chunk in resp.iter_content(chunk_size=_CHUNK):
             if not chunk:

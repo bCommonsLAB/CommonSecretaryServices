@@ -90,6 +90,7 @@ from src.utils.performance_tracker import get_performance_tracker, PerformanceTr
 from src.processors.cacheable_processor import CacheableProcessor
 from src.core.resource_tracking import ResourceCalculator
 from src.utils.safe_paths import ensure_within
+from src.utils import ssrf
 
 # TypeVar für den Rückgabetyp von Tasks definieren
 T = TypeVar('T')
@@ -258,7 +259,7 @@ class SessionProcessor(CacheableProcessor[SessionProcessingResult]):
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
                 
-                response: requests.Response = requests.get(url, headers=headers, timeout=30)
+                response: requests.Response = ssrf.get(url, headers=headers, timeout=30)
                 response.raise_for_status()
                 
                 # Parse HTML

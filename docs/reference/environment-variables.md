@@ -138,6 +138,16 @@ The web dashboard (`/`, `/logs`, `/llm-config`, `/docs`, Swagger) has its own si
 - **Example**: `0` or `false` (local development only)
 - **Better alternative**: point `SSL_CERT_FILE` (and `REQUESTS_CA_BUNDLE`) to a CA bundle that contains the proxy certificate, e.g. the output of `python -c "import certifi; print(certifi.where())"` extended with your proxy CA.
 
+### `WEBHOOK_ALLOWED_HOSTS`, `FETCH_ALLOWED_HOSTS`
+
+- **Type**: String (comma-separated host names or IP addresses, `*` as wildcard, e.g. `*.intern.example`)
+- **Default**: Empty (only public targets)
+- **Description**: SSRF protection. The service only fetches URLs from requests (files, web pages, media via yt-dlp) and only sends webhooks if **every** address the host resolves to is public. Loopback, private networks, link-local and cloud metadata addresses are refused with error code `SSRF_BLOCKED`. These two variables list the exceptions per installation:
+  - `WEBHOOK_ALLOWED_HOSTS`: hosts that may receive webhooks (`callback_url`) although they resolve to an internal address, e.g. a client on the same machine or in the same Docker network.
+  - `FETCH_ALLOWED_HOSTS`: hosts the service may download from although they resolve to an internal address, e.g. a file server in the LAN.
+- **Example**: `WEBHOOK_ALLOWED_HOSTS=localhost,knowledgescout`
+- **Notes**: An entry matches the host name exactly as it appears in the URL. A `callback_url` to a host that is not allowed is refused with `400` when the request is accepted, and checked again when the webhook is sent. The service must be able to resolve host names itself; a host it cannot resolve is refused.
+
 ### `YTDLP_COOKIES_FILE`
 
 - **Type**: String (file path)

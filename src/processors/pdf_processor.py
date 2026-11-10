@@ -80,6 +80,7 @@ from src.core.llm.health import record_operation_result
 from src.core.llm.model_names import MISTRAL_OCR_FALLBACK_MODEL, normalize_model_name
 from src.core.security import tls_verify
 from src.utils.http_fetch import download_to_file
+from src.utils import ssrf
 from src.core.models.llm import LLMRequest
 
 # Konstanten für Processor-Typen
@@ -466,7 +467,7 @@ class PDFProcessor(CacheableProcessor[PDFProcessingResult]):
         if not ext:
             # Wenn keine Endung gefunden wurde, versuche sie aus dem Content-Type zu ermitteln
             try:
-                response: requests.Response = requests.head(
+                response: requests.Response = ssrf.head(
                     url, timeout=(5, 15), allow_redirects=True, verify=tls_verify()
                 )
                 content_type: str = response.headers.get('content-type', '').lower()

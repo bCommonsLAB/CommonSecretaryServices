@@ -78,6 +78,7 @@ from .cacheable_processor import CacheableProcessor
 from src.core.config import Config
 from src.core.llm.use_cases import UseCase
 from src.utils.text_chunking import chunk_text_by_chars  # type: ignore
+from src.utils import ssrf
 from src.utils.xxl_chunk_sizing import XXLChunkSizingConfig, compute_xxl_chunk_sizing
 from src.utils.xxl_model_metadata import extract_context_length_tokens_from_metadata
 from src.utils.xxl_text_summarization import (
@@ -1911,7 +1912,7 @@ Anforderungen:
             }
             
             # Webseite abrufen
-            response = requests.get(url, headers=headers, timeout=30)
+            response = ssrf.get(url, headers=headers, timeout=30)
             response.raise_for_status()
 
             raw_html: str = response.text
@@ -2288,7 +2289,7 @@ Anforderungen:
                 request_headers: Dict[str, str] = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
-                page = requests.get(source_url, headers=request_headers, timeout=10)
+                page = ssrf.get(source_url, headers=request_headers, timeout=10)
                 page.raise_for_status()  # Wirft HTTPError für 4XX/5XX Status
                 source_html = page.text
             except requests.RequestException as e:

@@ -44,6 +44,7 @@ from werkzeug.datastructures import FileStorage
 from src.core.exceptions import ProcessingError
 from src.utils.logger import get_logger
 from src.utils.error_responses import public_error_message
+from src.utils import ssrf
 from src.utils.performance_tracker import get_performance_tracker
 from src.processors.image_analyzer_processor import ImageAnalyzerProcessor
 
@@ -428,7 +429,7 @@ class ImageAnalyzerUrlEndpoint(Resource):
 
             # Bild in-memory von der URL holen.
             try:
-                resp = requests.get(url, timeout=30)
+                resp = ssrf.get(url, timeout=30)
                 resp.raise_for_status()
                 image_bytes = resp.content
             except Exception as e:

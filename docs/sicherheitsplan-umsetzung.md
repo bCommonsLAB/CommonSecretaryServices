@@ -90,7 +90,7 @@ Entscheidung: `[ ]` geklärt, Wert für die Produktionsinstanz: ___
 
 Die Media-Endpunkte für KnowledgeScout nutzen beliebige Webseiten (Rai, Presseseiten). Eine reine Extractor-Allowlist würde das brechen. Vorschlag in AP-12: Generic bleibt erlaubt, aber nur für öffentliche IP-Ziele (DNS-Prüfung), plus Host-Denylist. Alternativ eine Allowlist aus `MEDIA_ALLOWED_HOSTS`.
 
-Entscheidung: `[ ]` Public-IP-Prüfung (empfohlen) `[ ]` Host-Allowlist
+Entscheidung: `[x]` Public-IP-Prüfung, 10.11.2026: jede öffentliche Seite bleibt erlaubt, interne Ziele sind gesperrt. `[ ]` Host-Allowlist
 
 ---
 
@@ -245,7 +245,7 @@ Schritte:
 
 Akzeptanz: Grep `format_exc()` in `src/api/routes` nur noch in Logger-Aufrufen.
 
-- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `src/utils/error_responses.py` (`public_error_message`, `redact_sensitive`), angewendet in allen Dateien unter `src/api/routes`, Tests `.tests/test_error_responses.py` (darunter drei statische Prüfungen der Routen, die das Akzeptanzkriterium dauerhaft absichern).
+- [x] erledigt am 10.11.2026, PR #47. Umsetzung: `src/utils/error_responses.py` (`public_error_message`, `redact_sensitive`), angewendet in allen Dateien unter `src/api/routes`, Tests `.tests/test_error_responses.py` (darunter drei statische Prüfungen der Routen, die das Akzeptanzkriterium dauerhaft absichern).
   - Regel: Eigene Ausnahmen aus `src.*`, `ValueError` und HTTP-Fehler behalten ihre Meldung, bereinigt von Pfaden, Zugangsdaten in Adressen, Tokens und Schlüsseln. Alle anderen Ausnahmen liefern `Interner Fehler (Referenz: <id>)`; der Stacktrace steht unter dieser Referenz im Log (`error_ref`).
   - Für Clients ändert sich: Bei unerwarteten Fehlern steht in `error.message` kein Rohtext der Ausnahme mehr, und `error.details.traceback` gibt es nicht mehr. Statuscodes und `error.code` sind unverändert.
   - `src/main.py` gibt beim Start keine Pfade oder Werte aus der Umgebung mehr aus, nur noch „konfiguriert: ja/nein“. Die Whitelist loggt `src/dashboard/app.py` seit AP-01 nicht mehr roh.
@@ -265,7 +265,7 @@ Schritte:
 
 Akzeptanz: `pip-audit -r requirements.lock` ohne Befunde; Image baut; Tests grün.
 
-- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `requirements.txt`, neu `requirements.lock` (139 Pakete, exakt gepinnt, mit Prüfsummen, erzeugt mit `uv pip compile`), `Dockerfile`, Anleitung `docs/deployment/abhaengigkeiten.md`, Tests `.tests/test_dependency_lock.py`.
+- [x] erledigt am 10.11.2026, PR #47. Umsetzung: `requirements.txt`, neu `requirements.lock` (139 Pakete, exakt gepinnt, mit Prüfsummen, erzeugt mit `uv pip compile`), `Dockerfile`, Anleitung `docs/deployment/abhaengigkeiten.md`, Tests `.tests/test_dependency_lock.py`.
   - Abweichung vom Plan: **Pillow steht auf 13.0.0, nicht 12.3.0.** `pip-audit` meldete am 10.11.2026 für 12.3.0 bereits 39 neue Advisories, behoben in 13.0.0. Mit 13.0.0 lautet das Ergebnis „No known vulnerabilities found“. Weitere Stände im Lockfile: flask 3.1.3, pymongo 4.19.0, pytest 9.2.0; dnspython musste wegen pymongo auf ≥ 2.7 angehoben werden.
   - Die Option `--only-binary :all:` steht nicht mehr in der Pillow-Zeile (sie verhinderte `pip-audit` und das Erzeugen des Lockfiles), sondern als `--only-binary=pillow` im Dockerfile.
   - Dockerfile: Basisimage `python:3.12-slim` per Digest gepinnt, `apt-get upgrade` im Build, Installation mit `--require-hashes` aus dem Lockfile, `pip install --upgrade yt-dlp` entfernt. Das Basisimage wechselt damit von Debian 12 (bookworm) auf Debian 13 (trixie).
@@ -310,7 +310,16 @@ Schritte:
 
 Akzeptanz: Tests für `resolve_and_check` (private IPs, Metadaten-IP, Redirect auf privat); Integrationstest `callback_url=http://127.0.0.1:1/` wird mit 400 abgelehnt.
 
-- [ ] erledigt am ______, PR #____
+- [x] umgesetzt am 10.11.2026 auf Branch `claude/security-issues-progress-1biry3`, PR #____ (noch nicht angelegt). Umsetzung: `src/utils/ssrf.py`, angewendet in `src/utils/http_fetch.py`, allen Abrufstellen aus H1, allen Webhook-Stellen der Handler, `secretary_worker_manager.py`, `metrics_trace.py`, den drei yt-dlp-Stellen und im API-Blueprint (`src/api/routes/__init__.py`). Tests `.tests/test_ssrf.py`, gemeinsame Namensauflösung für Tests in `.tests/conftest.py`.
+  - Regel: nur `http`/`https`, und **jede** Adresse, auf die der Host auflöst, muss öffentlich sein. Gesperrt sind Loopback, private Netze, Link-Local, Cloud-Metadaten, Carrier-NAT, Multicast, reservierte Bereiche und in IPv6 eingebettete IPv4-Adressen; Schreibweisen wie `127.1` oder `2130706433` werden über die Namensauflösung erkannt.
+  - Die Funktion heißt `check_url` statt `resolve_and_check`. Gegen DNS-Rebinding prüft die Verbindung selbst: `guarded_session` löst beim Verbindungsaufbau auf, prüft und verbindet genau die geprüfte Adresse (TLS läuft weiter gegen den Hostnamen). Weiterleitungen folgt requests selbst, höchstens 5; jede Station wird vor dem Abruf und beim Verbinden geprüft.
+  - Ausnahmen je Installation: `WEBHOOK_ALLOWED_HOSTS` wie geplant, zusätzlich `FETCH_ALLOWED_HOSTS` für Downloads von internen Servern. `MEDIA_ALLOWED_HOSTS` gibt es nicht (Entscheidung E3). Beide Variablen stehen in `.env.example`, `docker-compose.yml` und `docs/reference/environment-variables.md`.
+  - Webhooks: Die Callback-Adresse wird im API-Blueprint für alle Endpunkte geprüft (Formularfeld, Query-Parameter, JSON `callback_url`, `webhook.url`, `parameters.webhook.url`) und mit 400 `SSRF_BLOCKED` abgelehnt; `post_webhook` prüft beim Senden erneut.
+  - yt-dlp: `GuardedYoutubeDL` prüft jede Adresse, die yt-dlp selbst abruft, und die Adressen, die es an ffmpeg übergibt.
+  - Offene Reste:
+    - **Weiterleitungen innerhalb von yt-dlp** werden erst nach dem Abruf erkannt: die Antwort wird verworfen und gelangt nicht zum Aufrufer, die Anfrage an das interne Ziel ist dann aber schon gesendet. Dasselbe gilt für Adressen, die ffmpeg beim Abspielen eines Manifests selbst nachlädt. Beides schließt erst die Netz-Trennung aus AP-14/AP-21 vollständig.
+    - **Hinter einem ausgehenden Proxy** löst der Proxy den Namen auf; dort greift nur die Prüfung vor dem Abruf, nicht die an der Verbindung.
+    - Fest konfigurierte Ziele (LLM-Anbieter, Mistral-OCR, Vimeo-API, Ollama) sind bewusst nicht eingeschränkt. `allow_private=True` in `http_fetch` schaltet die Prüfung ab und wird im Code nirgends für Request-Adressen verwendet.
 
 ### AP-13 Booklet-Renderer härten
 Befund: H7. Aufwand: S. Dateien: `src/processors/booklet/render.py`, `requirements.txt` (nh3).
@@ -527,5 +536,5 @@ Aufwand: S, wiederkehrend. Monatlich `pip-audit` und `trivy` (durch AP-15 automa
 |---|---|---|
 | 0 | AP-00, AP-00b | 0/2 |
 | 1 | AP-01 … AP-07 | 7/7 |
-| 2 | AP-12 … AP-18 | 0/7 |
+| 2 | AP-12 … AP-18 | 1/7 |
 | 3 | AP-19 … AP-23 | 0/5 |

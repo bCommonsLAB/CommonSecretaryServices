@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, cast, List
 
 import requests  # type: ignore
+from src.utils.ssrf import post_webhook
 
 from src.core.exceptions import ProcessingError
 from src.core.models.enums import ProcessingStatus
@@ -148,7 +149,7 @@ async def handle_office_via_pdf_job(job: Job, repo: Any, resource_calculator: Re
             "process": {"id": job.job_id},
         }
         try:
-            requests.post(url=str(callback_url), json=payload, headers=headers, timeout=15)
+            post_webhook(url=str(callback_url), json=payload, headers=headers, timeout=15)
         except Exception:
             pass
 
@@ -292,7 +293,7 @@ async def handle_office_via_pdf_job(job: Job, repo: Any, resource_calculator: Re
             "data": data_section,
         }
         try:
-            requests.post(url=str(callback_url), json=payload_final, headers=headers, timeout=30)
+            post_webhook(url=str(callback_url), json=payload_final, headers=headers, timeout=30)
         except Exception:
             repo.add_log_entry(job.job_id, "error", "Webhook-POST fehlgeschlagen")
 

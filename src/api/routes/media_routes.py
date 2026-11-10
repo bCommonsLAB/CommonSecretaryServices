@@ -68,6 +68,7 @@ from src.core.security import apply_tls_policy
 apply_tls_policy()
 
 import yt_dlp  # type: ignore
+from src.utils.ssrf import GuardedYoutubeDL, SsrfBlocked, SSRF_BLOCKED, check_url
 
 from src.utils.logger import get_logger
 from src.utils.error_responses import public_error_message
@@ -244,7 +245,7 @@ def resolve_media_url(url: str, cookies: Optional[str] = None) -> Dict[str, Any]
 
     cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
     """
-    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts({'skip_download': True}, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts({'skip_download': True}, cookiefile)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=False), url)
     direct = info.get('url')
     if not isinstance(direct, str) or not direct:
@@ -292,7 +293,7 @@ def resolve_playlist(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
 
     cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
     """
-    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts(PLAYLIST_OPTS, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(PLAYLIST_OPTS, cookiefile)) as ydl:
         info = ydl.extract_info(url, download=False)
     if not isinstance(info, dict):
         raise ValueError("yt-dlp lieferte keine Metadaten")
@@ -339,7 +340,7 @@ def download_media(url: str, workdir: str, nur_audio: bool = True, cookies: Opti
     extra: Dict[str, Any] = {'outtmpl': outtmpl}
     if nur_audio:
         extra['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
-    with _cookie_file(cookies) as cookiefile, yt_dlp.YoutubeDL(_ydl_opts(extra, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(extra, cookiefile)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=True), url)
     files = [f for f in os.listdir(workdir) if f.startswith('medium.') and not f.endswith('.part')]
     if nur_audio:
@@ -373,10 +374,14 @@ class MediaResolveEndpoint(Resource):
         except InvalidCookies as e:
             return _error("INVALID_COOKIES", public_error_message(e), 400)
         try:
+            check_url(url)
             data = resolve_media_url(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Seite nicht oder kein Medium", url=url, error=str(e))
             return _error("MEDIA_NOT_RESOLVABLE", f"Kein Medium aufloesbar: {public_error_message(e, expected=True)}", 422)
+        except SsrfBlocked as e:
+            logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
+            return _error(SSRF_BLOCKED, public_error_message(e), 400)
         except ValueError as e:
             return _error("MEDIA_NOT_RESOLVABLE", public_error_message(e), 422)
         except Exception as e:
@@ -402,10 +407,14 @@ class MediaPlaylistEndpoint(Resource):
         except InvalidCookies as e:
             return _error("INVALID_COOKIES", public_error_message(e), 400)
         try:
+            check_url(url)
             data = resolve_playlist(url, cookies=cookies)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar", url=url, error=str(e))
             return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {public_error_message(e, expected=True)}", 422)
+        except SsrfBlocked as e:
+            logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
+            return _error(SSRF_BLOCKED, public_error_message(e), 400)
         except ValueError as e:
             return _error("PLAYLIST_NOT_RESOLVABLE", public_error_message(e), 422)
         except Exception as e:
@@ -435,12 +444,16 @@ class MediaDownloadEndpoint(Resource):
             return _error("INVALID_COOKIES", public_error_message(e), 400)
         workdir = tempfile.mkdtemp(prefix='ks-media-')
         try:
+            check_url(url)
             meta = download_media(url, workdir, nur_audio=nur_audio_raw, cookies=cookies)
             with open(meta["path"], 'rb') as fh:
                 data = fh.read()
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
             logger.warning("yt-dlp konnte nicht laden", url=url, error=str(e))
             return _error("MEDIA_NOT_DOWNLOADABLE", f"Medium nicht ladbar: {public_error_message(e, expected=True)}", 422)
+        except SsrfBlocked as e:
+            logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
+            return _error(SSRF_BLOCKED, public_error_message(e), 400)
         except ValueError as e:
             return _error("MEDIA_NOT_DOWNLOADABLE", public_error_message(e), 422)
         except Exception as e:
