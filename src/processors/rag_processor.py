@@ -335,8 +335,12 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
         """
         Schreibt Voyage-Embedding-Nutzung in llm_info und den Dashboard-Tracker.
 
-        Voyage liefert total_tokens, aber keine USD-Kosten. cost bleibt 0.0.
+        Voyage liefert total_tokens, aber keine USD-Kosten. Der Betrag kommt
+        aus dem Listenpreis (core/llm/embedding_cost.py). Ohne Preis fuer das
+        Modell bleibt cost 0.0 und der Aufruf zaehlt als „Preis unbekannt".
         """
+        from src.core.llm.embedding_cost import estimate_embedding_cost
+
         raw_tokens = getattr(response, "total_tokens", None)
         if raw_tokens is None:
             tokens = max(sum(self._estimate_tokens(t) for t in texts), 1)
@@ -352,7 +356,7 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                 tokens=tokens,
                 duration=0.0,
                 processor="RAGProcessor",
-                cost=0.0,
+                cost=estimate_embedding_cost(model, tokens),
             )
         ])
     

@@ -3,7 +3,7 @@ Kosten für Mistral Document-OCR.
 
 Mistral rechnet OCR nach Seiten, nicht nach Token.
 Preis laut Vorgabe: 1 USD je 1000 Seiten.
-Voyage-Embeddings bleiben kostenlos (kein Eintrag hier).
+Embedding-Preise (Voyage) stehen in embedding_cost.py.
 """
 
 from typing import Any, Mapping, Sequence, cast

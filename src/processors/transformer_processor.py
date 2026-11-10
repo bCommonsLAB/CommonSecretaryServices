@@ -176,8 +176,11 @@ class TransformerProcessor(CacheableProcessor[TransformationResult]):
             transcriber_init_end = time.time()
             
             # Debug-Logging der Konfiguration
-            self.logger.debug("Transformer Processor initialisiert",
-                            model=self.model,
+            # default_model ist die VOREINSTELLUNG aus der LLM-Config, nicht das
+            # Modell des Aufrufs: /chat und /template koennen es je Anfrage
+            # ueberschreiben. Das wirksame Modell loggt die Route beim Aufruf.
+            self.logger.debug("Transformer Processor initialisiert (Voreinstellung)",
+                            default_model=self.model,
                             temperature=self.temperature,
                             max_tokens=self.max_tokens,
                             target_format=self.target_format,

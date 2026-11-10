@@ -43,6 +43,15 @@ logger = get_logger(process_id="openai-provider")
 PARAMS_VIA_EXTRA_BODY = frozenset({"languages", "keywords"})
 
 
+
+def _usage_int(usage: Any, field_name: str) -> Optional[int]:
+    """Liest ein Token-Feld aus usage. None, wenn der Provider es nicht meldet."""
+    raw: Any = getattr(usage, field_name, None) if usage is not None else None
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
 class OpenAIProvider:
     """
     OpenAI Provider-Implementierung.
@@ -479,7 +488,9 @@ class OpenAIProvider:
                 purpose="chat_completion",
                 tokens=tokens,
                 duration=duration,
-                processor="OpenAIProvider"
+                processor="OpenAIProvider",
+                prompt_tokens=_usage_int(response.usage, "prompt_tokens"),
+                completion_tokens=_usage_int(response.usage, "completion_tokens"),
             )
             
             return content, llm_request
