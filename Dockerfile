@@ -17,6 +17,14 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+# JS-Laufzeit für yt-dlp: ohne sie löst yt-dlp YouTubes JS-Challenges nicht, und angemeldete
+# Abrufe finden keine Formate. Deno ist die von yt-dlp vorgesehene Laufzeit (mindestens 2.3.0);
+# das Debian-Paket nodejs ist dafür zu alt (yt-dlp verlangt Node ab v22). Eine einzelne Datei
+# aus dem offiziellen Image, per Digest gepinnt (Stand 25.11.2026). Aktualisieren:
+# docs/deployment/abhaengigkeiten.md
+COPY --from=denoland/deno:bin-2.9.8@sha256:b507583d3c68ba69f3ed2ce5969ae5b8b70f43421c781279c7aea06435263543 /deno /usr/local/bin/deno
+RUN deno --version
+
 # Arbeitsverzeichnis setzen
 WORKDIR /app
 

@@ -416,3 +416,146 @@ def test_route_resolve_fehler_mit_cookies_nennt_inhalt_nirgends(client: Any, spy
     assert resp.status_code == 422
     assert resp.get_json()["error"]["code"] == "MEDIA_NOT_RESOLVABLE"
     assert "geheim-abc" not in resp.get_data(as_text=True)
+
+
+# --- YouTube: JS-Laufzeit, aufgezeichnete Antwort, Fehlerdeutung -------------------------------
+#
+# Anlass (25.11.2026): Side Events der COP31 liessen sich nicht aufloesen. Ohne Anmeldung kam
+# „Sign in to confirm you’re not a bot", mit Anmeldung „The page needs to be reloaded." Ursache war
+# yt-dlp 2026.7.4 (Client `tv_downgraded` fuer angemeldete Abrufe, yt-dlp#17389) und die fehlende
+# JS-Laufzeit im Image. Die drei Fehlertexte unten sind die Antworten im Wortlaut.
+
+import json
+from pathlib import Path
+
+FIXTURES = Path(__file__).parent / "fixtures" / "ytdlp"
+
+BOT_CHECK = (
+    "ERROR: [youtube] hCEHADgvf8A: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies "
+    "for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  "
+    "for how to manually pass cookies."
+)
+PAGE_RELOAD = "ERROR: [youtube] hCEHADgvf8A: The page needs to be reloaded."
+RATE_LIMIT = (
+    "ERROR: [youtube] hCEHADgvf8A: Video unavailable. This content isn't available, try again later. "
+    "Your account has been rate-limited by YouTube for up to an hour."
+)
+NO_FORMATS = "ERROR: [youtube] hCEHADgvf8A: Requested format is not available. Use --list-formats for a list of available formats"
+NO_JS_RUNTIME = "[youtube] No supported JavaScript runtime could be found. Only deno is enabled by default"
+COOKIES_ROTATED = "[youtube] The provided YouTube account cookies are no longer valid. They have likely been rotated in the browser as a security measure."
+
+
+def test_ydl_opts_schalten_deno_und_node_frei() -> None:
+    assert media_routes._ydl_opts()["js_runtimes"] == {"deno": {}, "node": {}}
+    FakeYoutubeDL.info = _video_info()
+    media_routes.resolve_media_url("https://www.youtube.com/watch?v=abc123def45")
+    assert FakeYoutubeDL.seen_opts[-1]["js_runtimes"] == {"deno": {}, "node": {}}
+
+
+def test_ydl_opts_sammeln_warnungen_nur_mit_notes() -> None:
+    ohne = media_routes._ydl_opts()
+    assert ohne["no_warnings"] is True
+    assert "logger" not in ohne
+    notes = media_routes.YtdlpNotes()
+    mit = media_routes._ydl_opts(notes=notes)
+    assert mit["no_warnings"] is False
+    assert mit["logger"] is notes
+    for nummer in range(media_routes.YTDLP_NOTES_MAX + 5):
+        notes.warning(f"Warnung {nummer}")
+    notes.debug("x")
+    notes.error("y")
+    assert len(notes.warnings) == media_routes.YTDLP_NOTES_MAX
+
+
+def test_resolve_aufgezeichnete_antwort_frueherer_livestream() -> None:
+    """Antwort von yt-dlp 2026.11.23 fuer ein Side Event: frueherer Livestream, 85 Minuten, mit Beschreibung."""
+    info = json.loads((FIXTURES / "youtube_was_live_hCEHADgvf8A.json").read_text(encoding="utf-8"))
+    assert info["live_status"] == "was_live"
+    FakeYoutubeDL.info = info
+    data = media_routes.resolve_media_url("https://www.youtube.com/watch?v=hCEHADgvf8A")
+    assert data["extractor"] == "youtube"
+    assert data["title"] == "Beyond the Numbers: Maximizing Climate Finance Outcomes"
+    assert data["duration"] == 5120
+    assert (data["ext"], data["protocol"], data["ist_audio"]) == ("m4a", "https", True)
+    assert data["url"].startswith("https://")
+    meta = data["metadata"]
+    assert meta["id"] == "hCEHADgvf8A"
+    assert meta["upload_date"] == "2026-11-10"
+    assert meta["channel"] == "UN Climate Change - Events"
+    assert meta["description"]
+    assert meta["webpage_url"] == "https://www.youtube.com/watch?v=hCEHADgvf8A"
+    assert meta["thumbnail"].startswith("https://i.ytimg.com/")
+    assert [c["title"] for c in meta["chapters"]][0] == "Opening remarks"
+
+
+class FailingYoutubeDL(FakeYoutubeDL):
+    """yt-dlp, das erst Warnungen meldet (ueber die Option `logger`) und dann scheitert."""
+
+    fehler: str = ""
+    warnungen: List[str] = []
+
+    def __init__(self, opts: Dict[str, Any]) -> None:
+        super().__init__(opts)
+        self.opts = opts
+
+    def extract_info(self, url: str, download: bool = False) -> Any:
+        for warnung in FailingYoutubeDL.warnungen:
+            self.opts["logger"].warning(warnung)
+        raise media_routes.yt_dlp.utils.DownloadError(FailingYoutubeDL.fehler)
+
+
+@pytest.fixture
+def scheitert(monkeypatch: Any) -> None:
+    FailingYoutubeDL.fehler = ""
+    FailingYoutubeDL.warnungen = []
+    monkeypatch.setattr(media_routes.yt_dlp, "YoutubeDL", FailingYoutubeDL)
+
+
+@pytest.mark.parametrize("fehler, warnungen, mit_cookies, grund, im_hinweis", [
+    (BOT_CHECK, [], False, "YOUTUBE_ANMELDUNG_FEHLT", "keine mitgegeben"),
+    (BOT_CHECK, [], True, "YOUTUBE_ANMELDUNG_NICHT_ANGENOMMEN", "privates Fenster"),
+    (NO_FORMATS, [COOKIES_ROTATED], True, "YOUTUBE_ANMELDUNG_NICHT_ANGENOMMEN", "privates Fenster"),
+    (PAGE_RELOAD, [], True, "YTDLP_VERALTET", "neue Cookies helfen nicht"),
+    (RATE_LIMIT, [], True, "YOUTUBE_SERVER_GESPERRT", "unabhaengig von der Anmeldung"),
+    (NO_FORMATS, [NO_JS_RUNTIME], True, "YOUTUBE_KEINE_FORMATE", "JS-Laufzeit"),
+])
+def test_route_resolve_deutet_youtube_fehler(
+    client: Any, scheitert: Any, fehler: str, warnungen: List[str], mit_cookies: bool, grund: str, im_hinweis: str,
+) -> None:
+    FailingYoutubeDL.fehler = fehler
+    FailingYoutubeDL.warnungen = warnungen
+    payload: Dict[str, Any] = {"url": "https://www.youtube.com/watch?v=hCEHADgvf8A"}
+    if mit_cookies:
+        payload["cookies"] = COOKIES
+    resp = client.post("/api/media/resolve", json=payload, headers=AUTH)
+    assert resp.status_code == 422
+    error = resp.get_json()["error"]
+    assert error["code"] == "MEDIA_NOT_RESOLVABLE"
+    assert error["details"]["grund"] == grund
+    assert error["details"]["anmeldung_mitgegeben"] is mit_cookies
+    assert im_hinweis in error["details"]["hinweis"]
+    # Der Wortlaut von yt-dlp bleibt in der Meldung, der Hinweis steht dahinter.
+    assert error["message"].startswith("Kein Medium aufloesbar: ERROR: [youtube] hCEHADgvf8A:")
+    assert error["message"].endswith(error["details"]["hinweis"])
+    assert "geheim-abc" not in resp.get_data(as_text=True)
+
+
+def test_route_resolve_fremder_fehler_bleibt_ohne_deutung(client: Any, scheitert: Any) -> None:
+    FailingYoutubeDL.fehler = "ERROR: Unsupported URL: https://example.org/nichts"
+    resp = client.post("/api/media/resolve", json={"url": "https://example.org/nichts"}, headers=AUTH)
+    assert resp.status_code == 422
+    error = resp.get_json()["error"]
+    assert error["details"] is None
+    assert error["message"] == "Kein Medium aufloesbar: ERROR: Unsupported URL: https://example.org/nichts"
+
+
+def test_route_playlist_und_download_deuten_youtube_fehler(client: Any, scheitert: Any) -> None:
+    FailingYoutubeDL.fehler = BOT_CHECK
+    playlist = client.post("/api/media/playlist", json={"url": "https://www.youtube.com/playlist?list=PL1"}, headers=AUTH)
+    assert playlist.status_code == 422
+    assert playlist.get_json()["error"]["code"] == "PLAYLIST_NOT_RESOLVABLE"
+    assert playlist.get_json()["error"]["details"]["grund"] == "YOUTUBE_ANMELDUNG_FEHLT"
+    download = client.post("/api/media/download", json={"url": "https://www.youtube.com/watch?v=hCEHADgvf8A", "cookies": COOKIES}, headers=AUTH)
+    assert download.status_code == 422
+    assert download.get_json()["error"]["code"] == "MEDIA_NOT_DOWNLOADABLE"
+    assert download.get_json()["error"]["details"]["grund"] == "YOUTUBE_ANMELDUNG_NICHT_ANGENOMMEN"

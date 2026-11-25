@@ -33,6 +33,14 @@ Der Inhalt landet je Aufruf in einer temporaeren Datei mit Rechten 0600, geht al
 yt-dlp und wird danach geloescht — auch im Fehlerfall. Er wird nie geloggt und hat Vorrang vor der
 Server-Datei `YTDLP_COOKIES_FILE`. Ohne das Feld verhaelt sich der Secretary wie bisher.
 
+JS-Laufzeit: yt-dlp loest YouTubes JS-Challenges mit Deno (im Image) oder Node (lokal); beide sind
+freigeschaltet (`js_runtimes`). Ohne Laufzeit liefert YouTube fuer angemeldete Abrufe keine Formate.
+
+Fehlerdeutung YouTube: scheitert yt-dlp an YouTube, haengt die Antwort an die Meldung von yt-dlp einen
+Klartext-Hinweis an und nennt den Grund in `error.details.grund`:
+YOUTUBE_ANMELDUNG_FEHLT, YOUTUBE_ANMELDUNG_NICHT_ANGENOMMEN, YOUTUBE_SERVER_GESPERRT, YTDLP_VERALTET,
+YOUTUBE_KEINE_FORMATE (dazu `hinweis` und `anmeldung_mitgegeben`). Andere Fehler bleiben unveraendert.
+
 Eingabe (JSON): { "url": "https://...", "cookies": "# Netscape HTTP Cookie File\n..." (optional) };
   /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
 Ausgabe /resolve: { "status": "success", "data": { "extractor", "title", "duration", "ext",
@@ -57,7 +65,7 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 from urllib.parse import quote
 
 from flask import Response, request
@@ -71,7 +79,8 @@ import yt_dlp  # type: ignore
 from src.utils.ssrf import GuardedYoutubeDL, SsrfBlocked, SSRF_BLOCKED, check_url
 
 from src.utils.logger import get_logger
-from src.utils.error_responses import public_error_message
+from src.utils.error_responses import public_error_message, redact_sensitive
+from src.processors.ytdlp_youtube_opts import classify_youtube_access_error, default_js_runtimes
 
 logger = get_logger(process_id="media-api")
 
@@ -98,17 +107,51 @@ def _error(code: str, message: str, status: int, details: Optional[Dict[str, Any
     return {"status": "error", "error": {"code": code, "message": message, "details": details}}, status
 
 
-def _ydl_opts(extra: Optional[Dict[str, Any]] = None, cookiefile: Optional[str] = None) -> Dict[str, Any]:
-    """yt-dlp-Optionen. `cookiefile` (Anmeldung des Aufrufs) hat Vorrang vor YTDLP_COOKIES_FILE (Server-Datei)."""
+# Mehr Warnungen je Aufruf werden nicht gesammelt; fuer Deutung und Log reichen die ersten.
+YTDLP_NOTES_MAX = 20
+
+
+class YtdlpNotes:
+    """Sammelt die Warnungen von yt-dlp eines Aufrufs (Option `logger`), statt sie zu verwerfen.
+
+    Dort steht, was die Fehlermeldung allein nicht sagt: Cookies ungueltig geworden, JS-Laufzeit fehlt,
+    yt-dlp veraltet. Nichts davon geht in die Antwort; die Warnungen dienen der Fehlerdeutung und dem Log.
+    """
+
+    def __init__(self) -> None:
+        self.warnings: List[str] = []
+
+    def debug(self, message: str) -> None:
+        return None
+
+    def info(self, message: str) -> None:
+        return None
+
+    def warning(self, message: str) -> None:
+        if len(self.warnings) < YTDLP_NOTES_MAX:
+            self.warnings.append(str(message))
+
+    def error(self, message: str) -> None:
+        return None
+
+
+def _ydl_opts(extra: Optional[Dict[str, Any]] = None, cookiefile: Optional[str] = None, notes: Optional[YtdlpNotes] = None) -> Dict[str, Any]:
+    """yt-dlp-Optionen. `cookiefile` (Anmeldung des Aufrufs) hat Vorrang vor YTDLP_COOKIES_FILE (Server-Datei).
+
+    `notes` sammelt die Warnungen von yt-dlp; ohne `notes` bleiben sie wie bisher unterdrueckt.
+    """
     opts: Dict[str, Any] = {
         'quiet': True,
-        'no_warnings': True,
+        'no_warnings': notes is None,
         'noprogress': True,
         'noplaylist': True,
         'format': FORMAT,
         'socket_timeout': 30,
         'retries': 5,
+        'js_runtimes': default_js_runtimes(),
     }
+    if notes is not None:
+        opts['logger'] = notes
     if cookiefile:
         opts['cookiefile'] = cookiefile
     else:
@@ -166,6 +209,21 @@ def _cookie_file(cookies: Optional[str]) -> Iterator[Optional[str]]:
             os.unlink(path)
         except FileNotFoundError:
             pass
+
+
+def _ytdlp_error(code: str, prefix: str, error: BaseException, url: str, cookies_given: bool, notes: YtdlpNotes, log_text: str) -> Tuple[Dict[str, Any], int]:
+    """422 fuer einen Fehler von yt-dlp. Ist es ein bekannter YouTube-Fall, kommen Klartext-Hinweis und Grund dazu."""
+    failure = classify_youtube_access_error(str(error), cookies_given, notes.warnings)
+    logger.warning(
+        log_text, url=url, error=str(error), anmeldung=cookies_given,
+        grund=failure.code if failure else None,
+        ytdlp_warnungen=[redact_sensitive(w) for w in notes.warnings[:5]],
+    )
+    message = f"{prefix}: {public_error_message(error, expected=True)}"
+    if failure is None:
+        return _error(code, message, 422)
+    details = {"grund": failure.code, "hinweis": failure.message, "anmeldung_mitgegeben": cookies_given}
+    return _error(code, f"{message} — {failure.message}", 422, details)
 
 
 def _first_entry(info: Any, url: str) -> Dict[str, Any]:
@@ -240,12 +298,13 @@ def _metadata_block(info: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def resolve_media_url(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
+def resolve_media_url(url: str, cookies: Optional[str] = None, notes: Optional[YtdlpNotes] = None) -> Dict[str, Any]:
     """Metadaten und direkte Adresse per yt-dlp (download=False). Wirft bei unbekannter Seite.
 
     cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
+    notes: sammelt die Warnungen von yt-dlp fuer die Fehlerdeutung.
     """
-    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts({'skip_download': True}, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts({'skip_download': True}, cookiefile, notes)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=False), url)
     direct = info.get('url')
     if not isinstance(direct, str) or not direct:
@@ -288,12 +347,13 @@ def _entry_availability(entry: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def resolve_playlist(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
+def resolve_playlist(url: str, cookies: Optional[str] = None, notes: Optional[YtdlpNotes] = None) -> Dict[str, Any]:
     """Flache Liste einer Playlist per yt-dlp. Wirft bei unbekannter Seite, leerer Playlist oder wenn die Adresse keine Playlist ist.
 
     cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
+    notes: sammelt die Warnungen von yt-dlp fuer die Fehlerdeutung.
     """
-    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(PLAYLIST_OPTS, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(PLAYLIST_OPTS, cookiefile, notes)) as ydl:
         info = ydl.extract_info(url, download=False)
     if not isinstance(info, dict):
         raise ValueError("yt-dlp lieferte keine Metadaten")
@@ -330,17 +390,18 @@ def resolve_playlist(url: str, cookies: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def download_media(url: str, workdir: str, nur_audio: bool = True, cookies: Optional[str] = None) -> Dict[str, Any]:
+def download_media(url: str, workdir: str, nur_audio: bool = True, cookies: Optional[str] = None, notes: Optional[YtdlpNotes] = None) -> Dict[str, Any]:
     """Laedt per yt-dlp (HLS/DASH ueber ffmpeg) nach workdir; liefert Pfad und Metadaten.
 
     nur_audio: Tonspur per ffmpeg als m4a herausziehen (auch aus Videos).
     cookies: optionaler Inhalt einer Netscape-cookies.txt, nur fuer diesen Aufruf.
+    notes: sammelt die Warnungen von yt-dlp fuer die Fehlerdeutung.
     """
     outtmpl = os.path.join(workdir, 'medium.%(ext)s')
     extra: Dict[str, Any] = {'outtmpl': outtmpl}
     if nur_audio:
         extra['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
-    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(extra, cookiefile)) as ydl:
+    with _cookie_file(cookies) as cookiefile, GuardedYoutubeDL(_ydl_opts(extra, cookiefile, notes)) as ydl:
         info = _first_entry(ydl.extract_info(url, download=True), url)
     files = [f for f in os.listdir(workdir) if f.startswith('medium.') and not f.endswith('.part')]
     if nur_audio:
@@ -373,12 +434,12 @@ class MediaResolveEndpoint(Resource):
             cookies = _read_cookies(payload)
         except InvalidCookies as e:
             return _error("INVALID_COOKIES", public_error_message(e), 400)
+        notes = YtdlpNotes()
         try:
             check_url(url)
-            data = resolve_media_url(url, cookies=cookies)
+            data = resolve_media_url(url, cookies=cookies, notes=notes)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
-            logger.warning("yt-dlp kennt die Seite nicht oder kein Medium", url=url, error=str(e))
-            return _error("MEDIA_NOT_RESOLVABLE", f"Kein Medium aufloesbar: {public_error_message(e, expected=True)}", 422)
+            return _ytdlp_error("MEDIA_NOT_RESOLVABLE", "Kein Medium aufloesbar", e, url, cookies is not None, notes, "yt-dlp kennt die Seite nicht oder kein Medium")
         except SsrfBlocked as e:
             logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
             return _error(SSRF_BLOCKED, public_error_message(e), 400)
@@ -406,12 +467,12 @@ class MediaPlaylistEndpoint(Resource):
             cookies = _read_cookies(payload)
         except InvalidCookies as e:
             return _error("INVALID_COOKIES", public_error_message(e), 400)
+        notes = YtdlpNotes()
         try:
             check_url(url)
-            data = resolve_playlist(url, cookies=cookies)
+            data = resolve_playlist(url, cookies=cookies, notes=notes)
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
-            logger.warning("yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar", url=url, error=str(e))
-            return _error("PLAYLIST_NOT_RESOLVABLE", f"Playlist nicht aufloesbar: {public_error_message(e, expected=True)}", 422)
+            return _ytdlp_error("PLAYLIST_NOT_RESOLVABLE", "Playlist nicht aufloesbar", e, url, cookies is not None, notes, "yt-dlp kennt die Playlist nicht oder sie ist nicht erreichbar")
         except SsrfBlocked as e:
             logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
             return _error(SSRF_BLOCKED, public_error_message(e), 400)
@@ -443,14 +504,14 @@ class MediaDownloadEndpoint(Resource):
         except InvalidCookies as e:
             return _error("INVALID_COOKIES", public_error_message(e), 400)
         workdir = tempfile.mkdtemp(prefix='ks-media-')
+        notes = YtdlpNotes()
         try:
             check_url(url)
-            meta = download_media(url, workdir, nur_audio=nur_audio_raw, cookies=cookies)
+            meta = download_media(url, workdir, nur_audio=nur_audio_raw, cookies=cookies, notes=notes)
             with open(meta["path"], 'rb') as fh:
                 data = fh.read()
         except yt_dlp.utils.DownloadError as e:  # type: ignore[attr-defined]
-            logger.warning("yt-dlp konnte nicht laden", url=url, error=str(e))
-            return _error("MEDIA_NOT_DOWNLOADABLE", f"Medium nicht ladbar: {public_error_message(e, expected=True)}", 422)
+            return _ytdlp_error("MEDIA_NOT_DOWNLOADABLE", "Medium nicht ladbar", e, url, cookies is not None, notes, "yt-dlp konnte nicht laden")
         except SsrfBlocked as e:
             logger.warning("Adresse abgelehnt (SSRF-Schutz)", url=url)
             return _error(SSRF_BLOCKED, public_error_message(e), 400)

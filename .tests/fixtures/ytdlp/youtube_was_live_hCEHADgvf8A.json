@@ -1,0 +1,86 @@
+{
+  "id": "hCEHADgvf8A",
+  "title": "Beyond the Numbers: Maximizing Climate Finance Outcomes",
+  "description": "Asian Development Bank (ADB), Climate Bonds Initiative (CBI), Global Ethical Finance Initiative Limited (GEFI): Climate finance discussions often focus on how much finance is provided but achieving impact depends on how and where it is used. This session explores how financing instruments like Islamic finance and policy support can best respond to country needs, including unlocking investments for resilience.\nSpeakers: Government Representatives (including LDCs/SIDS), MDB/IFI Representative, Technical Experts GEFI and CBI, CSO Representative, and UNFCCC SCF Representative",
+  "duration": 5120,
+  "upload_date": "20261110",
+  "timestamp": 1794280685,
+  "release_timestamp": 1794232052,
+  "release_date": "20261109",
+  "uploader": "UN Climate Change - Events",
+  "uploader_id": "@UNClimateChangeEvents",
+  "uploader_url": "https://www.youtube.com/@UNClimateChangeEvents",
+  "channel": "UN Climate Change - Events",
+  "channel_id": "UCJlvsGJAR8NsiyLzuBf_cQg",
+  "channel_url": "https://www.youtube.com/channel/UCJlvsGJAR8NsiyLzuBf_cQg",
+  "live_status": "was_live",
+  "was_live": true,
+  "is_live": false,
+  "availability": "public",
+  "age_limit": 0,
+  "chapters": [
+    {
+      "start_time": 0,
+      "title": "Opening remarks",
+      "end_time": 312
+    },
+    {
+      "start_time": 312,
+      "title": "Policy and enabling factors",
+      "end_time": 2595
+    },
+    {
+      "start_time": 2595,
+      "title": "Innovative financial tools",
+      "end_time": 4975
+    },
+    {
+      "start_time": 4975,
+      "title": "Closing remarks",
+      "end_time": 5120
+    }
+  ],
+  "tags": [],
+  "categories": [
+    "Science & Technology"
+  ],
+  "thumbnail": "https://i.ytimg.com/vi/hCEHADgvf8A/maxresdefault.jpg",
+  "webpage_url": "https://www.youtube.com/watch?v=hCEHADgvf8A",
+  "original_url": "https://www.youtube.com/watch?v=hCEHADgvf8A",
+  "extractor": "youtube",
+  "extractor_key": "Youtube",
+  "ext": "m4a",
+  "protocol": "https",
+  "vcodec": "none",
+  "acodec": "mp4a.40.2",
+  "format_id": "140-20",
+  "format_note": "English (US) original (default), medium",
+  "abr": 129.472,
+  "asr": 44100,
+  "audio_channels": 2,
+  "language": "en-US",
+  "thumbnails": [
+    {
+      "url": "https://i.ytimg.com/vi/hCEHADgvf8A/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCLsw2JpS7yeJy1Bjk8XimRWbVnOw",
+      "width": 168,
+      "height": 94
+    },
+    {
+      "url": "https://i.ytimg.com/vi/hCEHADgvf8A/hq720.jpg?v=6aeadc2e",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "url": "https://i.ytimg.com/vi/hCEHADgvf8A/maxresdefault.jpg",
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "url": "https://rr1---sn-fixture.googlevideo.com/videoplayback?id=hCEHADgvf8A&itag=140",
+  "http_headers": {
+    "User-Agent": "fixture",
+    "Accept-Language": "en-us,en;q=0.5"
+  },
+  "subtitles_sprachen": [],
+  "automatic_captions_anzahl": 177
+}
