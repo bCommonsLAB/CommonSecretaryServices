@@ -47,7 +47,36 @@ Werkzeug: [uv](https://docs.astral.sh/uv/). Befehle aus dem Projektverzeichnis.
 
 YouTube ändert seine Schnittstellen häufig, yt-dlp muss deshalb öfter nachgezogen werden als andere Pakete.
 Die Version in `requirements.txt` (`yt-dlp[default]==…`) ändern und die Schritte 2 bis 5 ausführen. Die
-Untergrenze prüft `.tests/test_ytdlp_version.py`.
+Untergrenze prüft `.tests/test_ytdlp_version.py`; sie wird mit angehoben.
+
+Ein veraltetes yt-dlp zeigt sich an Fehlern, die nach Anmeldung klingen, aber keine sind. Beispiel vom
+25.11.2026: Mit 2026.7.4 antwortete YouTube auf jeden angemeldeten Abruf mit „The page needs to be reloaded“,
+egal wie frisch die Cookies waren (yt-dlp#17389). Die Medien-Routen nennen diesen Fall in
+`error.details.grund` als `YTDLP_VERALTET`. Vor einer Suche bei den Cookies deshalb zuerst die neueste
+Version prüfen: `pip index versions yt-dlp`.
+
+## JS-Laufzeit für yt-dlp (Deno)
+
+yt-dlp löst die JS-Challenges von YouTube mit einer JS-Laufzeit und dem Paket `yt-dlp-ejs` (kommt über
+`yt-dlp[default]`). Ohne Laufzeit gibt es für angemeldete Abrufe keine Formate („Requested format is not
+available“, Grund `YOUTUBE_KEINE_FORMATE`).
+
+- Im Image liegt Deno unter `/usr/local/bin/deno`. Das `Dockerfile` kopiert die Datei aus dem offiziellen
+  Image `denoland/deno:bin-<Version>`, per Digest gepinnt. `RUN deno --version` bricht den Build ab, wenn die
+  Datei nicht läuft.
+- Lokal reicht Node ab v22 im `PATH`. Beide Laufzeiten sind in `src/processors/ytdlp_youtube_opts.py`
+  freigeschaltet; yt-dlp nimmt die vorhandene.
+- Mindestversionen stehen in yt-dlp unter `yt_dlp/utils/_jsruntime.py` (Stand 2026.11.23: Deno 2.3.0,
+  Node 22). Das Debian-Paket `nodejs` des Basisimages ist dafür zu alt.
+
+Deno anheben:
+
+```bash
+docker buildx imagetools inspect denoland/deno:bin-<Version>
+```
+
+Version und den Wert hinter `Digest:` in der `COPY --from=`-Zeile eintragen, Datum im Kommentar anpassen.
+`.tests/test_ytdlp_js_runtime.py` prüft, dass die Zeile vorhanden, gepinnt und neu genug ist.
 
 ## Basisimage anheben
 

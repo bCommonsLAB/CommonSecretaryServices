@@ -4,8 +4,9 @@ zu parsen.
 
 Hintergrund: Mit 2024.3.10 scheitert die Extraktion an
 "Failed to extract any player response" bzw. HTTP 400 auf den
-alten iOS-/Android-Clients. Die Untergrenze entspricht dem Pin
-in requirements.txt.
+alten iOS-/Android-Clients. Mit 2026.7.4 scheitern angemeldete
+Abrufe an "The page needs to be reloaded" (Client tv_downgraded,
+yt-dlp#17389). Die Untergrenze entspricht dem Pin in requirements.txt.
 
 Ausfuehren (aus dem Projektroot, in der venv):
     venv\\Scripts\\activate; $env:PYTHONPATH = "."; python -m pytest .tests/test_ytdlp_version.py -q
@@ -44,11 +45,11 @@ def _installed_ytdlp_version() -> str:
 
 
 def test_ytdlp_version_meets_extractor_floor() -> None:
-    """Installierte yt-dlp-Version muss mindestens 2026.7.4 sein."""
+    """Installierte yt-dlp-Version muss mindestens 2026.11.23 sein."""
     installed: str = _installed_ytdlp_version()
-    assert _parse_ytdlp_version(installed) >= (2026, 7, 4), (
+    assert _parse_ytdlp_version(installed) >= (2026, 11, 23), (
         f"yt-dlp {installed} ist zu alt fuer aktuelle YouTube-Player-APIs. "
-        "Bitte auf >= 2026.7.4 aktualisieren."
+        "Bitte auf >= 2026.11.23 aktualisieren (pip install --require-hashes -r requirements.lock)."
     )
 
 
@@ -56,3 +57,4 @@ def test_parse_ytdlp_version_handles_dev_suffix() -> None:
     """Datumsversionen mit Dev-Suffix muessen vergleichbar bleiben."""
     assert _parse_ytdlp_version("2026.7.4.dev0") == (2026, 7, 4, 0)
     assert _parse_ytdlp_version("2024.3.10") < (2026, 7, 4)
+    assert _parse_ytdlp_version("2026.7.4") < (2026, 11, 23)

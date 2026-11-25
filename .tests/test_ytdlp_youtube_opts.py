@@ -20,12 +20,12 @@ from src.processors.ytdlp_youtube_opts import (
 )
 
 
-def test_default_opts_enable_node_runtime(monkeypatch: Any) -> None:
-    """Ohne Cookie-Env bleibt die Node-Runtime aktiv."""
+def test_default_opts_enable_js_runtimes(monkeypatch: Any) -> None:
+    """Ohne Cookie-Env bleiben Deno (Image) und Node (lokal) freigeschaltet."""
     monkeypatch.delenv("YTDLP_COOKIES_FROM_BROWSER", raising=False)
     monkeypatch.delenv("YTDLP_YOUTUBE_COOKIES_FILE", raising=False)
     opts = build_youtube_ytdlp_extra_opts()
-    assert opts["js_runtimes"] == {"node": {}}
+    assert opts["js_runtimes"] == {"deno": {}, "node": {}}
     assert "cookiefile" not in opts
     assert "cookiesfrombrowser" not in opts
 
@@ -72,7 +72,7 @@ def test_apply_merges_into_existing_opts(monkeypatch: Any) -> None:
     apply_youtube_ytdlp_opts(base)
     assert base["quiet"] is True
     assert base["cookiesfrombrowser"] == ("edge",)
-    assert base["js_runtimes"] == {"node": {}}
+    assert base["js_runtimes"] == {"deno": {}, "node": {}}
 
 
 def test_cookiesfrombrowser_is_tuple_not_string(monkeypatch: Any) -> None:
