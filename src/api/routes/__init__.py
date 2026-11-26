@@ -148,6 +148,7 @@ from .realtime_routes import realtime_ns
 from .booklet_routes import booklet_ns
 from .transcript_routes import transcript_ns
 from .media_routes import media_ns
+from . import media_subtitle_routes  # noqa: F401  haengt POST /media/subtitles an media_ns
 
 # Registriere alle Namespaces bei der API
 api.add_namespace(audio_ns, path='/audio')  # type: ignore

@@ -1,0 +1,8 @@
+1
+00:00:00,500 --> 00:00:04,000
+Guten Morgen und willkommen.
+
+2
+00:00:04,200 --> 00:00:09,000
+Heute geht es um <i>Klimafinanzierung</i>
+und Anpassung.
