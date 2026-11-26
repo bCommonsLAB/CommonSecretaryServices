@@ -81,6 +81,10 @@
     "User-Agent": "fixture",
     "Accept-Language": "en-us,en;q=0.5"
   },
+  "filesize": 82863301,
+  "downloader_options": {
+    "http_chunk_size": 10485760
+  },
   "subtitles_sprachen": [],
   "automatic_captions_anzahl": 177
 }

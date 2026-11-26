@@ -486,6 +486,32 @@ def test_resolve_aufgezeichnete_antwort_frueherer_livestream() -> None:
     assert meta["webpage_url"] == "https://www.youtube.com/watch?v=hCEHADgvf8A"
     assert meta["thumbnail"].startswith("https://i.ytimg.com/")
     assert [c["title"] for c in meta["chapters"]][0] == "Opening remarks"
+    # YouTube drosselt einen Abruf am Stueck; yt-dlp nennt die Groesse der Teilbereiche.
+    assert data["filesize"] == 82863301
+    assert data["http_chunk_size"] == 10 * 1024 * 1024
+
+
+def test_resolve_ohne_drosselung_kein_http_chunk_size() -> None:
+    """Gewoehnliche Audio-Dateien (Podcast) nennen keine Teilbereiche und duerfen am Stueck geladen werden."""
+    FakeYoutubeDL.info = _video_info()
+    data = media_routes.resolve_media_url("https://example.org/podcast")
+    assert data["http_chunk_size"] is None
+    assert data["filesize"] is None
+
+
+@pytest.mark.parametrize("info, groesse, teilbereich", [
+    ({"filesize": 1000, "downloader_options": {"http_chunk_size": 10485760}}, 1000, 10485760),
+    ({"filesize": None, "filesize_approx": 2000.7}, 2000, None),
+    ({"filesize": 0, "downloader_options": {"http_chunk_size": 0}}, None, None),
+    ({"filesize": "viel", "downloader_options": {"http_chunk_size": "10M"}}, None, None),
+    ({"filesize": True, "downloader_options": "kaputt"}, None, None),
+    ({"downloader_options": {}}, None, None),
+])
+def test_resolve_groesse_und_teilbereich_nur_als_positive_zahl(info: Dict[str, Any], groesse: Optional[int], teilbereich: Optional[int]) -> None:
+    FakeYoutubeDL.info = _video_info(**info)
+    data = media_routes.resolve_media_url("https://example.org/v")
+    assert data["filesize"] == groesse
+    assert data["http_chunk_size"] == teilbereich
 
 
 class FailingYoutubeDL(FakeYoutubeDL):
