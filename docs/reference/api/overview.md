@@ -73,8 +73,9 @@ The complete interactive API documentation is available via **Swagger UI** at:
 | POST | `/api/media/resolve` | Resolve a page or player URL to the direct media URL, with yt-dlp metadata (description, date, channel, chapters, thumbnail) |
 | POST | `/api/media/download` | Download the medium via yt-dlp (HLS/DASH through ffmpeg), audio track only by default |
 | POST | `/api/media/playlist` | Flat list of a playlist's entries (YouTube, Vimeo, PeerTube); private or deleted entries are kept with a reason |
+| POST | `/api/media/subtitles` | Ready-made subtitles of a video page as a transcript with timestamps, without downloading the medium; hand-made track first, else the automatic track in the original language |
 
-All three accept an optional `cookies` field (Netscape cookies.txt content) for a per-call login; it is written to a temporary 0600 file, passed to yt-dlp, deleted afterwards, never logged, and takes precedence over `YTDLP_COOKIES_FILE`.
+All four accept an optional `cookies` field (Netscape cookies.txt content) for a per-call login; it is written to a temporary 0600 file, passed to yt-dlp, deleted afterwards, never logged, and takes precedence over `YTDLP_COOKIES_FILE`.
 
 **See**: [Media Endpoints](endpoints/media.md) for detailed documentation.
 

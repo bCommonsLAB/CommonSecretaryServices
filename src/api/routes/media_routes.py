@@ -26,6 +26,9 @@ Medien einer Webseite oder Player-Adresse per yt-dlp fuer KnowledgeScout
   Video, kein Download. Private oder geloeschte Eintraege bleiben in der Liste
   und tragen einen Grund.
 
+Ein vierter Weg liegt in media_subtitle_routes.py: /subtitles liefert die fertigen Untertitel einer
+Videoseite als Transkript, ohne das Medium zu laden.
+
 `noplaylist` bleibt fuer /resolve und /download gesetzt: ein Video-Link mit
 `&list=` liefert dort nur das eine Video, nie die ganze Playlist.
 
