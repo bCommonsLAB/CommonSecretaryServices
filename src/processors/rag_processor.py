@@ -248,10 +248,13 @@ class RAGProcessor(BaseProcessor[RAGEmbeddingResult]):
                     temp_text.append(word)
                     temp_length += word_length
                 
-                # Rest als neuen Chunk
+                # Rest als Beginn des naechsten Chunks: EIN Absatz aus den uebrigen Woertern.
+                # Die Wortliste selbst waere spaeter mit Leerzeilen verbunden worden (ein Wort je
+                # Absatz im Index, Befund 26.11.2026) und haette die Laenge zu klein gezaehlt.
                 if temp_text:
-                    current_chunk_text = temp_text
-                    current_chunk_length = temp_length
+                    rest = ' '.join(temp_text)
+                    current_chunk_text = [rest]
+                    current_chunk_length = len(rest)
                 continue
             
             # Prüfe ob Absatz in aktuellen Chunk passt
