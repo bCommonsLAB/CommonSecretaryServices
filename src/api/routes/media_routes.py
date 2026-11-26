@@ -7,7 +7,11 @@ Medien einer Webseite oder Player-Adresse per yt-dlp fuer KnowledgeScout
 
 - /resolve loest die Adresse zur direkten Medienadresse auf, laedt nichts.
   KnowledgeScout laedt die Datei selbst, wenn das Protokoll http(s) ist
-  (Rai-News-Podcasts, YouTube-Audio m4a). Dazu kommt ein Block `metadata`
+  (Rai-News-Podcasts). Ist `http_chunk_size` gesetzt (YouTube), drosselt die
+  Quelle einen Abruf am Stueck: die Adresse dann nur in Teilbereichen dieser
+  Groesse laden (Range) oder gleich /download nehmen, das yt-dlp so laden
+  laesst. Ein Abruf am Stueck braucht fuer 85 Minuten Ton rund 45 Minuten,
+  /download unter einer. Dazu kommt ein Block `metadata`
   mit allem, was yt-dlp ueber die Seite weiss (Beschreibung, Datum, Kanal,
   Kapitel, Tags, Vorschaubild) — fuer Videoseiten die bessere Quelle als das
   Server-HTML.
@@ -47,7 +51,8 @@ YOUTUBE_KEINE_FORMATE (dazu `hinweis` und `anmeldung_mitgegeben`). Andere Fehler
 Eingabe (JSON): { "url": "https://...", "cookies": "# Netscape HTTP Cookie File\n..." (optional) };
   /download zusaetzlich optional "nur_audio": bool (Vorgabe true)
 Ausgabe /resolve: { "status": "success", "data": { "extractor", "title", "duration", "ext",
-  "url", "protocol", "http_headers", "ist_audio", "metadata": { "id", "description",
+  "url", "protocol", "http_headers", "ist_audio", "filesize" (Bytes oder null),
+  "http_chunk_size" (Bytes oder null: Adresse nur in Teilbereichen laden), "metadata": { "id", "description",
   "upload_date" (ISO JJJJ-MM-TT oder null), "uploader", "channel", "chapters", "tags",
   "thumbnail", "webpage_url" } } }
 Ausgabe /download: Dateibytes; Header X-Media-Ext, X-Media-Title (URL-kodiert),
@@ -321,8 +326,30 @@ def resolve_media_url(url: str, cookies: Optional[str] = None, notes: Optional[Y
         "protocol": info.get('protocol'),
         "http_headers": info.get('http_headers') or {},
         "ist_audio": str(info.get('vcodec') or 'none') == 'none',
+        "filesize": _positive_int(info.get('filesize')) or _positive_int(info.get('filesize_approx')),
+        "http_chunk_size": _http_chunk_size(info),
         "metadata": _metadata_block(info),
     }
+
+
+def _positive_int(raw: Any) -> Optional[int]:
+    """Ganze Zahl groesser null, sonst None (bool zaehlt nicht als Zahl)."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw <= 0:
+        return None
+    return int(raw)
+
+
+def _http_chunk_size(info: Dict[str, Any]) -> Optional[int]:
+    """Groesse der Teilbereiche, in denen yt-dlp selbst die Adresse laden wuerde; None, wenn am Stueck.
+
+    yt-dlp setzt den Wert fuer Quellen, die einen Abruf am Stueck drosseln. YouTube liefert die Tonspur
+    dann nur mit etwa doppelter Abspielgeschwindigkeit: gemessen am 25.11.2026 rund 30 KiB/s am Stueck
+    gegen 600 bis 3000 KiB/s in Teilbereichen von 10 MiB.
+    """
+    options = info.get('downloader_options')
+    if not isinstance(options, dict):
+        return None
+    return _positive_int(options.get('http_chunk_size'))
 
 
 # Flache Auflösung: yt-dlp holt nur die Liste, nicht die Seite jedes Videos.
